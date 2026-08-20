@@ -245,9 +245,12 @@ manifests are already committed here, and the repo is public, so Flux needs no
 credentials at all — which matters given how tangled the GitHub identities on
 these machines are. Fewer moving parts, nothing to rotate.
 
-Only `source-controller` and `kustomize-controller` are installed.
-`helm-controller` and `notification-controller` are omitted until something needs
-them.
+`source-controller`, `kustomize-controller`, and `helm-controller` are
+installed. `helm-controller` arrived with kube-prometheus-stack: a chart that
+size is worth consuming as a `HelmRelease` rather than vendoring its rendered
+output into `cluster/apps/`. `notification-controller` is still omitted — it
+exists to route alerts outward, and there is nowhere to route them yet, which is
+the same reason Alertmanager is disabled in `cluster/apps/monitoring.yaml`.
 
 ### Adding an app
 
