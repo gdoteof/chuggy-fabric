@@ -1,0 +1,114 @@
+# Prometheus + Grafana, via kube-prometheus-stack.
+#
+# This is what made helm-controller necessary; see modules/flux.nix. There is no
+# sensible plain-manifest equivalent of this chart -- it is the operator, its
+# CRDs, node-exporter, kube-state-metrics, and a few dozen dashboards.
+#
+# The Grafana admin credential is NOT here. It lives in a Secret created out of
+# band, the same rule as the cloudflared tunnel credential:
+#
+#   kubectl create secret generic grafana-admin -n monitoring \
+#     --from-literal=admin-user=admin --from-literal=admin-password=<pw>
+#
+# Without `admin.existingSecret` the chart falls back to the well-known default
+# password `prom-operator`, which on a publicly reachable Grafana is the same as
+# no password at all.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: prometheus-community
+  namespace: monitoring
+spec:
+  interval: 24h
+  url: https://prometheus-community.github.io/helm-charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kube-prometheus-stack
+  namespace: monitoring
+spec:
+  interval: 1h
+  chart:
+    spec:
+      chart: kube-prometheus-stack
+      # Pinned, like every other version in this repo. Bump deliberately.
+      version: "88.5.0"
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus-community
+        namespace: monitoring
+  install:
+    crds: Create
+    timeout: 10m
+  upgrade:
+    crds: CreateReplace
+  values:
+    # k3s runs the control plane as one process, so these have no separately
+    # scrapeable endpoint. Left enabled they become targets that are permanently
+    # down and alerts that never clear -- which trains you to ignore the alerts.
+    kubeControllerManager: { enabled: false }
+    kubeScheduler: { enabled: false }
+    kubeEtcd: { enabled: false }
+    kubeProxy: { enabled: false }
+
+    # Rules still evaluate and show as firing in the UI; there is simply nowhere
+    # to route them yet. notification-controller is omitted for the same reason.
+    # Turn this on when there is an actual destination for a page.
+    alertmanager:
+      enabled: false
+
+    prometheus:
+      prometheusSpec:
+        retention: 15d
+        # local-path PVCs are directories on the node that created them, so this
+        # pod is pinned here regardless. Saying so explicitly is the habit that
+        # keeps stateful work off spot agents later.
+        nodeSelector:
+          chuggy.dev/durable: "true"
+        resources:
+          requests: { cpu: 100m, memory: 512Mi }
+          limits: { memory: 3Gi }
+        storageSpec:
+          volumeClaimTemplate:
+            spec:
+              storageClassName: local-path
+              accessModes: [ReadWriteOnce]
+              resources:
+                requests: { storage: 20Gi }
+
+    grafana:
+      admin:
+        existingSecret: grafana-admin
+        userKey: admin-user
+        passwordKey: admin-password
+      nodeSelector:
+        chuggy.dev/durable: "true"
+      persistence:
+        enabled: true
+        storageClassName: local-path
+        size: 5Gi
+      resources:
+        requests: { cpu: 50m, memory: 128Mi }
+        limits: { memory: 512Mi }
+      grafana.ini:
+        server:
+          # Without this, Grafana builds redirect and share links from the
+          # in-cluster address and they break the moment you follow one.
+          root_url: https://grafana.vteng.io
+        users:
+          allow_sign_up: false
+        auth.anonymous:
+          enabled: false
+      ingress:
+        enabled: true
+        ingressClassName: traefik
+        hosts: [grafana.vteng.io]
+        path: /
+        pathType: Prefix
