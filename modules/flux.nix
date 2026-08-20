@@ -17,8 +17,14 @@
 # are already in this repo, and the repo is public, so Flux needs no credentials
 # at all. Fewer moving parts and nothing to rotate.
 #
-# Only source-controller and kustomize-controller are installed. helm-controller
-# and notification-controller are omitted until something needs them.
+# source-controller, kustomize-controller and helm-controller are installed.
+# helm-controller was added when the monitoring stack needed it -- kube-prometheus-
+# stack is a Helm chart and there is no sensible plain-manifest equivalent.
+# notification-controller is still omitted; nothing alerts outward yet.
+#
+# Note which layer this file belongs to. cluster/flux-system is applied by k3s
+# auto-deploy, not by Flux, so changing the controller set is a nixos-rebuild --
+# not something Flux picks up from git on its own.
 
 let
   cfg = config.chuggy.flux;
