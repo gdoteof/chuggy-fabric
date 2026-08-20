@@ -27,6 +27,7 @@
             ./modules/wireguard.nix
             ./modules/k3s-server.nix
             ./modules/cloudflare-tunnel.nix
+            ./modules/flux.nix
             (hostPath + "/hardware-configuration.nix")
             (hostPath + "/default.nix")
           ] ++ extraModules;

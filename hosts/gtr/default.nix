@@ -55,4 +55,10 @@
     tunnelId = "84115dde-a1d0-4e8a-832a-e4da2cf98180";  # tunnel "gtr"
     hostnames = [ "whoami.vteng.io" ];
   };
+
+  # -------------------------------------------------------------- gitops ----
+
+  # k3s applies Flux at startup; Flux reconciles cluster/apps from this repo.
+  # Nothing in the cluster is applied by hand.
+  chuggy.flux.enable = true;
 }
