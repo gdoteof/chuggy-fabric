@@ -57,9 +57,9 @@
   services.printing.enable = false;
   hardware.bluetooth.enable = false;
   services.pipewire.enable = false;
-
-  # Headless: no framebuffer console fonts, no scanner, no audio stack.
-  sound.enable = false;
+  # NOTE: `sound.enable` was removed in NixOS 24.11 -- disabling PipeWire and
+  # PulseAudio is the whole of it now.
+  hardware.pulseaudio.enable = false;
 
   # Trim the docs the desktop pulled in. Man pages stay -- they cost little and
   # you will want them at 2am.

@@ -11,6 +11,9 @@
     # config used. Same upstream repo, pinned in flake.lock instead of depending on
     # a directory that is scheduled for deletion.
     nixos-hardware.url = "github:NixOS/nixos-hardware";
+    # Without this, nixos-hardware drags in its own (unstable) nixpkgs purely to
+    # satisfy its checks -- a second full tarball fetched for nothing.
+    nixos-hardware.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs = { self, nixpkgs, nixos-hardware, ... }: {
