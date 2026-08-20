@@ -81,6 +81,16 @@
     hostnames = [ "whoami.vteng.io" "grafana.vteng.io" ];
   };
 
+  # ----------------------------------------------------------------- ddns ----
+
+  # A plain A record holding this box's real public address, so mesh peers have
+  # a name that keeps resolving after the ISP rotates it. Unproxied by
+  # necessity -- see modules/ddns.nix for why the tunnel cannot do this job.
+  chuggy.ddns = {
+    enable = true;
+    domains = [ "gtr-ip.vteng.io" ];
+  };
+
   # -------------------------------------------------------------- gitops ----
 
   # k3s applies Flux at startup; Flux reconciles cluster/apps from this repo.
