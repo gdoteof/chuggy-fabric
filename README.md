@@ -58,7 +58,21 @@ scratch, not a checkout.
 
 **Landing** — commit, push, and build the commit, not a copy of it:
 
-    sudo nixos-rebuild switch --flake github:gdoteof/chuggy-fabric#gtr
+    sudo nixos-rebuild switch \
+      --flake github:gdoteof/chuggy-fabric/<full-commit-sha>#gtr
+
+**Pin the full SHA. Do not use the bare `github:owner/repo` form.** That form
+resolves the branch head through a cache with a one-hour TTL (`tarball-ttl`), so
+pushing and immediately rebuilding quietly builds the *previous* revision. There
+is no error: the build succeeds, activation succeeds, and your change is simply
+not there. Adding the first mesh peer hit exactly this — `wg show` listed no
+peer, and grepping the new generation found no trace of the key.
+
+The tell is in the output. When Nix really fetches it prints
+`unpacking 'github:...'`; when it serves the cache it prints nothing and goes
+straight to `building the system configuration`. A pinned SHA sidesteps the
+question entirely, and leaves shell history that records exactly what was
+deployed — which is the point of building from a commit at all.
 
 The running system then corresponds to a revision you can name, instead of to
 whatever happened to be in someone's working tree at the time. Flux already works
