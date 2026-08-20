@@ -12,8 +12,8 @@
   boot.loader.systemd-boot.configurationLimit = 10;
 
   # ------------------------------------------------------------- identity ----
+  # hostName is set per-host in hosts/<name>/default.nix
 
-  networking.hostName = "nixos";
   time.timeZone = "America/New_York";
   i18n.defaultLocale = "en_US.UTF-8";
 
