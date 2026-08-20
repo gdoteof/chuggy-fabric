@@ -23,8 +23,10 @@ only by their own directory.
     modules/k3s-server.nix          the cluster role, with chuggy.k3s.* options
 
     modules/cloudflare-tunnel.nix   public ingress, with chuggy.tunnel.* options
+    modules/flux.nix                bootstraps Flux from the machine layer
 
-    k8s/whoami.yaml                 trivial workload proving the ingress path
+    cluster/flux-system/            Flux install + what repo it follows
+    cluster/apps/                   everything running on the cluster
 
     hosts/gtr/default.nix           geoff's Beelink GTR: hostname, radios, mesh, k3s, tunnel
     hosts/gtr/hardware-configuration.nix
@@ -144,6 +146,82 @@ never a value.
 Note the ordering trap: the `cloudflared` user does not exist until the first
 `nixos-rebuild switch` that enables the service, so the file cannot be chowned to
 it beforehand. Switch, chown, restart.
+
+## GitOps
+
+Cluster state is reconciled by **Flux**, not applied by hand. `cluster/apps/` is
+the desired state; if the cluster drifts from it, Flux corrects it.
+
+### Three layers, three change rates
+
+| Layer | What | Changes | Applied by |
+|---|---|---|---|
+| Machine | OS, k3s itself, cloudflared, WireGuard | rarely | `nixos-rebuild` |
+| Cluster | apps, ingresses, addons | constantly | Flux, continuously |
+| App | chuggy's own manifests and image tags | per commit | Flux, from its own repo |
+
+Machine and cluster share this repo because for a single-node cluster they are
+one unit of reproducibility: clone, `nixos-rebuild switch`, and the box *and* its
+workloads exist. `hosts/<name>/` and `cluster/` sit side by side for the same
+reason. chuggy's own manifests belong in the chuggy repo when it has them, added
+as a second Flux `GitRepository` — no need to decide that now.
+
+What does *not* belong in the machine layer is app config. NixOS could write app
+manifests into k3s's auto-deploy directory and they would be declarative, but
+every app change would become an OS rebuild on every box, and nothing would
+correct drift.
+
+### Bootstrap, and why it is this short
+
+`services.k3s.manifests` links Flux's manifests into
+`/var/lib/rancher/k3s/server/manifests`, which k3s applies at startup:
+
+    nixos-rebuild switch -> k3s starts -> k3s applies Flux
+      -> Flux reads this repo -> apps exist
+
+Nobody runs `kubectl`. A fresh box, or the second dev's box, reaches a populated
+cluster from one command.
+
+This deliberately is **not** `flux bootstrap`. That command wants a GitHub token
+with write scope so it can commit manifests and create a deploy key. Those
+manifests are already committed here, and the repo is public, so Flux needs no
+credentials at all — which matters given how tangled the GitHub identities on
+these machines are. Fewer moving parts, nothing to rotate.
+
+Only `source-controller` and `kustomize-controller` are installed.
+`helm-controller` and `notification-controller` are omitted until something needs
+them.
+
+### Adding an app
+
+Drop a manifest in `cluster/apps/`, commit, push. Flux picks it up within 5
+minutes, or immediately with `flux reconcile kustomization apps`.
+
+**State the namespace on every resource.** Flux rejects namespaced resources that
+declare none when the Kustomization sets no `targetNamespace` — the error is
+`namespace not specified: the server could not find the requested resource`,
+which does not obviously mean what it says.
+
+If the app needs to be public it also needs a hostname in
+`chuggy.tunnel.hostnames` and a DNS route, which is a NixOS rebuild.
+
+`prune: true` is set, so deleting a file deletes the resource. Without it,
+removals in git are silently ignored.
+
+### Verified
+
+- Flux installed itself via k3s auto-deploy on `nixos-rebuild switch`.
+- `whoami` was deleted by hand first, then **created by Flux** from git — it
+  carries `kustomize.toolkit.fluxcd.io/name: apps`, which a hand-applied resource
+  does not.
+- Drift test: `kubectl delete deploy whoami` and Flux restored it on the next
+  reconcile. `https://whoami.vteng.io` returned to HTTP 200.
+
+### Running flux by hand
+
+`flux` needs a kubeconfig, and `sudo` drops the `KUBECONFIG` environment
+variable, so `sudo flux ...` silently talks to `localhost:8080` and fails. Run it
+as your own user — the kubeconfig is world-readable.
 
 ## Scaling out to spot workers
 
