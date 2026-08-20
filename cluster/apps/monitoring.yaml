@@ -94,16 +94,22 @@ spec:
         enabled: true
         storageClassName: local-path
         size: 5Gi
-      env:
-        # Go sizes its heap against the machine's memory, not the cgroup's, so
-        # Grafana grew toward the hard limit and the kernel killed it
-        # mid-request -- an OOMKill roughly every 18 minutes at the old 512Mi.
-        # A soft ceiling below the limit spends CPU on GC instead, and leaves
-        # the remainder as headroom for the spike that would land past it.
-        GOMEMLIMIT: "900MiB"
       resources:
-        # 512Mi was below the working set of this chart's two dozen dashboards,
-        # so the sawtooth was the limit, not a leak.
+        # 512Mi was below what this chart's two dozen dashboards need, and the
+        # sawtooth was the ceiling rather than a leak.
+        #
+        # DO NOT ADD GOMEMLIMIT HERE. The chart already emits it, wired to
+        # whatever limit this block sets, and a second one from `env` renders a
+        # duplicate that the API server rejects on upgrade -- one entry carrying
+        # both `value` and `valueFrom`. Raising the limit raises Go's backstop
+        # with it, which is the whole of the control available.
+        #
+        # That backstop was never the problem. Go paces the heap against the
+        # live set rather than growing to fill the ceiling, so at 512Mi it was
+        # already collecting hard with the heap pressed against the limit --
+        # leaving no room for what the Go runtime does not account for, which
+        # here is the page cache behind the mmap'd bleve search index. The
+        # cgroup went over on memory Go was never counting.
         requests: { cpu: 50m, memory: 256Mi }
         limits: { memory: 1Gi }
       grafana.ini:
