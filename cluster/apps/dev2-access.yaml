@@ -1,0 +1,92 @@
+# Cluster access for a second person, without a shell on the box.
+#
+# Two grants, deliberately different in shape:
+#
+#   view   cluster-wide -- see everything, change nothing. The built-in role
+#          carries pods/log and omits secrets, which is why it is the right
+#          first rung rather than `edit` everywhere.
+#   edit   in the `chuggy` namespace only -- where they may actually break
+#          things. It adds pods/exec and pods/portforward, and full read/write
+#          on secrets *in that namespace*. Scoped, but not nothing.
+#
+# Identity is a ServiceAccount, not an x509 client certificate. The API server
+# has no CRL support, so an issued client cert cannot be revoked short of
+# rotating the cluster CA -- whereas deleting this ServiceAccount invalidates
+# every token ever minted for it, immediately. That is the whole reason.
+#
+# Mint a credential (the API server caps duration at 365 days):
+#
+#   kubectl create token dev2 -n chuggy --duration=720h
+#
+# One consequence of reaching the cluster through GitOps: kustomize-controller
+# applies this directory as cluster-admin, so anyone who can merge to main can
+# grant themselves anything, this file included. Branch protection is the real
+# boundary here -- RBAC only constrains what they do with kubectl.
+---
+# The app's namespace, not a personal sandbox -- chuggy is what this cluster
+# exists to run. dev2 gets `edit` here; anything that must survive belongs on
+# the durable node, see the nodeSelector note in whoami.yaml.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: chuggy
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dev2
+  namespace: chuggy
+---
+# Read-only everywhere.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dev2-view
+subjects:
+  - kind: ServiceAccount
+    name: dev2
+    namespace: chuggy
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+---
+# `view` grants nodes only under metrics.k8s.io -- enough for `kubectl top`, not
+# for `kubectl get nodes`, which is among the first things anyone types when
+# debugging. Read-only and cluster-scoped, so it is a papercut fix, not a hole.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: node-reader
+rules:
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dev2-node-reader
+subjects:
+  - kind: ServiceAccount
+    name: dev2
+    namespace: chuggy
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: node-reader
+---
+# Read/write, the chuggy namespace only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dev2-edit
+  namespace: chuggy
+subjects:
+  - kind: ServiceAccount
+    name: dev2
+    namespace: chuggy
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: edit

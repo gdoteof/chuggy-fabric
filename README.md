@@ -347,12 +347,11 @@ Two things the router needs, and the second is easy to miss:
 
 ### What the roles carry
 
-`cluster/apps/dev2-access.yaml` binds `view` cluster-wide, `edit` in one
-namespace, and a two-rule `node-reader`. It is deliberately not committed yet —
-landing it in `cluster/apps/` *is* applying it, so it arrives with the peer it is
-for, not before.
+`cluster/apps/dev2-access.yaml` binds `view` cluster-wide, `edit` in the
+`chuggy` namespace, and a two-rule `node-reader`. Landing it in `cluster/apps/`
+*is* applying it — there is no separate apply step.
 
-| | `view`, everywhere | `edit`, their namespace |
+| | `view`, everywhere | `edit`, in `chuggy` |
 |---|---|---|
 | pod logs | yes | yes |
 | exec, port-forward | no | yes |
@@ -363,8 +362,9 @@ for, not before.
 `kubectl get nodes` is otherwise denied — a papercut, given it is the first thing
 anyone types.
 
-`edit` reading secrets in their namespace is the line to be deliberate about. It
-is what `edit` means; pick the namespace accordingly.
+`edit` reading secrets in `chuggy` is the line to be deliberate about. It is what
+`edit` means, so anything that must stay private to the cluster operator does not
+belong in that namespace.
 
 ### Setting it up
 
@@ -378,7 +378,7 @@ is what `edit` means; pick the namespace accordingly.
 4. Add them to `chuggy.wireguard.peers` with a `/32` from the human range, then
    `nixos-rebuild switch`.
 5. Push `cluster/apps/dev2-access.yaml`. Flux applies it within 5 minutes.
-6. `kubectl create token dev2 -n dev2 --duration=720h`. Send them that and the
+6. `kubectl create token dev2 -n chuggy --duration=720h`. Send them that and the
    cluster CA out of `/etc/rancher/k3s/k3s.yaml` — never the kubeconfig itself,
    which carries the `system:masters` client cert.
 
