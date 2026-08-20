@@ -122,12 +122,24 @@ Only HTTP, and only for hostnames in that list. The Kubernetes API is never a
 tunnel ingress rule. Verified from outside: `whoami.vteng.io` serves, `6443` and
 `22` both refuse.
 
+Routing 6443 through the tunnel was considered for remote `kubectl` and
+rejected. It works, and cloudflared cannot read the traffic — kubectl verifies
+the k3s certificate end to end — but the gate would then be a Cloudflare Access
+policy, putting a third party in the auth path. That is the same objection that
+removed Tailscale. Remote `kubectl` goes over the WireGuard mesh instead; see
+[Giving someone else access](#giving-someone-else-access).
+
 Be precise about *why* 6443 is safe, though: k3s binds it on `*:6443` and the
 NixOS firewall allows it, so it is reachable from anything on the house LAN and
 over the mesh — by design, that is how `kubectl` works from the workstation. It is
 not reachable from the internet because there is no port-forward. Protection is
 NAT, not the firewall. If a port-forward is ever added for WireGuard, forward
 **only** UDP 51820.
+
+Worth knowing what "reachable" would cost if that ever changed: an
+unauthenticated caller gets `401 Unauthorized`, and `system:anonymous` is granted
+nothing. Exposure would mean the control plane's authn surface faces the
+internet, not that anyone walks in.
 
 ### Deliberate deviation
 
@@ -223,6 +235,113 @@ removals in git are silently ignored.
 variable, so `sudo flux ...` silently talks to `localhost:8080` and fails. Run it
 as your own user — the kubeconfig is world-readable.
 
+## Giving someone else access
+
+Two separable questions, and conflating them is the trap: *what may they do*
+(authorization) and *how do they reach the API* (transport).
+
+### Deploying is a git question, not a cluster question
+
+Cluster state comes from `cluster/apps/`, so the way to let someone ship
+something is a pull request, not a kubeconfig. Flux applies it and the audit
+trail is the commit history.
+
+Notice the converse, because it is the part that bites: **kustomize-controller
+applies this directory as cluster-admin**, so anyone who can merge to `main` can
+grant themselves anything — including by editing `cluster/apps/dev2-access.yaml`.
+Branch protection is the real security boundary. RBAC only constrains what they
+can do with `kubectl`.
+
+That leaves debugging — logs, describe, exec, port-forward — as the only thing
+that genuinely needs API access.
+
+### Why not SSH, and why not a client certificate
+
+Handing over an SSH key grants everything, with no dial to turn:
+
+- `security.sudo.wheelNeedsPassword = false`, so `wheel` is root.
+- `/etc/rancher/k3s/k3s.yaml` is mode 0644, so even a user kept out of `wheel`
+  reads it.
+- That kubeconfig authenticates as `system:admin` in group `system:masters`,
+  which the API server special-cases *before* RBAC runs. It cannot be scoped and
+  it cannot be revoked without rotating the cluster CA.
+
+Note what this means for `--write-kubeconfig-mode=0644`: its justification is
+that geoff is the only human with a shell, which stays true as long as access is
+granted the way below. Give anyone a shell and that mode has to drop to 0600
+first.
+
+Kubernetes has no user database either — an identity is an x509 CN/O or a token.
+Client certs are the usual reflex and the wrong one for a person: **the API
+server has no CRL support**, so an issued cert stays valid until the cluster CA
+rotates. Deleting a ServiceAccount invalidates every token ever minted for it, at
+once. `kubectl create token` caps at 365 days here and re-issuing is cheap, so
+prefer a short duration.
+
+### Transport: the mesh, not the tunnel
+
+The API stays off the internet. A peer joins the WireGuard mesh and dials
+`10.100.0.1:6443`, which is already on the API certificate's SANs — that is what
+`chuggy.k3s.apiSans` was staged for.
+
+The tunnel was the tempting alternative, since it needs no router configuration.
+It was rejected: without a Cloudflare Access policy the route is 6443 on the
+public internet, and with one, a third party sits in the auth path. See
+[What is and is not exposed](#what-is-and-is-not-exposed).
+
+The mesh costs a **UDP 51820 port-forward and dynamic DNS**, which is item 1 of
+[Remaining](#remaining) — needed for spot agents regardless, so it is scheduled
+work being done early rather than new work.
+
+Two things the router needs, and the second is easy to miss:
+
+- Forward **UDP 51820 only** to the node. Not TCP, nothing else.
+- **Reserve the node's DHCP address first.** `192.168.0.114` is a lease, not a
+  static address. A forward pointing at an address the node can lose is a
+  failure that shows up weeks later as "the mesh stopped working."
+
+### What the roles carry
+
+`cluster/apps/dev2-access.yaml` binds `view` cluster-wide, `edit` in one
+namespace, and a two-rule `node-reader`. It is deliberately not committed yet —
+landing it in `cluster/apps/` *is* applying it, so it arrives with the peer it is
+for, not before.
+
+| | `view`, everywhere | `edit`, their namespace |
+|---|---|---|
+| pod logs | yes | yes |
+| exec, port-forward | no | yes |
+| secrets | no | **read and write** |
+| nodes | `kubectl top` only | — |
+
+`node-reader` exists because `view` grants nodes only under `metrics.k8s.io`, so
+`kubectl get nodes` is otherwise denied — a papercut, given it is the first thing
+anyone types.
+
+`edit` reading secrets in their namespace is the line to be deliberate about. It
+is what `edit` means; pick the namespace accordingly.
+
+### Setting it up
+
+1. **Turn `PasswordAuthentication` off, from the console.** Dropping
+   `trustedInterfaces` means a mesh peer reaches sshd where before only the LAN
+   did. A key is still required, so this is not a hole — but a password prompt
+   facing one more network is not worth keeping.
+2. Router: DHCP reservation for the node, then forward UDP 51820 to it.
+3. They run `wg genkey | tee private.key | wg pubkey` and send the **public** key
+   only.
+4. Add them to `chuggy.wireguard.peers` with a `/32` from the human range, then
+   `nixos-rebuild switch`.
+5. Push `cluster/apps/dev2-access.yaml`. Flux applies it within 5 minutes.
+6. `kubectl create token dev2 -n dev2 --duration=720h`. Send them that and the
+   cluster CA out of `/etc/rancher/k3s/k3s.yaml` — never the kubeconfig itself,
+   which carries the `system:masters` client cert.
+
+Their `wg0` points at the node's public endpoint with
+`AllowedIPs = 10.100.0.1/32`, and their kubeconfig at `https://10.100.0.1:6443`.
+Revoke by deleting the ServiceAccount, removing the peer, or both — the first
+kills the credential, the second kills the route.
+
 ## Scaling out to spot workers
 
 Not built. What is in place, what it costs, and what remains.
@@ -249,10 +368,16 @@ DNS, and nothing here will tell you when they break.
 
 ### In place
 
-Firewall opens 6443 (API), 8472/udp (flannel VXLAN) and 51820/udp (WireGuard), and
-trusts `wg0` outright so cluster traffic over the mesh is not filtered at the
-LAN-facing rules. `10.100.0.1` is already on the API certificate's SANs. The
-durable node is labelled.
+Firewall opens 6443 (API), 8472/udp (flannel VXLAN) and 51820/udp (WireGuard).
+Those are global rules, so they already cover the mesh — `wg0` is deliberately
+**not** a trusted interface. It was, on the theory that trusting it kept 6443 and
+8472 off the LAN-facing rules; it never did, since those ports are opened
+globally either way, and the trust meanwhile exposed every other listening port
+on the box to any peer. A peer now gets 22, 6443 and 8472/udp and nothing else.
+
+`10.100.0.1` is already on the API certificate's SANs, so a peer's kubectl
+verifies TLS without any per-client certificate work. The durable node is
+labelled.
 
 The private key is generated on the host at first activation and never leaves it.
 **No key material belongs in this repo** — peers carry public keys only, which are
