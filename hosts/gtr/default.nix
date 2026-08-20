@@ -78,7 +78,7 @@
   chuggy.tunnel = {
     enable = true;
     tunnelId = "84115dde-a1d0-4e8a-832a-e4da2cf98180";  # tunnel "gtr"
-    hostnames = [ "whoami.vteng.io" "grafana.vteng.io" ];
+    hostnames = [ "whoami.vteng.io" "grafana.vteng.io" "sirdocalot.vteng.io" ];
   };
 
   # ----------------------------------------------------------------- ddns ----

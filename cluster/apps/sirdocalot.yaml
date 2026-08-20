@@ -1,0 +1,155 @@
+# sirdocalot: structured briefs agents hand to operators, and the answers back.
+#
+# COPIED FROM THE APP REPO, WHICH IS NOT WHERE THIS SHOULD END UP. App manifests
+# belong with the app -- the split this README already argues for -- reached
+# through a second Flux GitRepository. That needs the app repo to have a remote
+# Flux can read, and it does not have one yet. When it does, this file is deleted
+# and replaced by the GitRepository + Kustomization in the app repo's
+# deploy/flux-source.yaml. Until then the source of truth is
+# ~/claude/sirdocalot/deploy/sirdocalot.yaml and this is a copy of it.
+#
+# ITS OWN DATABASE, ITS OWN SCHEMA, A SHARED SERVER. Reusing the Postgres instance
+# is a cost decision about a development cluster. It is not a decision to share a
+# database: sirdocalot owns `sirdocalot`, creates its own schema inside it, and
+# `public` is deliberately absent from its search_path, so an unqualified name
+# cannot resolve into anything of chuggy's. The coupling that remains is
+# availability -- if that instance is down, this is too.
+#
+# Role and database, created out of band:
+#
+#   kubectl exec -n chuggy statefulset/postgres -- \
+#     psql -U postgres -c "create role sirdocalot login password '<pw>'"
+#   kubectl exec -n chuggy statefulset/postgres -- \
+#     psql -U postgres -c "create database sirdocalot owner sirdocalot"
+#
+# The schema itself is created by the first migration, as its owner.
+#
+# Secrets are NOT here either. Same rule as the cloudflared and grafana
+# credentials:
+#
+#   kubectl create secret generic sirdocalot -n sirdocalot \
+#     --from-literal=agent-key=$(openssl rand -hex 24) \
+#     --from-literal=token-secret=$(openssl rand -hex 32) \
+#     --from-literal=database-url='postgres://sirdocalot:<pw>@postgres.chuggy.svc.cluster.local:5432/sirdocalot'
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sirdocalot
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sirdocalot
+  namespace: sirdocalot
+  labels: { app: sirdocalot }
+spec:
+  # One replica, and not only because this is a single node. A long poll holds a
+  # connection for minutes; rolling two replicas would drop those waits on the
+  # floor for no gain until there is a second node to spread across.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: { app: sirdocalot }
+  template:
+    metadata:
+      labels:
+        app: sirdocalot
+        # Postgres in the chuggy namespace admits only pods carrying this, and
+        # only from namespaces its NetworkPolicy names. Without it the pod starts,
+        # fails to connect, and never becomes ready.
+        chuggy.dev/postgres-client: "true"
+
+    spec:
+      nodeSelector:
+        chuggy.dev/durable: "true"
+      containers:
+        - name: sirdocalot
+          # Built locally and imported into the node's containerd -- there is no
+          # registry in this cluster yet. `just cluster-image` does both.
+          # IfNotPresent is load-bearing: with Always, k3s tries Docker Hub, finds
+          # no such public image, and the pod never starts.
+          image: sirdocalot:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: BASE_URL
+              value: https://sirdocalot.vteng.io
+            - name: DATABASE_SCHEMA
+              value: sirdocalot
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: sirdocalot, key: database-url } }
+            - name: AGENT_KEY
+              valueFrom: { secretKeyRef: { name: sirdocalot, key: agent-key } }
+            - name: TOKEN_SECRET
+              valueFrom: { secretKeyRef: { name: sirdocalot, key: token-secret } }
+          # Readiness is database-aware; liveness is not. A pod that cannot reach
+          # Postgres should leave the load balancer, not be restarted -- restarting
+          # it fixes nothing and destroys every long poll it was holding.
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: 8080 }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            # readOnlyRootFilesystem leaves nowhere for Node to put a temp file.
+            # It needs none today, and an emptyDir is cheaper than discovering
+            # otherwise in production.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      # A long poll can be mid-wait when the pod is asked to stop. main.ts closes
+      # the server and drains rather than cutting connections.
+      terminationGracePeriodSeconds: 45
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sirdocalot
+  namespace: sirdocalot
+spec:
+  selector: { app: sirdocalot }
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+# internet -> Cloudflare edge -> tunnel -> cloudflared (host) -> Traefik -> here.
+# The hostname must also appear in chuggy.tunnel.hostnames in hosts/gtr/default.nix,
+# which is a NixOS rebuild.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sirdocalot
+  namespace: sirdocalot
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: sirdocalot.vteng.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sirdocalot
+                port:
+                  number: 80
