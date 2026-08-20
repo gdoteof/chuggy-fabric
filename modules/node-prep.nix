@@ -75,6 +75,21 @@
   services.printing.enable = false;
   hardware.bluetooth.enable = false;
   services.pipewire.enable = false;
+
+  # ---------------------------------------------------------------- radios ----
+
+  # The AX200 is a combo Wi-Fi/Bluetooth card and this node is wired-only on
+  # enp2s0. Disabling the stacks above removes the userspace daemons; blacklisting
+  # the drivers means the devices never appear at all, so NetworkManager has no
+  # wireless device to manage and no reason to spawn wpa_supplicant.
+  #
+  # This gives up wireless as a fallback if the ethernet link dies -- acceptable
+  # on a box that also has a second unused NIC and physical access.
+  boot.blacklistedKernelModules = [
+    "iwlwifi"  # Intel Wi-Fi 6 AX200
+    "btusb"    # Bluetooth radio on the same card
+  ];
+  systemd.services.wpa_supplicant.enable = false;
   # NOTE: `sound.enable` was removed in NixOS 24.11 -- disabling PipeWire and
   # PulseAudio is the whole of it now.
   hardware.pulseaudio.enable = false;

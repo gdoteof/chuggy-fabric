@@ -65,6 +65,39 @@ Bluetooth, CUPS, Noisetorch, Alacritty, the font set, and the GDK scaling vars.
 This is where most of the 6.6 GB went. Disabled explicitly rather than merely
 omitted, so a later import cannot silently switch them back on.
 
+lightdm is the *display manager* — the graphical login screen that starts X and
+hands off to the window manager. The chain was lightdm → X11 → xmonad; all three
+are gone.
+
+### Turned the radios off
+
+The card is an Intel Wi-Fi 6 AX200 — combo Wi-Fi and Bluetooth. Disabling the
+stacks removes the userspace daemons, but the devices still appear and
+NetworkManager still wants a supplicant for the wireless one. Blacklisting
+`iwlwifi` and `btusb` means they never enumerate:
+
+    boot.blacklistedKernelModules = [ "iwlwifi" "btusb" ];
+    systemd.services.wpa_supplicant.enable = false;
+
+Verified in the built system: `wpa_supplicant.service` masked, `bluetooth.service`
+absent. This gives up wireless as a fallback if the ethernet link dies — fine on a
+box with a second unused NIC and physical access.
+
+### Fixed NetworkManager-wait-online
+
+It failed on every rebuild but **never at boot** — the journal shows `Finished` at
+each real boot and `Failed` only when the unit is restarted on a live system.
+After a live restart NetworkManager stops re-signalling startup completion:
+`nmcli` reports `STARTUP=starting` indefinitely while `STATE=connected`, so
+`nm-online -s` waits out its timeout and exits 1. It is NM's own flag, not a stuck
+device — unmanaging the idle wifi and the cable-less second NIC changed nothing,
+and NetworkManager 1.48 has no `--any` to relax the check.
+
+The unit is masked. `network-online.target` buys little on a headless node with a
+single wired NIC. Worth remembering: with it disabled the target activates
+immediately rather than waiting for a real link, so revisit if k3s needs that
+barrier.
+
 ### Closed the firewall down to SSH
 
 Was `[ 2375 22 80 443 ]`, plus TCP range 4000–5550 and UDP 24800.
