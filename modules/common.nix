@@ -60,9 +60,17 @@
     enable = true;
     settings = {
       PermitRootLogin = "no";
-      # NOTE: PasswordAuthentication is deliberately left at its default (true).
-      # Key auth works today, so turning it off is good hygiene -- but do it from
-      # the console, not remotely, so a mistake is recoverable.
+
+      # Both of these, not just the first. Disabling PasswordAuthentication on
+      # its own leaves keyboard-interactive, which PAM answers with a password
+      # prompt -- the door looks shut and is not.
+      #
+      # What makes this safe to turn on is that key auth is already proven, not
+      # assumed. What it costs: ~geoff/.ssh/authorized_keys becomes the only way
+      # in, and that file is imperative state this repo does not declare, so a
+      # freshly built box has no key in it and no password fallback either.
+      PasswordAuthentication = false;
+      KbdInteractiveAuthentication = false;
     };
   };
 
@@ -73,6 +81,28 @@
     description = "geoff";
     extraGroups = [ "networkmanager" "wheel" "docker" ];
     shell = pkgs.zsh;
+
+    # The only way into this box now that password auth is off. These lived
+    # solely in ~/.ssh/authorized_keys before -- imperative state a rebuilt
+    # machine would not have, leaving a box with no way in at all. That is the
+    # gap this closes.
+    #
+    # Public keys are not secret and belong in a public repo; the same argument
+    # this repo already makes for WireGuard peers. GitHub hands anyone's out at
+    # github.com/<user>.keys.
+    #
+    # These are additive, not authoritative: NixOS writes them to
+    # /etc/ssh/authorized_keys.d/geoff, and sshd's AuthorizedKeysFile lists that
+    # *alongside* ~/.ssh/authorized_keys. The imperative file keeps working until
+    # it is deleted, which is the step that makes this the single source of
+    # truth -- and the step to take only after a rebuild proves these work.
+    openssh.authorizedKeys.keys = [
+      # Workstation "shame". Two 3072-bit RSA keys from a Mac mini were dropped
+      # here rather than carried forward: same comment, different fingerprints,
+      # and no login on record between them. If that machine comes back, it gets
+      # a fresh ed25519 rather than a resurrected key nobody can account for.
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAID+SRfaxLzKg91rkDZbC+ybupon0rG3iU+m2Fwp4bFlm geoff@shame"
+    ];
   };
 
   # users.users.geoff.shell points here -- dropping this block breaks login.
