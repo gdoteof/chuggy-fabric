@@ -53,7 +53,12 @@
     #
     # Spot agents get added the same way from .10 up -- see the README on the
     # pre-allocated key pool, which avoids a rebuild per instance.
-    peers = [ ];
+    peers = [
+      { name = "dev2";
+        publicKey = "cMer3teG3LOE6J5J2yXCREHFYpfjpkZYodIP2Uk8jAY=";
+        allowedIPs = [ "10.100.0.2/32" ];
+      }
+    ];
   };
 
   # ------------------------------------------------------------------ k3s ----
