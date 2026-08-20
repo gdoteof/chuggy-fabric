@@ -42,13 +42,28 @@ with a different card, so it lives in the host file.
 
 ## Workflow
 
-The box is not the source of truth. Push and build:
+The box is not the source of truth, and neither is a copy of this directory
+sitting on it. Two loops, and keeping them apart is the point.
+
+**Iterating** — fast, no commit needed. Copy the tree over and build there:
 
     rsync -a --delete --exclude nixos-live --exclude .git \
       ~/claude/chuggy-fabric/ geoff@192.168.0.114:/home/geoff/fabric-test/
 
     ssh geoff@192.168.0.114 \
       'cd fabric-test && nixos-rebuild build --flake .#gtr'
+
+`build` and `test` are what that copy is for. Delete it when you are done — it is
+scratch, not a checkout.
+
+**Landing** — commit, push, and build the commit, not a copy of it:
+
+    sudo nixos-rebuild switch --flake github:gdoteof/chuggy-fabric#gtr
+
+The running system then corresponds to a revision you can name, instead of to
+whatever happened to be in someone's working tree at the time. Flux already works
+this way for the cluster layer; this is the machine layer catching up, and it
+means both can be checked against the same commit.
 
 | Command | Effect |
 |---|---|
@@ -57,6 +72,22 @@ The box is not the source of truth. Push and build:
 | `nixos-rebuild switch` | activates and makes it the boot default |
 
 `test` before `switch`. If a change breaks the network, a power cycle recovers it.
+
+### Never `switch` from the rsync copy
+
+Two reasons, and the second one is quiet:
+
+- Nothing would record what the box is running. Lose the workstation and the
+  config is gone — the exact failure this repo exists to prevent.
+- **A flake built from a dirty git tree silently omits untracked files.** This
+  scratch directory once acquired a stray `.git` with zero commits in it —
+  `git init` and `git add`, never committed — which made every build print a
+  dirty-tree warning and quietly drop anything unstaged. That time it was
+  harmless, because the one untracked file was a cluster manifest the Nix build
+  never reads. The next time it is a file a module imports.
+
+Note that `--exclude .git` in the rsync above is what let that stub survive: the
+copy's own git state is never overwritten, only its files are.
 
 ## The cluster
 
