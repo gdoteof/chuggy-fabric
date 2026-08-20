@@ -94,9 +94,18 @@ spec:
         enabled: true
         storageClassName: local-path
         size: 5Gi
+      env:
+        # Go sizes its heap against the machine's memory, not the cgroup's, so
+        # Grafana grew toward the hard limit and the kernel killed it
+        # mid-request -- an OOMKill roughly every 18 minutes at the old 512Mi.
+        # A soft ceiling below the limit spends CPU on GC instead, and leaves
+        # the remainder as headroom for the spike that would land past it.
+        GOMEMLIMIT: "900MiB"
       resources:
-        requests: { cpu: 50m, memory: 128Mi }
-        limits: { memory: 512Mi }
+        # 512Mi was below the working set of this chart's two dozen dashboards,
+        # so the sawtooth was the limit, not a leak.
+        requests: { cpu: 50m, memory: 256Mi }
+        limits: { memory: 1Gi }
       grafana.ini:
         server:
           # Without this, Grafana builds redirect and share links from the
