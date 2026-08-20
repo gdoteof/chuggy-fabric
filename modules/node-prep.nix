@@ -41,6 +41,24 @@
   swapDevices = lib.mkForce [ ];
   zramSwap.enable = false;
 
+  # -------------------------------------------------------- wait-online ----
+
+  # NetworkManager-wait-online fails on every rebuild but has never failed at
+  # boot -- the journal shows "Finished" at each real boot and "Failed" only when
+  # the unit is restarted on a live system.
+  #
+  # Cause: after a live restart NetworkManager never re-signals startup
+  # completion. nmcli reports STARTUP=starting indefinitely while STATE=connected,
+  # so `nm-online -s` waits out its timeout and exits 1. It is NM's own startup
+  # flag, not a stuck device -- unmanaging the idle wifi and the cable-less second
+  # NIC changes nothing. This NetworkManager (1.48) has no `--any` to relax it.
+  #
+  # network-online.target buys little on a headless node with one wired NIC, so
+  # the unit goes rather than being papered over with a longer timeout.
+  # Revisit if k3s turns out to genuinely need that barrier -- with this disabled
+  # the target activates immediately rather than waiting for a real link.
+  systemd.services.NetworkManager-wait-online.enable = false;
+
   # ------------------------------------------------------------------ cpu ----
 
   # Was "powersave". A node that sits idle then bursts wants the scheduler
