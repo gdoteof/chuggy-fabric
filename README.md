@@ -26,7 +26,7 @@ only by their own directory.
     modules/flux.nix                bootstraps Flux from the machine layer
 
     cluster/flux-system/            Flux install + what repo it follows
-    cluster/apps/                   everything running on the cluster
+    cluster/apps/                   the cluster state this repo declares
 
     hosts/gtr/default.nix           geoff's Beelink GTR: hostname, radios, mesh, k3s, tunnel
     hosts/gtr/hardware-configuration.nix
@@ -39,6 +39,14 @@ worked example: `iwlwifi` is correct for the GTR's AX200 and wrong for any box
 with a different card, so it lives in the host file.
 
 `nixos-live/` is history, not input. Nothing imports it.
+
+What `cluster/apps/` declares is deliberately less than what the cluster runs.
+The `chuggy-git` and `chuggy-work` namespaces and their contents were applied by
+hand from the [chuggy](https://github.com/kasofsk/chuggy) repo as deployment
+rehearsal fixtures — transient by intent, so declaring them here would commit
+Flux to maintaining state the rehearsal means to tear down. The
+[ownership label](#verified) is how to tell a fixture apart from something that
+belongs here and is missing.
 
 ## Workflow
 
