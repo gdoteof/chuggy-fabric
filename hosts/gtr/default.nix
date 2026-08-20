@@ -45,4 +45,14 @@
     # and restart to add later.
     apiSans = [ "10.100.0.1" ];
   };
+
+  # -------------------------------------------------------------- ingress ----
+
+  # Cloudflare Tunnel. Outbound-only, so no router port-forward and no dynamic
+  # DNS -- unlike the WireGuard mesh above, which still needs both.
+  chuggy.tunnel = {
+    enable = true;
+    tunnelId = "84115dde-a1d0-4e8a-832a-e4da2cf98180";  # tunnel "gtr"
+    hostnames = [ "whoami.vteng.io" ];
+  };
 }

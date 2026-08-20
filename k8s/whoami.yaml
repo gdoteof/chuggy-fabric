@@ -1,0 +1,68 @@
+# Trivial workload used to prove the ingress path end to end:
+#
+#   internet -> Cloudflare edge -> tunnel -> cloudflared (host)
+#            -> Traefik :80 -> Ingress -> Service -> Pod
+#
+# traefik/whoami echoes the request it received, so the response itself shows
+# which hop rewrote what -- more useful for validating a path than a static page.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: whoami
+  labels: { app: whoami }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: whoami }
+  template:
+    metadata:
+      labels: { app: whoami }
+    spec:
+      # Pinned to the durable node. Trivial here -- it is the only node -- but it
+      # is the habit that keeps stateful work off spot agents later.
+      nodeSelector:
+        chuggy.dev/durable: "true"
+      containers:
+        - name: whoami
+          image: traefik/whoami:v1.10.2
+          ports:
+            - containerPort: 80
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: whoami
+spec:
+  selector: { app: whoami }
+  ports:
+    - port: 80
+      targetPort: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: whoami
+spec:
+  ingressClassName: traefik
+  rules:
+    # Host is filled in by the tunnel hostname. Traefik matches on Host, so the
+    # tunnel must forward the original header -- it does by default.
+    - host: whoami.vteng.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: whoami
+                port: { number: 80 }

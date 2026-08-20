@@ -22,7 +22,11 @@ only by their own directory.
     modules/wireguard.nix           the mesh, with chuggy.wireguard.* options
     modules/k3s-server.nix          the cluster role, with chuggy.k3s.* options
 
-    hosts/gtr/default.nix           geoff's Beelink GTR: hostname, radios, mesh, k3s
+    modules/cloudflare-tunnel.nix   public ingress, with chuggy.tunnel.* options
+
+    k8s/whoami.yaml                 trivial workload proving the ingress path
+
+    hosts/gtr/default.nix           geoff's Beelink GTR: hostname, radios, mesh, k3s, tunnel
     hosts/gtr/hardware-configuration.nix
 
     nixos-live/                     the original /etc/nixos, captured verbatim
@@ -84,6 +88,62 @@ workloads have scheduled.
 kubeconfig is written world-readable (`--write-kubeconfig-mode=0644`). That grants
 nothing new: `geoff` already has passwordless sudo, so the admin credential is
 reachable regardless. Revisit if these boxes ever get a second human user.
+
+## Ingress
+
+Public traffic arrives through a **Cloudflare Tunnel**, not a port-forward. The
+tunnel is an outbound connection from the box to Cloudflare's edge, so the router
+needs no configuration and the residential IP can change freely. That kills the
+inbound-HTTP half of the NAT problem that dropping Tailscale created — the other
+half, agents dialling 6443, still needs the WireGuard mesh.
+
+    internet -> Cloudflare edge -> tunnel -> cloudflared -> Traefik :80
+             -> Ingress -> Service -> Pod
+
+cloudflared forwards to Traefik rather than to individual services, so Traefik
+owns per-app routing. Adding an app is three things: a hostname in
+`chuggy.tunnel.hostnames`, a DNS route, and a k8s Ingress.
+
+    cloudflared tunnel route dns 84115dde-a1d0-4e8a-832a-e4da2cf98180 <host>
+
+**Use the tunnel UUID, not its name.** `cloudflared tunnel route dns gtr ...`
+silently created the CNAME against a *different* tunnel here — an unrelated older
+one — and reported success. Pass the UUID and verify what the log says it routed.
+
+Hostnames are enumerated rather than wildcarded. A `*.vteng.io` rule would work
+and would save a rebuild per app, but then nothing in the repo would say what is
+publicly reachable. The list is the record.
+
+### What is and is not exposed
+
+Only HTTP, and only for hostnames in that list. The Kubernetes API is never a
+tunnel ingress rule. Verified from outside: `whoami.vteng.io` serves, `6443` and
+`22` both refuse.
+
+Be precise about *why* 6443 is safe, though: k3s binds it on `*:6443` and the
+NixOS firewall allows it, so it is reachable from anything on the house LAN and
+over the mesh — by design, that is how `kubectl` works from the workstation. It is
+not reachable from the internet because there is no port-forward. Protection is
+NAT, not the firewall. If a port-forward is ever added for WireGuard, forward
+**only** UDP 51820.
+
+### Deliberate deviation
+
+This is a *locally managed* tunnel — ingress rules live in this repo. Cloudflare
+recommends token-based remotely managed tunnels for new deployments, with the
+config in the dashboard. That would split the source of truth across a dashboard
+and a git repo right when a second dev starts reusing this one.
+
+### Credentials
+
+The tunnel secret is at `/var/lib/cloudflared/<id>.json`, `0400
+cloudflared:cloudflared`, copied out of band. **It is not in this repo and must
+not be** — this repository is public. `chuggy.tunnel.credentialsFile` is a path,
+never a value.
+
+Note the ordering trap: the `cloudflared` user does not exist until the first
+`nixos-rebuild switch` that enables the service, so the file cannot be chowned to
+it beforehand. Switch, chown, restart.
 
 ## Scaling out to spot workers
 
