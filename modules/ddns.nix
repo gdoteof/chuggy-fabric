@@ -75,6 +75,36 @@ in
       message = "chuggy.ddns.enable is on but chuggy.ddns.domains is empty; nothing would be updated.";
     }];
 
+    # The upstream module hands the token to systemd as an EnvironmentFile, which
+    # means the file must be a `KEY=value` line and not a bare token. Get that
+    # wrong and systemd silently sets nothing; the failure surfaces later, from a
+    # different process, as `Missing option '--api-token'` -- which points at the
+    # command line rather than at the file that is actually wrong.
+    #
+    # So check it up front and say what is wrong. `-` on EnvironmentFile makes a
+    # missing file non-fatal to systemd, which lets this run and produce a better
+    # message than "Failed with result 'resources'".
+    systemd.services.cloudflare-dyndns.serviceConfig = {
+      EnvironmentFile = lib.mkForce "-${cfg.apiTokenFile}";
+      ExecStartPre = [
+        ("+" + pkgs.writeShellScript "chuggy-ddns-check-token" ''
+          f=${cfg.apiTokenFile}
+          if [ ! -e "$f" ]; then
+            echo "chuggy.ddns: $f does not exist." >&2
+            echo "Create it with a Cloudflare token scoped to Zone:DNS:Edit on your zone:" >&2
+            echo "  CLOUDFLARE_API_TOKEN=<token>" >&2
+            exit 1
+          fi
+          if ! ${pkgs.gnugrep}/bin/grep -q '^CLOUDFLARE_API_TOKEN=.' "$f"; then
+            echo "chuggy.ddns: $f is not in systemd EnvironmentFile form." >&2
+            echo "It needs the variable name, not just the token:" >&2
+            echo "  CLOUDFLARE_API_TOKEN=<token>" >&2
+            exit 1
+          fi
+        '')
+      ];
+    };
+
     services.cloudflare-dyndns = {
       enable = true;
       inherit (cfg) domains apiTokenFile frequency;
