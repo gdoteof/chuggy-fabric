@@ -4,8 +4,8 @@
 #
 # The durable box is both server and worker: k3s servers run workloads by default
 # (no --disable-agent), which is exactly the "sole worker most of the time" shape.
-# Cloud spot agents join later over Tailscale; see the tailscaleName option and
-# the README section on scaling out.
+# Cloud spot agents join later over the WireGuard mesh; see modules/wireguard.nix
+# and the README section on scaling out.
 
 let
   cfg = config.chuggy.k3s;
@@ -14,18 +14,19 @@ in
   options.chuggy.k3s = {
     enable = lib.mkEnableOption "k3s server for the chuggy fabric";
 
-    tailscaleName = lib.mkOption {
-      type = lib.types.nullOr lib.types.str;
-      default = null;
-      example = "gtr.tail1234.ts.net";
+    apiSans = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [ "10.100.0.1" "gtr.example.dev" ];
       description = ''
-        Tailnet DNS name for this node, added to the API server certificate's
-        SANs. Remote agents connect to the API server by this name, and TLS
-        verification fails unless the cert carries it.
+        Extra names and addresses added to the API server certificate's SANs.
 
-        Left null until tailscaled is actually logged in. k3s regenerates its
-        serving certificate when the SAN list changes, so setting this later is
-        a rebuild and a restart -- not a cluster rebuild.
+        Agents connect to the API server by address and TLS verification fails
+        unless the certificate carries it -- so this needs the node's WireGuard
+        address before any remote agent joins.
+
+        k3s regenerates its serving certificate when the SAN list changes, so
+        adding one later is a rebuild and a restart, not a cluster rebuild.
       '';
     };
 
@@ -54,7 +55,7 @@ in
         # ever get a second human user.
         "--write-kubeconfig-mode=0644"
       ]
-      ++ lib.optional (cfg.tailscaleName != null) "--tls-san=${cfg.tailscaleName}");
+      ++ map (san: "--tls-san=${san}") cfg.apiSans);
     };
 
     # Bundled components are left on deliberately: traefik (ingress), servicelb
@@ -67,11 +68,9 @@ in
     # durable box, wrong for spot agents -- keep stateful work on the durable
     # node via the label above.
 
+    # The WireGuard interface is trusted in modules/wireguard.nix; these are the
+    # ports as seen from the LAN, for local kubectl and same-network nodes.
     networking.firewall = {
-      # Agent traffic arrives over the tailnet, not the LAN. Trusting the
-      # interface avoids poking cluster ports at the public-facing firewall.
-      trustedInterfaces = [ "tailscale0" ];
-
       allowedTCPPorts = [
         6443   # kubernetes API -- agents and kubectl
       ];

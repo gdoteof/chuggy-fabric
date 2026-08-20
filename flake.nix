@@ -24,6 +24,7 @@
           modules = [
             ./modules/common.nix
             ./modules/node-prep.nix
+            ./modules/wireguard.nix
             ./modules/k3s-server.nix
             (hostPath + "/hardware-configuration.nix")
             (hostPath + "/default.nix")

@@ -19,9 +19,10 @@ only by their own directory.
 
     modules/common.nix              identity, access, packages, nix settings
     modules/node-prep.nix           k8s prerequisites, workstation teardown
+    modules/wireguard.nix           the mesh, with chuggy.wireguard.* options
     modules/k3s-server.nix          the cluster role, with chuggy.k3s.* options
 
-    hosts/gtr/default.nix           geoff's Beelink GTR: hostname, radios, k3s
+    hosts/gtr/default.nix           geoff's Beelink GTR: hostname, radios, mesh, k3s
     hosts/gtr/hardware-configuration.nix
 
     nixos-live/                     the original /etc/nixos, captured verbatim
@@ -75,27 +76,62 @@ reachable regardless. Revisit if these boxes ever get a second human user.
 
 ## Scaling out to spot workers
 
-Not built. What is already in place, and what remains:
+Not built. What is in place, what it costs, and what remains.
 
-**In place.** Firewall opens 6443 (API) and 8472/udp (flannel VXLAN), and trusts
-`tailscale0` outright so cluster traffic over the tailnet is not filtered at the
-LAN-facing firewall. The durable node is labelled.
+### Why WireGuard, and what it gives up
 
-**Remaining, roughly in order:**
+Tailscale was removed in favour of raw WireGuard: no third-party control plane, no
+account to be logged out of, fully declarative, and free. It is the right call for
+a small fixed set of machines.
 
-1. **Log tailscaled in.** It is installed and running but reports `NeedsLogin`.
-   Nothing remote can reach the API server until this is done — port-forwarding
-   6443 from a home connection is not an acceptable substitute.
-2. **Set `chuggy.k3s.tailscaleName`** to this node's tailnet DNS name. It becomes
-   a `--tls-san` on the API server certificate; without it, agents connecting by
-   that name fail TLS verification. k3s regenerates the serving cert when the SAN
-   list changes, so this is a rebuild and a restart, not a cluster rebuild.
-3. **Get the node token** from `/var/lib/rancher/k3s/server/node-token` to the
-   cloud side. It is a joining credential — it does not belong in this repo. Use
-   the cloud provider's secret store, or sops-nix/agenix if it must be declared.
-4. **Taint the spot agents** so only work that tolerates eviction lands there.
-   Spot instances are reclaimed with about two minutes' notice; anything holding
-   a PVC or unreplicated state must not be schedulable onto them.
+**Be clear about the one real loss.** Tailscale's main value here was NAT
+traversal — STUN hole-punching with DERP relays as a fallback — so a box behind a
+home router was reachable without touching the router. Raw WireGuard has none of
+that, and **k3s agents dial the server**, so the server must be reachable. The GTR
+sits behind a TP-Link at `192.168.0.1`. That means:
+
+- **A UDP port-forward of 51820** to the node, configured on the router. Without
+  it no cloud agent can establish a tunnel, and there is no relay to fall back on.
+- **Dynamic DNS**, because a residential IP is not stable. The agents need a name
+  that keeps resolving after the ISP changes the address.
+
+Neither is hard, but both are outside this repo — they live in the router and in
+DNS, and nothing here will tell you when they break.
+
+### In place
+
+Firewall opens 6443 (API), 8472/udp (flannel VXLAN) and 51820/udp (WireGuard), and
+trusts `wg0` outright so cluster traffic over the mesh is not filtered at the
+LAN-facing rules. `10.100.0.1` is already on the API certificate's SANs. The
+durable node is labelled.
+
+The private key is generated on the host at first activation and never leaves it.
+**No key material belongs in this repo** — peers carry public keys only, which are
+not secret. This repository is public.
+
+### Remaining
+
+1. **Port-forward UDP 51820 and set up dynamic DNS.** See above.
+2. **Get the node token to the cloud side.** It is at
+   `/var/lib/rancher/k3s/server/node-token` and is a joining credential — cloud
+   provider secret store, or sops-nix/agenix if it must be declared.
+3. **Solve peer churn.** NixOS WireGuard peers are declarative, so adding one is a
+   rebuild — which does not fit instances that appear and vanish. The pattern that
+   does fit: **pre-allocate a pool of worker slots.** Generate N keypairs offline,
+   bake the public keys into `chuggy.wireguard.peers` with fixed addresses
+   (`10.100.0.10/32` upward), and keep the private keys in the cloud secret store.
+   A launching instance claims an unused slot and comes up as an already-known
+   peer, with no server rebuild.
+
+   Costs: concurrency is capped at N until you rebuild to raise it, slot claiming
+   needs some coordination (an ASG instance index is usually enough), and a
+   reclaimed slot reuses a key a previous instance held — fine inside a trust
+   boundary you own, but rotate periodically. The escape hatch is
+   `wg set wg0 peer ...` at runtime, which works but does not survive a reboot and
+   drifts from the declared config.
+4. **Taint the spot agents** so only work tolerating eviction lands there. Spot
+   instances are reclaimed with roughly two minutes' notice; nothing holding a PVC
+   or unreplicated state should be schedulable onto them.
 
 ## Adding the second box
 
