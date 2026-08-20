@@ -56,6 +56,25 @@ spec:
         - podSelector:
             matchLabels:
               chuggy.dev/postgres-client: "true"
+        # A SECOND ELEMENT, WHICH IS OR. The selector above is bare, and a bare
+        # podSelector is scoped to this policy's own namespace -- so it admits
+        # labelled pods in `chuggy` and nothing else, whatever another namespace
+        # labels itself. sirdocalot runs in its own namespace against its own
+        # database and role, so it needs saying separately.
+        #
+        # The two selectors inside THIS element are AND, not OR: the namespace
+        # must be the named one and the pod must still carry the label. That
+        # keeps the model above intact -- authorization is possession of a label
+        # -- and adds only where a labelled pod may live. Naming namespaces one
+        # at a time rather than by a label of their own is the same choice as
+        # enumerating tunnel hostnames: the list is the record of who may
+        # connect.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: sirdocalot
+          podSelector:
+            matchLabels:
+              chuggy.dev/postgres-client: "true"
       ports:
         - protocol: TCP
           port: 5432
