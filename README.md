@@ -283,6 +283,106 @@ removals in git are silently ignored.
 variable, so `sudo flux ...` silently talks to `localhost:8080` and fails. Run it
 as your own user — the kubeconfig is world-readable.
 
+## Monitoring
+
+`kube-prometheus-stack`, pinned to 88.5.0 and installed as a `HelmRelease` —
+which is what made `helm-controller` necessary. There is no sensible
+plain-manifest equivalent: the chart is the Prometheus operator, its CRDs,
+node-exporter, kube-state-metrics, and a few dozen dashboards.
+
+| Component | What it gives you |
+|---|---|
+| Prometheus | 15d of metrics, scraped from the cluster and the node |
+| Grafana | `grafana.vteng.io`, through the tunnel |
+| node-exporter | the box itself — CPU, memory, disk, load |
+| kube-state-metrics | object state — restarts, phases, PVC usage |
+
+Both Prometheus and Grafana carry `nodeSelector: chuggy.dev/durable=true`. They
+hold `local-path` volumes and so are pinned to this box regardless; saying it
+out loud is the habit that keeps stateful work off spot agents later.
+
+**The Grafana admin credential is not in this repo**, the same rule as the
+cloudflared tunnel secret. It is a Secret created out of band:
+
+    kubectl create secret generic grafana-admin -n monitoring \
+      --from-literal=admin-user=admin --from-literal=admin-password=<pw>
+
+Without `admin.existingSecret` the chart falls back to the well-known default
+`prom-operator`, which on a publicly reachable Grafana is the same as no
+password at all. Anonymous access and sign-up are both off, so that credential
+is the whole of the auth surface.
+
+`server.root_url` is set to the public address. Without it Grafana builds
+redirect and share links from the in-cluster address, and they break the moment
+you follow one.
+
+### Control-plane targets are switched off
+
+`kubeControllerManager`, `kubeScheduler`, `kubeEtcd`, and `kubeProxy` are all
+disabled. k3s runs the control plane as a single process, so none of them has a
+separately scrapeable endpoint. Left enabled they become targets that are
+permanently down and alerts that never clear — and an alert you have learned to
+ignore is worse than no alert.
+
+### Alerts evaluate, and go nowhere
+
+Alertmanager is disabled and `notification-controller` is not installed. The
+rules still evaluate and still show as firing in the Prometheus UI; there is
+simply nothing to route them to.
+
+Two alerts therefore fire permanently: `Watchdog`, which is designed to, and
+`PrometheusNotConnectedToAlertmanagers`, which is the stack correctly noticing
+the above. **Both are expected. Anything else firing is real.**
+
+What this costs is worth naming: monitoring here is pull-only. Nothing pages,
+nothing mails, nothing posts to a channel — you find out by looking. That is a
+fair trade while one person watches one box, and it is the first thing to
+revisit when that stops being true.
+
+### The storage numbers are not real
+
+**Know the second sharp edge on `local-path`:** it does not enforce quota. The
+[cluster section](#the-cluster) covers what a node-local directory does to
+*scheduling*; this is what it does to the *numbers*. A PVC is a directory on the
+root filesystem, so the `20Gi` on Prometheus and the `5Gi` on Grafana are what
+was requested, not a ceiling.
+
+The tell is that every volume reports the same figure —
+`kubelet_volume_stats_used_bytes` reads identically for all four PVCs on this
+box, because it is measuring one filesystem four times.
+
+So Prometheus is bounded by `retention: 15d`, not by its claim, and the only
+honest storage signal on this node is root disk usage. Watch that. Ignore the
+per-volume percentages, and do not write an alert against them.
+
+### Grafana's memory, and the GOMEMLIMIT trap
+
+Grafana runs with a 1Gi limit and a 256Mi request. It arrived at 512Mi and was
+OOMKilled on roughly an 18-minute cycle — four restarts in the 35 minutes after
+the stack first came up.
+
+**Do not set `GOMEMLIMIT` from `grafana.env`.** The chart already emits it,
+wired by `resourceFieldRef` to whatever `resources.limits.memory` says, and
+offers no values key to override it. A second one merges by name into a single
+entry carrying both `value` and `valueFrom`, which the API server rejects:
+
+    spec.template.spec.containers[2].env[8].valueFrom: Invalid value: "":
+    may not be specified when `value` is not empty
+
+Helm cannot patch that, the release stalls on `RetriesExceeded`, and Grafana
+stays on the old spec and keeps dying — a fix that ships without taking effect,
+which is the worst shape a fix can have. Raise `resources.limits.memory`
+instead; the soft ceiling moves with it.
+
+That ceiling was never the problem, though, and the reasoning that first put it
+there was wrong. Go paces the heap against the live set rather than growing to
+fill the limit, so at 512Mi it was already collecting hard with the heap pressed
+against the cap — leaving no room for what the runtime does not account for,
+which here is the page cache behind the mmap'd bleve index Grafana 13 keeps at
+`GF_UNIFIED_STORAGE_INDEX_PATH`. The cgroup went over on memory Go was never
+counting. Raising the limit fixes that; lowering the soft ceiling would have
+made it worse.
+
 ## Giving someone else access
 
 Two separable questions, and conflating them is the trap: *what may they do*
