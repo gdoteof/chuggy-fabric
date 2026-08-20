@@ -85,9 +85,22 @@ in
 
     networking.firewall = {
       allowedUDPPorts = [ cfg.listenPort ];
-      # Cluster traffic arrives over the mesh. Trusting the interface keeps
-      # 6443/8472 off the LAN-facing firewall rules.
-      trustedInterfaces = [ cfg.interface ];
+
+      # Deliberately NOT `trustedInterfaces = [ cfg.interface ]`, which is what
+      # used to be here. The stated reason was that trusting the mesh kept
+      # 6443/8472 off the LAN-facing rules -- but modules/k3s-server.nix opens
+      # both globally anyway, so the trust bought nothing and cost a lot: it
+      # handed every peer the whole box, kubelet on 10250 included, plus
+      # whatever a future module happens to bind.
+      #
+      # A peer now reaches exactly what the global rules allow -- 22, 6443,
+      # 8472/udp -- which is enough for an agent to join the cluster and for a
+      # human to run kubectl, and nothing more.
+      #
+      # Note this widens who can *reach* sshd from LAN-only to LAN-plus-mesh.
+      # Reaching it is not entering it; it still wants a key. But it moves
+      # `PasswordAuthentication` from "should fix eventually" to "fix before
+      # adding a human peer" -- see modules/common.nix.
     };
 
     environment.systemPackages = [ pkgs.wireguard-tools ];

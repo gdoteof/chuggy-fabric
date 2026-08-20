@@ -29,9 +29,29 @@
 
   chuggy.wireguard = {
     enable = true;
-    # Server end of the mesh. Agents count up from .10.
+    # Server end of the mesh.
+    #
+    # Address plan: .1 is the server, .2-.9 are humans, .10 upward are spot
+    # agents. Splitting the ranges keeps a person from being handed an address
+    # the pre-allocated agent key pool later expects to own.
     address = "10.100.0.1/24";
-    # peers are added as spot workers get provisioned -- see the README on the
+
+    # Public keys only -- a private key here would hand over the mesh, and this
+    # repository is public. A peer generates its own with `wg genkey | tee
+    # private.key | wg pubkey` and sends only the second value.
+    #
+    # A human peer looks like this:
+    #
+    #   { name = "dev2";
+    #     publicKey = "<their base64 public key>";
+    #     allowedIPs = [ "10.100.0.2/32" ];
+    #   }
+    #
+    # A /32 is the point: allowedIPs is a routing and cryptographic filter, so a
+    # peer can only source traffic from the address listed here. Widening it to
+    # the /24 would let any one peer impersonate any other.
+    #
+    # Spot agents get added the same way from .10 up -- see the README on the
     # pre-allocated key pool, which avoids a rebuild per instance.
     peers = [ ];
   };
