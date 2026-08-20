@@ -8,18 +8,25 @@
 # reach -- so one name could not be honest about both.
 #
 # WHAT SELECTING A POD DOES NOT BOUND. Naming a pod isolates it from the pod
-# network and from nothing else, so three paths reach PostgreSQL without a
-# packet crossing that network and no rule below can see them. `kubectl exec`
-# lands in the server's own container and connects over the Unix socket, which
-# this image's pg_hba matches with `trust` ahead of its password catch-all.
-# `kubectl port-forward` is served by the kubelet from inside the pod's network
-# namespace, already past the boundary when the connection is made. And the node
-# itself, along with every host-network pod on it: k3s's embedded kube-router
-# programs each pod's chain with an unconditional ACCEPT for a source address
-# local to the node, ABOVE the jump to the policy's chain, so those reach the
-# server whatever they are labelled. That ACCEPT is the CNI's own and a
-# NetworkPolicy cannot remove it. What bounds these is who may exec in this
-# namespace and who may run on the node -- not this file.
+# network and from nothing else, so three paths reach PostgreSQL that no rule
+# below can see -- and they are not exempt for the same reason.
+#
+# Two never reach the pod network at all. `kubectl exec` lands in the server's
+# own container and connects over the Unix socket, which this image's pg_hba
+# matches with `trust` ahead of its password catch-all. `kubectl port-forward`
+# is served by the kubelet from inside the pod's network namespace, so the
+# connection is already past the boundary when it is made.
+#
+# The third crosses the pod network and is exempted anyway, which is a weaker
+# guarantee. k3s's embedded kube-router programs each pod's chain with an
+# unconditional ACCEPT for a source address local to the node, ABOVE the jump to
+# the policy's chain, so the node itself and every host-network pod on it reach
+# the server whatever they are labelled. That ACCEPT is this CNI's own doing
+# rather than anything Kubernetes guarantees -- under a different one it is a
+# fact to re-establish, not a property to assume carried over.
+#
+# What bounds all three is who may exec in this namespace and who may run on the
+# node -- not this file.
 #
 # A check that reached the server through a forwarded port, from inside its
 # containers, or from the node has therefore proved nothing about these
