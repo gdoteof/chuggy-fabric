@@ -1,0 +1,144 @@
+# PostgreSQL: the durable authority chuggy decides against.
+#
+# Chuggy's design makes this the correctness mechanism and Kubernetes merely the
+# supervisor -- ownership leases, fencing epochs and expected-head journal
+# appends all live in rows here, so a pod that pauses and resumes cannot commit
+# after another has taken over. That is why this is a StatefulSet on the durable
+# node and not something the scheduler may move.
+#
+# It is in-cluster because this is a development cluster. Chuggy's design asks
+# for managed PostgreSQL in production, so that losing the cluster does not also
+# lose the record needed to rebuild it; a single node holding both is exactly
+# the coupling that argument is against. Nothing here should grow a backup story
+# that pretends otherwise.
+#
+# The superuser password is NOT here. Out of band, the same rule as the
+# cloudflared and grafana credentials:
+#
+#   kubectl create secret generic postgres-superuser -n chuggy \
+#     --from-literal=password=<pw>
+#
+# Reaching it from a workstation is a port-forward, deliberately:
+#
+#   kubectl port-forward -n chuggy statefulset/postgres 5432:5432
+#
+# There is no NodePort and no LoadBalancer. The node's firewall was cut to what
+# is needed on purpose, and opening 5432 to the LAN is a NixOS rebuild plus a
+# real exposure -- a forwarded port costs one terminal and expires with it.
+---
+# StatefulSet rather than Deployment: a rolling Deployment will briefly run two
+# pods against one volume, and two postmasters over one data directory is how a
+# cluster gets corrupted. A StatefulSet terminates the old pod before starting
+# the new one.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  # The namespace is declared in dev2-access.yaml, which owns it.
+  name: postgres
+  namespace: chuggy
+  labels: { app: postgres }
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      # local-path PVCs are directories on the node that created them, so this
+      # pod is pinned here regardless. Saying so explicitly is the habit that
+      # keeps stateful work off spot agents later.
+      nodeSelector:
+        chuggy.dev/durable: "true"
+      securityContext:
+        # The image's entrypoint starts as root and drops to uid 999 with gosu.
+        # Starting as 999 skips that path entirely, which is what we want -- but
+        # it means nothing will chown the volume, so fsGroup has to. Without the
+        # fsGroup, initdb fails on a root-owned mount.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgres
+          image: postgres:18.3-trixie
+          # Debian, not Alpine. Alpine is musl, whose locale support is minimal,
+          # and text collation decides index ordering -- a collation that changes
+          # under an existing index corrupts it silently. Not a size question.
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: chuggy
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: postgres-superuser, key: password }
+            # Data checksums are stated rather than inherited: initdb is the only
+            # time they can be set, so a default that changes in a later image
+            # cannot be applied to a cluster that already exists.
+            - name: POSTGRES_INITDB_ARGS
+              value: "--data-checksums"
+          volumeMounts:
+            # MOUNT THE PARENT, NOT `data`. Postgres 18's image moved both of
+            # these: PGDATA went from /var/lib/postgresql/data to
+            # /var/lib/postgresql/18/docker, and the volume from the former to
+            # /var/lib/postgresql. Mounting the pre-18 path here would leave the
+            # real data directory on the container's writable layer -- the
+            # database comes up, accepts writes, passes every probe, and loses
+            # the lot on restart. There is no error to notice.
+            - name: pgdata
+              mountPath: /var/lib/postgresql
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
+          # pg_isready -- not a TCP check. The postmaster accepts connections
+          # while still recovering and refuses queries; a port probe calls that
+          # ready and sends a writer at a database that will reject it.
+          readinessProbe:
+            exec:
+              command: [pg_isready, -U, postgres, -d, chuggy, -h, 127.0.0.1]
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: [pg_isready, -U, postgres, -d, chuggy, -h, 127.0.0.1]
+            # Recovery after an unclean stop can outlast a short probe budget,
+            # and a liveness kill mid-recovery restarts the recovery. Slack here
+            # is deliberate.
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+  volumeClaimTemplates:
+    - metadata:
+        name: pgdata
+        namespace: chuggy
+      spec:
+        storageClassName: local-path
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests: { storage: 20Gi }
+---
+# Headless: the StatefulSet's stable identity comes from this service's name, and
+# a single-instance database has no load to balance. Clients use
+# postgres.chuggy.svc.cluster.local.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: chuggy
+  labels: { app: postgres }
+spec:
+  clusterIP: None
+  selector: { app: postgres }
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
