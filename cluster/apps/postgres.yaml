@@ -25,6 +25,11 @@
 # There is no NodePort and no LoadBalancer. The node's firewall was cut to what
 # is needed on purpose, and opening 5432 to the LAN is a NixOS rebuild plus a
 # real exposure -- a forwarded port costs one terminal and expires with it.
+#
+# What may reach it from the pod network is postgres-network-policy.yaml, whose
+# podSelector is the `app: postgres` label below. Relabel the StatefulSet and
+# the boundary silently disappears: a NetworkPolicy matching no pod isolates
+# nothing and reports no error.
 ---
 # StatefulSet rather than Deployment: a rolling Deployment will briefly run two
 # pods against one volume, and two postmasters over one data directory is how a
