@@ -70,6 +70,17 @@ the durable node using the label below.
 The server carries `chuggy.dev/durable=true`. Spot agents will not, so a
 `nodeSelector` is enough to pin work that must not evaporate.
 
+**Set the hostname before k3s first starts.** A k8s node name is fixed at
+registration, and `networking.hostName` does not take effect on the running system
+during `nixos-rebuild switch` — it writes `/etc/hostname`, which systemd only reads
+at boot. So k3s registers under the *old* kernel hostname, and the next reboot
+registers a *second* node under the new one, leaving a stale `NotReady` entry.
+
+This happened here: the node came up as `nixos` and had to be re-registered as
+`gtr`. If you hit it, `hostnamectl set-hostname <name>`, restart k3s, then
+`kubectl delete node <old-name>`. Trivial on an empty cluster, unpleasant once
+workloads have scheduled.
+
 kubeconfig is written world-readable (`--write-kubeconfig-mode=0644`). That grants
 nothing new: `geoff` already has passwordless sudo, so the admin credential is
 reachable regardless. Revisit if these boxes ever get a second human user.
