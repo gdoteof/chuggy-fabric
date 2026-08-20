@@ -41,12 +41,18 @@ with a different card, so it lives in the host file.
 `nixos-live/` is history, not input. Nothing imports it.
 
 What `cluster/apps/` declares is deliberately less than what the cluster runs.
-The `chuggy-git` and `chuggy-work` namespaces and their contents were applied by
-hand from the [chuggy](https://github.com/kasofsk/chuggy) repo as deployment
-rehearsal fixtures — transient by intent, so declaring them here would commit
-Flux to maintaining state the rehearsal means to tear down. The
-[ownership label](#verified) is how to tell a fixture apart from something that
-belongs here and is missing.
+The `chuggy-git` and `chuggy-work` namespaces were bootstrapped by hand from the
+[chuggy](https://github.com/kasofsk/chuggy) repo as deployment rehearsal
+fixtures — transient by intent, so declaring them here would commit Flux to
+maintaining state the rehearsal means to tear down.
+
+One of those fixtures is a **second Flux control loop**, which is why the
+[ownership label](#verified) has to be read by value rather than by presence.
+`Kustomization/rig` in `chuggy-git` follows an in-cluster git server and
+reconciles a ConfigMap beside it every minute, so that object carries
+`kustomize.toolkit.fluxcd.io/name: rig` — Flux-managed, and no business of this
+repo. What this repo owns is `name: apps` in `namespace: flux-system`. Anything
+else, labelled or not, came from somewhere that is not `cluster/apps/`.
 
 ## Workflow
 
