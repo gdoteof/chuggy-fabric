@@ -1,4 +1,4 @@
-# nixconfigs — k3s nodes for the chuggy fabric
+# chuggy-fabric — k3s nodes for the chuggy fabric
 
 NixOS configuration for repurposed mini PCs acting as the build and run target for
 [chuggy](https://github.com/kasofsk/chuggy), so development doesn't need paid cloud
@@ -45,10 +45,10 @@ with a different card, so it lives in the host file.
 The box is not the source of truth. Push and build:
 
     rsync -a --delete --exclude nixos-live --exclude .git \
-      ~/claude/nixconfigs/ geoff@192.168.0.114:/home/geoff/nixconfigs-test/
+      ~/claude/chuggy-fabric/ geoff@192.168.0.114:/home/geoff/fabric-test/
 
     ssh geoff@192.168.0.114 \
-      'cd nixconfigs-test && nixos-rebuild build --flake .#gtr'
+      'cd fabric-test && nixos-rebuild build --flake .#gtr'
 
 | Command | Effect |
 |---|---|
