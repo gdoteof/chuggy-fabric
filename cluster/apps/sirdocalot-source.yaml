@@ -1,0 +1,34 @@
+# The second Flux loop this README anticipates: app manifests followed from the
+# app's own repo, so a change to sirdocalot's Deployment reconciles without a
+# commit here.
+#
+# This replaces a copy of that manifest which sat in this directory while the app
+# repo had no remote. The namespace it runs in stays here -- see
+# sirdocalot-namespace.yaml for why.
+#
+# The repo is public, so there is no secretRef, for the same reason gotk-sync.yaml
+# has none.
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: sirdocalot
+  namespace: flux-system
+spec:
+  interval: 5m
+  url: https://github.com/gdoteof/sirdocalot
+  ref:
+    branch: main
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: sirdocalot
+  namespace: flux-system
+spec:
+  interval: 5m
+  path: ./deploy
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: sirdocalot

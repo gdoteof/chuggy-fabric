@@ -1,0 +1,17 @@
+# The namespace, and by implication the Secret inside it.
+#
+# Both stay here rather than moving to the app repo with the workload. The Secret
+# is created out of band -- it cannot live in a public repo -- and whichever
+# Kustomization owns the Namespace deletes the Secret with it the first time that
+# path changes. Namespace and credentials are created together and are owned
+# together; the app repo owns the Deployment, Service and Ingress.
+#
+#   kubectl create secret generic sirdocalot -n sirdocalot \
+#     --from-literal=agent-key=$(openssl rand -hex 24) \
+#     --from-literal=token-secret=$(openssl rand -hex 32) \
+#     --from-literal=database-url='postgres://sirdocalot:<pw>@postgres.chuggy.svc.cluster.local:5432/sirdocalot'
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sirdocalot
