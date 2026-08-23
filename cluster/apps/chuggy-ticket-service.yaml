@@ -45,12 +45,31 @@
 # `$(NAME)` anywhere in an env value, JSON included, so the password still
 # arrives from the Secret and the shape of the connection is still public.
 #
-# A PASSWORD WITH A URL-RESERVED CHARACTER IN IT BREAKS THIS. `@`, `/`, `?` or
-# `#` in the generated password ends the userinfo early and the connection goes
-# somewhere else -- or nowhere -- with an error that names neither this file nor
-# the password. The generator is the machine layer's and hex is what it emits;
-# this is the constraint that rests on that, and it is stated here because no
-# check enforces it.
+# A PASSWORD LANDS INSIDE A URL INSIDE A JSON STRING, AND EACH LAYER HAS ITS OWN
+# FORBIDDEN SET. Written outwards, which is the order the value is read in and
+# the order the failures arrive in:
+#
+#   `"` and `\` break the JSON first, and break it loudly -- the parse refuses
+#   the document and the diagnostic points at this manifest.
+#
+#   `@`, `/`, `?`, `#`, `[` and `]` end the userinfo early, so the connection
+#   goes somewhere else, or nowhere, with an error naming neither this file nor
+#   the password.
+#
+#   `%` is the quiet one. `pg-connection-string` percent-decodes the userinfo,
+#   so `%41` authenticates as a string the Secret does not hold and the server
+#   only says the password is wrong, while `%zz` throws `URI malformed` from a
+#   stack with nothing about a credential in it.
+#
+#   `$` never reaches any of them: the kubelet expands `$(NAME)` in this value,
+#   so a `$(` inside a password is substituted or left verbatim by the same rule
+#   that puts the password here at all.
+#
+# The generator is the machine layer's and hex is what it emits, which satisfies
+# every line above at once. This is the constraint that rests on that, and it is
+# stated here because no check enforces it. THE SAME CONSTRAINT BINDS EVERY
+# VALUE THAT ARRIVES THIS WAY, credential or not: chuggy-selector.yaml expands
+# two hand-written bearer tokens into a JSON document exactly like this one.
 #
 # ------------------------------------------------------ the configuration ----
 #

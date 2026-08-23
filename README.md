@@ -427,15 +427,37 @@ the image it applies it from.
 the tag makes a re-tag a new object, but when the tag has not changed there is
 nothing for Flux to re-create: it re-applies an identical `Failed` Job every
 five minutes, the API server accepts it as unchanged, and the migration never
-runs again. The Kustomization stays green throughout, because the object on the
-cluster is the object git declares. Read the pod, fix the cause, then delete the
-Job so the next reconcile builds it afresh:
+runs again.
+
+**The Kustomization reports it.** `wait: true` health-checks every object this
+directory applies, and kstatus reads a `Failed` Job as failed, so `flux get
+kustomization apps` goes `Ready=False` with the Job among the objects its
+message names. That is the loudest signal this repo has, and it is quieter than
+it sounds: Alertmanager is off and `notification-controller` is not installed,
+so nothing routes it anywhere, and — see [what does not work
+yet](#what-does-not-work-yet-and-why) — `apps` is already `Ready=False` for four
+Deployments that never reach an available replica. Read the message, not the
+bit.
+
+Read the pod, fix the cause, then delete the Job so the next reconcile builds it
+afresh:
 
     kubectl -n chuggy logs job/chuggy-migrate-<tag>
     kubectl -n chuggy delete job chuggy-migrate-<tag>
 
+**On this rig today the cause is a role membership, and the delete alone will
+not fix it.** Migration 17 grants EXECUTE on a function `chuggy_boundary_owner`
+owns; `chuggy_owner` — the role the Job connects as — is not a member of that
+role and holds no privilege on the function at all, which is the case PostgreSQL
+answers with an *error* rather than with the warning it gives a grantor who
+holds some privilege without grant option. The runner applies every pending
+version in one transaction, so nothing commits and the ledger does not move.
+Prerequisite 1 below is what fixes it; then delete the Job.
+
 An image the node does not hold is not this case — that pod waits in
 `ImagePullBackOff` with the Job still active, and importing the image is enough.
+The Job carries no `activeDeadlineSeconds`, which is the same decision: a
+deadline would turn that wait into the terminal `Failed` state above.
 
 The image is `chuggy.invalid/api:<tag>`, which already contains every command —
 its Dockerfile copies the whole source tree and sets a default command of the
@@ -448,45 +470,85 @@ report an unmet precondition by name and exit; the kubelet restarts them. A
 process that is alive and making no progress is therefore invisible to
 Kubernetes, and closing that needs a health listener in chuggy itself.
 
+### The network boundary around them
+
+`cluster/apps/chuggy-control-plane-network-policy.yaml` holds seven
+NetworkPolicies: one that admits nothing to the five pods with no listener, one
+that admits the API from Traefik and from the selector alone, and five egress
+rules that each state completely where one workload may go. The widest is the
+scheduler's, which needs the Kubernetes API server at an address that is a DHCP
+lease, so it permits everything but the pod and service networks; the file
+argues why and what would narrow it.
+
+**`chuggy-api` has no egress rule, deliberately.** It is the only one of these
+the internet reaches, and it leaves the cluster for OIDC discovery against
+`auth.vteng.io`, so a rule that got its destinations wrong would be an outage on
+the one thing that works — and nothing here can rehearse it before it lands.
+The issuer is where the pod is pointed, not where it is confined.
+
+**No probe has been run through any of these.** They were built against the API
+server and their selectors checked against the labels the cluster carries, but
+none has been applied to the running rig. Two are worth watching on the first
+reconcile: the ingress rule on `chuggy-api`, the only one standing in front of
+something that already works, and the egress rule on `chuggy-migrate`, standing
+in front of the one thing that has to work before anything else does.
+
 ### Before any of it runs
 
 Six things, none of which a manifest can do, and each argued in the file that
-needs it:
+needs it. **The first two are ordered, and the order is not enforceable from
+here**: Flux applies `cluster/apps/` as one set on the reconcile after the
+merge, so anything a human must do to the database or the image store has to be
+done *before* that merge, not after it.
 
-1. **Build and import an image** from a chuggy commit carrying
-   [kasofsk/chuggy#242](https://github.com/kasofsk/chuggy/pull/242), and set the
-   six tags to it. Without that PR there are no login roles for three of the
-   processes and no migration command at all.
-2. **Create the host directory** the artifact volume binds, owned `1000:1000`.
+1. **Re-run `postgres-roles.sql`** from a chuggy commit carrying
+   [kasofsk/chuggy#242](https://github.com/kasofsk/chuggy/pull/242), against
+   `chuggy_rehearsal`. It is not optional and it is not a subset of anything
+   below. It creates the three roles this rig is missing, grants
+   `chuggy_selector_review` to `chuggy_api_login` — without which the API
+   refuses to listen — and grants `chuggy_boundary_owner` to `chuggy_owner`,
+   without which **the migration Job fails terminally** on migration 17 and a
+   re-run of the Job fails identically.
+2. **Build and import an image** from that same commit, and set the six tags to
+   it. `chuggy.invalid` resolves nowhere, so a tag this node does not hold is a
+   pod that never starts. That includes `chuggy-api`, which is serving traffic
+   today on a different tag: at `replicas: 1` a `RollingUpdate` keeps the old
+   pod until the new one is ready, so the rollout stalls rather than the API
+   going down — a property of the arithmetic, not a guarantee anyone wrote.
+3. **Create the host directory** the artifact volume binds, owned `1000:1000`.
    Its path is an option of the machine layer.
-3. **Synchronize `chuggy-postgres-credentials`** with one key per login role.
+4. **Synchronize `chuggy-postgres-credentials`** with one key per login role.
    The host generates them; the four keys past `owner-password` and
-   `api-password` arrive with #242's roles file.
-4. **Create `chuggy-selector` and `chuggy-finalizer-credentials`** by hand — the
+   `api-password` are for login roles step 1 creates.
+5. **Create `chuggy-selector` and `chuggy-finalizer-credentials`** by hand — the
    selector's two bearer tokens and the finalizer's git credential. Values never
-   go in this repository; it is public.
-5. **`GRANT chuggy_selector_review TO chuggy_api_login`.** No migration and no
-   roles file does it, and the API refuses to listen without it.
+   go in this repository; it is public. Neither Secret exists today, so both
+   pods sit in `CreateContainerConfigError` until they do.
 6. **Insert the first recovery epoch.** The table is created empty and the
    scheduler and the finalizer both fence against its newest row.
 
 ### What does not work yet, and why
 
-- **The finalizer cannot start.** Its first precondition runs `git --version`,
+- **The selector and the finalizer do not run at all.** Their Secrets do not
+  exist on this rig, so the kubelet cannot build either container and both pods
+  sit in `CreateContainerConfigError` having executed nothing. That is
+  prerequisite 5, and it comes before either failure below.
+- **The finalizer's first precondition then fails.** It runs `git --version`,
   and the image's base — `node:26.7.0-trixie-slim` — has no git. Verified by
   running it. The fix is in the Dockerfile, in chuggy's repository.
-- **The selector cannot start.** It needs a trusted selector policy service, and
-  no server implements that protocol anywhere. Its API token is also a static
-  string against an issuer that signs short-lived tokens, so even with a policy
-  host it would authenticate for one token lifetime.
+- **The selector's would too.** It needs a trusted selector policy service, and
+  no server implements that protocol anywhere — but `selector-source` is ordered
+  ahead of `selector-policy`, and its API token is a static string against an
+  issuer that signs short-lived ones, so that is the name a run reports first.
 - **The scheduler starts and places nothing.** Its credential may read one
   namespace and may not create a pod there. The worker namespace, its RBAC, the
   image allowlist and the resource budgets are the next stage's.
 
-Each of those is a `CouldNotRun` reported by name in the pod's log, which is the
-shape this design asks for — but it also means `flux get kustomization apps`
+The last three are a `CouldNotRun` reported by name in the pod's log, which is
+the shape this design asks for — but it also means `flux get kustomization apps`
 reports NotReady until they clear, because a Deployment that never has an
-available replica never passes the `wait`.
+available replica never passes the `wait`. That is why a failed migration Job
+adds a line to a list rather than raising a flag.
 
 ### Storage, and what it does and does not survive
 

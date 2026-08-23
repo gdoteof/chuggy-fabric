@@ -31,6 +31,25 @@
 # would this one after its image store is reset. That is the price of no
 # registry and it is paid knowingly on a single-node rig.
 #
+# MERGING THIS BEFORE THE IMPORT RE-POINTS A WORKING API AT A TAG THIS NODE DOES
+# NOT HOLD. `k3s ctr images ls` has 85c36c8, ac02043 and cbf8dcc; the API
+# serving traffic right now is on ac02043, and the tag below is none of them.
+#
+# WHAT SAVES IT IS THE ROLLOUT STRATEGY, WHICH IS A DEFAULT AND NOT A DECISION
+# ANYONE MADE HERE. `RollingUpdate` at `replicas: 1` computes `maxUnavailable`
+# by rounding 25% down, which is zero, so the new pod is created first and the
+# old one is not touched until it is ready. The new pod never is -- it sits in
+# `ImagePullBackOff` -- so the old pod keeps serving and the console behind it
+# keeps working. The rollout simply stalls, `apps` goes `Ready=False`, and the
+# migration Job waits in the same state.
+#
+# THAT IS A NARROW ESCAPE AND NOT A SAFETY PROPERTY. It holds because one
+# replica rounds that way; a second replica, or a `Recreate` strategy, and the
+# same merge is an outage. Nothing in this file asks for either, and nothing in
+# this file would stop someone adding one. Import the image before the merge,
+# which is why the README lists it second -- behind the roles file, and ahead of
+# everything that can be done after the fact.
+#
 # -------------------------------------------------- the database, and role ----
 #
 # The API asserts at start-up that `current_user` is `chuggy_api` and refuses to
@@ -55,19 +74,28 @@
 # that role. It is a separate least-authority credential rather than a widening
 # of `chuggy_api`, which is why it is a second URL and not a second query.
 #
-# THE GRANT THAT MAKES IT WORK IS NOT IN ANY MIGRATION AND NOT IN #242. The
+# THE GRANT THAT MAKES IT WORK IS IN NO MIGRATION AND IS NOT ON THIS RIG. The
 # migration creates `chuggy_selector_review` NOLOGIN and grants it its two
-# reads; nothing grants the group to a login role, so no credential on this rig
-# can become it. Until kasofsk/chuggy's `deploy/rig/postgres/postgres-roles.sql`
-# carries it, it is an out-of-band statement like the Secrets below:
+# reads; what grants the group to a login role is kasofsk/chuggy's
+# `deploy/rig/postgres/postgres-roles.sql`, and at #242's head that file carries
 #
 #   GRANT chuggy_selector_review TO chuggy_api_login;
 #
-# run as `chuggy_owner`, which holds admin on the role because its own migration
-# created it. What that widens is what `chuggy_api_login` inherits on its
-# ordinary connection -- two more SELECTs, on tables this same process already
-# reads through the other pool. What it buys is that the review reads arrive
-# under a role that can do nothing else.
+# This rig was rolled out from an older copy of that file: `pg_auth_members`
+# shows the role with no members at all, so no credential here can become it and
+# the API refuses to listen.
+#
+# THE REMEDY IS NOT TO RUN THAT ONE STATEMENT BY HAND. Running it closes this
+# gap and leaves the ones beside it -- the same file is what makes
+# `chuggy_owner` a member of `chuggy_boundary_owner`, without which the
+# migration Job fails terminally, and chuggy-migrate.yaml argues that at length.
+# Re-run the whole file from a commit carrying #242, once, before any of this
+# starts.
+#
+# What the grant widens is what `chuggy_api_login` inherits on its ordinary
+# connection -- two more SELECTs, on tables this same process already reads
+# through the other pool. What it buys is that the review reads arrive under a
+# role that can do nothing else.
 #
 # `sslmode` is unset and therefore `prefer`, which this server answers with
 # plaintext because it serves no TLS. Read that as a statement of what is NOT
@@ -185,8 +213,9 @@
 # WHAT NO RULE HERE BOUNDS. Nothing restricts this pod's egress. The namespace
 # has no default-deny, and postgres-denies-egress selects the database and not
 # this, so the API may open a connection to anywhere -- the issuer above is
-# where it is pointed, not where it is confined. The four workloads beside it
-# each carry an egress rule; this one does not, because narrowing the egress of
+# where it is pointed, not where it is confined. Every other pod in this
+# namespace carries an egress rule, the migration Job included; this one does
+# not, because narrowing the egress of
 # the only service the internet reaches is a change whose failure mode is an
 # outage, and nothing in this repository can rehearse it before it lands.
 #

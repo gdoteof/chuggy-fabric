@@ -47,9 +47,20 @@
 # `policy.baseUrl` names a trusted selector policy service. NOTHING SERVES THAT
 # PROTOCOL. kasofsk/chuggy defines the client and the media type in
 # `src/adapters/http/trustedSelectorPolicy.ts` and implements no server for it;
-# no Service in `cluster/apps/` answers it either. The `selector-policy`
-# precondition therefore fails, and the command reports `selector could not run:
-# selector-policy` and exits 3.
+# no Service in `cluster/apps/` answers it either. So the `selector-policy`
+# precondition cannot pass, and it is the one this workload is ultimately
+# blocked on.
+#
+# IT IS NOT THE ONE THAT FAILS FIRST, AND IT IS NOT THE FIRST THING TO GO WRONG.
+# `selectorCommandPreconditions` orders `selector-source` ahead of it, so that
+# is the name a run reports first if the API does not accept the source token --
+# and this file already argues that the token is a static string against an
+# issuer that signs short-lived ones. And no run gets that far today: neither
+# Secret named below exists on this rig, so the kubelet
+# cannot build the container and the pod sits in `CreateContainerConfigError`
+# having executed nothing. Three failures deep, and the one this section is
+# about is the last of them. Create the Secrets and the report moves to
+# `selector-source`; fix the token and it moves here.
 #
 # The name below is what that Service will be called when it exists. It is a
 # name that does not resolve today, which is the loud failure rather than the
@@ -68,6 +79,18 @@
 #
 # A `secretKeyRef` naming a key that is not there refuses to start the pod,
 # which is the right failure: a selector with no credential should not run.
+#
+# BOTH TOKENS ARE HAND-WRITTEN AND BOTH LAND IN A JSON STRING, so both carry the
+# constraint chuggy-ticket-service.yaml states in full. Two lines of it bite
+# here and the URL ones do not, because a token is not in a userinfo: a `"` or a
+# `\` in either value makes the configuration below unparseable, and a `$(` is
+# expanded by the kubelet before the process ever reads it. The database
+# password in the same document carries the whole list.
+#
+# That is worth stating for a token more than for a password, because nothing
+# generates these. The password comes from the machine layer's hex generator;
+# these two are typed by whoever runs the command above. A base64 or JWT-shaped
+# value is safe on both counts. A passphrase somebody invents is not.
 ---
 apiVersion: apps/v1
 kind: Deployment

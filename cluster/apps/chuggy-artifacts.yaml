@@ -34,11 +34,14 @@
 # volume in it is placement-sensitive.
 #
 # BUT WAIT FOR THE CONSUMER IS NOT WHAT DELAYS THIS CLAIM, AND SAYING SO WOULD
-# BE FALSE. The claim below names its volume, and the binder takes the
-# pre-bound path whenever `spec.volumeName` is set -- `shouldDelayBinding`
-# short-circuits on it -- so this claim binds as soon as the volume is
-# `Available`, before any pod is scheduled. What keeps the pod on the right box
-# is the volume's own `nodeAffinity`, which the scheduler honours either way.
+# BE FALSE. The claim below names its volume, which makes it PRE-BOUND, and
+# both binders branch on that before they ever reach the class: the PV
+# controller's unbound-claim path takes the pre-bound branch when
+# `spec.volumeName` is set, and the scheduler's volume binder treats a
+# pre-bound claim as immediate binding rather than as one to hold for a pod. So
+# this claim binds as soon as the volume is `Available`, before any pod is
+# scheduled. What keeps the pod on the right box is the volume's own
+# `nodeAffinity`, which the scheduler honours either way.
 #
 # The mode is still correct and still declared, because it is the class's
 # property rather than this claim's: a second volume in it, claimed without a

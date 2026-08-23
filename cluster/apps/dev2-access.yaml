@@ -20,6 +20,15 @@
 # past this namespace unless admission stops it. The Namespace below carries
 # the labels that stop it, and says why they belong to more than this file.
 #
+# WHAT ADMISSION DOES NOT STOP IS THE ARTIFACT STORE. Baseline refuses a
+# `hostPath` volume and says nothing whatever about a PVC -- so a pod created
+# here may mount `chuggy-artifacts`, which is a `local` volume over a directory
+# on the node, and read and write it. That is a host directory reached without a
+# `hostPath`, through a claim `edit` already covers. It is modest beside the
+# postgres-0 exec above -- one directory, not the identity store -- but it is
+# the second host resource this grant reaches, and it is named here because
+# nothing else would name it. chuggy-artifacts.yaml argues the directory.
+#
 # Identity is a ServiceAccount, not an x509 client certificate. The API server
 # has no CRL support, so an issued client cert cannot be revoked short of
 # rotating the cluster CA -- whereas deleting this ServiceAccount invalidates

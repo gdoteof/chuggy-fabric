@@ -51,8 +51,10 @@
 # Read-write here and read-only in chuggy-api.yaml, which is the whole
 # asymmetry: this process is the producer and the API is the reader. Both mount
 # the claim in chuggy-artifacts.yaml, whose volume is `Retain` over a host
-# directory, so what this writes survives this pod, this Deployment, and the
-# node's next boot.
+# directory -- which is the ARGUMENT that what this writes outlives this pod,
+# this Deployment and the node's next boot, and not the evidence. Nothing has
+# replaced this pod and read the bytes back through the API, and nothing has
+# rebooted the box. The README says the same and says what would settle it.
 #
 # `artifact-root-writable` is a precondition rather than a runtime error, so a
 # volume that failed to mount is reported before anything is promoted.
@@ -119,10 +121,20 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         runAsGroup: 1000
-        # The artifact volume is a host directory owned 1000:1000 by the machine
-        # layer, so nothing needs to change its ownership and no fsGroup is set.
-        # Setting one would make the kubelet walk and chgrp the whole store on
-        # every pod start, which grows with the data.
+        # No fsGroup, because the artifact volume is a host directory the
+        # machine layer already owns 1000:1000 -- the uid and gid below. An
+        # fsGroup would be a second declaration of an ownership that is stated
+        # once, in the layer that creates the directory, and two statements of
+        # one fact is how they come to disagree.
+        #
+        # THE COST ARGUMENT FOR OMITTING IT DOES NOT HOLD, and it is worth
+        # saying so rather than leaving it standing. `fsGroupChangePolicy:
+        # OnRootMismatch` has been GA since 1.23 and is unrestricted under
+        # baseline; it skips the recursive walk whenever the top-level ownership
+        # already matches, which on this directory is every start after the
+        # first. So the choice is not bought by avoiding a chgrp of a growing
+        # store. What it is bought by is the Secret mode below, which is the
+        # only thing an fsGroup would change here.
       containers:
         - name: finalizer
           image: chuggy.invalid/api:3411172
@@ -174,6 +186,18 @@ spec:
             # that is not the artifact store, which git has no business in.
             - name: HOME
               value: /var/lib/chuggy/git
+            # AND THE SAME ARGUMENT REACHES ONE MORE VARIABLE. `TMPDIR` is in
+            # `finalizerGitEnvironmentNames` -- the allowlist a git child
+            # inherits -- so the command's own contract says git may be handed
+            # one, and with `readOnlyRootFilesystem: true` and no /tmp mount the
+            # default `/tmp` is not writable. git falls back to it for the
+            # temporaries a fetch and a pack build, so leaving this unset is
+            # leaving one of the two writable-path variables pointed at a path
+            # that is not. Pointing it at the same scratch closes it; the
+            # scratch is an emptyDir, so a temporary that outlives a promotion
+            # does not outlive the pod.
+            - name: TMPDIR
+              value: /var/lib/chuggy/git
             # Every pass bound the finalizer decides under is left to the
             # defaults its own module publishes, for the reason
             # chuggy-ticket-service.yaml gives about restating a default.
@@ -223,7 +247,15 @@ spec:
             #
             # What the world bit costs is bounded by the mount namespace it is
             # in: one container, running one process, which is the process the
-            # file is for. The alternative is an `fsGroup`, which buys `0440`
-            # and charges a recursive chgrp of the artifact store on every pod
-            # start.
+            # file is for. There is no second uid in this pod to read it.
+            #
+            # THE ALTERNATIVE IS AN `fsGroup`, AND IT IS CHEAPER THAN AN EARLIER
+            # DRAFT OF THIS FILE CLAIMED. `fsGroup: 1000` with
+            # `fsGroupChangePolicy: OnRootMismatch` would put this file in group
+            # 1000 and buy `0440`, and it would not walk the artifact store
+            # after the first start, because that directory's top-level
+            # ownership already matches. So the choice between them is not a
+            # performance one. It is that an fsGroup restates the ownership the
+            # machine layer declares -- see the pod securityContext above -- to
+            # remove a world bit from one file in a pod with one uid in it.
             defaultMode: 0444

@@ -1,5 +1,5 @@
-# The network boundary around the five control-plane processes, declared here
-# because they are.
+# The network boundary around the control-plane pods: the five processes and the
+# migration Job, declared here because they are.
 #
 # postgres-network-policy.yaml bounds what may reach the database. This is the
 # other direction and the other end: what may reach these processes, and where
@@ -11,17 +11,31 @@
 # postgres-network-policy.yaml -- `kubectl exec`, `kubectl port-forward` and the
 # node's own address all reach a selected pod without crossing anything below,
 # and the third is kube-router's own doing rather than something Kubernetes
-# guarantees. The same three exemptions apply here, and one of them is
-# load-bearing rather than merely true: the kubelet probes chuggy-api from the
-# node, which is why the ingress rule below does not have to admit it.
+# guarantees. Those three are about INGRESS, and one of them is load-bearing
+# rather than merely true: the kubelet probes chuggy-api from the node, which is
+# why the ingress rule below does not have to admit it.
+#
+# NONE OF THE THREE CARRIES OVER TO THE EGRESS OBJECTS, and saying they did
+# would understate what those rules are worth. A process started by `kubectl
+# exec` runs in the pod's own network namespace, so its outbound packets go
+# through the pod's egress chain like any other -- the rule holds against it.
+# `port-forward` opens an inbound path to a listener and these four pods have
+# none, so it is not a way out of them. And kube-router's node-local acceptance
+# is a rule about a packet's SOURCE address, which says nothing about a packet
+# leaving a pod. So an egress rule below is a real bound on what that workload
+# can reach even from a shell inside it, and the ingress exemptions are not a
+# hole in it.
 #
 # THESE POLICIES ARE NOT VERIFIED AGAINST LIVE TRAFFIC. They were built and
 # checked against the API server, and their selectors were checked against the
 # labels the cluster actually carries -- Traefik's, CoreDNS's, PostgreSQL's --
 # but nothing here has been applied to the running rig, so no probe has been run
-# through them. The ingress rule on chuggy-api is the one to watch on the first
-# reconcile: it is the only rule in this file that stands in front of something
-# that already works.
+# through them. Two are worth watching on the first reconcile: the ingress rule
+# on chuggy-api, which is the only rule here that stands in front of something
+# that already works, and the egress rule on chuggy-migrate, which stands in
+# front of something that has to work before anything else does -- and whose
+# failure mode, a database the Job cannot reach, is one chuggy-migrate.yaml
+# reports as a could-not-run rather than as a policy.
 #
 # ---------------------------------------------- what "egress: nothing" means ----
 #
@@ -36,17 +50,19 @@
 # its. The one place that fails is the Kubernetes API server, and that is argued
 # where the scheduler's rule is.
 ---
-# Nothing may open a connection to the four loop processes, because none of them
-# listens. They have no port, no Service and no probe; a rule that admitted
-# anything would be admitting it to a closed port.
+# Nothing may open a connection to the four loop processes or to the migration
+# Job, because none of them listens. They have no port, no Service and no probe;
+# a rule that admitted anything would be admitting it to a closed port.
 #
 # This is the cheapest half of D14's "internal control ports remain
 # cluster-internal": there are no internal control ports, and this is what says
 # so in a form a negative probe can fail against rather than in a comment.
 #
-# The four are named rather than carrying a shared label. A label would have to
-# be added to four pod templates and could be dropped from one of them silently;
-# the list is the record, the same choice as enumerating tunnel hostnames.
+# The five are named rather than carrying a shared label. A label would have to
+# be added to five pod templates and could be dropped from one of them silently;
+# the list is the record, the same choice as enumerating tunnel hostnames. The
+# Job's entry is its `app` label and not its name, which carries the image tag
+# and changes with it.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -62,6 +78,7 @@ spec:
           - chuggy-scheduler
           - chuggy-ticket-service
           - chuggy-finalizer
+          - chuggy-migrate
   # THE ABSENT `ingress:` KEY IS THE RULE. `ingress: [{}]` admits everything and
   # looks almost identical -- do not "complete" this object.
   policyTypes:
@@ -310,3 +327,54 @@ spec:
             except:
               - 10.42.0.0/16
               - 10.43.0.0/16
+---
+# The migration Job, which is the sixth pod in this namespace and was the only
+# one no policy selected.
+#
+# It matters more than its uptime suggests: it is the pod that holds
+# `chuggy_owner`, the one credential here that owns the relations and carries
+# CREATEROLE, and until this rule existed that credential ran in a pod that
+# could open a connection to anything on the pod network, the house LAN or the
+# internet. It lives for a minute at a time, which bounds the window and does
+# not bound the reach.
+#
+# The rule is chuggy-ticket-service-egress with a different selector, because
+# the two pods want the same world: the resolver and the database. The Job
+# mounts no service account token and talks to no API server, and the image is
+# already on the node, so nothing else has to be admitted.
+#
+# It selects by `app`, which the Job's pod template carries and which does NOT
+# change with the tag -- the object's name does. A re-tag makes a new Job and
+# this rule covers it without an edit, which is the property the name
+# deliberately does not have.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-migrate-egress
+  namespace: chuggy
+spec:
+  podSelector:
+    matchLabels:
+      app: chuggy-migrate
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432

@@ -51,8 +51,21 @@
 # run exhausts `backoffLimit` below, this object is `Failed` and stays that
 # way: Flux re-applies a byte-identical Job every five minutes, the API server
 # accepts it as unchanged, and NOTHING RUNS AGAIN. There is no self-healing
-# path and no alert -- `flux get kustomization apps` stays green, because the
-# object it applied is exactly the object it declared.
+# path.
+#
+# THE KUSTOMIZATION DOES NOT STAY GREEN, AND SAYING IT DID WOULD COST THE ONE
+# SIGNAL THERE IS. gotk-sync.yaml sets `wait: true`, which health-checks every
+# object this directory applies with kstatus, and kstatus reads a Job carrying
+# `Failed=True` as failed rather than as merely finished. So `apps` goes
+# `Ready=False` with this Job among the objects its message names, and stays
+# there until a human clears it.
+#
+# WHAT THAT SIGNAL IS WORTH IS LESS THAN IT SOUNDS, for the reason the README's
+# "what does not work yet" gives: four of the five Deployments beside this Job
+# never reach an available replica either, so `apps` is `Ready=False` before it
+# has run at all and a failure here adds a line to a list that is already long.
+# Nothing routes it anywhere -- Alertmanager is off and notification-controller
+# is not installed -- so it is read by looking. Read the message, not the bit.
 #
 # The recovery is to read the pod, fix the cause, and delete the Job so the
 # next reconcile builds it afresh:
@@ -60,14 +73,52 @@
 #   kubectl -n chuggy logs job/chuggy-migrate-<tag>
 #   kubectl -n chuggy delete job chuggy-migrate-<tag>
 #
-# This is a live possibility rather than a theoretical one: the rig's database
-# is behind the ledger this image declares, and `migrate.ts` exits 2 -- a
-# could-not-run, not a failure to retry -- when the applied ledger is not a
-# prefix of that. An exit 2 twice lands exactly here.
+# THIS IS WHERE THIS RIG LANDS TODAY, and the cause is a role membership rather
+# than anything about the schema. Migration 17 of the image below is
+# `GRANT EXECUTE ON FUNCTION project_capacity_account(text,text) TO chuggy_api`.
+# On this rig that function is owned by `chuggy_boundary_owner`, `chuggy_owner`
+# -- the role this Job connects as -- is not a member of that role, and the
+# function's ACL grants `chuggy_owner` nothing: an earlier migration revoked
+# EXECUTE from PUBLIC, so the only entries are the owner's and the ticket
+# service's.
+#
+# THAT LAST DETAIL IS WHAT DECIDES ERROR VERSUS WARNING, and the difference
+# matters because one of them is silent. PostgreSQL raises `ERROR: permission
+# denied for <object>` when the granting role holds NO privilege on the object
+# at all, and downgrades to `WARNING: no privileges were granted` only when it
+# holds some without grant option. Here it holds none, so this is the error --
+# and the runner applies every pending version in ONE transaction, so it rolls
+# migration 16 back with it, `migrate.ts` exits 1 having applied nothing, and
+# the second attempt does the same. Loud, and nothing committed.
+#
+# HAD PUBLIC KEPT ITS DEFAULT EXECUTE, this would have been the warning instead:
+# the statement would have succeeded granting nothing, the ledger row beside it
+# would have committed, and the API's selector-context reads would fail at
+# runtime against a database reporting version 17. The revoke is what turns
+# that into a failure someone finds. It is not there for this reason and it does
+# this anyway, which is worth knowing before anyone relaxes it.
+#
+# WHAT FIXES IT IS NOT A RE-RUN OF THIS JOB. Deleting it re-runs a migration
+# that fails identically. `GRANT chuggy_boundary_owner TO chuggy_owner` is what
+# makes the statement legal, kasofsk/chuggy#242's
+# `deploy/rig/postgres/postgres-roles.sql` carries it, and re-running that file
+# against this database is a prerequisite this Job cannot express: it is applied
+# on the first reconcile after the tag lands, and the roles file is run by a
+# human against the server. The ordering is in the README's "Before any of it
+# runs" and nowhere else, because there is nowhere else it could be.
+#
+# The consolation is that nothing commits. The ledger stays where it was, so
+# the roles file and then a `kubectl delete job` is the whole recovery, in that
+# order.
 #
 # An image that is simply absent from the node does NOT land here. That pod
 # sits in `ImagePullBackOff` and the Job stays `Active`, so importing the image
-# is enough and nothing needs deleting.
+# is enough and nothing needs deleting. THAT AND THE ABSENT
+# `activeDeadlineSeconds` ARE ONE DECISION, not two: a deadline ends a Job by
+# the wall clock whatever its pod is doing, so it would turn that wait into the
+# terminal `Failed` state above for a cause a `ctr images import` clears on its
+# own. What it costs is that a migration wedged on a lock waits forever, which
+# is the trade a single-node rig with one operator can make.
 #
 # ----------------------------------------------------------- the credential ----
 #
@@ -79,6 +130,15 @@
 # It holds CREATEROLE, which is what lets the migration create its own group
 # roles. That is not superuser, and kasofsk/chuggy's `deploy/rig/postgres/postgres-roles.sql`
 # carries the argument for why the difference is load-bearing.
+#
+# OWNING THE RELATIONS IS NOT ENOUGH ON ITS OWN. Part of what the schema
+# declares is owned by `chuggy_boundary_owner` rather than by this role -- that
+# is the separation the boundary functions exist for -- so a migration statement
+# that grants on one of them is granting on an object this credential neither
+# owns nor holds grant option for. What makes those statements legal is
+# MEMBERSHIP in that role, which the roles file grants and which this Job cannot
+# grant itself. A database rolled out before the file carried it is the terminal
+# failure argued above.
 #
 # The database is `chuggy_rehearsal` for the reason chuggy-api.yaml gives at
 # length. All six objects in this namespace that hold a chuggy role name the
