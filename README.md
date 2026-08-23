@@ -14,7 +14,7 @@ only by their own directory.
 
 ## Layout
 
-    flake.nix                       one nixosConfiguration per host
+    flake.nix                       one nixosConfiguration per host, and the checks
     flake.lock                      the pin — commit every change to it
 
     modules/common.nix              identity, access, packages, nix settings
@@ -22,14 +22,23 @@ only by their own directory.
     modules/wireguard.nix           the mesh, with chuggy.wireguard.* options
     modules/k3s-server.nix          the cluster role, with chuggy.k3s.* options
 
-    modules/cloudflare-tunnel.nix   public ingress, with chuggy.tunnel.* options
-    modules/flux.nix                bootstraps Flux from the machine layer
+    modules/chuggy-state.nix        retained host directories, chuggy.state.*
+    modules/chuggy-secrets.nix      generated credentials, chuggy.secrets.*
+    modules/chuggy-images.nix       registry-free image delivery, chuggy.images.*
+    modules/chuggy-work.nix         what one task may cost, chuggy.work.*
 
-    cluster/flux-system/            Flux install + what repo it follows
+    modules/cloudflare-tunnel.nix   public ingress, with chuggy.tunnel.* options
+    modules/ddns.nix                the mesh endpoint's A record, chuggy.ddns.*
+    modules/flux.nix                bootstraps Flux, chuggy.flux.*
+
+    cluster/flux-system/            the vendored Flux install
     cluster/apps/                   the cluster state this repo declares
 
     hosts/gtr/default.nix           geoff's Beelink GTR: hostname, radios, mesh, k3s, tunnel
     hosts/gtr/hardware-configuration.nix
+    hosts/example/                  a second host that holds nothing of gtr's
+
+    tests/substrate.nix             boots the substrate and checks what it kept
 
     nixos-live/                     the original /etc/nixos, captured verbatim
 
@@ -69,6 +78,16 @@ sitting on it. Two loops, and keeping them apart is the point.
 
 `build` and `test` are what that copy is for. Delete it when you are done — it is
 scratch, not a checkout.
+
+**Checking** — from the workstation, no box involved:
+
+    nix flake check
+
+Builds both hosts, proves that a host omitting a required input is refused, and
+boots the substrate in a VM to check what it keeps. The VM test wants
+`/dev/kvm`. What it does **not** do is start k3s, so it says nothing about the
+firewall rules, the auto-deploy ordering, the image import or Flux; those still
+need a box.
 
 **Landing** — commit, push, and build the commit, not a copy of it:
 
@@ -150,6 +169,145 @@ kubeconfig is written world-readable (`--write-kubeconfig-mode=0644`). That gran
 nothing new: `geoff` already has passwordless sudo, so the admin credential is
 reachable regardless. Revisit if these boxes ever get a second human user.
 
+### The API is no longer open to everything the box can see
+
+`chuggy.k3s.apiAllowedSources` names the ranges 6443 and 8472/udp are reachable
+from. Neither port is in `allowedTCPPorts` any more, because a port in that list
+is open on every network the machine has an address on.
+
+The pod range is added to the rule automatically, and taking it out is the
+mistake to know about. A pod reaching the `kubernetes` service is DNAT'd to this
+node's own address on 6443, so its packets arrive at the host firewall carrying
+a **pod** source address — DNAT rewrites the destination, not the source. Leave
+that range out and Flux, and everything else in the cluster, loses the API at
+the next activation. It presents as a broken cluster, not as a firewall rule.
+
+The rules are `iptables` appended into `nixos-fw`, because the NixOS firewall
+has no per-source form of `allowedTCPPorts`. That ties them to the iptables
+backend; nixpkgs refuses the configuration outright under nftables rather than
+applying nothing, which is the right failure — silently applying nothing would
+leave both ports closed and the cluster unreachable.
+
+## What an adopting machine has to say
+
+Some inputs have no default that is safe to guess, and a host that omits one
+does not evaluate. The refusal is the point: the alternative is a second box
+that builds clean and is not actually supported.
+
+| Input | Module | What a guess would cost |
+|---|---|---|
+| `chuggy.k3s.apiAllowedSources` | `k3s-server.nix` | the safe guess refuses the workstation; the convenient one is every network the box can see |
+| `chuggy.state.artifacts.path` | `chuggy-state.nix` | durable data on whichever filesystem happened to have room |
+| `chuggy.work.worker.cpu`, `.memory`, `.ephemeralStorage` | `chuggy-work.nix` | one task starves the control plane, or cannot finish — neither looks like a missing setting |
+| `chuggy.flux.repositoryUrl` | `flux.nix` | Flux installed and following nothing, reporting no error |
+
+`hosts/example/` answers all of them for a machine that is not gtr, and
+`nix flake check` builds it. Each refusal has its own check beside it, which is
+the half that matters: a module that quietly grew a default would still
+evaluate, and the check is what notices.
+
+### What is deliberately not an input
+
+**TLS certificate and key paths.** The design calls for the adopting machine to
+supply them and for the module to check the material is there before exposing
+ingress. Nothing here would read them: on this rig TLS terminates at the
+Cloudflare edge, and a host that turns the tunnel off has no TLS terminator at
+all. An option nothing reads is a claim the tree cannot keep, so there is none —
+which means a host without the tunnel serves its API in plaintext on its LAN and
+mesh, and that is a real gap rather than a deferred one.
+
+**What a task may cost is stated but not yet spent.** `chuggy.work.*` refuses a
+host that has not decided, and nothing on the machine reads the numbers: worker
+admission, requests, limits and the workspace bound are Kubernetes objects, and
+Kubernetes objects are cluster state. Carrying them into an object nothing
+mounts would look like the work was done.
+
+### Retained state
+
+`modules/chuggy-state.nix` creates the directories chuggy's data lives in and
+sets their ownership. It does **not** create the PersistentVolume that binds one
+into the cluster — that object is cluster state and lives in `cluster/apps/`.
+This is the one resource the two layers both touch: NixOS owns the bytes on
+disk, Flux owns the object that names them. They have to name the same path and
+nothing checks that they do; a mismatch mounts an empty directory and reports
+healthy.
+
+What preserves these across a rebuild and a reboot is `systemd-tmpfiles` `d`,
+which creates a directory when it is absent and adjusts its mode and owner when
+it is not. It never touches contents. `D` would empty it on every boot.
+
+The artifacts directory is owned by a numeric uid matching the pods that read
+and write it, and on a NixOS host that uid is also the first normal user — here,
+the human with a shell. That human can therefore read and write artifacts.
+Deliberate, since they already have passwordless sudo, but it is a consequence
+of matching the container's uid and a box with a second human user should move
+it.
+
+### Generated credentials
+
+PostgreSQL role passwords and the API's idempotency keying material are
+generated once on the host, under a root-only directory outside the Nix store,
+and synchronised into Kubernetes Secrets in the `chuggy` namespace.
+
+**Nothing overwrites a value** — not the host files, not the Secret keys. A key
+already in the cluster is left alone and copied *back* into host state if this
+host has no record of it. That asymmetry is not caution for its own sake. A
+PostgreSQL password is two facts that have to agree: a string in a Secret, and a
+string PostgreSQL was told to accept for a role. Only the first is here. A sync
+that wrote a fresh password over the Secret would change one and not the other,
+and the running API would be locked out of its own database by a rebuild that
+reported success.
+
+**The other half is not automatic, and the gap is real.** A password this
+generates authenticates nothing until PostgreSQL is told about it, which is what
+kasofsk/chuggy's `deploy/rig/postgres/postgres-roles.sql` does. That file is run
+by an operator against a running database, not by this module — activation
+happens while PostgreSQL is still an unscheduled pod, and re-running it rotates
+every role it names. `chuggy-pg-role-env` hands it the values without their
+passing through a terminal or an argument list:
+
+    sudo chuggy-pg-role-env psql -h 127.0.0.1 -U postgres -d chuggy \
+      -f deploy/rig/postgres/postgres-roles.sql
+
+**Rotation is not provided.** Rotating one of these correctly means fencing
+writers, changing the role, changing the Secret and restarting whatever holds a
+connection, in that order — and the wrong order locks out the process the
+rotation was for. Nothing here does any of it, which is why nothing here claims
+to. Deleting the host state directory is not a reset either: the cluster and the
+database are unaffected by it, so what it produces is a host that adopts back
+whatever the cluster has and generates replacements for whatever it does not.
+
+### Images, and the order things come up in
+
+There is no registry. Every workload runs on the machine that holds the image,
+so a registry would add a network dependency and no distribution capability —
+and a way for bootstrap to fail, since the images are the one thing that has to
+exist before anything else does.
+
+k3s imports every archive under `/var/lib/rancher/k3s/agent/images` into
+containerd as the agent starts, which is *before* the kubelet can schedule a pod
+that references one. That, not a systemd unit, is what makes the ordering hold:
+
+    k3s starts → containerd imports the archives → k3s auto-deploy applies Flux
+      → chuggy-secrets-sync writes the Secrets → Flux reconciles cluster/apps
+      → workloads start
+
+`chuggy-import-image <archive.tar>` is for the other case — adding an image to a
+node that is already running, where waiting for a k3s restart would restart every
+workload on the box. It installs the archive first and imports second, so a
+failed import still leaves something the next k3s start retries.
+
+The Secret step is the one that can arrive late: the `chuggy` namespace belongs
+to `cluster/apps/`, so on a cold boot it does not exist until Flux has
+reconciled once. `chuggy-secrets-sync` waits, reports could-not-run rather than
+failure when it gives up, and retries — bounded, so a genuinely broken cluster
+ends up in `systemctl --failed` instead of looking busy forever. A workload that
+starts before its Secret exists stays pending and recovers on its own.
+
+**Nothing replicates any of this.** A second node does not have the images, and
+neither does this one after its image store is reset. That is what no registry
+costs, and it is paid knowingly on a single-node rig.
+
 ## Ingress
 
 Public traffic arrives through a **Cloudflare Tunnel**, not a port-forward. The
@@ -188,11 +346,12 @@ policy, putting a third party in the auth path. That is the same objection that
 removed Tailscale. Remote `kubectl` goes over the WireGuard mesh instead; see
 [Giving someone else access](#giving-someone-else-access).
 
-Be precise about *why* 6443 is safe, though: k3s binds it on `*:6443` and the
-NixOS firewall allows it, so it is reachable from anything on the house LAN and
-over the mesh — by design, that is how `kubectl` works from the workstation. It is
-not reachable from the internet because there is no port-forward. Protection is
-NAT, not the firewall. If a port-forward is ever added for WireGuard, forward
+Be precise about *why* 6443 is safe, though: k3s binds it on `*:6443`, and the
+firewall now admits it only from the ranges in `chuggy.k3s.apiAllowedSources` —
+the house LAN, the mesh, and the pod range. That is how `kubectl` works from the
+workstation. It is not reachable from the internet because there is no
+port-forward *and* because no internet range is on that list; it used to be the
+first of those alone. If a port-forward is ever added for WireGuard, forward
 **only** UDP 51820.
 
 Worth knowing what "reachable" would cost if that ever changed: an
@@ -258,6 +417,18 @@ with write scope so it can commit manifests and create a deploy key. Those
 manifests are already committed here, and the repo is public, so Flux needs no
 credentials at all — which matters given how tangled the GitHub identities on
 these machines are. Fewer moving parts, nothing to rotate.
+
+**Which repository and branch it follows are host inputs**, not a committed
+file. `chuggy.flux.repositoryUrl` and `.branch` generate the `GitRepository` and
+`Kustomization`; only the controller install is still a checked-in manifest,
+because that is a vendored upstream artifact identical on every adopter. A box
+being brought up, or one being used to try a change, has to be able to follow
+something other than whatever the shared branch holds at that moment, and a
+committed sync file made that a property of the repository instead of the host.
+
+The object names are not options. `cluster/apps/` and [Verified](#verified)
+below read `kustomize.toolkit.fluxcd.io/name: apps` **by value**, so the name is
+a contract between the two layers rather than a setting.
 
 `source-controller`, `kustomize-controller`, and `helm-controller` are
 installed. `helm-controller` arrived with kube-prometheus-stack: a chart that
@@ -530,12 +701,15 @@ DNS, and nothing here will tell you when they break.
 
 ### In place
 
-Firewall opens 6443 (API), 8472/udp (flannel VXLAN) and 51820/udp (WireGuard).
-Those are global rules, so they already cover the mesh — `wg0` is deliberately
-**not** a trusted interface. It was, on the theory that trusting it kept 6443 and
-8472 off the LAN-facing rules; it never did, since those ports are opened
-globally either way, and the trust meanwhile exposed every other listening port
-on the box to any peer. A peer now gets 22, 6443 and 8472/udp and nothing else.
+Firewall opens 51820/udp (WireGuard) globally, because a peer's first packet
+arrives from wherever it happens to be. 6443 (API) and 8472/udp (flannel VXLAN)
+are open only from the ranges in `chuggy.k3s.apiAllowedSources`, which is why
+the mesh range has to be on that list — `wg0` is deliberately **not** a trusted
+interface. It was, on the theory that trusting it kept 6443 and 8472 off the
+LAN-facing rules; it never did, since those ports were opened globally either
+way, and the trust meanwhile exposed every other listening port on the box to
+any peer. A peer now gets 22, and 6443 and 8472/udp from its own range, and
+nothing else.
 
 `10.100.0.1` is already on the API certificate's SANs, so a peer's kubectl
 verifies TLS without any per-client certificate work. The durable node is
@@ -571,15 +745,27 @@ not secret. This repository is public.
 
 ## Adding the second box
 
-1. `nixos-generate-config` on the new machine; copy its
-   `hardware-configuration.nix` into `hosts/<name>/`.
-2. Copy `hosts/gtr/default.nix`, set the hostname, and **replace the radio
-   blacklist** with whatever that machine's Wi-Fi/Bluetooth drivers are —
-   `lspci -k` will tell you. Blacklisting `iwlwifi` on a box with a MediaTek card
-   silently does nothing.
-3. Pick the right `nixos-hardware` modules for its CPU/GPU.
-4. Add one entry to `nixosConfigurations` in `flake.nix` (there's a commented
-   `dev2` example).
+Start from `hosts/example/`, not from `hosts/gtr/`. The example is a complete
+host that holds none of gtr's disks, addresses, names, keys or peers, and it is
+in `nixosConfigurations` so that `nix flake check` keeps it building. Copying
+gtr instead means deciding, line by line, which of its values were about gtr —
+and the ones that are easy to miss are the ones that do nothing visible when
+they are wrong.
+
+1. Copy `hosts/example/` to `hosts/<name>/`.
+2. `nixos-generate-config` on the new machine and **replace**
+   `hardware-configuration.nix` with its output. The one in the example builds
+   and will not boot: nothing on your machine is labelled `nixos` unless you
+   labelled it.
+3. Set the hostname, and add a radio blacklist if the box has radios — `lspci -k`
+   will tell you what they are. Blacklisting `iwlwifi` on a box with a MediaTek
+   card silently does nothing.
+4. Replace every address. The example uses RFC 5737's documentation range on
+   purpose, so an unedited copy refuses to work rather than admitting the wrong
+   network.
+5. Set the worker budgets against what the machine actually has.
+6. Pick the right `nixos-hardware` modules for its CPU/GPU, and add one entry to
+   `nixosConfigurations` in `flake.nix`.
 
 It gets its own cluster. Nothing is shared at runtime — only the config.
 

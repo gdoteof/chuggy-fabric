@@ -15,24 +15,62 @@
 
   outputs = { self, nixpkgs, nixos-hardware, ... }:
     let
+      system = "x86_64-linux";
+      lib = nixpkgs.lib;
+      pkgs = nixpkgs.legacyPackages.${system};
+
       # Every node gets the same behaviour; hosts differ only in their own
       # directory. Add a host by dropping in hosts/<name>/{default,hardware-
       # configuration}.nix and one line below.
+      substrate = [
+        ./modules/common.nix
+        ./modules/node-prep.nix
+        ./modules/wireguard.nix
+        ./modules/k3s-server.nix
+        ./modules/chuggy-state.nix
+        ./modules/chuggy-secrets.nix
+        ./modules/chuggy-images.nix
+        ./modules/chuggy-work.nix
+        ./modules/cloudflare-tunnel.nix
+        ./modules/ddns.nix
+        ./modules/flux.nix
+      ];
+
       mkNode = { hostPath, extraModules ? [ ] }:
         nixpkgs.lib.nixosSystem {
-          system = "x86_64-linux";
-          modules = [
-            ./modules/common.nix
-            ./modules/node-prep.nix
-            ./modules/wireguard.nix
-            ./modules/k3s-server.nix
-            ./modules/cloudflare-tunnel.nix
-            ./modules/ddns.nix
-            ./modules/flux.nix
+          inherit system;
+          modules = substrate ++ [
             (hostPath + "/hardware-configuration.nix")
             (hostPath + "/default.nix")
           ] ++ extraModules;
         };
+
+      # The messages an evaluation would refuse with. Reading config.assertions
+      # rather than catching the throw is what lets a check name *which* refusal
+      # it expected: builtins.tryEval reports that something failed and never
+      # says what, so a check built on it passes when the wrong thing breaks.
+      refusalsOf = overrides:
+        map (a: a.message)
+          (lib.filter (a: !a.assertion)
+            (mkNode { hostPath = ./hosts/example; extraModules = [ overrides ]; }).config.assertions);
+
+      # Fails the build unless removing one required input produces a refusal
+      # that names it. The interesting half is the negative: a module that
+      # quietly grew a default would still evaluate, and this is what notices.
+      refusesWithout = name: overrides: expected:
+        let
+          messages = refusalsOf overrides;
+        in
+        pkgs.runCommand "chuggy-refuses-without-${name}" { } (
+          if lib.any (m: lib.hasInfix expected m) messages
+          then "touch $out"
+          else ''
+            echo "hosts/example evaluated without ${name}, or refused for another reason." >&2
+            echo "expected a refusal mentioning: ${expected}" >&2
+            echo "got: ${lib.escapeShellArg (lib.concatStringsSep " || " messages)}" >&2
+            exit 1
+          ''
+        );
     in
     {
       nixosConfigurations = {
@@ -46,15 +84,55 @@
           ];
         };
 
-        # Second dev's box: copy hosts/gtr, replace hardware-configuration.nix
-        # with the output of `nixos-generate-config`, adjust the radio blacklist
-        # for whatever card it has, and pick the right nixos-hardware modules.
-        # Runs its own independent cluster -- same config, separate control plane.
-        #
-        # dev2 = mkNode {
-        #   hostPath = ./hosts/dev2;
-        #   extraModules = [ nixos-hardware.nixosModules.common-cpu-amd ];
-        # };
+        # The second supported host: a machine that is not gtr, stating its own
+        # inputs. It is a real nixosConfiguration rather than a fixture tucked
+        # into a test, because what is worth checking is that it builds the same
+        # way gtr does -- see hosts/example/default.nix. Its hardware
+        # configuration is a placeholder and will not boot on your machine until
+        # you replace it.
+        example = mkNode { hostPath = ./hosts/example; };
+      };
+
+      checks.${system} = {
+        # Both hosts build. gtr is the running box; example is the claim that
+        # nothing of gtr's has become load-bearing in modules/.
+        gtr = self.nixosConfigurations.gtr.config.system.build.toplevel;
+        example = self.nixosConfigurations.example.config.system.build.toplevel;
+
+        # D30 and D14 in a form a check can hold: an enabled host that has not
+        # said what a task may cost, or who may reach its API, is refused rather
+        # than built against a guess.
+        refuses-without-worker-cpu =
+          refusesWithout "worker-cpu"
+            { chuggy.work.worker.cpu = lib.mkForce null; }
+            "chuggy.work.worker.cpu is unset";
+
+        refuses-without-worker-memory =
+          refusesWithout "worker-memory"
+            { chuggy.work.worker.memory = lib.mkForce null; }
+            "chuggy.work.worker.memory is unset";
+
+        refuses-without-worker-ephemeral-storage =
+          refusesWithout "worker-ephemeral-storage"
+            { chuggy.work.worker.ephemeralStorage = lib.mkForce null; }
+            "chuggy.work.worker.ephemeralStorage is unset";
+
+        refuses-without-artifacts-path =
+          refusesWithout "artifacts-path"
+            { chuggy.state.artifacts.path = lib.mkForce null; }
+            "chuggy.state.artifacts.path is unset";
+
+        refuses-without-api-allowed-sources =
+          refusesWithout "api-allowed-sources"
+            { chuggy.k3s.apiAllowedSources = lib.mkForce null; }
+            "chuggy.k3s.apiAllowedSources is unset";
+
+        refuses-without-flux-repository =
+          refusesWithout "flux-repository"
+            { chuggy.flux.repositoryUrl = lib.mkForce null; }
+            "chuggy.flux.repositoryUrl is unset";
+
+        substrate-boot = import ./tests/substrate.nix { inherit pkgs; };
       };
     };
 }

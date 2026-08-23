@@ -69,6 +69,48 @@
     # dials in, or its TLS verification fails. Cheap to include now; a rebuild
     # and restart to add later.
     apiSans = [ "10.100.0.1" ];
+
+    # The house LAN and the mesh, and deliberately nothing else. The first is
+    # how kubectl reaches this box from the workstation; the second is how a
+    # peer does. The pod range the cluster's own clients arrive from is added by
+    # the module, because leaving it out costs the cluster its API server and no
+    # host should have to remember that.
+    apiAllowedSources = [ "192.168.0.0/24" "10.100.0.0/24" ];
+
+    # `pool=work` was set on this node by hand and was declared nowhere. Here it
+    # is what a fresh box registers with; this one already carries it, and
+    # kubelet does not reapply a label to a node that already exists.
+    nodeLabels = [ "chuggy.dev/durable=true" "chuggy.dev/pool=work" ];
+  };
+
+  # --------------------------------------------------------------- chuggy ----
+
+  # Retained data, generated credentials, and the images this node runs without
+  # a registry. All three are host state: each outlives every Kubernetes object
+  # that mounts, reads or references it.
+  chuggy.state = {
+    enable = true;
+    # Under the state root, so one directory is the whole of what this box keeps
+    # for chuggy. That root is 0700 root, which does not obstruct the kubelet --
+    # it bind-mounts this directory into the pod rather than walking to it --
+    # but does mean reading an artifact from a shell here needs sudo.
+    artifacts.path = "/var/lib/chuggy/artifacts";
+  };
+
+  chuggy.secrets.enable = true;
+  chuggy.images.enable = true;
+
+  # One task at a time, sized against the box in the header above and against
+  # what already runs on it: the control plane, PostgreSQL, Ory and the
+  # monitoring stack. These say what a single work pod may take, not what the
+  # machine has.
+  chuggy.work = {
+    enable = true;
+    worker = {
+      cpu = "2";
+      memory = "4Gi";
+      ephemeralStorage = "20Gi";
+    };
   };
 
   # -------------------------------------------------------------- ingress ----
@@ -117,5 +159,13 @@
 
   # k3s applies Flux at startup; Flux reconciles cluster/apps from this repo.
   # Nothing in the cluster is applied by hand.
-  chuggy.flux.enable = true;
+  #
+  # `main` is the live branch: a push to it changes this cluster inside the
+  # source interval. That is the whole reason the branch is stated per host
+  # rather than compiled in.
+  chuggy.flux = {
+    enable = true;
+    repositoryUrl = "https://github.com/gdoteof/chuggy-fabric.git";
+    branch = "main";
+  };
 }
