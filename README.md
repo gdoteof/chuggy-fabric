@@ -84,11 +84,15 @@ scratch, not a checkout.
 
     nix flake check
 
-Builds both hosts, proves that a host omitting a required input is refused, and
-boots the substrate in a VM to check what it keeps. The VM test wants
-`/dev/kvm`. What it does **not** do is start k3s, so it says nothing about the
-firewall rules, the auto-deploy ordering, the image import or Flux; those still
-need a box.
+Builds both hosts; proves that a host omitting a required input is refused and
+that the example still warns about what an unedited copy inherits; reads the
+firewall script each host builds, for which sources reach 6443 and 8472 and
+where those rules sit in the chain; and boots four of the modules —
+`chuggy-state`, `chuggy-secrets`, `chuggy-images`, `chuggy-work` — in a VM to
+check what they keep. The VM test wants `/dev/kvm`. What it does **not** do is
+start k3s or run `iptables`, so it says nothing about the auto-deploy ordering,
+the image import or Flux, and nothing about the kernel accepting the rules it
+read; those still need a box.
 
 **Landing** — commit, push, and build the commit, not a copy of it:
 
@@ -189,6 +193,20 @@ backend; nixpkgs refuses the configuration outright under nftables rather than
 applying nothing, which is the right failure — silently applying nothing would
 leave both ports closed and the cluster unreachable.
 
+**It also closes both ports over IPv6**, which is a capability removed and not a
+scope narrowed: `allowedTCPPorts` emits `ip46tables` and these are `iptables`,
+so no entry in `apiAllowedSources` can readmit an IPv6 client. Nothing here
+speaks IPv6 today — the mesh is IPv4, the pod range is IPv4, and the option's
+type refuses anything else — but a site whose `kubectl` arrives over IPv6 needs
+an `ip6tables` arm, not a longer source list.
+
+None of that is a comment you have to trust. `tests/firewall-rules.nix` reads
+the firewall script each host builds and asserts the six source-restricted
+accepts, the two global ports, that nothing else names 6443 or 8472, and that
+they all land before `nixos-fw-log-refuse`. It is a `runCommand`, so it costs
+an evaluation rather than a VM; what it cannot say is that the kernel accepts
+the rules, which is still a live `iptables -S` on the box.
+
 ## What an adopting machine has to say
 
 Some inputs have no default that is safe to guess, and a host that omits one
@@ -241,11 +259,14 @@ declare a directory nothing mounts.
 
 `modules/chuggy-state.nix` creates the directories chuggy's data lives in and
 sets their ownership. It does **not** create the PersistentVolume that binds one
-into the cluster — that object is cluster state and lives in `cluster/apps/`.
-This is the one resource the two layers both touch: NixOS owns the bytes on
-disk, Flux owns the object that names them. They have to name the same path and
-nothing checks that they do; a mismatch mounts an empty directory and reports
-healthy.
+into the cluster — that object is cluster state and belongs in `cluster/apps/`.
+
+**`cluster/apps/` does not hold one yet**, so nothing in the cluster mounts the
+artifacts directory and the retention a static PV with `Retain` would give it is
+not a property this tree has. What exists today is a directory on the host with
+the right owner. When the volume lands it and this option have to name the same
+path, and nothing will check that they do; a mismatch mounts an empty directory
+and reports healthy.
 
 What preserves these across a rebuild and a reboot is `systemd-tmpfiles` `d`,
 which creates a directory when it is absent and adjusts its mode and owner when
@@ -275,14 +296,20 @@ reported success.
 
 **A host whose cluster already holds these has one step to do first.** The
 generator runs before the synchronisation and writes every value it does not
-find, so on such a host it writes fresh values the cluster has never seen and
-the synchronisation reports divergence on each of them — correctly, and for
-good. Seed host state from the cluster before the first rebuild, once, for the
-keys the cluster already has:
+find, so on such a host it writes fresh values the cluster has never seen, the
+synchronisation reports divergence on each of them — correctly, and for good —
+and `chuggy-secrets-sync` fails. Seed host state from the cluster before the
+first rebuild, once, for the keys the cluster already has:
 
-    sudo install -d -m 0700 -o root -g root /var/lib/chuggy/secrets/<secret>
+    sudo install -d -m 0700 -o root -g root \
+      /var/lib/chuggy /var/lib/chuggy/secrets /var/lib/chuggy/secrets/<secret>
     kubectl -n chuggy get secret <secret> -o jsonpath='{.data.<key>}' | base64 -d \
       | sudo install -m 0600 -o root -g root /dev/stdin /var/lib/chuggy/secrets/<secret>/<key>
+
+Name all three directories. `install -d` applies the mode to what it creates,
+and given one path it creates the parents with the default 0755 — so seeding
+before the first rebuild would otherwise leave `/var/lib/chuggy` and
+`.../secrets` world-readable until the rebuild's tmpfiles rules tightened them.
 
 That is the adoption the module would do if the boot order let it reach the
 branch; [#12](https://github.com/gdoteof/chuggy-fabric/issues/12) is the
@@ -299,19 +326,43 @@ every role it names. `chuggy-pg-role-env` hands it the values without their
 passing through a terminal or an argument list, and carries the `psql` that
 reads them:
 
+    systemctl is-active chuggy-secrets-sync    # must say `active`
     kubectl -n chuggy port-forward svc/postgres 55440:5432 &
+    forward=$!
     export PGPASSWORD="$(kubectl -n chuggy get secret postgres-superuser \
       -o jsonpath='{.data.password}' | base64 -d)"
     sudo -E chuggy-pg-role-env psql -h 127.0.0.1 -p 55440 -U postgres \
       -d <database> -f deploy/rig/postgres/postgres-roles.sql
+    kill $forward
+
+**Check the unit first.** A divergent run exits 1, so `is-active` says `failed`
+and `systemctl --failed` lists it; what this hands psql is host state, and on a
+key where host and cluster disagree it would set PostgreSQL to a password the
+workloads do not have. `journalctl -u chuggy-secrets-sync -b` names the keys.
+
+**`chuggy-pg-role-env` is on `PATH` only after a `nixos-rebuild switch` carrying
+this module.** Before that switch it is in the built system and not on the box's
+path — `nixos-rebuild build --flake .#<host>` and run
+`./result/sw/bin/chuggy-pg-role-env` instead. `psql` is on that tool's own path
+either way and never on the host's.
+
+**Kill the port-forward.** While it is up, anything on this machine reaches
+`127.0.0.1:55440` as the PostgreSQL superuser — see the next paragraph for why
+no password is in the way. Backgrounding it and walking away is the mistake this
+line exists to prevent.
 
 The server is a headless Service and listens on no address this host has, so the
-forwarded port is the transport, not a convenience. The superuser password is
-not one of the values above — it is in its own Secret beside the server — and
-`sudo -E` is what carries it without its becoming an argument anyone on the box
-can read. The database is the deployment's to name: a role is cluster-wide, the
-grants at the end of that file are not. **Run it only when the synchronisation
-reported no divergence**, because what it hands psql is host state.
+forwarded port is the transport, not a convenience. **`PGPASSWORD` is not what
+gets you in over it.** This deployment's `pg_hba.conf` carries
+`host all all 127.0.0.1 trust`, and a port-forward arrives at the server from
+loopback, so the connection is trusted and the variable is never consulted —
+`PGPASSWORD=definitely-wrong` connects just as well. It is set anyway because
+the trust line is the deployment's and not this repository's, and a run that
+depended on it silently would break when that line goes. `sudo -E` carries it
+without its becoming an argument anyone on the box can read; that part works,
+and `/etc/sudoers` has `%wheel … NOPASSWD:SETENV: ALL` for it. The database is
+the deployment's to name: a role is cluster-wide, the grants at the end of that
+file are not.
 
 On gtr, against `chuggy_rehearsal`, it created the three login roles the older
 Secret never had and set the rest to the values that Secret holds; all six then
@@ -480,9 +531,10 @@ being brought up, or one being used to try a change, has to be able to follow
 something other than whatever the shared branch holds at that moment, and a
 committed sync file made that a property of the repository instead of the host.
 
-The object names are not options. `cluster/apps/` and [Verified](#verified)
-below read `kustomize.toolkit.fluxcd.io/name: apps` **by value**, so the name is
-a contract between the two layers rather than a setting.
+The object names are not options. Nothing in `cluster/apps/` reads the label;
+[Verified](#verified) below does, and so does anyone telling this repo's objects
+from the rehearsal's second control loop — **by value**, which is what makes the
+name a contract rather than a setting.
 
 `source-controller`, `kustomize-controller`, and `helm-controller` are
 installed. `helm-controller` arrived with kube-prometheus-stack: a chart that
@@ -820,11 +872,18 @@ they are wrong.
    rather than coming up on a network that is somebody's. Nothing refuses it:
    the host has to keep evaluating or `nix flake check` stops building it, so an
    unedited copy warns at every rebuild instead.
-5. Set the worker budgets against what the machine actually has.
-6. Pick the right `nixos-hardware` modules for its CPU/GPU, and add one entry to
+5. Point `chuggy.flux.repositoryUrl` at **your** repository. The example names
+   RFC 2606's `git.example.com`, which resolves for nobody; this repository's
+   own URL would give the box gtr's `cluster/apps/` — somebody else's ingress
+   hostnames and identity provider, against Secrets you do not have. That is
+   the one wrong answer here that comes up looking healthy, so the example
+   warns until it is changed.
+6. Set the worker budgets against what the machine actually has.
+7. Pick the right `nixos-hardware` modules for its CPU/GPU, and add one entry to
    `nixosConfigurations` in `flake.nix`.
 
-It gets its own cluster. Nothing is shared at runtime — only the config.
+It gets its own cluster and its own `cluster/apps/`. Nothing is shared at
+runtime — only the modules.
 
 ## What changed from the original desktop config
 

@@ -165,21 +165,30 @@ in
     # durable box, wrong for spot agents -- keep stateful work on the durable
     # node via the labels above.
 
-    # NEITHER PORT IS IN allowedTCPPorts OR allowedUDPPorts, and that is what
-    # changed. A port in those lists is open to every network the box can see;
-    # these two are open to the ranges named above and refused everywhere else.
-    # It matters most for the mesh: wg0 is deliberately not a trusted interface,
-    # so a peer reaches exactly what these rules allow and the global rules were
-    # the reason that used to be more than intended.
+    # NEITHER PORT IS IN allowedTCPPorts OR allowedUDPPorts. A port in those
+    # lists is open to every network the box can see; these two are open to the
+    # ranges named above and refused everywhere else. It matters most for the
+    # mesh: wg0 is deliberately not a trusted interface, so a peer reaches
+    # exactly what these rules allow.
+    #
+    # AND THAT CLOSES BOTH PORTS OVER IPv6, which is a capability removed rather
+    # than a scope narrowed. allowedTCPPorts emits ip46tables; these are
+    # iptables, so an IPv6 client reaches neither port at all and no source list
+    # can readmit it. It costs nothing here -- the mesh is IPv4, the pod range
+    # is IPv4, and the `cidr` type above refuses anything else -- but a site
+    # whose kubectl arrives over IPv6 needs an ip6tables arm and an address type
+    # to go with it, not an entry in apiAllowedSources.
     #
     # extraCommands rather than a NixOS option because there is no option -- the
     # firewall module has no per-source form of allowedTCPPorts. These run after
     # the port rules and before the final refuse, so `-A` appends into the
     # accepting part of the chain rather than behind the reject; `-I` would work
-    # too and would jump the conntrack and loopback rules for no gain. nixpkgs
-    # refuses this configuration outright under the nftables backend, which is
-    # the right failure: a rule that silently did not apply would leave both
-    # ports closed and the cluster unreachable.
+    # too and would jump the conntrack and loopback rules for no gain.
+    # tests/firewall-rules.nix is what holds that shape in place, over the
+    # script this actually builds. nixpkgs refuses this configuration outright
+    # under the nftables backend, which is the right failure: a rule that
+    # silently did not apply would leave both ports closed and the cluster
+    # unreachable.
     networking.firewall.extraCommands = lib.concatMapStrings
       (src: ''
         iptables -w -A nixos-fw -s ${lib.escapeShellArg src} -p tcp --dport 6443 -j nixos-fw-accept

@@ -92,6 +92,8 @@
             exit 1
           ''
         );
+
+      firewallRules = host: import ./tests/firewall-rules.nix { inherit pkgs lib host; };
     in
     {
       nixosConfigurations = {
@@ -161,19 +163,30 @@
             { chuggy.k3s.apiAllowedSources = lib.mkForce [ ]; }
             "chuggy.k3s.apiAllowedSources is empty";
 
-        # The two things about the example that only a reader would otherwise
-        # catch: that its addresses are still the ones nobody can be using, and
-        # that nothing on it terminates TLS.
+        # The three things about the example that only a reader would otherwise
+        # catch: that its addresses are still the ones nobody can be using, that
+        # nothing on it terminates TLS, and that it follows no repository.
         warns-about-documentation-addresses =
           warns "documentation-addresses" "still carries the example's documentation";
 
         warns-about-plaintext-ingress =
           warns "plaintext-ingress" "nothing on this host terminates TLS";
 
-        # Named for the four modules it boots rather than for the substrate:
-        # the other seven above are not imported there, and a check called
-        # substrate-boot would be reporting on them without having built one.
+        warns-about-documentation-repository =
+          warns "documentation-repository" "repositoryUrl still names the documentation";
+
+        # Named for the modules it boots -- chuggy-state, chuggy-secrets,
+        # chuggy-images and chuggy-work -- rather than for the substrate: the
+        # other seven in the list above are not imported there, and a name that
+        # said substrate would be reporting on them without having built one.
         state-and-secrets-boot = import ./tests/state-and-secrets.nix { inherit pkgs; };
+
+        # What the firewall a host builds does with 6443 and 8472, read off the
+        # built script. Both hosts, because the rule is generated per host from
+        # that host's own source list; a check that ran on one of them would be
+        # silent about the shape of the other.
+        firewall-rules-gtr = firewallRules self.nixosConfigurations.gtr;
+        firewall-rules-example = firewallRules self.nixosConfigurations.example;
       };
     };
 }

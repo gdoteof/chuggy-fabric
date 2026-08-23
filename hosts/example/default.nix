@@ -10,14 +10,22 @@
 # current.
 #
 # WHAT IT DELIBERATELY DOES NOT HAVE: gtr's disks, its LAN, its mesh range, its
-# peers, its Cloudflare tunnel, its DNS names, and any file it keeps a secret
-# in. Adding one back here is the failure this file is watching for.
+# peers, its Cloudflare tunnel, its DNS names, the git repository whose
+# cluster/apps/ gtr reconciles, and any file it keeps a secret in. Adding one
+# back here is the failure this file is watching for.
 #
 # EVERY ADDRESS BELOW IS FROM RFC 5737: 192.0.2.0/24 for the LAN and
 # 198.51.100.0/24 for the mesh. Neither can be anyone's network, so an unedited
 # copy on a real box reaches nothing rather than working against the wrong
 # network -- which is what a plausible-looking 192.168.1.0/24 or 10.101.0.0/24
 # would do instead, quietly and for as long as nobody looked.
+#
+# THE FLUX REPOSITORY IS RFC 2606's example.com FOR THE SAME REASON. It used to
+# be this repository's own URL, which is not a neutral default: an adopter who
+# followed the checklist exactly got a box reconciling gtr's cluster/apps/ --
+# somebody else's ingress hostnames, somebody else's identity provider, against
+# Secrets they do not have. A URL that resolves to nothing fails loudly in
+# source-controller instead.
 #
 # NOTHING REFUSES IT, and the warning below is the whole of the enforcement.
 # Evaluation cannot tell an unedited copy from a host that has decided, and
@@ -35,7 +43,7 @@
 #
 # An adopter starting here changes, in order: the hardware configuration, the
 # hostname, the radio blacklist if the box has radios, the LAN and mesh ranges,
-# and the worker budgets. Nothing else has to move.
+# the Flux repository, and the worker budgets. Nothing else has to move.
 
 {
   networking.hostName = "chuggy-example";
@@ -109,19 +117,38 @@
 
   # -------------------------------------------------------------- gitops ----
 
+  # RFC 2606 reserves example.com, so this resolves for nobody. Point it at the
+  # repository holding *your* cluster/apps/; this repository's own URL would
+  # give a second box gtr's applications, which is the one wrong answer that
+  # looks like it worked.
   chuggy.flux = {
     enable = true;
-    repositoryUrl = "https://github.com/gdoteof/chuggy-fabric.git";
+    repositoryUrl = "https://git.example.com/you/chuggy-fabric.git";
     branch = "main";
   };
 
-  # The two things about this host that a copy inherits and evaluation cannot
+  # The three things about this host that a copy inherits and evaluation cannot
   # catch. A warning rather than an assertion because an assertion would stop
   # `nix flake check` building the very host it exists to build; a rebuild
   # prints these, so they are in front of whoever brings the box up rather than
   # in a file they have already skimmed.
+  #
+  # THE FIRST READS EVERY ADDRESS, not just the mesh one. Keyed on the mesh
+  # address alone it stayed silent for the adopter who changed that first and
+  # left `apiAllowedSources` as it was -- a firewall admitting two documentation
+  # ranges and the pod range, which refuses kubectl and presents as a broken
+  # cluster. That is the outcome the warning exists to prevent, so the condition
+  # has to cover the input that produces it.
   warnings =
-    lib.optional (config.chuggy.wireguard.address == "198.51.100.1/24") ''
+    let
+      isDocumentation = value:
+        lib.any (range: lib.hasInfix range value) [ "192.0.2." "198.51.100." "203.0.113." ];
+      addresses =
+        [ config.chuggy.wireguard.address ]
+        ++ lib.optionals (config.chuggy.k3s.apiAllowedSources != null) config.chuggy.k3s.apiAllowedSources
+        ++ config.chuggy.k3s.apiSans;
+    in
+    lib.optional (lib.any isDocumentation addresses) ''
       hosts/example: this host still carries the example's documentation
       addresses (RFC 5737), so it reaches no real network. Replace the LAN
       range, the mesh address and the API SANs with this machine's own.
@@ -130,5 +157,11 @@
       hosts/example: nothing on this host terminates TLS, so its API is served
       in plaintext to its LAN and mesh. D15 says that is not an exposure mode;
       see gdoteof/chuggy-fabric#10.
+    ''
+    ++ lib.optional (lib.hasInfix "example.com" config.chuggy.flux.repositoryUrl) ''
+      hosts/example: chuggy.flux.repositoryUrl still names the documentation
+      repository, so Flux reconciles nothing. Point it at the repository whose
+      cluster/apps/ this box should follow -- not at this one, whose apps
+      belong to somebody else's cluster.
     '';
 }

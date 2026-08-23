@@ -10,10 +10,10 @@
 #
 # So this module creates directories and sets their ownership. It does not
 # create the PersistentVolume that binds one into the cluster; that object is
-# cluster state and lives in cluster/apps/. The split is deliberate and is the
-# one place the two layers touch a single resource: NixOS owns the bytes on
-# disk, Flux owns the object that names them, and each can be read without the
-# other.
+# cluster state and belongs in cluster/apps/, which does not yet hold one. The
+# split is deliberate and is the one place the two layers touch a single
+# resource: NixOS owns the bytes on disk, Flux owns the object that names them,
+# and each can be read without the other.
 #
 # WHAT PRESERVES THESE ACROSS A REBUILD AND A REBOOT is systemd-tmpfiles `d`,
 # which creates a directory when it is absent and adjusts its mode and owner
@@ -64,11 +64,14 @@ in
           this machine has room for build output and is not the one holding
           /boot.
 
-          cluster/apps/ declares a static PersistentVolume named
-          `chuggy-artifacts` over this path with `Retain`, so deleting the claim
-          leaves the data here. The two must name the same path and nothing
-          checks that they do -- a mismatch produces a volume that mounts an
-          empty directory and reports healthy.
+          NOTHING IN THE CLUSTER MOUNTS THIS YET. What would is a static
+          PersistentVolume over this path with `Retain`, so that deleting a
+          claim leaves the data here -- and no such object is in cluster/apps/.
+          Until one is, this option creates a directory nothing reads, and
+          taking it for a durability guarantee is taking one this tree does not
+          make. When it lands the two have to name the same path, and nothing
+          will check that they do: a mismatch mounts an empty directory and
+          reports healthy.
         '';
       };
 

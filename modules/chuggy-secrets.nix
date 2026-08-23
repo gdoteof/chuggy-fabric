@@ -36,8 +36,9 @@
 # AND THE BOOT ORDER DOES NOT REACH IT. The generator runs first and writes
 # every value it does not find, so the host never holds nothing and the adoption
 # below is reached only for a key deleted by hand. An adopting host reports
-# divergence on each key the cluster already had instead -- both sides honest,
-# the host's copy simply never having been anywhere. Seeding host state from the
+# divergence on each key the cluster already had instead, and fails -- both
+# sides honest, the host's copy simply never having been anywhere, and the unit
+# in `systemctl --failed` where that is findable. Seeding host state from the
 # cluster before the generator first runs is what an adopting host does, and the
 # README carries it; gdoteof/chuggy-fabric#12 is the ordering that would make
 # the step unnecessary.
@@ -72,6 +73,11 @@ let
   syncRestartSeconds = 30;
   syncStartLimitBurst = 10;
   syncAttemptSeconds = cfg.namespaceTimeoutSeconds + syncRestartSeconds;
+
+  # Applied to every kubectl call. Long enough that a busy API server is not
+  # mistaken for a wedged one, short enough that a wedged one is a failed unit
+  # rather than a unit that never returns.
+  syncRequestTimeout = "30s";
 
   # The inventory is fixed rather than an option, and that is a claim worth
   # being explicit about: these are chuggy's internal credentials, so they are
@@ -177,23 +183,33 @@ let
       # in it.
       trap 'rm -f "$run"/*' EXIT
 
-      # Every diagnostic below exits 2, not 1. A precondition this host cannot
-      # satisfy on its own -- k3s still starting, a namespace Flux has not
-      # created yet -- is a could-not-run, and reporting it as a failure of the
-      # synchronisation would put the blame on the wrong thing.
+      # Set by any key this run refused to resolve. It is not a could-not-run:
+      # both sides answered and disagreed, and only a person can say which one
+      # PostgreSQL was told about. The run finishes -- the keys that do agree
+      # are still worth creating -- and then exits 1.
+      diverged=0
+
+      # A precondition this host cannot satisfy on its own -- k3s still
+      # starting, a namespace Flux has not created yet -- exits 2 instead.
+      # Reporting one as a failure of the synchronisation would put the blame on
+      # the wrong thing, and the unit's Restart= reads the two differently.
       if [ ! -r "$kc" ]; then
         echo "chuggy.secrets: $kc is not readable; k3s has not written a kubeconfig." >&2
         exit 2
       fi
 
-      k() { kubectl --kubeconfig "$kc" -n "$ns" "$@"; }
+      # The timeout is on every call, not only the probe below. A `get` or a
+      # `patch` against an API server that accepts the connection and then stops
+      # answering blocks for ever, and under RemainAfterExit the unit sits in
+      # `activating` with nothing in `systemctl --failed` to find.
+      k() { kubectl --kubeconfig "$kc" -n "$ns" --request-timeout=${syncRequestTimeout} "$@"; }
 
       # The namespace belongs to cluster/apps/, so on a cold boot it does not
       # exist until Flux has reconciled once. Waiting here rather than failing
       # immediately is what keeps the bootstrap order from mattering; the unit
       # also restarts, which covers a Flux that takes longer than this.
       deadline=$(( $(date +%s) + ${toString cfg.namespaceTimeoutSeconds} ))
-      until k get --request-timeout=5s namespace "$ns" >/dev/null 2>&1; do
+      until k get namespace "$ns" >/dev/null 2>&1; do
         if [ "$(date +%s)" -ge "$deadline" ]; then
           echo "chuggy.secrets: namespace $ns does not exist; Flux has not created it." >&2
           exit 2
@@ -219,19 +235,31 @@ let
         echo '{"metadata":{"labels":{"chuggy.dev/managed-by":"nixos"}}}' > "$run/patch.json"
 
         for key in "$@"; do
-          # -j, not -r: `-r` terminates its output with a newline and
-          # `base64 -w0` writes none, so the comparison below would find every
-          # key different on a cluster that agrees. `empty` writes nothing
-          # under either flag, which is what leaves the file empty for the
-          # test that follows.
-          jq -j --arg k "$key" '(.data // {})[$k] // empty' "$run/live.json" > "$run/live.b64"
+          # Presence is `has`, not a non-empty value. A key the cluster holds
+          # with an empty value is still a key somebody put there, and reading
+          # it as absent is what let a previous version patch host state over
+          # it -- which the header's NOTHING HERE OVERWRITES A VALUE says it
+          # does not do.
+          if jq -e --arg k "$key" '(.data // {}) | has($k)' "$run/live.json" >/dev/null; then
+            # -j, not -r: `-r` terminates its output with a newline and
+            # `base64 -w0` writes none, so the comparison below would find
+            # every key different on a cluster that agrees.
+            jq -j --arg k "$key" '.data[$k]' "$run/live.json" > "$run/live.b64"
 
-          if [ -s "$run/live.b64" ]; then
+            if [ ! -s "$run/live.b64" ]; then
+              echo "chuggy.secrets: $secret/$key is present in the cluster with an empty value." >&2
+              echo "  Neither side was changed. An empty key is not a value this can replace, and" >&2
+              echo "  it is not one any workload can authenticate with either -- delete it or fill it." >&2
+              diverged=1
+              continue
+            fi
+
             if [ -s "$dir/$key" ]; then
               base64 -w0 < "$dir/$key" > "$run/host.b64"
               if ! cmp -s "$run/host.b64" "$run/live.b64"; then
                 echo "chuggy.secrets: $secret/$key differs between host state and the cluster." >&2
                 echo "  Neither was changed. One of them is what PostgreSQL was told; the other is not." >&2
+                diverged=1
               fi
             else
               base64 -d < "$run/live.b64" > "$run/adopt"
@@ -266,6 +294,20 @@ let
           sync_secret ${lib.escapeShellArg secret} ${lib.escapeShellArgs (keysOf secret)}
         '')
         secretNames}
+
+      # A divergent run is a failed run. Two lines on stderr and exit 0 put the
+      # only record of it in a journal nobody reads, on a host where
+      # `systemctl status` says active (exited) and `systemctl --failed` is
+      # empty -- and the README's guard on running postgres-roles.sql is "only
+      # when the synchronisation reported no divergence", which nothing on the
+      # box could then answer. Exit 1 makes it answerable with `systemctl
+      # is-active`, and RestartPreventExitStatus below is what stops the unit
+      # burning its restart budget on a disagreement no retry can settle.
+      if [ "$diverged" != 0 ]; then
+        echo "chuggy.secrets: the keys above were left as they are on both sides." >&2
+        echo "  Decide which value PostgreSQL holds, make the two agree, and start this unit again." >&2
+        exit 1
+      fi
     '';
   };
 
@@ -274,25 +316,37 @@ let
   # exists so that giving the roles their passwords does not require reading the
   # values onto a terminal, into shell history, or through an argument list.
   #
+  #   systemctl is-active chuggy-secrets-sync    # must say `active`
   #   kubectl -n chuggy port-forward svc/postgres 55440:5432 &
+  #   forward=$!
   #   export PGPASSWORD="$(kubectl -n chuggy get secret postgres-superuser \
   #     -o jsonpath='{.data.password}' | base64 -d)"
   #   sudo -E chuggy-pg-role-env psql -h 127.0.0.1 -p 55440 -U postgres \
   #     -d <database> -f deploy/rig/postgres/postgres-roles.sql
+  #   kill $forward
   #
-  # Three things in that which are not decoration. The server is a headless
-  # Service and listens on no address this host has, so a forwarded port is the
-  # only transport; the superuser password is not one of the values here, it is
-  # in its own Secret beside the server, and `sudo -E` is what carries it
-  # without its becoming an argument; and the database is the deployment's to
+  # THE FIRST AND LAST LINES ARE THE PROCEDURE, not framing for it. A divergent
+  # run exits 1, so `is-active` is the answer to "did this agree" that the box
+  # can give -- what this hands psql is host state, and on a key where the two
+  # disagree it sets PostgreSQL to a password the workloads do not have. And a
+  # port-forward left up is superuser PostgreSQL on 127.0.0.1 for anything on
+  # the operator's machine, for as long as the shell lives.
+  #
+  # PGPASSWORD IS NOT WHAT AUTHENTICATES OVER THAT PORT. The deployment's
+  # pg_hba.conf carries `host all all 127.0.0.1 trust` and a port-forward
+  # arrives from loopback, so the value is never consulted and a wrong one
+  # connects. It is exported anyway because that line is the deployment's and
+  # not this repository's; `sudo -E` is what carries it without its becoming an
+  # argument, which is true whether or not the server asks.
+  #
+  # The rest is not decoration either: the server is a headless Service and
+  # listens on no address this host has, so a forwarded port is the only
+  # transport; the superuser password is not one of the values here, it is in
+  # its own Secret beside the server; and the database is the deployment's to
   # name, because a role is cluster-wide but the grants at the end of that file
-  # are not.
-  #
-  # RUN IT ONLY WHEN THE SYNCHRONISATION REPORTED NO DIVERGENCE. What this hands
-  # psql is host state, so on a key where host and cluster disagree it would set
-  # PostgreSQL to a password the workloads -- which read the Secret -- do not
-  # have. Running the file rotates every role it names: safe on a cluster whose
-  # roles were set from these same values, destructive on one whose were not.
+  # are not. Running the file rotates every role it names: safe on a cluster
+  # whose roles were set from these same values, destructive on one whose were
+  # not.
   pgRoleEnv = pkgs.writeShellApplication {
     name = "chuggy-pg-role-env";
     # postgresql for the psql this exists to hand the values to. It is on this
@@ -313,7 +367,19 @@ let
           echo "  Run as root, after chuggy-secrets-generate has run." >&2
           exit 2
         fi
-        ${envVarFor key}="$(cat "${cfg.stateDir}/chuggy-postgres-credentials/${key}")"
+        # `$( )` strips every trailing newline, and here that is a wrong value
+        # rather than a tidier one. A generated password carries none, but an
+        # adopted one is whatever the cluster held -- and a Secret made the
+        # ordinary way, `echo hunter2 | base64` or `--from-file` of a file an
+        # editor saved, ends in one. Strip it and postgres-roles.sql sets the
+        # role to a string the Secret does not hold, locking out every workload
+        # that reads the Secret: the failure this module's header is built
+        # against, arriving through the tool it supplies for the job. `printf %s
+        # "$( )"` does not help -- the bytes are gone before printf sees them.
+        # A sentinel appended inside the substitution and removed after it is
+        # what survives.
+        chuggy_pg_value="$(cat "${cfg.stateDir}/chuggy-postgres-credentials/${key}"; printf x)"
+        ${envVarFor key}="''${chuggy_pg_value%x}"
         export ${envVarFor key}
       '') (keysOf "chuggy-postgres-credentials")}
       exec "$@"
@@ -406,6 +472,11 @@ in
         RemainAfterExit = true;
         ExecStart = lib.getExe sync;
         Restart = "on-failure";
+        # Exit 1 is a divergence: both sides answered and disagreed, and no
+        # number of retries changes that. Retrying it would spend the whole
+        # burst below on a report, and the unit would reach `failed` at the end
+        # of that window rather than at the end of the run that found it.
+        RestartPreventExitStatus = 1;
         RestartSec = syncRestartSeconds;
         RuntimeDirectory = "chuggy-secrets-sync";
         RuntimeDirectoryMode = "0700";

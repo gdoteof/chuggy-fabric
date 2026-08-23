@@ -36,11 +36,12 @@
 # checked-in file: it is a vendored upstream artifact, identical on every
 # adopter, and generating it would mean owning a copy of Flux's installer.
 #
-# THE OBJECT NAMES ARE NOT OPTIONS. cluster/apps/ and the README both read
-# `kustomize.toolkit.fluxcd.io/name: apps` by value, to tell what this repo owns
-# from what a second control loop put there. That makes the name a contract
-# between the two layers rather than a setting, and a host that changed it would
-# be telling the truth to Flux and a lie to every reader.
+# THE OBJECT NAMES ARE NOT OPTIONS. Nothing in cluster/apps/ reads the label --
+# what reads `kustomize.toolkit.fluxcd.io/name: apps` by value is the README and
+# whoever is standing in front of the cluster, telling what this repo owns from
+# what the rehearsal's second control loop put there. That is enough to make the
+# name a contract rather than a setting: a host that changed it would be telling
+# the truth to Flux and a lie to every reader.
 
 let
   cfg = config.chuggy.flux;

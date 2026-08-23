@@ -12,11 +12,12 @@
 # four of the modules in flake.nix's substrate list, so it is not the substrate:
 # k3s, Flux, WireGuard, the tunnel, dynamic DNS, common and node-prep are not
 # imported here and an activation-breaking change to any of them would pass
-# this. It does not start k3s, so it proves nothing about the firewall rules,
-# the auto-deploy ordering or the image import. Those need a cluster, and a
-# cluster in a test VM is a second rig with its own failure modes -- one that
-# would make this check slow enough to be skipped, which is the state in which a
-# check enforces nothing.
+# this. It does not start k3s, so it proves nothing about the auto-deploy
+# ordering or the image import, and nothing about the kernel accepting the rules
+# tests/firewall-rules.nix reads off the built firewall script. Those need a
+# cluster, and a cluster in a test VM is a second rig with its own failure
+# modes -- one that would make this check slow enough to be skipped, which is
+# the state in which a check enforces nothing.
 #
 # WHAT STANDS IN FOR THE CLUSTER is a kubectl that keeps Secrets as files, and
 # what it is worth is bounded by what it fakes: it is not an API server, it does
@@ -185,7 +186,13 @@ pkgs.testers.runNixOSTest {
         """Restart the synchronisation and return only what this run wrote.
 
         Through systemd rather than by running the script, because both of the
-        comparison's failures were about the PATH systemd hands a unit."""
+        comparison's failures were about the PATH systemd hands a unit.
+
+        reset-failed first. The start limit bounds a bootstrap that retries on
+        its own; a test driving the unit by hand spends the same budget, and
+        would be refused a start partway down this file for a reason that is
+        about the number of subtests rather than about the module."""
+        machine.succeed("systemctl reset-failed chuggy-secrets-sync.service")
         before = len(sync_journal().splitlines())
         status, _ = machine.execute("systemctl restart chuggy-secrets-sync.service")
         return status, "\n".join(sync_journal().splitlines()[before:])
@@ -213,10 +220,14 @@ pkgs.testers.runNixOSTest {
             == "700 root root"
         )
 
-    with subtest("every declared credential exists, root-only, and is not empty"):
+    with subtest("every declared credential exists, root-only, and is 256 bits"):
+        # The length is asserted, not just non-emptiness. `test -s` and
+        # distinctness both pass on four hex characters, so a generator whose
+        # `openssl rand -hex 32` had become `-hex 4` would leave six passwords
+        # with 32 bits behind them and nothing here would have noticed.
         for key in keys:
             assert machine.succeed("stat -c '%a %U' " + pgdir + "/" + key).strip() == "600 root"
-            machine.succeed("test -s " + pgdir + "/" + key)
+            machine.succeed("grep -qxE '[0-9a-f]{64}' " + pgdir + "/" + key)
         machine.succeed(
             "stat -c '%a %U' /var/lib/chuggy/secrets/chuggy-api/idempotency-keying"
             " | grep -qx '600 root'"
@@ -226,7 +237,7 @@ pkgs.testers.runNixOSTest {
         # operation, which needs the older version to still be listed.
         machine.succeed(
             "jq -e '.current == \"v1\" and (.versions | length) == 1"
-            " and (.versions[0].secret | length) > 0'"
+            " and (.versions[0].secret | test(\"^[0-9a-f]{64}$\"))'"
             " /var/lib/chuggy/secrets/chuggy-api/idempotency-keying"
         )
 
@@ -267,25 +278,149 @@ pkgs.testers.runNixOSTest {
         assert "differs" not in out, out
         assert read_secrets() == first
 
-    with subtest("a cluster that has drifted is reported as differing"):
+    with subtest("a cluster that has drifted fails, and is left alone"):
+        saved = machine.succeed(
+            "jq -r '.data[\"api-password\"]' " + pgsecret
+        ).strip()
         machine.succeed(
             "jq '.data[\"api-password\"] = \"ZHJpZnQ=\"' " + pgsecret + " > /tmp/drifted"
             " && mv /tmp/drifted " + pgsecret
         )
         status, out = resync()
-        assert status == 0, out
+        assert status != 0, out
         assert out.count("differs") == 1, out
         assert "api-password differs" in out, out
+        # Exit 1 and not 2: both sides answered, which is the difference between
+        # a disagreement and a could-not-run, and the unit's
+        # RestartPreventExitStatus reads it.
+        assert (
+            machine.succeed(
+                "systemctl show -p ExecMainStatus --value chuggy-secrets-sync.service"
+            ).strip()
+            == "1"
+        )
+        # Failed rather than restarting, which is the whole reason for the
+        # non-zero exit: `systemctl --failed` is where an operator finds this,
+        # and a retried divergence would still be `activating` twenty-five
+        # minutes later.
+        assert (
+            machine.succeed(
+                "systemctl show -p ActiveState --value chuggy-secrets-sync.service"
+            ).strip()
+            == "failed"
+        )
         # Neither side is touched by the report, which is what makes it safe to
         # leave the operator to decide.
         assert read_secrets() == first
         assert cluster_value("api-password") == "drift"
+
+        machine.succeed(
+            "jq --arg v " + saved + " '.data[\"api-password\"] = $v' " + pgsecret
+            + " > /tmp/undrifted && mv /tmp/undrifted " + pgsecret
+        )
+        status, out = resync()
+        assert status == 0, out
+
+    with subtest("an empty value in the cluster is a value, not an absence"):
+        # `[ -s ]` on the decoded key read this as absent and patched host state
+        # over it, which is the one thing the module says it never does. It is
+        # also not a value any workload can authenticate with, so the run
+        # refuses it rather than adopting it.
+        machine.succeed(
+            "jq '.data[\"owner-password\"] = \"\"' " + pgsecret + " > /tmp/empty"
+            " && mv /tmp/empty " + pgsecret
+        )
+        status, out = resync()
+        assert status != 0, out
+        assert "owner-password is present in the cluster with an empty value" in out, out
+        assert read_secrets() == first
+        assert machine.succeed(
+            "jq -r '.data[\"owner-password\"]' " + pgsecret
+        ).strip() == ""
+
+        machine.succeed(
+            "jq 'del(.data[\"owner-password\"])' " + pgsecret + " > /tmp/deleted"
+            " && mv /tmp/deleted " + pgsecret
+        )
+        status, out = resync()
+        assert status == 0, out
+        assert cluster_value("owner-password") == first["owner-password"]
+
+    with subtest("a key missing on both sides is could-not-run, not success"):
+        # The generator writes every declared key, so this is only reachable by
+        # hand -- and `continue` here would report success for a run that
+        # silently omitted a credential, leaving the unit active (exited) while
+        # the workload sits in CreateContainerConfigError.
+        machine.succeed("cp " + pgdir + "/ticket-service-password /tmp/saved-key")
+        machine.succeed("rm " + pgdir + "/ticket-service-password")
+        machine.succeed(
+            "jq 'del(.data[\"ticket-service-password\"])' " + pgsecret + " > /tmp/gone"
+            " && mv /tmp/gone " + pgsecret
+        )
+        status, out = resync()
+        assert status != 0, out
+        assert "the cluster has no ticket-service-password either" in out, out
+        assert (
+            machine.succeed(
+                "systemctl show -p ExecMainStatus --value chuggy-secrets-sync.service"
+            ).strip()
+            == "2"
+        )
+
+        machine.succeed(
+            "install -m 0600 -o root -g root /tmp/saved-key "
+            + pgdir + "/ticket-service-password && rm /tmp/saved-key"
+        )
+        status, out = resync()
+        assert status == 0, out
+        assert cluster_value("ticket-service-password") == first["ticket-service-password"]
 
     with subtest("a key the host has lost is adopted back from the cluster"):
         machine.succeed("rm " + pgdir + "/scheduler-password")
         status, out = resync()
         assert status == 0, out
         assert "adopted chuggy-postgres-credentials/scheduler-password" in out, out
+        assert read_secrets() == first
+        # The adopted file's mode. Every other mode assertion in this test runs
+        # before any adoption, so the one branch that exists for the adopting
+        # host was the one whose output nothing looked at -- and 0644 there is
+        # every PostgreSQL password readable by anyone with a shell.
+        assert (
+            machine.succeed("stat -c '%a %U %G' " + pgdir + "/scheduler-password").strip()
+            == "600 root root"
+        )
+
+    with subtest("an adopted value keeps its bytes, trailing newline and all"):
+        # `echo hunter2 | base64` is how a Secret gets made by hand, and it
+        # carries a newline. The comparison is byte-exact, so it reports
+        # agreement -- and chuggy-pg-role-env then has to hand postgres-roles.sql
+        # the same bytes the workloads read out of the Secret, newline included.
+        # `$(cat f)` strips it and locks every workload out.
+        machine.succeed(
+            "printf 'hunter2\\n' | base64 -w0 > /tmp/nl.b64 && "
+            "jq --rawfile v /tmp/nl.b64 '.data[\"finalizer-password\"] = ($v | rtrimstr(\"\\n\"))' "
+            + pgsecret + " > /tmp/nl && mv /tmp/nl " + pgsecret
+        )
+        machine.succeed("rm " + pgdir + "/finalizer-password")
+        status, out = resync()
+        assert status == 0, out
+        assert "adopted chuggy-postgres-credentials/finalizer-password" in out, out
+
+        machine.succeed("printf 'hunter2\\n' > /tmp/expected")
+        machine.succeed("cmp /tmp/expected " + pgdir + "/finalizer-password")
+        machine.succeed(
+            "chuggy-pg-role-env sh -c "
+            "'printf %s \"$CHUG_PG_FINALIZER_PASSWORD\" > /tmp/exported'"
+        )
+        machine.succeed(
+            "jq -r '.data[\"finalizer-password\"]' " + pgsecret + " | base64 -d > /tmp/from-secret"
+        )
+        machine.succeed("cmp /tmp/exported /tmp/from-secret")
+        machine.succeed("rm /tmp/expected /tmp/exported /tmp/from-secret")
+
+        # read_secrets() strips, so the recorded value is the stripped one; the
+        # bytes on disk are what the two cmp calls above just compared.
+        first["finalizer-password"] = "hunter2"
         assert read_secrets() == first
 
     with subtest("the restart budget can be reached before the window closes"):
