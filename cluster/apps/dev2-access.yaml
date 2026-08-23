@@ -9,6 +9,13 @@
 #          things. It adds pods/exec and pods/portforward, and full read/write
 #          on secrets *in that namespace*. Scoped, but not nothing.
 #
+# AND `edit` HERE IS ADMINISTRATIVE OVER THE IDENTITY PROVIDER. pods/exec into
+# postgres-0 lands on a `trust` socket as superuser, and the `kratos` database
+# is on that server -- so this grant can write a credential into the identity
+# table and then sign in as anyone. cluster/apps/ory-namespace.yaml carries the
+# argument. Read the two roles above as "everywhere, read-only" and "one
+# namespace, and the identity store with it".
+#
 # Identity is a ServiceAccount, not an x509 client certificate. The API server
 # has no CRL support, so an issued client cert cannot be revoked short of
 # rotating the cluster CA -- whereas deleting this ServiceAccount invalidates

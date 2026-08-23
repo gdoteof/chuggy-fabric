@@ -16,8 +16,9 @@
 # there is.
 #
 # 4434 IS THE UNAUTHENTICATED ADMIN API and can mint an identity or a session
-# for anyone. The argument about what does and does not bound it is in
-# ory-hydra.yaml and applies here unchanged.
+# for anyone. What holds it to callers inside `ory` is the policy in
+# ory-network-policy.yaml, which also states the three ways past it and the one
+# road to these same tables it does not touch at all.
 #
 # The migration initContainer, the DDL/DML role split, and the fact that
 # changing the ConfigMap does not restart the pod are all as ory-hydra.yaml
@@ -50,6 +51,13 @@ data:
       # An exhaustive list of where a flow may deposit a browser afterwards.
       # Anything absent is refused, which is what stops `?return_to=` being an
       # open redirect out of the login page.
+      #
+      # NO auth.vteng.io, AND THAT IS NOT AN OMISSION. This list bounds
+      # `?return_to=`, which Kratos checks when the flow is created. An OAuth2
+      # login arrives as `?login_challenge=` with no `return_to` at all, and
+      # where it lands afterwards comes back from Hydra's accept-login call --
+      # Hydra's own registered redirect, not a parameter anyone can set. Adding
+      # the issuer here would widen the open-redirect surface to buy nothing.
       allowed_return_urls:
         - https://id.vteng.io
         - https://chuggy.vteng.io

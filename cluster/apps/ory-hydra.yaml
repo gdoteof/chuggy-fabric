@@ -26,11 +26,11 @@
 # how it ends up on the open internet, because this zone has nothing in front of
 # it -- no Cloudflare Access, no allow-list.
 #
-# What that leaves unbounded is the pod network. Any pod on this cluster may
-# reach hydra-admin:4445, and no rule here says otherwise. The two Services
-# below are the whole of the mechanism: `hydra-public` and `hydra-admin` are
-# separate objects so that an Ingress cannot name the admin port by fat-
-# fingering a number, not because the admin port is protected.
+# The pod network is bounded, but not here: ory-network-policy.yaml admits 4445
+# from the `ory` namespace and nothing else, and carries the argument for what
+# that does and does not cover. The two Services below are not part of that
+# mechanism -- `hydra-public` and `hydra-admin` are separate objects so that an
+# Ingress cannot name the admin port by fat-fingering a number.
 #
 # ------------------------------------------------------------ the migration ----
 #
@@ -58,6 +58,28 @@ data:
       public:
         port: 4444
         host: 0.0.0.0
+        # WITHOUT THIS BLOCK SIGN-IN CANNOT COMPLETE. The SPA on
+        # chuggy.vteng.io finishes PKCE with a cross-origin POST to
+        # /oauth2/token here; unset, Hydra answers the preflight 200 with no
+        # Access-Control-Allow-Origin and the browser drops the exchange. A
+        # client's `allowed_cors_origins` is not a substitute -- Hydra consults
+        # it only once CORS is enabled on this port.
+        #
+        # Enumerated, not `*`. The token endpoint takes a public client's code
+        # with no secret, so this list is what stands between a leaked code and
+        # any page that wants to spend it.
+        cors:
+          enabled: true
+          allowed_origins:
+            - https://chuggy.vteng.io
+          # The exchange, plus the discovery and JWKS documents a client reads
+          # before it. Nothing else here is called from a browser.
+          allowed_methods: [GET, POST, OPTIONS]
+          allowed_headers: [Authorization, Content-Type]
+          # No cookie and no Authorization header travels on the exchange -- a
+          # public client proves possession with the code verifier -- so
+          # granting credentials would widen this to nothing that uses it.
+          allow_credentials: false
       admin:
         port: 4445
         host: 0.0.0.0

@@ -13,6 +13,16 @@
 # these are somebody else's migrations, and a schema chuggy does not own has no
 # business in the database chuggy's journal lives in.
 #
+# SEPARATE DATABASES, ONE SERVER, AND THE SERVER IS THE BOUNDARY THAT ISN'T.
+# postgres-network-policy.yaml records that `kubectl exec` into postgres-0
+# reaches the socket its pg_hba matches with `trust`, i.e. as superuser -- and
+# `edit` in `chuggy`, which cluster/apps/dev2-access.yaml grants, carries
+# pods/exec. So every principal with `edit` in `chuggy` can read and write the
+# `kratos` identity tables, which is to say sign in as anyone. Nothing in this
+# file or in ory-network-policy.yaml narrows that; only moving these databases
+# onto a server `chuggy` has no exec into would. Read the `chuggy` namespace as
+# administrative over the identity provider until that changes.
+#
 # Two roles per database, and the split is DDL from DML. The migrating role owns
 # the relations; the runtime role is a member of a group that holds SELECT,
 # INSERT, UPDATE and DELETE and nothing else. ALTER DEFAULT PRIVILEGES is what
@@ -28,18 +38,36 @@
 # of this deployment, which is the kind of coupling worth spending three
 # statements on.
 #
+# The two `GRANT CONNECT` lines below are documentation and not a bound: PUBLIC
+# holds CONNECT on a new database until it is revoked, and nothing revokes it
+# here. The `chuggy` database is the same, so tightening one of the three alone
+# would leave the tree claiming a boundary two thirds of it does not have.
+#
 # Passwords come from the environment for the reason kasofsk/chuggy's
 # postgres-roles.sql gives: an argument to psql is in the process table. The
 # whole file is transactional except CREATE DATABASE, which PostgreSQL refuses
 # inside a transaction block -- so the roles land or none of them do, and the
 # databases are a separate, idempotent step.
 #
-# RUN AS A SUPERUSER, ONCE, BEFORE ANYTHING STARTS:
+# RUN AS A SUPERUSER, ONCE, BEFORE ANYTHING STARTS.
 #
-#   ORY_PG_HYDRA_OWNER_PASSWORD=$(openssl rand -hex 24) \
-#   ORY_PG_HYDRA_APP_PASSWORD=$(openssl rand -hex 24) \
-#   ORY_PG_KRATOS_OWNER_PASSWORD=$(openssl rand -hex 24) \
-#   ORY_PG_KRATOS_APP_PASSWORD=$(openssl rand -hex 24) \
+# THE FOUR ASSIGNMENTS ARE SEPARATE STATEMENTS AND HAVE TO BE. A prefix
+# assignment on the same command as `kubectl` is applied after the argument
+# words are expanded, so `env NAME="$NAME"` would carry the empty string: every
+# `ALTER ROLE ... PASSWORD` below would set an empty password. A prefix
+# assignment also does not outlive its command, so the Secrets further down --
+# separate commands -- would build DSNs to match, and the deployment would come
+# up consistent and wrong.
+#
+# Nothing prints these values, so run every command in this file from the one
+# shell. After the Secrets exist the DSNs are the copy of record; before they
+# do, closing the shell means starting over.
+#
+#   export ORY_PG_HYDRA_OWNER_PASSWORD=$(openssl rand -hex 24)
+#   export ORY_PG_HYDRA_APP_PASSWORD=$(openssl rand -hex 24)
+#   export ORY_PG_KRATOS_OWNER_PASSWORD=$(openssl rand -hex 24)
+#   export ORY_PG_KRATOS_APP_PASSWORD=$(openssl rand -hex 24)
+#
 #   kubectl exec -i -n chuggy postgres-0 -- env \
 #     ORY_PG_HYDRA_OWNER_PASSWORD="$ORY_PG_HYDRA_OWNER_PASSWORD" \
 #     ORY_PG_HYDRA_APP_PASSWORD="$ORY_PG_HYDRA_APP_PASSWORD" \
