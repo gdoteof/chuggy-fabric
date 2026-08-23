@@ -26,8 +26,10 @@ metadata:
   namespace: flux-system
 spec:
   interval: 5m
-  # Plain YAML directory. kustomize-controller synthesises a kustomization when
-  # the path has none, so no kustomization.yaml is needed until overlays are.
+  # This path carries its own kustomization.yaml, which it did not need until a
+  # generated ConfigMap had to be named after its content. That file enumerates
+  # every manifest, so a file added to the directory and not to it is one this
+  # Kustomization stops applying -- and `prune` below then deletes it.
   path: ./cluster/apps
   sourceRef:
     kind: GitRepository

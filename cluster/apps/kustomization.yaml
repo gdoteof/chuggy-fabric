@@ -1,0 +1,81 @@
+# What this directory is, now that it is not a plain YAML directory.
+#
+# kustomize-controller synthesises a kustomization when a path has none, and
+# this path had none until gdoteof/chuggy-fabric#7 needed a ConfigMap whose name
+# changes when its content does. Generating a ConfigMap is the only mechanism
+# that does that automatically, generating requires a kustomization, and a
+# kustomization applies to the whole directory -- so introducing it for two
+# objects changed the contract for all of them. That trade is the decision this
+# file exists to record.
+#
+# WHAT THE ALTERNATIVE WAS. A checksum annotation on the pod template is the
+# other standard answer, and it is what a Helm chart computes for you. Nothing
+# computes it here: these are plain manifests with no templating, so the
+# checksum would be a value a human wrote down after editing the config. That is
+# the same class of failure #7 is about -- a step someone must remember, whose
+# omission leaves the reconcile green and the running pod wrong. An automatic
+# mechanism with a cost is better than a manual one with none.
+#
+# THE COST, STATED PLAINLY. A file that is not in `resources` below is not
+# applied, and `prune: true` on the Kustomization means an object that stops
+# being applied is DELETED from the cluster. Adding a manifest to this directory
+# without adding it here therefore removes it, silently, on the next reconcile.
+# The README says so where it tells you how to add an app; there is no gate in
+# this repository that checks it, and the enumeration is what a reviewer has to
+# read against `ls`.
+#
+# The list is the record, which is the same choice as enumerating tunnel
+# hostnames rather than wildcarding them -- and the same trade: a rebuild per
+# app, in exchange for a repository that says what it deploys.
+#
+# NOT EVERY ConfigMap IS GENERATED. `chuggy-web-config` stays a plain object in
+# chuggy-web.yaml, because that file argues that nginx re-reads it per request
+# and the console picks up a change on the next page load. Hashing it would roll
+# the console for a change it does not need a rollout for.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Every manifest in this directory, and nothing else. `ory/` holds the two
+# config documents the generator below reads; they are not manifests and must
+# not be listed here.
+resources:
+  - chuggy-api.yaml
+  - chuggy-artifacts.yaml
+  - chuggy-control-plane-network-policy.yaml
+  - chuggy-finalizer.yaml
+  - chuggy-migrate.yaml
+  - chuggy-scheduler.yaml
+  - chuggy-selector.yaml
+  - chuggy-ticket-service.yaml
+  - chuggy-web.yaml
+  - dev2-access.yaml
+  - monitoring.yaml
+  - ory-hydra.yaml
+  - ory-kratos.yaml
+  - ory-namespace.yaml
+  - ory-network-policy.yaml
+  - ory-ui.yaml
+  - postgres-network-policy.yaml
+  - postgres.yaml
+  - sirdocalot-namespace.yaml
+  - sirdocalot-source.yaml
+  - whoami.yaml
+
+# The name of each of these ends in a hash of its content, and kustomize rewrites
+# the Deployments that mount them to the hashed name. That is the whole of the
+# answer to #7: an edit to a file below changes a ConfigMap name, a pod template
+# and therefore the pods.
+#
+# The generated ConfigMaps are immutable in practice rather than by the
+# `immutable` field: a change makes a new object rather than mutating this one,
+# and `prune: true` removes the old one once nothing references it.
+configMapGenerator:
+  - name: hydra-config
+    namespace: ory
+    files:
+      - hydra.yaml=ory/hydra.yaml
+  - name: kratos-config
+    namespace: ory
+    files:
+      - kratos.yaml=ory/kratos.yaml
+      - identity.default.schema.json=ory/identity.default.schema.json

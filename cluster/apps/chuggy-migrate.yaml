@@ -1,0 +1,130 @@
+# The schema, applied by the one command in kasofsk/chuggy that applies it.
+#
+# `src/roots/migrate.ts` plans the ledger already in the database against the
+# one this image declares and refuses to touch a database that is not a prefix
+# of it. Nothing else in that tree applies the schema, and nothing in this
+# repository knows what the schema is -- which is the point: the image carries
+# its own migrations and this file only says which database and as whom.
+#
+# THIS COMMAND DOES NOT EXIST BEFORE kasofsk/chuggy#242. The image tag below
+# must be built from a commit that carries it; a tag that does not has no
+# `src/roots/migrate.ts` and the container exits on a module that is not there.
+#
+# ------------------------------------------------------------ the ordering ----
+#
+# A JOB DOES NOT BLOCK THE DEPLOYMENTS BESIDE IT. kustomize-controller applies
+# this directory as one set, so the five control-plane workloads start while
+# this is still running, and on a fresh database they start against a schema
+# that is not there yet.
+#
+# That is safe, and it is safe because of the processes rather than because of
+# anything here. Every command asserts `schema-compatible` before it serves --
+# the applied ledger against the contract its own image declares -- and reports
+# a mismatch as could-not-run. So the sequence on a fresh database is: pods
+# start, report the schema they do not have, exit, and the kubelet backs them
+# off; this Job commits; the next restart finds the schema and the pods come up.
+# The ordering is enforced by the thing that would be wrong without it.
+#
+# The alternative was a second Flux Kustomization with `dependsOn`, which would
+# order the apply -- and would buy nothing the precondition does not already
+# guarantee, at the cost of splitting `cluster/apps/` into two reconcilers with
+# their own intervals and their own failure modes.
+#
+# ---------------------------------------------------- the name is the tag ----
+#
+# A Job's pod template is immutable, so re-applying this file with a new image
+# under the same name is rejected by the API server -- the reconcile fails and
+# nothing migrates. Naming the Job after the tag makes a re-tag a different
+# object: Flux creates the new one and, because `prune: true` is set on the
+# Kustomization, deletes the old one in the same pass.
+#
+# It also makes the run visible. `kubectl -n chuggy get jobs` names the exact
+# image whose schema this database was last brought to.
+#
+# NO `ttlSecondsAfterFinished`. A completed Job that deletes itself is one Flux
+# re-creates on its next reconcile, so the migration would run every five
+# minutes forever. It is idempotent -- a second run applies nothing and says so
+# -- but a rerun loop is not what an idempotent command is for.
+#
+# ----------------------------------------------------------- the credential ----
+#
+# `chuggy_owner`, and no `role=` option: it is a login role in its own right and
+# it is the role that owns the relations. Every other workload in this namespace
+# connects as a login role and then becomes a group; this one is the exception,
+# and it is the exception because a migration must own what it creates.
+#
+# It holds CREATEROLE, which is what lets the migration create its own group
+# roles. That is not superuser, and kasofsk/chuggy's `deploy/rig/postgres/postgres-roles.sql`
+# carries the argument for why the difference is load-bearing.
+#
+# The database is `chuggy_rehearsal` for the reason chuggy-api.yaml gives at
+# length. All six objects in this namespace that hold a chuggy role name the
+# same database; the swap that file describes moves all six.
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # The suffix is the image tag below. Change one and change the other.
+  name: chuggy-migrate-3411172
+  namespace: chuggy
+  labels: { app: chuggy-migrate }
+spec:
+  # One attempt, then a second. A migration that fails twice fails for a reason
+  # a retry does not fix -- a lock it cannot take, a statement the schema
+  # refuses, a ledger this image is behind -- and each attempt leaves its own
+  # pod, so the diagnostic of the first is still readable after the second.
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app: chuggy-migrate
+        # postgres-network-policy.yaml admits this label and this namespace and
+        # nothing else. Without it the connection is refused by the policy and
+        # the migration reports a database that is down.
+        chuggy.dev/postgres-client: "true"
+    spec:
+      # A pod that fails is kept and a new one is made, so the failure is still
+      # there to read. `OnFailure` would restart the container in place and
+      # overwrite the log of the attempt that explained itself.
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: migrate
+          image: chuggy.invalid/api:3411172
+          imagePullPolicy: IfNotPresent
+          # Exec form with node as PID 1, for the reason the image's Dockerfile
+          # gives: the process is handed SIGTERM itself rather than through a
+          # shell that would swallow it. `npm run` would be that shell.
+          command:
+            [
+              node,
+              --experimental-strip-types,
+              src/roots/migrate.ts,
+            ]
+          env:
+            # Defined before the URL that expands it, which is the ordering
+            # Kubernetes resolves `$(...)` in.
+            - name: CHUG_PG_OWNER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  { name: chuggy-postgres-credentials, key: owner-password }
+            - name: CHUG_MIGRATE_DATABASE_URL
+              value: postgres://chuggy_owner:$(CHUG_PG_OWNER_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy_rehearsal
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile: { type: RuntimeDefault }
+      # A statement that rewrites a table can outlast a short budget, and the
+      # command's own statement timeout is longer than this by default. Killing
+      # the pod mid-transaction does not corrupt anything -- PostgreSQL rolls
+      # the transaction back -- but it loses the report of what was applied.
+      terminationGracePeriodSeconds: 120

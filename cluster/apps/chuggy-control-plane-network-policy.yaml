@@ -1,0 +1,312 @@
+# The network boundary around the five control-plane processes, declared here
+# because they are.
+#
+# postgres-network-policy.yaml bounds what may reach the database. This is the
+# other direction and the other end: what may reach these processes, and where
+# each of them may reach. They are separate files because they are separate
+# questions with separate podSelectors, and one object claiming both would be
+# honest about neither.
+#
+# WHAT SELECTING A POD DOES NOT BOUND is argued in full in
+# postgres-network-policy.yaml -- `kubectl exec`, `kubectl port-forward` and the
+# node's own address all reach a selected pod without crossing anything below,
+# and the third is kube-router's own doing rather than something Kubernetes
+# guarantees. The same three exemptions apply here, and one of them is
+# load-bearing rather than merely true: the kubelet probes chuggy-api from the
+# node, which is why the ingress rule below does not have to admit it.
+#
+# THESE POLICIES ARE NOT VERIFIED AGAINST LIVE TRAFFIC. They were built and
+# checked against the API server, and their selectors were checked against the
+# labels the cluster actually carries -- Traefik's, CoreDNS's, PostgreSQL's --
+# but nothing here has been applied to the running rig, so no probe has been run
+# through them. The ingress rule on chuggy-api is the one to watch on the first
+# reconcile: it is the only rule in this file that stands in front of something
+# that already works.
+#
+# ---------------------------------------------- what "egress: nothing" means ----
+#
+# A pod named by ANY egress policy is isolated for egress, so each rule below is
+# a complete statement of where that workload may go. Replies are not egress --
+# the pod's chain accepts RELATED,ESTABLISHED before consulting a policy -- so
+# an admitted connection is answered whatever these say.
+#
+# A ClusterIP is not what a rule matches. Service addresses are translated
+# before the filter chain sees the packet, so a destination is written here as
+# the pod that answers it: CoreDNS by its label, PostgreSQL by its, the API by
+# its. The one place that fails is the Kubernetes API server, and that is argued
+# where the scheduler's rule is.
+---
+# Nothing may open a connection to the four loop processes, because none of them
+# listens. They have no port, no Service and no probe; a rule that admitted
+# anything would be admitting it to a closed port.
+#
+# This is the cheapest half of D14's "internal control ports remain
+# cluster-internal": there are no internal control ports, and this is what says
+# so in a form a negative probe can fail against rather than in a comment.
+#
+# The four are named rather than carrying a shared label. A label would have to
+# be added to four pod templates and could be dropped from one of them silently;
+# the list is the record, the same choice as enumerating tunnel hostnames.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-control-plane-denies-ingress
+  namespace: chuggy
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - chuggy-selector
+          - chuggy-scheduler
+          - chuggy-ticket-service
+          - chuggy-finalizer
+  # THE ABSENT `ingress:` KEY IS THE RULE. `ingress: [{}]` admits everything and
+  # looks almost identical -- do not "complete" this object.
+  policyTypes:
+    - Ingress
+---
+# The API is reachable from Traefik, which is how the internet reaches it, and
+# from the selector, which is the only in-cluster client it has. Nothing else on
+# the pod network may open a connection to it.
+#
+# Before this rule any pod in any namespace could reach `/api/v1` directly and
+# present a token to it. That is not a hole -- the API authenticates -- but it
+# is a surface with no reason to exist, and the console reaches the API through
+# Traefik like every other browser.
+#
+# THE KUBELET IS NOT ADMITTED HERE AND DOES NOT NEED TO BE. Both probes come
+# from the node's own address, which kube-router accepts above the jump to this
+# chain. Under a different CNI that is a fact to re-establish, and the symptom
+# of getting it wrong would be a pod that never becomes ready.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-api-admits-traefik-and-the-selector
+  namespace: chuggy
+spec:
+  podSelector:
+    matchLabels:
+      app: chuggy-api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # Traefik, by the namespace it runs in and the label its chart gives it.
+        # Both were read off the running cluster rather than assumed.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+        # A bare podSelector is scoped to this policy's own namespace, so this
+        # admits a labelled pod in `chuggy` and nothing another namespace
+        # labels the same way.
+        - podSelector:
+            matchLabels:
+              chuggy.dev/api-client: "true"
+      ports:
+        - protocol: TCP
+          port: 3000
+---
+# The ticket service reaches the database and the resolver, and nothing else.
+# It is the tightest of the five because it is the only one whose whole world is
+# the journal.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-ticket-service-egress
+  namespace: chuggy
+spec:
+  podSelector:
+    matchLabels:
+      app: chuggy-ticket-service
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# The selector adds the API to the same two destinations, because its project
+# view comes through `/api/v1` rather than out of the database.
+#
+# It does NOT reach the trusted selector policy host, and that is not an
+# omission: no such Service exists in this directory, so there is nothing to
+# name. Adding one is an edit to this rule as well as to
+# chuggy-selector.yaml -- and until then the workload's own precondition is
+# what reports the absence, not this policy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-selector-egress
+  namespace: chuggy
+spec:
+  podSelector:
+    matchLabels:
+      app: chuggy-selector
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - podSelector:
+            matchLabels:
+              app: chuggy-api
+      ports:
+        - protocol: TCP
+          port: 3000
+---
+# The finalizer adds the public internet on 443, because a promotion pushes to a
+# remote that is not on this cluster.
+#
+# WHAT THE `except` LIST BUYS AND WHAT IT DOES NOT. It refuses this workload the
+# pod network, the service network, every RFC1918 range and link-local -- so a
+# repository URL that resolved to something inside this site, or to the cloud
+# metadata address, is refused rather than fetched. That is the shape of the
+# defence D25 asks for around work pods, applied here to the one control-plane
+# process that talks to a remote at all.
+#
+# What it does not buy is any statement about WHICH public host. github.com and
+# anywhere else on the internet are the same rule to this policy. Bounding that
+# is a proxy with an allow list, which is PR 5's egress proxy and not a
+# NetworkPolicy -- an `ipBlock` cannot express a hostname, and a rule written
+# against today's GitHub addresses would be wrong within the month.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-finalizer-egress
+  namespace: chuggy
+spec:
+  podSelector:
+    matchLabels:
+      app: chuggy-finalizer
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.42.0.0/16
+              - 10.43.0.0/16
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 443
+---
+# The scheduler reaches the Kubernetes API server, and that is why its rule is
+# the loosest of the four.
+#
+# A SERVICE ADDRESS IS TRANSLATED BEFORE THIS RULE SEES IT. `kubernetes.default`
+# resolves to a ClusterIP whose only endpoint is the API server on the node's
+# own LAN address, so an `ipBlock` naming the ClusterIP matches nothing and the
+# destination this rule would have to name is the node's address -- which the
+# README is explicit is a DHCP lease. Writing that address here would be the
+# same failure the README warns about for the router's port forward, arriving
+# weeks later as a scheduler that stopped placing anything.
+#
+# So the rule permits everything except the pod and service networks. What it
+# buys is real -- this workload cannot open a connection to any other pod on
+# this cluster except the two named above -- and what it costs is named: the
+# house LAN and the public internet are both reachable from this pod, and
+# nothing here narrows that.
+#
+# What would narrow it is a stable address for the API server: the node holding
+# a reserved lease, or `chuggy.k3s` publishing one. Both are the machine layer's.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-scheduler-egress
+  namespace: chuggy
+spec:
+  podSelector:
+    matchLabels:
+      app: chuggy-scheduler
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.42.0.0/16
+              - 10.43.0.0/16

@@ -1,0 +1,227 @@
+# The execution scheduler: the process that turns an admitted execution request
+# into one placed worker pod, and the only workload in this namespace that holds
+# a Kubernetes credential.
+#
+# One responsibility, one pod, one command, one database role. The shared image,
+# the six places its tag is written, the login-role-becomes-group connection,
+# the password's URL-reserved-character constraint and the absence of a health
+# listener are argued in chuggy-ticket-service.yaml. The recovery epoch and the
+# insert that establishes it are argued in chuggy-finalizer.yaml; both processes
+# fence against the same epoch, which is why the value is written twice and must
+# agree.
+#
+# ------------------------------------------ the credential that is not a secret ----
+#
+# This is the one pod here with `automountServiceAccountToken: true`, and it is
+# the exception every other file in this directory states the rule for. The
+# command reads the projected token from the file per act rather than holding
+# it, so a rotated token is picked up without a restart -- which is exactly what
+# a projected ServiceAccount token needs, since the kubelet rewrites it roughly
+# hourly.
+#
+# WHAT THE TOKEN MAY DO IS BOUND BY THE RBAC BELOW AND BY NOTHING ELSE. It
+# grants `get` on one namespace by name, which is what the command's
+# `cluster-namespace-reachable` precondition asks. IT CANNOT CREATE A POD. The
+# Role that lets it place workers in `chuggy-work`, the pod security that bounds
+# what it may place, and the immutable worker-image allowlist are PR 5 of
+# kasofsk/chuggy#197 -- so this scheduler starts, and every placement it
+# attempts is answered 403 and held as unavailable rather than denied. That is
+# the adapter's own reading of a forbidden answer and it is the right one: a
+# 403 cannot be told apart from an exhausted quota by its status line.
+#
+# NODE_EXTRA_CA_CERTS IS NOT DECORATION. The adapter reaches the API server with
+# plain `fetch`, which trusts the public root store and nothing else. Without
+# this the TLS handshake to `kubernetes.default.svc` fails, the reach is caught
+# and reported as `Unreachable`, and the precondition reads as a cluster that is
+# down rather than as a certificate nobody trusted.
+#
+# ------------------------------------------------- what PR 5 owns, named here ----
+#
+# This command refuses to parse a configuration that does not name an admitted
+# worker image, a worker resource budget, an execution policy and at least one
+# task configuration. They are site policy and they belong to PR 5. So the
+# values below are the smallest thing that parses, they are marked where they
+# are written, and they are not this rig's policy:
+#
+#   - the worker image names a tag nothing has built. The default worker image
+#     is revised PR 2's, in kasofsk/chuggy.
+#   - the execution policy is empty, so no task kind has a profile and every
+#     execution is denied at the point of decision. D26's allowlist and D30's
+#     adopter-supplied budgets replace it.
+#   - the task configuration's digest is sixty-four zeroes, which is a well
+#     formed digest of nothing. A real one is the digest of a real authored
+#     configuration.
+#
+# ---------------------------------------------------------- the worker namespace ----
+#
+# `chuggy-work` is NOT declared in this directory. The README says why: it was
+# bootstrapped by hand as a deployment rehearsal fixture, and declaring it would
+# commit Flux to maintaining state the rehearsal means to tear down. PR 5 is
+# where it stops being a fixture. The ClusterRole below therefore names it
+# without creating it, and a namespace that is not there is a precondition this
+# command reports rather than an error it raises.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chuggy-scheduler
+  namespace: chuggy
+---
+# `get` on one namespace, named. Namespaces are cluster-scoped, so this cannot
+# be a Role even though it concerns one namespace -- and `resourceNames` is what
+# keeps it from being a read of every namespace on the cluster.
+#
+# `list` is deliberately absent: `resourceNames` does not constrain a list, so
+# granting it here would grant a read of all of them.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: chuggy-scheduler-namespace-reader
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    resourceNames: [chuggy-work]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: chuggy-scheduler-namespace-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: chuggy-scheduler-namespace-reader
+subjects:
+  - kind: ServiceAccount
+    name: chuggy-scheduler
+    namespace: chuggy
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chuggy-scheduler
+  namespace: chuggy
+  labels: { app: chuggy-scheduler }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: chuggy-scheduler }
+  template:
+    metadata:
+      labels:
+        app: chuggy-scheduler
+        chuggy.dev/postgres-client: "true"
+        # This workload talks to the Kubernetes API server, which is on the
+        # node's own address rather than on the pod network.
+        # chuggy-control-plane-network-policy.yaml admits that egress by this
+        # label and by no other.
+        chuggy.dev/cluster-client: "true"
+    spec:
+      serviceAccountName: chuggy-scheduler
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: scheduler
+          image: chuggy.invalid/api:3411172
+          imagePullPolicy: IfNotPresent
+          command:
+            [
+              node,
+              --experimental-strip-types,
+              src/roots/scheduler.ts,
+            ]
+          env:
+            - name: CHUG_SCHEDULER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  { name: chuggy-postgres-credentials, key: scheduler-password }
+            - name: CHUG_SCHEDULER_DATABASE_URL
+              value: postgres://chuggy_scheduler_login:$(CHUG_SCHEDULER_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy_rehearsal?options=-c%20role%3Dchuggy_scheduler
+            # The claim holder's name, taken from the pod so that two live
+            # processes can never hold one execution request under one identity.
+            - name: CHUG_SCHEDULER_OWNER
+              valueFrom:
+                fieldRef: { fieldPath: metadata.name }
+            # Must equal chuggy-finalizer.yaml's, and the newest row in the
+            # database's `recovery_epoch` table.
+            - name: CHUG_SCHEDULER_RECOVERY_EPOCH
+              value: rehearsal-1
+            - name: NODE_EXTRA_CA_CERTS
+              value: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+            - name: CHUG_SCHEDULER_CLUSTER_API_URL
+              value: https://kubernetes.default.svc
+            - name: CHUG_SCHEDULER_CLUSTER_NAMESPACE
+              value: chuggy-work
+            # Projected, and re-read per act rather than held.
+            - name: CHUG_SCHEDULER_CLUSTER_TOKEN_FILE
+              value: /var/run/secrets/kubernetes.io/serviceaccount/token
+            # The identity a worker pod runs as. PR 5 creates it in
+            # `chuggy-work`; naming it here does not.
+            - name: CHUG_SCHEDULER_WORKER_SERVICE_ACCOUNT
+              value: chuggy-worker
+            # PR 5's, provisional: nothing has built this tag.
+            - name: CHUG_SCHEDULER_WORKER_IMAGES
+              value: |
+                [
+                  {
+                    "profile": "default",
+                    "runtimeVersion": "0",
+                    "image": "chuggy.invalid/worker:3411172"
+                  }
+                ]
+            # PR 5's, provisional. D30 says the adopting machine must supply
+            # these and that the shared module provides no guessed defaults;
+            # these are a guess, and they are here because the command will not
+            # parse without them.
+            - name: CHUG_SCHEDULER_WORKER_RESOURCES
+              value: |
+                {
+                  "cpuRequest": "250m",
+                  "cpuLimit": "1",
+                  "memoryRequest": "512Mi",
+                  "memoryLimit": "2Gi"
+                }
+            # PR 5's, and empty: no task kind has a profile, so every execution
+            # is denied at the point of decision rather than placed under a
+            # policy this stage did not write.
+            - name: CHUG_SCHEDULER_EXECUTION_POLICY
+              value: "{}"
+            # D39: one project, and it is this rig's own repository. The digest
+            # is sixty-four zeroes because no authored configuration has been
+            # pinned yet.
+            - name: CHUG_SCHEDULER_TASK_CONFIGURATIONS
+              value: |
+                [
+                  {
+                    "tenant": "chuggy",
+                    "project": "chuggy",
+                    "configurationRevision": "unpinned",
+                    "configurationDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+                    "brief": {
+                      "motivation": [],
+                      "acceptanceCriteria": [],
+                      "constraints": []
+                    },
+                    "practices": [],
+                    "work": { "instructions": [] },
+                    "review": { "instructions": [] }
+                  }
+                ]
+            # The worker pod site policy -- labels, annotations, node selector
+            # and both security contexts -- is left unset, so the command hands
+            # the cluster a pod with none of them. That is PR 5's, and a guess
+            # here would be a security context somebody would then trust.
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 384Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile: { type: RuntimeDefault }
+      terminationGracePeriodSeconds: 30

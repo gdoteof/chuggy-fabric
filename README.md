@@ -27,6 +27,10 @@ only by their own directory.
 
     cluster/flux-system/            Flux install + what repo it follows
     cluster/apps/                   the cluster state this repo declares
+    cluster/apps/kustomization.yaml the enumeration of that state, and two
+                                    generated ConfigMaps
+    cluster/apps/ory/               config documents those ConfigMaps carry --
+                                    not manifests, and not in `resources`
 
     hosts/gtr/default.nix           geoff's Beelink GTR: hostname, radios, mesh, k3s, tunnel
     hosts/gtr/hardware-configuration.nix
@@ -282,6 +286,13 @@ If the app needs to be public it also needs a hostname in
 `prune: true` is set, so deleting a file deletes the resource. Without it,
 removals in git are silently ignored.
 
+**Add the file to `cluster/apps/kustomization.yaml` as well.** That directory
+carries its own kustomization now — needed so two Ory ConfigMaps get a name
+derived from their content — and a kustomization applies what it enumerates and
+nothing else. A manifest that is in the directory and not in that list is not
+applied, and `prune` then deletes it if it was there before. There is no check
+for this; the list and `ls` have to agree, and a reviewer is what makes them.
+
 ### Verified
 
 - Flux installed itself via k3s auto-deploy on `nixos-rebuild switch`.
@@ -396,6 +407,91 @@ which here is the page cache behind the mmap'd bleve index Grafana 13 keeps at
 `GF_UNIFIED_STORAGE_INDEX_PATH`. The cgroup went over on memory Go was never
 counting. Raising the limit fixes that; lowering the soft ceiling would have
 made it worse.
+
+## The chuggy control plane
+
+Five processes, one per responsibility, all out of one image:
+
+| Workload | Command | Database role | Listens |
+|---|---|---|---|
+| `chuggy-api` | `src/roots/nativeHttp.ts` | `chuggy_api`, and `chuggy_selector_review` on a second pool | yes, 3000 |
+| `chuggy-ticket-service` | `src/roots/ticketService.ts` | `chuggy_ticket_service` | no |
+| `chuggy-selector` | `src/roots/selector.ts` | `chuggy_selector_service` | no |
+| `chuggy-scheduler` | `src/roots/scheduler.ts` | `chuggy_scheduler` | no |
+| `chuggy-finalizer` | `src/roots/finalizer.ts` | `chuggy_finalizer` | no |
+
+Plus `chuggy-migrate-<tag>`, a Job that applies the schema and is named after
+the image it applies it from.
+
+The image is `chuggy.invalid/api:<tag>`, which already contains every command —
+its Dockerfile copies the whole source tree and sets a default command of the
+API alone. The name is the only API-specific thing about it, and renaming it
+belongs to the repository that builds it. **The tag is written in six files and
+they move together.**
+
+Four of the five open no socket, so they have no probe and no Service. They
+report an unmet precondition by name and exit; the kubelet restarts them. A
+process that is alive and making no progress is therefore invisible to
+Kubernetes, and closing that needs a health listener in chuggy itself.
+
+### Before any of it runs
+
+Six things, none of which a manifest can do, and each argued in the file that
+needs it:
+
+1. **Build and import an image** from a chuggy commit carrying
+   [kasofsk/chuggy#242](https://github.com/kasofsk/chuggy/pull/242), and set the
+   six tags to it. Without that PR there are no login roles for three of the
+   processes and no migration command at all.
+2. **Create the host directory** the artifact volume binds, owned `1000:1000`.
+   Its path is an option of the machine layer.
+3. **Synchronize `chuggy-postgres-credentials`** with one key per login role.
+   The host generates them; the four keys past `owner-password` and
+   `api-password` arrive with #242's roles file.
+4. **Create `chuggy-selector` and `chuggy-finalizer-credentials`** by hand — the
+   selector's two bearer tokens and the finalizer's git credential. Values never
+   go in this repository; it is public.
+5. **`GRANT chuggy_selector_review TO chuggy_api_login`.** No migration and no
+   roles file does it, and the API refuses to listen without it.
+6. **Insert the first recovery epoch.** The table is created empty and the
+   scheduler and the finalizer both fence against its newest row.
+
+### What does not work yet, and why
+
+- **The finalizer cannot start.** Its first precondition runs `git --version`,
+  and the image's base — `node:26.7.0-trixie-slim` — has no git. Verified by
+  running it. The fix is in the Dockerfile, in chuggy's repository.
+- **The selector cannot start.** It needs a trusted selector policy service, and
+  no server implements that protocol anywhere. Its API token is also a static
+  string against an issuer that signs short-lived tokens, so even with a policy
+  host it would authenticate for one token lifetime.
+- **The scheduler starts and places nothing.** Its credential may read one
+  namespace and may not create a pod there. The worker namespace, its RBAC, the
+  image allowlist and the resource budgets are the next stage's.
+
+Each of those is a `CouldNotRun` reported by name in the pod's log, which is the
+shape this design asks for — but it also means `flux get kustomization apps`
+reports NotReady until they clear, because a Deployment that never has an
+available replica never passes the `wait`.
+
+### Storage, and what it does and does not survive
+
+Artifacts are a static `PersistentVolume` over a host directory, in a
+`chuggy-retained` StorageClass that provisions nothing and reclaims `Retain`.
+Deleting the claim leaves the data and leaves the volume `Released`, which an
+operator has to clear before it binds again. The finalizer writes it; the API
+reads it read-only.
+
+**PostgreSQL is not on that.** `pgdata-postgres-0` is still a dynamically
+provisioned `local-path` claim with `Delete` on it, holding live data. Moving it
+means stopping the database, copying the data directory, and deleting and
+recreating the claim — destructive work on a running rig, and its own change.
+
+Neither claim is proved against a reboot. `Retain` and a host path are the
+argument, not the evidence: nothing here has replaced a pod and read the data
+back, and nothing has rebooted the box. What would prove it is exactly that —
+write through the finalizer, delete the pod, read through the API; then reboot
+and repeat.
 
 ## Giving someone else access
 

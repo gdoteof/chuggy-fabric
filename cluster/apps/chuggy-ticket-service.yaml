@@ -1,0 +1,190 @@
+# The ticket service: the single journaled actor that drives a project's
+# tickets through authoring, work, evaluation and completion.
+#
+# One responsibility, one pod, one command out of the shared image, one database
+# role. The four files beside this one -- selector, scheduler, finalizer, and
+# the API -- are the same arrangement with a different command and a different
+# role, and the parts they share are argued here rather than five times.
+#
+# ------------------------------------------------------- the shared image ----
+#
+# `chuggy.invalid/api:<tag>` copies the whole of `src/` and sets a default CMD
+# of the API root alone, so it already contains every control-plane command.
+# The name is the only thing that is still API-specific, and correcting it is
+# kasofsk/chuggy's work -- revised PR 2 of kasofsk/chuggy#197 renames it to the
+# control-plane image. Nothing in this repository can rename an image somebody
+# else builds, so every workload here selects its command from the image under
+# the name it has.
+#
+# THE TAG IS WRITTEN IN SIX FILES AND THEY MOVE TOGETHER: this, the selector,
+# the scheduler, the finalizer, the migration Job and chuggy-api.yaml. A bump
+# that misses one runs a mixed control plane against one database. What catches
+# the shape of that which matters is the `schema-compatible` precondition -- a
+# process whose image declares a different ledger than the database carries
+# refuses to serve -- and what it does not catch is a bump that changed no
+# schema. There is no gate in this repository that checks the six agree.
+#
+# `imagePullPolicy: IfNotPresent` against a registry that does not resolve:
+# chuggy-api.yaml carries that argument and it is not repeated.
+#
+# THE TAG BELOW MUST CARRY kasofsk/chuggy#242. Three login roles and the
+# migration command arrive with it; without them these pods have no credential
+# to present and the database has no schema for them to serve.
+#
+# --------------------------------------------------- the credential, again ----
+#
+# `chuggy_ticket_service` is NOLOGIN. The pod authenticates as
+# `chuggy_ticket_service_login` and becomes the group through
+# `?options=-c%20role%3Dchuggy_ticket_service`, and the command asserts at
+# start-up that `current_user` is exactly that group. chuggy-api.yaml explains
+# why the option is in the manifest and not in the Secret; the same reasoning
+# applies here and to every workload in this namespace.
+#
+# THE URL IS INSIDE A JSON DOCUMENT HERE, which the API's is not, because this
+# command reads its whole configuration from one variable. Kubernetes expands
+# `$(NAME)` anywhere in an env value, JSON included, so the password still
+# arrives from the Secret and the shape of the connection is still public.
+#
+# A PASSWORD WITH A URL-RESERVED CHARACTER IN IT BREAKS THIS. `@`, `/`, `?` or
+# `#` in the generated password ends the userinfo early and the connection goes
+# somewhere else -- or nowhere -- with an error that names neither this file nor
+# the password. The generator is the machine layer's and hex is what it emits;
+# this is the constraint that rests on that, and it is stated here because no
+# check enforces it.
+#
+# ------------------------------------------------------ the configuration ----
+#
+# EVERY BOUND THIS OMITS IS ONE THE PROCESS OWNS THE DEFAULT FOR. The command's
+# schema makes its `ticket` block optional precisely so a deployment that has no
+# opinion does not restate one, and a restated default is a second copy that
+# drifts. What is written below is what the schema requires and nothing else.
+#
+# `domain` is the exception, because it is required and has no default: these
+# are the constants the deciders are instantiated with, and they bound the
+# universe a release may draw from. They are sized for a rig that dogfoods one
+# repository, not offered as a recommendation -- what a configuration is proved
+# at lives in kasofsk/chuggy's `model/`, and nothing here proves anything about
+# these.
+#
+# CONFIGURATION LIVES IN THE POD TEMPLATE AND NOT IN A ConfigMap. A change to
+# any value below changes the template, and changing the template is what makes
+# Kubernetes replace the pod. That is gdoteof/chuggy-fabric#7 answered by
+# construction for this workload: there is no mounted file that can change
+# under a process that read it once. cluster/apps/kustomization.yaml is the
+# other half of that answer, for the two workloads that do need files.
+#
+# ------------------------------------------------------ what has no probe ----
+#
+# NOTHING HERE ANSWERS A HEALTH REQUEST, AND THAT IS A REAL GAP. This command
+# runs a loop; it opens no listener, so there is no port for a kubelet to ask.
+# What it does instead is leave: an unmet precondition exits 3, a runtime
+# failure exits 1, a configuration it cannot parse exits 2, and each of those
+# is a CrashLoopBackOff with the reason on stderr.
+#
+# So a process that is *wedged* -- alive, connected, and making no progress --
+# is invisible to Kubernetes here, and no restart will come. Closing that needs
+# a health listener in kasofsk/chuggy's service runtime, which is that tree's
+# change and not a probe this file could add. Until then the signal is the log
+# and the rows the pass writes.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  # The namespace is declared in dev2-access.yaml, which owns it.
+  name: chuggy-ticket-service
+  namespace: chuggy
+  labels: { app: chuggy-ticket-service }
+spec:
+  replicas: 1
+  # Recreate, not the rolling default. There is no traffic to keep serving
+  # while a new pod warms up -- this workload answers nothing -- so a rollout
+  # that briefly runs two of them buys nothing and costs a second pool of
+  # connections against a database sized for this rig.
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: chuggy-ticket-service }
+  template:
+    metadata:
+      labels:
+        app: chuggy-ticket-service
+        # What postgres-network-policy.yaml admits, together with this
+        # namespace. Drop this label and every connection is refused with
+        # nothing anywhere to say the label is why.
+        #
+        # EXPECT `RESTARTS 1` ON EVERY ROLLOUT: that file documents the race
+        # between a new pod and the policy controller, and it is not a fault.
+        chuggy.dev/postgres-client: "true"
+    spec:
+      # This process calls no Kubernetes API. The scheduler is the only
+      # workload in this namespace that does.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # Numeric, because runAsNonRoot is checked against a number and the
+        # kubelet cannot tell that the image's `node` user is not root.
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: ticket-service
+          image: chuggy.invalid/api:3411172
+          imagePullPolicy: IfNotPresent
+          command:
+            [
+              node,
+              --experimental-strip-types,
+              src/roots/ticketService.ts,
+            ]
+          env:
+            - name: CHUG_TICKET_SERVICE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  {
+                    name: chuggy-postgres-credentials,
+                    key: ticket-service-password,
+                  }
+            # The lease holder's name. Taken from the pod rather than written
+            # here so that two live processes can never claim one project under
+            # one identity -- which is what a fixed string would allow during
+            # any rollout that overlapped, and what a lease exists to prevent.
+            - name: CHUG_POD_NAME
+              valueFrom:
+                fieldRef: { fieldPath: metadata.name }
+            - name: CHUG_TICKET_SERVICE_CONFIG
+              value: |
+                {
+                  "database": {
+                    "url": "postgres://chuggy_ticket_service_login:$(CHUG_TICKET_SERVICE_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy_rehearsal?options=-c%20role%3Dchuggy_ticket_service"
+                  },
+                  "runtime": {
+                    "idleIntervalMilliseconds": 1000,
+                    "shutdownDrainMilliseconds": 15000
+                  },
+                  "pass": {
+                    "projectsPerPassMax": 8,
+                    "projectLeaseSeconds": 30
+                  },
+                  "domain": {
+                    "nTickets": 64,
+                    "nTasks": 8,
+                    "reworkPolicy": { "type": "BudgetedRework", "value": 2 },
+                    "gas": 1000,
+                    "finalizationPricing": "DeadlineOnly",
+                    "maxStages": 4
+                  },
+                  "owner": "$(CHUG_POD_NAME)"
+                }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 384Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            # Nothing here writes a file. The command holds a pool and a loop.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile: { type: RuntimeDefault }
+      # Longer than the drain above, which is what it is for: SIGTERM starts a
+      # drain bounded by `shutdownDrainMilliseconds`, and this is what keeps the
+      # kubelet from killing the process in the middle of one. A drain that
+      # expires is reported as a failure by the command itself.
+      terminationGracePeriodSeconds: 30

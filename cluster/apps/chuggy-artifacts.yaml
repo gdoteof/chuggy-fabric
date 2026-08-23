@@ -1,0 +1,120 @@
+# The artifact store: the one directory on this node that outlives everything
+# that writes to it.
+#
+# The finalizer writes a completed task's declared outputs here and the API
+# serves them back through `/api/v1`. Those are the only two readers of this
+# volume in `cluster/apps/`, and they are in two different pods, which is the
+# whole reason it is a volume rather than an `emptyDir` in each of them --
+# chuggy-api.yaml carried that emptyDir and said what would replace it.
+#
+# ------------------------------------------------------- who makes the path ----
+#
+# NOT THIS FILE. A `local` PersistentVolume binds an existing directory; it does
+# not create one, and a claim against a path that is not there leaves the pod in
+# `ContainerCreating` with the reason on the pod and nothing on the PV.
+#
+# The directory is the machine layer's: `/var/lib/chuggy/artifacts`, owned
+# `1000:1000`, which is the uid every control-plane container runs as. That is
+# the `chuggy.storage.artifactsPath` option of the reusable module in fabric's
+# PR 3; the value written here is what `hosts/gtr` sets it to. Until that lands
+# the directory is an `install -d -o 1000 -g 1000 -m 0750` on the node, and this
+# volume does not bind before it exists.
+#
+# ------------------------------------------------- why a class of its own ----
+#
+# A PersistentVolumeClaim that names NO storage class does not get "no class" --
+# it gets the default one, which on this node is `local-path`, and its
+# provisioner then makes a brand new empty directory and binds that instead.
+# The claim below would succeed, the pods would start, and the artifacts would
+# be somewhere nobody declared. So a class has to be named.
+#
+# `storageClassName: ""` is the other way to say "bind only a matching static
+# volume", and is rejected here for one reason: it forces immediate binding. A
+# `local` volume must be bound after the scheduler has picked a node, or the
+# binding decides the placement before the scheduler has looked at anything else
+# the pod needs -- which is what `volumeBindingMode: WaitForFirstConsumer`
+# exists for and what an empty class name cannot express.
+#
+# The class provisions nothing. `kubernetes.io/no-provisioner` is the name for
+# that, and every volume in this class is therefore one somebody wrote down.
+#
+# ------------------------------------------------------- what Retain buys ----
+#
+# Deleting the claim leaves this volume `Released` and the directory untouched.
+# That is D23's requirement and it is the difference from `local-path`, whose
+# reclaim policy is `Delete`: deleting a claim there takes the data with it.
+#
+# WHAT IT COSTS. A `Released` volume does not re-bind. Recovering from a deleted
+# claim is an operator clearing `spec.claimRef` on the PV and re-creating the
+# claim -- Flux re-creates the claim on its own, so the step that needs a human
+# is the first one.
+#
+# THE CAPACITY IS NOT A CEILING. Nothing enforces it: this is a directory on the
+# root filesystem, so a writer fills the disk the node boots from. It is here
+# because a PV must declare one and because it is what the claim matches
+# against. Watch root disk usage; the README says the same of the `local-path`
+# volumes and for the same reason.
+#
+# PostgreSQL IS NOT ON THIS. `pgdata-postgres-0` is still a dynamically
+# provisioned `local-path` claim with `Delete` on it, holding the live journal.
+# D23 wants it here too, and moving it means stopping the database, copying the
+# data directory, deleting and re-creating the claim, and rebinding -- a
+# destructive operation on a running rig that no bullet of this stage asks for.
+# It is a gap, it is named in the README, and closing it is its own change.
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: chuggy-retained
+provisioner: kubernetes.io/no-provisioner
+# Every volume in this class is written down in this repository, so `Retain` is
+# the class's own default as well as the volume's. A future volume that omits
+# `persistentVolumeReclaimPolicy` inherits it rather than the `Delete` it would
+# otherwise get.
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: false
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: chuggy-artifacts
+spec:
+  capacity:
+    storage: 10Gi
+  # RWO is per NODE, not per pod: the API and the finalizer are two pods on one
+  # node and both may mount this at once. `ReadWriteOncePod` is the mode that
+  # would refuse the second, and is deliberately not used.
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: chuggy-retained
+  local:
+    path: /var/lib/chuggy/artifacts
+  # REQUIRED, not advisory. A `local` volume without node affinity is rejected
+  # by the API server. The label is the one the README already uses to keep
+  # stateful work off spot agents, so a second durable node would have to be
+  # labelled before it could hold a copy of this -- and it would be a copy, not
+  # this volume: nothing replicates a directory.
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: chuggy.dev/durable
+              operator: In
+              values: ["true"]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: chuggy-artifacts
+  namespace: chuggy
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: chuggy-retained
+  resources:
+    requests:
+      storage: 10Gi
+  # Named, so this claim binds that volume and not merely one of its size in the
+  # same class. With one volume in the class the two are the same thing today;
+  # the day there is a second, a claim matching by size alone is a coin toss.
+  volumeName: chuggy-artifacts

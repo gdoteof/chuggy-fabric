@@ -1,0 +1,106 @@
+# No `dsn` and no `secrets` here -- this object is public, and both arrive
+# as environment variables from the `hydra` Secret.
+serve:
+  public:
+    port: 4444
+    host: 0.0.0.0
+    # WITHOUT THIS BLOCK SIGN-IN CANNOT COMPLETE. The SPA on
+    # chuggy.vteng.io finishes PKCE with a cross-origin POST to
+    # /oauth2/token here; unset, Hydra answers the preflight 200 with no
+    # Access-Control-Allow-Origin and the browser drops the exchange. A
+    # client's `allowed_cors_origins` is not a substitute -- Hydra consults
+    # it only once CORS is enabled on this port.
+    #
+    # THIS LIST IS A FLOOR AND NOT THE ALLOW-LIST. Enabling CORS here turns
+    # on Hydra's client-aware checking, which answers a request with the
+    # UNION of this list and the requesting client's own
+    # `allowed_cors_origins` -- so registering a client with an origin on
+    # it widens what /oauth2/token answers, and no preflight gates that: a
+    # form-encoded POST is CORS-safelisted and therefore a simple request.
+    # Whoever may create clients on the admin port sets the real list.
+    # ory-network-policy.yaml is what bounds who that is.
+    #
+    # Enumerated rather than `*` all the same, because it is the floor
+    # every client inherits. What protects a leaked code is not this -- the
+    # exchange that spends one happens server-side, where CORS does not
+    # exist. PKCE is what stands there, and `oauth2.pkce` below enforces it.
+    cors:
+      enabled: true
+      allowed_origins:
+        - https://chuggy.vteng.io
+      # The exchange, plus the discovery and JWKS documents a client reads
+      # before it. Nothing else here is called from a browser.
+      allowed_methods: [GET, POST, OPTIONS]
+      allowed_headers: [Authorization, Content-Type]
+      # No cookie and no Authorization header travels on the exchange -- a
+      # public client proves possession with the code verifier -- so
+      # granting credentials would widen this to nothing that uses it.
+      allow_credentials: false
+  admin:
+    port: 4445
+    host: 0.0.0.0
+  cookies:
+    # Lax, not Hydra's default of None. auth.vteng.io and id.vteng.io are
+    # the same site, and every return from the login and consent app is a
+    # top-level GET redirect, which Lax sends. None would need no more than
+    # this and would also travel on requests initiated by any other site.
+    same_site_mode: Lax
+    # TLS terminates at Cloudflare, so the pod never sees HTTPS and cannot
+    # infer this. The browser does see HTTPS, which is what the flag is
+    # about.
+    secure: true
+
+urls:
+  self:
+    issuer: https://auth.vteng.io
+    public: https://auth.vteng.io
+  login: https://id.vteng.io/login
+  consent: https://id.vteng.io/consent
+  logout: https://id.vteng.io/logout
+  error: https://id.vteng.io/error
+  post_logout_redirect: https://id.vteng.io/welcome
+
+strategies:
+  # JWT access tokens, because the API verifies them offline against JWKS
+  # and never calls back here to introspect. The cost is that a revoked
+  # token stays valid until it expires -- which is what the 15m TTL below
+  # is sized against.
+  access_token: jwt
+  # Exact, not Hydra's default of wildcard: a client is granted the scopes
+  # it registered and no prefix match of them.
+  scope: exact
+
+webfinger:
+  jwks:
+    # BOTH KEY SETS, AND THE SECOND IS THE LOAD-BEARING ONE. The default is
+    # the id-token set alone. Under the JWT strategy access tokens are
+    # signed by a separate set, so omitting it publishes a JWKS without the
+    # key that signed the token the API is holding -- every verification
+    # then fails on an unknown `kid`, and the discovery document looks
+    # perfectly healthy while it does.
+    broadcast_keys:
+      - hydra.openid.id-token
+      - hydra.jwt.access-token
+
+ttl:
+  # Short because these are browser-held and offline-verified: nothing
+  # revokes an access token, so its lifetime is the revocation window.
+  # Hydra's defaults are 1h and 720h.
+  access_token: 15m
+  id_token: 15m
+  refresh_token: 24h
+
+oauth2:
+  # The SPA cannot keep a client secret, so proof of possession of the code
+  # is all there is. Enforced for public clients rather than for every
+  # client, which would also bind flows that authenticate by secret.
+  pkce:
+    enforced_for_public_clients: true
+
+# Telemetry off.
+sqa:
+  opt_out: true
+
+log:
+  level: info
+  format: json
