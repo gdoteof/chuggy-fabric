@@ -164,6 +164,15 @@ pkgs.testers.runNixOSTest {
     pgsecret = "${clusterStore}/chuggy/chuggy-postgres-credentials.json"
     namespace_timeout = ${toString nodes.machine.chuggy.secrets.namespaceTimeoutSeconds}
 
+    # What the artifacts directory has to end up with. Written out rather than
+    # read from nodes.machine, unlike namespace_timeout above: what this pins is
+    # the option's *default*, and a check that asked the module what its default
+    # was would agree with it whatever it became. 0750 and not 0770 -- the group
+    # write bit was granted to a group with no members, and the only writer owns
+    # the directory. cluster/apps/ documents this mode; the tmpfiles rule is
+    # what makes it true, which the subtest below is about.
+    artifacts_stat = "750 1000 1000"
+
 
     def read_secrets():
         out = {}
@@ -217,7 +226,7 @@ pkgs.testers.runNixOSTest {
         assert machine.succeed("stat -c '%a %U %G' /var/lib/chuggy").strip() == "700 root root"
         assert (
             machine.succeed("stat -c '%a %u %g' /var/lib/chuggy/artifacts").strip()
-            == "770 1000 1000"
+            == artifacts_stat
         )
         assert (
             machine.succeed("stat -c '%a %U %G' /var/lib/chuggy/secrets").strip()
@@ -229,6 +238,24 @@ pkgs.testers.runNixOSTest {
             ).strip()
             == "700 root root"
         )
+
+    with subtest("the artifacts mode is reset over whatever set it last"):
+        # The claim this module and cluster/apps/ both rest on: a
+        # PersistentVolume names a host path but does not set its mode, and the
+        # tmpfiles `d` rule adjusts a directory that already exists. So this
+        # module is the authority and a mode stated anywhere else is restated
+        # rather than given -- which is only worth writing down if the reset
+        # actually happens. Contents are untouched by it, which is the other
+        # half of `d` not being `D`.
+        machine.succeed("chmod 0777 /var/lib/chuggy/artifacts")
+        machine.succeed("install -m 0644 -o 1000 -g 1000 /dev/null /var/lib/chuggy/artifacts/survives")
+        machine.succeed("systemd-tmpfiles --create")
+        assert (
+            machine.succeed("stat -c '%a %u %g' /var/lib/chuggy/artifacts").strip()
+            == artifacts_stat
+        )
+        machine.succeed("test -f /var/lib/chuggy/artifacts/survives")
+        machine.succeed("rm /var/lib/chuggy/artifacts/survives")
 
     with subtest("every declared credential exists, root-only, and is 256 bits"):
         # The length is asserted, not just non-emptiness. `test -s` and
@@ -544,7 +571,7 @@ pkgs.testers.runNixOSTest {
         machine.succeed("test -f /var/lib/chuggy/artifacts/kept")
         assert (
             machine.succeed("stat -c '%a %u %g' /var/lib/chuggy/artifacts").strip()
-            == "770 1000 1000"
+            == artifacts_stat
         )
   '';
 }

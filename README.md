@@ -277,20 +277,39 @@ that they do; a mismatch mounts an empty directory and reports healthy.
 **Where the two layers both have an opinion, this one wins.** A
 PersistentVolume names a host path; it does not create it and does not set its
 mode or owner. `chuggy.state.artifacts.{user,group,mode}` do, and the mode they
-supply is `0770`. What preserves that across a rebuild and a reboot is
+supply is `0750`. What preserves that across a rebuild and a reboot is
 `systemd-tmpfiles` `d`, which creates a directory when it is absent and adjusts
 its mode and owner when it is not — including back over a mode something else
 set in between. So a manifest that also states a mode for this directory is
 restating the option's answer rather than giving one, and the next rebuild
 settles any disagreement without reporting that it did. `d` never touches
-contents; `D` would empty it on every boot.
+contents; `D` would empty it on every boot. `tests/state-and-secrets.nix`
+chmods the directory and runs `systemd-tmpfiles --create`, so the reset is
+checked rather than described.
 
-The artifacts directory is owned by a numeric uid matching the pods that read
-and write it, and on a NixOS host that uid is also the first normal user — here,
-the human with a shell. That human can therefore read and write artifacts.
-Deliberate, since they already have passwordless sudo, but it is a consequence
-of matching the container's uid and a box with a second human user should move
-it.
+**It was `0770`, and the group write bit was a permission nothing held.** The
+reason given for it was a second pod identity in the same group writing without
+being the owner, and there is no such identity: the reader mounts this
+read-only, and the writer runs as the owning uid, so the owner bits were doing
+all the work. A group write bit granted to a group with no members is not a
+safeguard against a second identity arriving — it is a permission waiting for
+whoever gets that gid next. `0750` costs nothing today, and a second writer
+that genuinely needs it becomes a deliberate change to the option.
+
+**Tightening the mode does not change who can already read it.** The directory
+is owned by a numeric uid matching the pods that read and write it, and on a
+NixOS host that uid is also the first normal user — here, the human with a
+shell, not a dedicated service account. So the *owner* of the artifacts is a
+person, and no mode on this directory changes that.
+
+What actually keeps them out is the parent: `chuggy.state.directory` is `0700
+root:root`, and path resolution needs execute on every component, so uid 1000
+cannot traverse into its own directory without root. It has passwordless sudo,
+so the practical answer is that the human can read the artifacts — by being
+root, not by owning them. Two consequences worth keeping straight: an adopter
+who moves `artifacts.path` out from under `chuggy.state.directory` loses that
+gate and is left with only this mode, and a box with a second human user should
+move `user` off 1000 rather than rely on either.
 
 ### Generated credentials
 

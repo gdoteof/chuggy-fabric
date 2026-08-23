@@ -96,10 +96,18 @@ in
 
           Note what uid 1000 collides with on a NixOS host -- it is the first
           normal user, which on this repository's hosts is the human with a
-          shell. That human can therefore read and write the artifacts.
-          Deliberate, since they already have passwordless sudo, but it is a
-          real consequence of matching the container's uid rather than a
-          dedicated one, and a host with a second human user should move this.
+          shell. So the owner of the artifacts is a person, and no mode on the
+          directory changes that.
+
+          WHAT KEEPS THEM OUT IS THE PARENT, NOT THE MODE. `directory` above is
+          0700 root:root and path resolution needs execute on every component,
+          so uid 1000 cannot traverse into a directory it owns without being
+          root. It has passwordless sudo, so it reads the artifacts by being
+          root rather than by owning them -- which is deliberate, but is a
+          consequence of matching the container's uid rather than using a
+          dedicated one. An adopter who points `path` outside `directory` gives
+          up that gate and is left with `mode` alone; a host with a second human
+          user should move this off 1000 rather than rely on either.
         '';
       };
 
@@ -111,13 +119,29 @@ in
 
       mode = lib.mkOption {
         type = lib.types.str;
-        default = "0770";
+        default = "0750";
         description = ''
           Mode of the artifacts directory, and the only statement of it that
-          has an effect. The default is 0770: group-writable so a second pod
-          identity in the same group can write without being the owner;
-          world-nothing, because an artifact is work output and this box's other
-          services have no business in it.
+          has an effect. World-nothing, because an artifact is work output and
+          this box's other services have no business in it.
+
+          IT WAS 0770, AND THE GROUP WRITE BIT WAS A PERMISSION NOTHING HELD.
+          The reason given for it was a second pod identity in the same group
+          writing without being the owner, and there is no such identity: the
+          reader mounts this read-only, and the writer runs as `user` above,
+          which owns the directory -- so the owner bits alone were doing all the
+          work. A group write bit granted to a group with no members is not a
+          safeguard against a second identity arriving; it is a permission
+          already waiting for whoever gets that gid next, on a host where `user`
+          is a human account. 0750 costs nothing today, and a second writer that
+          genuinely needs to write is a deliberate change to this option rather
+          than a default that arrived ahead of the requirement.
+
+          WHO CAN ALREADY READ IT IS NOT A QUESTION THIS SETTLES. `user` is
+          1000, which on a NixOS host is the first human account and not a
+          dedicated service uid, so the human with a shell owns this directory
+          whatever the mode says. Read the note on `user` before concluding that
+          tightening this keeps anyone out.
 
           This is what the directory ends up with. The tmpfiles `d` rule below
           runs on every activation and adjusts the mode of a directory that
