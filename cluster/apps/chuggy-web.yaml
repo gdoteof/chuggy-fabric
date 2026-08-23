@@ -65,11 +65,9 @@
 # kasofsk/chuggy, exactly as the API's is -- chuggy-api.yaml carries that
 # argument and it is not repeated here.
 #
-# THE TWO TAGS DIVERGE, which is what the API's line and this one are for. This
-# image is built from kasofsk/chuggy#216, which puts the console's security
-# headers in the image that serves it; the API is unchanged by that and stays on
-# the commit both were built from before it. When #216 lands on the goal branch
-# the two become one commit again.
+# The tag is the same commit as the API's, because both come out of one build of
+# one tree. Nothing requires that, and the day they diverge these two lines are
+# what say so.
 #
 # ------------------------------------------------------- the security headers ----
 #
@@ -129,7 +127,7 @@ spec:
         runAsGroup: 101
       containers:
         - name: web
-          image: chuggy.invalid/web:cd44061
+          image: chuggy.invalid/web:ac02043
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

@@ -190,7 +190,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: api
-          image: chuggy.invalid/api:561cd52
+          image: chuggy.invalid/api:ac02043
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
