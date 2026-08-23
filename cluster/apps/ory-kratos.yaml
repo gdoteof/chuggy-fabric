@@ -215,12 +215,22 @@ spec:
           resources:
             requests: { cpu: 100m, memory: 128Mi }
             limits: { memory: 512Mi }
+          # PUBLIC, NOT ADMIN, AND THE REASON IS THE NETWORKPOLICY. A kubelet
+          # probe arrives from the node, so no podSelector can ever match it
+          # and ory-network-policy.yaml admits it on the admin port only by way
+          # of kube-router's node-local ACCEPT. Probing there would make the
+          # liveness of this pod a property of the CNI: under one without that
+          # rule Kratos would fail its probes and crash-loop minutes after the
+          # policy landed. Kratos serves both health endpoints on the public
+          # port, which the policy admits from anywhere, so this costs nothing
+          # -- and neither path is published, because the Ingress in
+          # ory-ui.yaml routes `/self-service` here and nothing else.
           readinessProbe:
-            httpGet: { path: /health/ready, port: admin }
+            httpGet: { path: /health/ready, port: public }
             periodSeconds: 10
             timeoutSeconds: 3
           livenessProbe:
-            httpGet: { path: /health/alive, port: admin }
+            httpGet: { path: /health/alive, port: public }
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 5

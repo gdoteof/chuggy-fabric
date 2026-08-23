@@ -16,8 +16,24 @@
 # `kubectl exec` and `kubectl port-forward` never touch the pod network, and
 # k3s's kube-router accepts node-local sources ahead of the policy chain, so
 # the node and every host-network pod on it reach these ports whatever they are
-# labelled. What bounds those is who may exec in `ory` and who may run on the
-# node.
+# labelled.
+#
+# THE THIRD OF THOSE IS BOUNDED BY ADMISSION, NOT BY ANYTHING HERE. A pod is
+# host-network because a field says so, and who may set that field is what
+# `pod-security.kubernetes.io/enforce` decides. Without a baseline label on the
+# namespace a caller creates pods in, `create pods` -- which ClusterRole `edit`
+# carries -- is one field away from the node-local ACCEPT and therefore past
+# every rule below. cluster/apps/dev2-access.yaml labels `chuggy` for exactly
+# that reason and says so; a namespace added later without the label reopens
+# this, and nothing in this file would report it.
+#
+# The other two are bounded by who may exec in `ory`, which is nobody outside
+# the operator today.
+#
+# NOTHING HERE DEPENDS ON THAT CNI BEHAVIOUR TO WORK. The exemption is a leak
+# and not a mechanism: every probe in `ory` is on a port this policy admits
+# from anywhere, so replacing kube-router tightens enforcement and breaks no
+# workload. ory-kratos.yaml records the choice that keeps it that way.
 #
 # It also does not bound the identity store itself. `hydra` and `kratos` are
 # databases on the `chuggy` PostgreSQL, and `edit` in `chuggy` carries
@@ -58,6 +74,12 @@ spec:
     # These are pod ports, not Service ports. They coincide here because both
     # Services target the container port by name and the numbers match; a future
     # Service that renumbers would not move this rule with it.
+    #
+    # A SCRAPE WOULD NEED A THIRD ELEMENT. Hydra publishes Prometheus metrics on
+    # the admin port only, so a ServiceMonitor added in `monitoring` fails here
+    # -- silently, as a target that never comes up. Admit it the way
+    # flux-system/allow-scraping does, by namespace and metrics port, rather
+    # than by widening this element.
     - from:
         - podSelector: {}
       ports:

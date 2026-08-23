@@ -65,9 +65,19 @@ data:
         # client's `allowed_cors_origins` is not a substitute -- Hydra consults
         # it only once CORS is enabled on this port.
         #
-        # Enumerated, not `*`. The token endpoint takes a public client's code
-        # with no secret, so this list is what stands between a leaked code and
-        # any page that wants to spend it.
+        # THIS LIST IS A FLOOR AND NOT THE ALLOW-LIST. Enabling CORS here turns
+        # on Hydra's client-aware checking, which answers a request with the
+        # UNION of this list and the requesting client's own
+        # `allowed_cors_origins` -- so registering a client with an origin on
+        # it widens what /oauth2/token answers, and no preflight gates that: a
+        # form-encoded POST is CORS-safelisted and therefore a simple request.
+        # Whoever may create clients on the admin port sets the real list.
+        # ory-network-policy.yaml is what bounds who that is.
+        #
+        # Enumerated rather than `*` all the same, because it is the floor
+        # every client inherits. What protects a leaked code is not this -- the
+        # exchange that spends one happens server-side, where CORS does not
+        # exist. PKCE is what stands there, and `oauth2.pkce` below enforces it.
         cors:
           enabled: true
           allowed_origins:

@@ -16,6 +16,10 @@
 # argument. Read the two roles above as "everywhere, read-only" and "one
 # namespace, and the identity store with it".
 #
+# `create pods` is the other half of what `edit` is worth here, and it reaches
+# past this namespace unless admission stops it. The Namespace below carries
+# the labels that stop it, and says why they belong to more than this file.
+#
 # Identity is a ServiceAccount, not an x509 client certificate. The API server
 # has no CRL support, so an issued client cert cannot be revoked short of
 # rotating the cluster CA -- whereas deleting this ServiceAccount invalidates
@@ -33,10 +37,27 @@
 # The app's namespace, not a personal sandbox -- chuggy is what this cluster
 # exists to run. dev2 gets `edit` here; anything that must survive belongs on
 # the durable node, see the nodeSelector note in whoami.yaml.
+#
+# BASELINE IS LOAD-BEARING, AND IT IS LOAD-BEARING FOR ANOTHER FILE. `edit`
+# carries `create pods`, and without an enforce label the cluster default is
+# `privileged` -- so one `hostNetwork: true` produces a pod whose traffic
+# carries the node address, which k3s's kube-router accepts ahead of any
+# NetworkPolicy chain. Every policy in this tree that names a source would then
+# be one field away from irrelevant, ory-network-policy.yaml included. That is
+# the same reason `chuggy-work` carries these labels, and kasofsk/chuggy's
+# deploy/rig/isolation/README.md is where the argument is worked through.
+#
+# Baseline and not restricted: restricted additionally requires a seccomp
+# profile and a non-root user on every pod, which is a bar for the workloads
+# here to clear on their own schedule. Baseline is the one that closes the
+# host namespaces, and the host namespaces are what the policies depend on.
 apiVersion: v1
 kind: Namespace
 metadata:
   name: chuggy
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
 ---
 apiVersion: v1
 kind: ServiceAccount
