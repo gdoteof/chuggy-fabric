@@ -86,7 +86,7 @@
 # arrive part-way along the branch, so "from #242" is not the check. The
 # README's prerequisite 1 pre-filters the checkout in hand for both grants and
 # then reads `pg_auth_members` on the server, which is the only thing that
-# settles whether they landed. `0193b36`, which the six tags name, carries both.
+# settles whether they landed. `4ec1192`, which the six tags name, carries both.
 #
 # This rig was rolled out from an older copy: `pg_auth_members` shows
 # `chuggy_selector_review` with no members at all, so no credential here can
@@ -140,8 +140,9 @@
 # after which this value is `chuggy` and the fixtures are still there to read.
 #
 # THE SUSPEND IS NOT OPTIONAL. Both statements need every connection to the
-# database closed, and `replicas: 1` is in this file: gotk-sync.yaml reconciles
-# this directory every five minutes with `prune: true` and `wait: true`, so a
+# database closed, and `replicas: 1` is in this file: the `apps` Kustomization
+# reconciles this directory every five minutes with `prune: true` and
+# `wait: true` -- `modules/flux.nix` generates it -- so a
 # hand-run `kubectl scale` is undone inside that window -- most likely between
 # the two renames, where the first has landed and `chuggy` no longer exists.
 # `wait: true` would also be health-checking a Deployment deliberately held at
@@ -305,7 +306,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: api
-          image: chuggy.invalid/api:0193b36
+          image: chuggy.invalid/api:4ec1192
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

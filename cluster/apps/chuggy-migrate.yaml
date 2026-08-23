@@ -54,7 +54,8 @@
 # RUNS AGAIN. There is no self-healing path.
 #
 # THE KUSTOMIZATION DOES NOT STAY GREEN, AND SAYING IT DID WOULD COST THE ONE
-# SIGNAL THERE IS. gotk-sync.yaml sets `wait: true`, which health-checks every
+# SIGNAL THERE IS. The `apps` Kustomization sets `wait: true`, which
+# `modules/flux.nix` generates, and which health-checks every
 # object this directory applies with kstatus, and kstatus reads a Job carrying
 # `Failed=True` as failed rather than as merely finished. So `apps` goes
 # `Ready=False` with this Job among the objects its message names, and stays
@@ -132,7 +133,7 @@
 # issued -- in a copy of the file that carries it, which not every commit on
 # kasofsk/chuggy#242 does; the README's prerequisite 1 pre-filters the checkout
 # for it rather than trusting a commit id and then reads `pg_auth_members` to
-# see that it landed, and `0193b36` below carries it. It has to be run BEFORE
+# see that it landed, and `4ec1192` below carries it. It has to be run BEFORE
 # this Job ever does -- once the Job has committed a ledger row for 17, running
 # the roles file afterwards leaves the grant missing and the ledger claiming
 # otherwise. Nothing here can express that: this object is applied on the first
@@ -182,7 +183,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   # The suffix is the image tag below. Change one and change the other.
-  name: chuggy-migrate-0193b36
+  name: chuggy-migrate-4ec1192
   namespace: chuggy
   labels: { app: chuggy-migrate }
 spec:
@@ -288,7 +289,7 @@ spec:
             seccompProfile: { type: RuntimeDefault }
       containers:
         - name: migrate
-          image: chuggy.invalid/api:0193b36
+          image: chuggy.invalid/api:4ec1192
           imagePullPolicy: IfNotPresent
           # Exec form with node as PID 1, for the reason the image's Dockerfile
           # gives: the process is handed SIGTERM itself rather than through a
