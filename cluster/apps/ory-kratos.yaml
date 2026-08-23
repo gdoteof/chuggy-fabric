@@ -77,7 +77,30 @@ data:
         login:
           ui_url: https://id.vteng.io/login
           lifespan: 10m
+        # CLOSED, AND THIS HOST IS ON THE OPEN INTERNET. Kratos serves
+        # id.vteng.io through the tunnel with nothing in front of it, so an
+        # enabled registration flow is an invitation to the whole internet to
+        # create identities -- and `verification` and `recovery` below are off,
+        # so nothing would even establish that an address belongs to whoever
+        # typed it.
+        #
+        # What that would NOT grant is worth stating, because it is the reason
+        # this is a decision rather than an emergency: an identity carries no
+        # authorization here. Access is a `project_membership` row, written
+        # only by an operator holding the database owner's credential, and the
+        # API role is refused every privilege on that table. A stranger who
+        # registered would hold a valid token and see 404 on every resource.
+        # The cost is unbounded identity creation, not access.
+        #
+        # Disabling the flow is what refuses it. Removing `ui_url` alone would
+        # not: the flow would still be created and the browser sent nowhere
+        # useful, which reads as a broken page rather than a closed door.
+        #
+        # Identities are created administratively instead, through Kratos's
+        # admin API, which no Ingress and no tunnel hostname reaches --
+        # ory-network-policy.yaml is what bounds who can.
         registration:
+          enabled: false
           ui_url: https://id.vteng.io/registration
           lifespan: 10m
           after:
@@ -85,7 +108,9 @@ data:
               hooks:
                 # Without this a new account is created and then asked to log
                 # in again -- which drops the OAuth2 flow it was registering in
-                # the middle of.
+                # the middle of. Kept against the flow being reopened: it is
+                # the hook's absence that breaks a registration mid-OAuth2,
+                # and that is not a thing to rediscover.
                 - hook: session
         settings:
           ui_url: https://id.vteng.io/settings
