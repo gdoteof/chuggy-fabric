@@ -14,8 +14,13 @@
 # without breaking anything a curl would notice.
 #
 # Traefik orders rules by the length of the matcher it builds, so `/api/v1` wins
-# over `/` without anything here saying so. The two are disjoint, so that
-# ordering is a convenience and not the mechanism.
+# over `/` without anything here saying so.
+#
+# `pathType: Prefix` IS A STRING PREFIX TO TRAEFIK, not a path-segment one, so
+# `/api/v1foo` reaches the API rather than the console. Harmless -- the API
+# answers it with its own 404 and the console has no such route to lose -- but
+# the two rules are disjoint by intent and not by the matcher, and a future rule
+# that assumed segment boundaries would be wrong here.
 #
 # The image proxies nothing. `/api/v1` reaches the API because this Ingress sends
 # it there and for no other reason -- there is no proxy_pass in the container, so
@@ -58,9 +63,27 @@
 #
 # `chuggy.invalid/web:<tag>`, imported into this node's containerd from
 # kasofsk/chuggy, exactly as the API's is -- chuggy-api.yaml carries that
-# argument and it is not repeated here. The tag is the same commit as the API's
-# because both come out of one build of one tree; nothing requires that, and the
-# day they diverge the two lines are what say so.
+# argument and it is not repeated here.
+#
+# THE TWO TAGS DIVERGE, which is what the API's line and this one are for. This
+# image is built from kasofsk/chuggy#216, which puts the console's security
+# headers in the image that serves it; the API is unchanged by that and stays on
+# the commit both were built from before it. When #216 lands on the goal branch
+# the two become one commit again.
+#
+# ------------------------------------------------------- the security headers ----
+#
+# Content-Security-Policy, Referrer-Policy, X-Content-Type-Options and
+# X-Frame-Options are the image's, not this Ingress's. They describe the
+# document, so they travel with whatever serves it -- and the ingress-level
+# alternative could not be scoped to the console anyway: a Traefik middleware
+# annotation applies to every router an Ingress generates, which was checked on
+# this cluster and not assumed, so it would stamp `frame-ancestors` onto the
+# API's JSON or force splitting the origin the console cannot be split from.
+#
+# `Referrer-Policy: no-referrer` is the load-bearing one: /auth/callback carries
+# the authorization code in its query string, and a weaker policy sends that URL
+# to every subsequent request the page makes. kasofsk/chuggy#216 argues the rest.
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -94,6 +117,10 @@ spec:
       # API, with the caller's own token.
       labels: { app: chuggy-web }
     spec:
+      # An nginx over a directory of files calls no Kubernetes API, so the token
+      # the kubelet would mount here is a cluster credential on the disk of a pod
+      # the internet can reach. Nothing reads it; refusing it costs nothing.
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         # Numeric for the reason chuggy-api.yaml gives. 101 is this image's
@@ -102,7 +129,7 @@ spec:
         runAsGroup: 101
       containers:
         - name: web
-          image: chuggy.invalid/web:561cd52
+          image: chuggy.invalid/web:e6c16af
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

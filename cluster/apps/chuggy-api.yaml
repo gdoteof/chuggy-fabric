@@ -51,14 +51,39 @@
 # needs cannot be applied there while they are in it, and the name here is the
 # database that could be migrated rather than the one that should be.
 #
+# WHILE THE NAME STANDS, TWO THINGS ON THIS RIG STILL MEAN THE OTHER DATABASE,
+# and both of them matter more than this Deployment does. kasofsk/chuggy's
+# `deploy/rig/durability/rehearse.sh` defaults its database to `chuggy` and has
+# a destroy phase, so the rehearsal whose whole job is proving the data comes
+# back now snapshots, destroys and restores the fixtures -- and covers nothing
+# the API runs against. postgres.yaml's two probes name `chuggy` as well, which
+# is harmless only because that database still exists. Neither is worth a patch:
+# both are correct again the moment the swap below happens, which is the
+# argument for doing it rather than for documenting it harder.
+#
 # It is one swap to fix, and it destroys nothing:
 #
-#   ALTER DATABASE chuggy RENAME TO chuggy_suite_fixtures;
-#   ALTER DATABASE chuggy_rehearsal RENAME TO chuggy;
+#   flux suspend kustomization apps -n flux-system
+#   kubectl -n chuggy scale deploy/chuggy-api --replicas=0
+#   # ALTER DATABASE chuggy RENAME TO chuggy_suite_fixtures;
+#   # ALTER DATABASE chuggy_rehearsal RENAME TO chuggy;
+#   # then edit this value to `chuggy` and commit
+#   flux resume kustomization apps -n flux-system
 #
 # after which this value is `chuggy` and the fixtures are still there to read.
-# Both statements need every connection to the database closed, so scale this
-# Deployment to zero first and back afterwards.
+#
+# THE SUSPEND IS NOT OPTIONAL. Both statements need every connection to the
+# database closed, and `replicas: 1` is in this file: gotk-sync.yaml reconciles
+# this directory every five minutes with `prune: true` and `wait: true`, so a
+# hand-run `kubectl scale` is undone inside that window -- most likely between
+# the two renames, where the first has landed and `chuggy` no longer exists.
+# `wait: true` would also be health-checking a Deployment deliberately held at
+# zero.
+#
+# One thing the swap does not fix, and it is what put the fixtures there:
+# `deploy/rig/postgres/README.md` still points the PostgreSQL suite at the
+# `chuggy` database, so running it against the rig refills whatever holds that
+# name.
 #
 # ---------------------------------------------------------- the artifacts ----
 #
@@ -137,8 +162,26 @@ spec:
         # What postgres-network-policy.yaml admits, together with this
         # namespace. Drop this label and every connection to the database is
         # refused, with no error anywhere to say the label is why.
+        #
+        # EXPECT `RESTARTS 1` ON EVERY ROLLOUT, and do not read it as a fault.
+        # The policy controller learns a new pod's labels on its own schedule,
+        # so the first connection races it and loses -- kube-router REJECTs
+        # rather than drops, so it arrives as `ECONNREFUSED` from the database's
+        # correct and current address, which reads like a server that is down
+        # and is not. The process has no retry around its first connection: it
+        # exits 1, the kubelet restarts it, and the second attempt is after the
+        # controller has caught up. Reproduced on all three rollouts of this
+        # Deployment. What would remove it is a retry in the composition root
+        # of kasofsk/chuggy, not anything in this file -- an initContainer here
+        # would only move the same wait somewhere quieter.
         chuggy.dev/postgres-client: "true"
     spec:
+      # This process calls no Kubernetes API, so the token the kubelet would
+      # otherwise mount into it is a cluster credential sitting on the disk of
+      # the one pod reachable from the internet. Nothing here reads it, so
+      # refusing it costs nothing and removes it from what a request-side flaw
+      # could reach.
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         # Numeric because `runAsNonRoot` is checked by the kubelet against a
@@ -196,6 +239,20 @@ spec:
           # the API every time PostgreSQL was briefly away, which is the
           # opposite of what should happen -- the pod should leave the Service
           # and come back, not lose its process.
+          #
+          # BOTH PROBES ARE INSIDE THE SERVER'S OWN CONCURRENCY CAP, and that is
+          # accepted here rather than solved. `registerCapacity` in
+          # kasofsk/chuggy's `src/adapters/http/server.ts` is an onRequest hook
+          # over every route, so a caller holding the cap's worth of requests
+          # open against the public `/api/v1` starves the kubelet too: these
+          # probes answer 503, readiness fails within its threshold and liveness
+          # restarts the container a few minutes later. It costs availability
+          # and nothing else -- no data, no authorization -- against a rig
+          # behind Cloudflare, and the pod that dies comes back. The fix, if it
+          # is ever worth one, is a Traefik `inFlightReq` bounding the API
+          # backend; it is not taken now because an Ingress-level middleware
+          # here applies to every router this Ingress makes, the console
+          # included, which is a worse trade for a rehearsal.
           readinessProbe:
             httpGet: { path: /health/ready, port: http }
             periodSeconds: 10
