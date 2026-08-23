@@ -14,11 +14,14 @@
 #
 # The directory is the machine layer's: `/var/lib/chuggy/artifacts`, owned
 # `1000:1000`, which is the uid every control-plane container runs as. That is
-# `chuggy.state.artifacts.path` on the reusable module in fabric's PR 3; the
-# value written here is what `hosts/gtr` sets it to. Until that lands the
-# directory is an `install -d -o 1000 -g 1000 -m 0750` on the node. It is NOT
-# there today -- `/var/lib/chuggy` on this rig holds `secrets` and nothing
-# else.
+# `chuggy.state.artifacts.path` on the reusable state module in fabric's PR 9;
+# the value written here is what `hosts/gtr` sets it to. ITS MODE IS THAT
+# MODULE'S TO SET, not this file's: `chuggy.state.artifacts.mode` is the option,
+# and the systemd-tmpfiles `d` rule the module emits adjusts an existing
+# directory to it on every boot. So a mode written down here would be a claim
+# this repository stops owning the moment PR 9 lands. Until it does, the
+# directory is an `install -d -o 1000 -g 1000` on the node. It is NOT there
+# today -- `/var/lib/chuggy` on this rig holds `secrets` and nothing else.
 #
 # AND BINDING IS NOT THE SIGNAL THAT IT IS. Binding a pre-bound claim -- see
 # below -- is a control-plane operation between two API objects; nothing in it

@@ -483,8 +483,13 @@ deadline would turn that wait into the terminal `Failed` state above.
 The image is `chuggy.invalid/api:<tag>`, which already contains every command —
 its Dockerfile copies the whole source tree and sets a default command of the
 API alone. The name is the only API-specific thing about it, and renaming it
-belongs to the repository that builds it. **The tag is written in six files and
-they move together.**
+belongs to the repository that builds it. **Re-pinning the tag is eleven edits
+across seven files, and they move together.** Six are the `image:` lines. The
+seventh is the migration Job's `metadata.name`, which carries the tag because a
+Job's pod template is immutable — that one is argued where it is written. The
+remaining four are prose that names the tag: two in `chuggy-migrate.yaml`, one
+in `chuggy-api.yaml`, and one in prerequisite 1 below. Nothing checks that the
+eleven agree, which is why they are counted here.
 
 Four of the five open no socket, so they have no probe and no Service. They
 report an unmet precondition by name and exit; the kubelet restarts them. A
@@ -507,6 +512,13 @@ the internet reaches, and it leaves the cluster for OIDC discovery against
 the one thing that works — and nothing here can rehearse it before it lands.
 The issuer is where the pod is pointed, not where it is confined.
 
+**`chuggy-web` is selected by none of the seven, in either direction**, and that
+is the state this PR leaves it in rather than a decision it argues. It is the
+console: nginx serving static files, reached from Traefik, with no `proxy_pass`
+in it — the browser reaches the API through Traefik and this pod opens no
+connection to it. Nothing here restricts what may reach it or where it may go.
+Bounding it is worth doing and is not this change.
+
 **No probe has been run through any of these.** They were built against the API
 server and their selectors checked against the labels the cluster carries, but
 none has been applied to the running rig. Two are worth watching on the first
@@ -526,17 +538,29 @@ not after it.
 1. **Re-run `postgres-roles.sql`** against `chuggy_rehearsal`, from a chuggy
    checkout carrying **both** of the grants below — not merely from
    [kasofsk/chuggy#242](https://github.com/kasofsk/chuggy/pull/242), because
-   part of that branch has neither. Check the checkout in hand rather than a
-   commit id:
+   part of that branch has neither. Pre-filter the checkout in hand rather than
+   trusting a commit id:
 
    ```sh
-   grep -c 'GRANT chuggy_selector_review TO chuggy_api_login' \
-     deploy/rig/postgres/postgres-roles.sql          # must be 1
-   grep -c 'GRANT chuggy_boundary_owner' \
-     deploy/rig/postgres/postgres-roles.sql          # must be 1
+   sql=$(sed 's/--.*//' deploy/rig/postgres/postgres-roles.sql | tr '\n' ' ')
+   grep -oi 'GRANT [^;]*chuggy_selector_review[^;]* TO chuggy_api_login;' \
+     <<<"$sql" | wc -l                               # must be 1
+   grep -oi 'GRANT [^;]*chuggy_boundary_owner[^;]* TO chuggy_owner;' \
+     <<<"$sql" | wc -l                               # must be 1
    ```
 
-   `0193b36`, the commit the six tags name, answers 1 to both.
+   Comments are stripped and the lines joined first, because a plain line-wise
+   grep answers the wrong question in both directions here. The second grant is
+   one statement spread over three lines and its role list is unordered, so a
+   pattern that matches a line matches only the ordering the file happens to
+   have today; and a comment paragraph quoting either grant — this file's house
+   style — makes a checkout that grants nothing answer 1. Both patterns name the
+   **grantee**, which is the half that decides whether the grant is the one this
+   step needs.
+
+   `0193b36`, the commit the six tags name, answers 1 to both. But a pre-filter
+   is all this is: it reads a file, not the server. What settles the question is
+   the `pg_auth_members` query below.
 
    Those two grants are the whole of what this step is still for on this rig.
    `chuggy_selector_review` to `chuggy_api_login` is what lets the API's second
@@ -548,17 +572,42 @@ not after it.
    not there.
 
    **It is not a read-only file, and three of its side effects matter.** It
-   re-issues every login password unconditionally, so it must be run with
-   exactly the values in `chuggy-postgres-credentials` or step 4 must follow it
-   with the new ones — an unset variable *clears* a password rather than leaving
-   it. It restates every role attribute. And it re-grants `CREATE ON SCHEMA
-   public` to `chuggy_boundary_owner`, which the migrations deliberately revoke;
-   re-issue that revoke afterwards.
-
-   Then check the grants **landed**, which is the only check that does not rest
-   on a commit id:
+   names six of the seven login roles — `chuggy_dispatcher_login` is not in it —
+   and for those six it restates every role attribute and re-issues the password
+   unconditionally, so it must be run with exactly the values in
+   `chuggy-postgres-credentials` or step 4 must follow it with the new ones — an
+   unset variable *clears* a password rather than leaving it. And it re-grants
+   `CREATE ON SCHEMA public` to `chuggy_boundary_owner`, which the migrations
+   deliberately revoke — a migration that needs the privilege grants it to
+   itself and revokes it at its own end, so once the Job is `Complete` the roles
+   file is the only thing that can have left it standing. Re-issue that revoke
+   then, and check it, because nothing else will notice a role left wider than
+   the schema intends:
 
    ```sh
+   kubectl -n chuggy exec postgres-0 -- \
+     psql -U postgres -d chuggy_rehearsal -c \
+     "REVOKE CREATE ON SCHEMA public FROM chuggy_boundary_owner;"
+   kubectl -n chuggy exec postgres-0 -- \
+     psql -U postgres -d chuggy_rehearsal -Atc \
+     "SELECT has_schema_privilege('chuggy_boundary_owner', 'public', 'CREATE');"
+   ```
+
+   The second must answer `f`, which is what this rig reads today and what the
+   revoke restores it to. Migrations 16 and 17 — the two this Job has left to
+   apply here — touch neither this privilege nor the membership above, so
+   nothing in them is disturbed by revoking it.
+
+   Then check the grants **landed**. This is the check the step rests on; the
+   greps above only decide whether the file is worth running:
+
+   ```sh
+   kubectl -n chuggy exec postgres-0 -- \
+     psql -U postgres -d chuggy_rehearsal -Atc \
+     "SELECT r.rolname, count(am.member) FROM pg_roles r
+        LEFT JOIN pg_auth_members am ON am.roleid = r.oid
+       WHERE r.rolname IN ('chuggy_boundary_owner', 'chuggy_selector_review')
+       GROUP BY 1 ORDER BY 1;"
    kubectl -n chuggy exec postgres-0 -- \
      psql -U postgres -d chuggy_rehearsal -Atc \
      "SELECT r.rolname, m.rolname FROM pg_auth_members am
@@ -567,9 +616,13 @@ not after it.
        WHERE r.rolname IN ('chuggy_boundary_owner', 'chuggy_selector_review');"
    ```
 
-   It must list `chuggy_boundary_owner|chuggy_owner` and
+   The second must list `chuggy_boundary_owner|chuggy_owner` and
    `chuggy_selector_review|chuggy_api_login`. Today it lists neither: both roles
-   exist and both have no members at all.
+   exist and both have no members at all. **The first is what tells those two
+   answers apart**, because `-Atc` prints nothing and exits 0 for an empty
+   result, so a mistyped role name, the wrong `-d` and "granted nothing" all
+   look identical. It must print two rows; a missing row is a name that is not
+   in this database, not a membership that is absent.
 
 2. **Build and import an image** from that same checkout, and set the six tags
    to it. `chuggy.invalid` resolves nowhere, so a tag this node does not hold is
@@ -577,21 +630,29 @@ not after it.
    today on a different tag: at `replicas: 1` a `RollingUpdate` keeps the old
    pod until the new one is ready, so the rollout stalls rather than the API
    going down — a property of the arithmetic, not a guarantee anyone wrote.
-   `images/api/Dockerfile` copies `src/` and the lockfile and nothing else, so
-   **the roles file is not in the image** and no inspection of the image can
-   stand in for step 1's greps.
+   `images/api/Dockerfile` copies `package.json`, the resolved `node_modules`
+   and `src/` into the shipped stage and nothing else — `deploy/` is never
+   copied at all — so **the roles file is not in the image** and no inspection
+   of the image can stand in for step 1's pre-filter.
 3. **Create the host directory** the artifact volume binds:
-   `/var/lib/chuggy/artifacts`, owned `1000:1000`, mode `0750` —
-   `install -d -o 1000 -g 1000 -m 0750 /var/lib/chuggy/artifacts`. It is the
-   value of `chuggy.state.artifacts.path` on fabric's PR 3 module, and PR 3 is
-   what will make it; until then it is by hand. **It does not exist today** —
-   `/var/lib/chuggy` holds `secrets` and nothing else. Do not read the PV going
-   `Bound` as evidence that it does: the claim names its volume, so binding is
-   two API objects agreeing and never touches the node.
+   `/var/lib/chuggy/artifacts`, owned `1000:1000` — that is the uid and gid
+   every control-plane container runs as, and it is what makes the finalizer
+   able to write there. `install -d -o 1000 -g 1000 /var/lib/chuggy/artifacts`.
+   The authority on the path and on its **mode** is
+   `chuggy.state.artifacts.path` and `chuggy.state.artifacts.mode` on the
+   reusable state module in fabric's PR 9; its tmpfiles rule adjusts an existing
+   directory to whatever that option says, so this file does not restate a mode
+   PR 9 owns. **The directory does not exist today** — `/var/lib/chuggy` holds
+   `secrets` and nothing else. Do not read the PV going `Bound` as evidence that
+   it does: the claim names its volume, so binding is two API objects agreeing
+   and never touches the node.
 4. **Synchronize `chuggy-postgres-credentials`** with one key per login role.
-   All six keys and all six login roles are already there; this step exists
-   because step 1 rewrites every one of those passwords, so it is step 1's
-   companion rather than a gap to fill.
+   All seven keys and all seven login roles are already there — six `*_login`
+   roles and `chuggy_owner`, which is a login role in its own right. This step
+   exists because step 1 rewrites six of those seven passwords, so it is step
+   1's companion rather than a gap to fill. The seventh,
+   `chuggy_dispatcher_login`, is legacy: nothing in `cluster/apps/` presents it
+   and step 1 does not touch it, so its key stays whatever it is.
 5. **Create `chuggy-selector` and `chuggy-finalizer-credentials`** by hand — the
    selector's two bearer tokens and the finalizer's git credential. Values never
    go in this repository; it is public. Neither Secret exists today, so both

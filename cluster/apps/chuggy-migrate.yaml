@@ -130,8 +130,9 @@
 # WHICH IS WHY THE ORDERING IS A PREREQUISITE AND NOT A NOTE.
 # `deploy/rig/postgres/postgres-roles.sql` is where that membership grant is
 # issued -- in a copy of the file that carries it, which not every commit on
-# kasofsk/chuggy#242 does; the README's prerequisite 1 greps for it rather than
-# trusting a commit id, and `0193b36` below carries it. It has to be run BEFORE
+# kasofsk/chuggy#242 does; the README's prerequisite 1 pre-filters the checkout
+# for it rather than trusting a commit id and then reads `pg_auth_members` to
+# see that it landed, and `0193b36` below carries it. It has to be run BEFORE
 # this Job ever does -- once the Job has committed a ledger row for 17, running
 # the roles file afterwards leaves the grant missing and the ledger claiming
 # otherwise. Nothing here can express that: this object is applied on the first

@@ -16,7 +16,7 @@
 # else builds, so every workload here selects its command from the image under
 # the name it has.
 #
-# THE TAG IS WRITTEN IN SIX FILES AND THEY MOVE TOGETHER: this, the selector,
+# SIX `image:` LINES CARRY THE TAG AND THEY MOVE TOGETHER: this, the selector,
 # the scheduler, the finalizer, the migration Job and chuggy-api.yaml. A bump
 # that misses one runs a mixed control plane against one database. What catches
 # the shape of that which matters is the `schema-compatible` precondition -- a
@@ -24,15 +24,22 @@
 # refuses to serve -- and what it does not catch is a bump that changed no
 # schema. There is no gate in this repository that checks the six agree.
 #
+# RE-PINNING TOUCHES MORE THAN THOSE SIX. The migration Job's `metadata.name`
+# repeats the tag, for the reason chuggy-migrate.yaml gives, and four comments
+# name it in prose -- two in chuggy-migrate.yaml, one in chuggy-api.yaml, one in
+# the README's prerequisite 1. Eleven occurrences over seven files. The prose
+# ones break nothing when they go stale; they instead leave the repository
+# asserting a commit that is no longer the one running.
+#
 # `imagePullPolicy: IfNotPresent` against a registry that does not resolve:
 # chuggy-api.yaml carries that argument and it is not repeated.
 #
 # THE TAG BELOW MUST CARRY `src/roots/migrate.ts`, which arrives on
 # kasofsk/chuggy#242 and is what applies the schema these pods then serve --
 # and it must be one whose checkout also carries the two membership grants the
-# README's prerequisite 1 greps for, because part of that branch does not. The
-# login roles those pods present are already on this rig; the memberships are
-# not.
+# README's prerequisite 1 pre-filters for, because part of that branch does not.
+# The login roles those pods present are already on this rig; the memberships
+# are not.
 #
 # --------------------------------------------------- the credential, again ----
 #

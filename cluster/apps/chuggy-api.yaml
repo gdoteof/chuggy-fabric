@@ -15,9 +15,10 @@
 # to the control-plane image is revised PR 2 of kasofsk/chuggy#197, in the
 # repository that builds it; nothing here can rename an image it does not build.
 #
-# The tag is written in six files -- this, the four workloads and the migration
-# Job -- and they move together. chuggy-ticket-service.yaml argues what catches
-# a bump that misses one and what does not.
+# The tag is written in six `image:` lines, one per file -- this, the four
+# workloads and the migration Job -- and they move together.
+# chuggy-ticket-service.yaml argues what catches a bump that misses one, what
+# does not, and what else a re-pin has to touch beyond those six.
 #
 # `chuggy.invalid/api:<tag>` is built from kasofsk/chuggy and imported straight
 # into this node's containerd; there is no registry. `chuggy.invalid` resolves
@@ -82,9 +83,10 @@
 #   GRANT chuggy_selector_review TO chuggy_api_login;
 #
 # NOT EVERY #242 COMMIT CARRIES IT. That line and the membership grant beside it
-# arrive part-way along the branch, so "from #242" is not the check -- the check
-# is the two greps in the README's prerequisite 1, run against the checkout in
-# hand. `0193b36`, which the six tags name, carries both.
+# arrive part-way along the branch, so "from #242" is not the check. The
+# README's prerequisite 1 pre-filters the checkout in hand for both grants and
+# then reads `pg_auth_members` on the server, which is the only thing that
+# settles whether they landed. `0193b36`, which the six tags name, carries both.
 #
 # This rig was rolled out from an older copy: `pg_auth_members` shows
 # `chuggy_selector_review` with no members at all, so no credential here can
@@ -176,18 +178,20 @@
 # drift from the role's.
 #
 # D21 SAYS THE HOST GENERATES THOSE AND SYNCHRONIZES THEM HERE, and fabric's PR
-# 3 is what does it: generated once into a root-only state directory outside the
+# 9 is what does it: generated once into a root-only state directory outside the
 # Nix store, and pushed into this Secret without the values reaching a process
 # argument, a build log or this repository. Until that lands they are
 # kasofsk/chuggy's `deploy/rig/postgres/README.md` issued by hand.
 #
-# ALL SIX KEYS ARE ALREADY THERE, and so is every login role they name -- read
-# off the rig, not assumed. So no workload here is waiting on a key. What the
-# roles file still has to fix is the two MEMBERSHIPS below it, not a missing
-# credential: `chuggy_selector_review` has no members and `chuggy_owner` is not
-# in `chuggy_boundary_owner`. Which makes prerequisite 4 the hazard rather than
-# the gap -- the roles file re-issues every password unconditionally, so a
-# re-run with values that are not the ones in this Secret leaves the Secret
+# ALL SEVEN KEYS ARE ALREADY THERE, and so is every login role they name -- read
+# off the rig, not assumed. Six of the seven are the credentials this namespace
+# presents; the seventh, `chuggy_dispatcher_login`, is legacy and no workload
+# here names it. So no workload here is waiting on a key. What the roles file
+# still has to fix is the two MEMBERSHIPS below it, not a missing credential:
+# `chuggy_selector_review` has no members and `chuggy_owner` is not in
+# `chuggy_boundary_owner`. Which makes prerequisite 4 the hazard rather than the
+# gap -- the roles file re-issues the six passwords it names unconditionally, so
+# a re-run with values that are not the ones in this Secret leaves the Secret
 # wrong and every pod here dies at its next restart.
 #
 # A `secretKeyRef` NAMING A KEY THAT IS NOT THERE REFUSES TO START THE POD,

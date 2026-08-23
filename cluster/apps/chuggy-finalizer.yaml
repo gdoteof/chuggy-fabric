@@ -21,10 +21,10 @@
 # gap. The three preconditions after it -- the scratch, the artifact root and
 # the credential files -- are all satisfiable from this file, and are.
 #
-# THE THIRD OF THOSE WAS NOT, UNTIL THE MODE ON THE CREDENTIAL VOLUME BELOW WAS
-# CORRECTED. It is worth naming rather than quietly fixing: `git-available`
-# fails first and hides it, so a file claiming all three were satisfiable would
-# have been believed right up to the moment revised PR 2 installed git.
+# THE THIRD OF THOSE DEPENDS ON THE MODE ON THE CREDENTIAL VOLUME BELOW, and
+# `git-available` fails ahead of it, so getting that mode wrong is invisible
+# until revised PR 2 installs git. Read the argument there before changing it:
+# nothing on this rig can currently report it wrong.
 #
 # ---------------------------------------------------------- the recovery epoch ----
 #
@@ -243,16 +243,16 @@ spec:
             # group and nothing else. With no `fsGroup` -- which the pod
             # securityContext above declines, for the reason it gives -- the
             # group is 0 too, so any mode without the world bit leaves a file
-            # this process cannot open. `0400` here meant root-only, and
-            # `credentialFilesPrecondition` would have reported
-            # `repository-credentials-available` unmet for as long as it stood.
+            # this process cannot open. `0400` here is root-only, and
+            # `credentialFilesPrecondition` reports
+            # `repository-credentials-available` unmet against it.
             #
             # What the world bit costs is bounded by the mount namespace it is
             # in: one container, running one process, which is the process the
             # file is for. There is no second uid in this pod to read it.
             #
-            # THE ALTERNATIVE IS AN `fsGroup`, AND IT IS CHEAPER THAN AN EARLIER
-            # DRAFT OF THIS FILE CLAIMED. `fsGroup: 1000` with
+            # THE ALTERNATIVE IS AN `fsGroup`, AND IT IS NOT THE EXPENSIVE ONE
+            # IT LOOKS LIKE. `fsGroup: 1000` with
             # `fsGroupChangePolicy: OnRootMismatch` would put this file in group
             # 1000 and buy `0440`, and it would not walk the artifact store
             # after the first start, because that directory's top-level
