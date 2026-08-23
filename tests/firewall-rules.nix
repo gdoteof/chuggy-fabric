@@ -56,6 +56,17 @@ let
 
   refuseRule = "ip46tables -A nixos-fw -j nixos-fw-log-refuse";
 
+  # Every port an accept in this chain may name: the two global ones and the two
+  # the module restricts by source. Anything else is a port opened to every
+  # network the box can see, which is what `networking.firewall.allowedTCPPorts`
+  # emits and what the whitelist above cannot see.
+  acceptedPorts = [
+    "22"
+    (toString host.config.chuggy.wireguard.listenPort)
+    "6443"
+    "8472"
+  ];
+
   checkOnce = rule: "present_once ${lib.escapeShellArg rule}\n";
 in
 pkgs.runCommand "chuggy-firewall-rules-${host.config.networking.hostName}" { } ''
@@ -85,6 +96,34 @@ pkgs.runCommand "chuggy-firewall-rules-${host.config.networking.hostName}" { } '
   n=$(grep -cE -e '--dport (6443|8472)' rules || true)
   [ "$n" = ${toString (builtins.length apiRules)} ] \
     || fail "expected ${toString (builtins.length apiRules)} rules naming 6443 or 8472, found $n"
+
+  # EVERYTHING ABOVE IS A WHITELIST, and a rule *added* to the chain passes all
+  # of it: `networking.firewall.trustedInterfaces = [ "wg0" ]` and an extra
+  # entry in `allowedTCPPorts` each emit an accept that is present, is not a
+  # duplicate, names neither 6443 nor 8472, and lands ahead of the refuse. The
+  # two checks below are what make this a specification rather than a list.
+  #
+  # ip6tables-only accepts are excluded. NixOS emits them for ICMPv6 and the
+  # DHCPv6 client, nothing in this repository speaks IPv6, and both additions
+  # above emit ip46tables -- so excluding them costs no coverage here.
+  grep -E -e '^(ip46tables|iptables) .*-A nixos-fw .*-j nixos-fw-accept$' rules \
+    > accepts || true
+  [ -s accepts ] || fail "no accept was emitted into nixos-fw at all"
+
+  # modules/wireguard.nix decides, as this repository's own decision, that the
+  # mesh is not a trusted interface, and modules/k3s-server.nix repeats it. That
+  # decision was checked by nothing: trusting wg0 makes every listening port on
+  # the box reachable by any peer, which is the exposure wireguard.nix removed.
+  # lo is the only interface an accept may name.
+  bad=$(grep -E -e ' -i ' accepts | grep -vE -e ' -i lo( |$)' || true)
+  [ -z "$bad" ] || fail "an accept trusts an interface other than lo: $bad"
+
+  # And the same for a port. The count above bounds 6443 and 8472; this bounds
+  # every other port, so kubelet's 10250 or an exporter's 9100 arriving on
+  # allowedTCPPorts is a difference this reports.
+  bad=$(grep -oE -e '--dports? [0-9,:]+' accepts | sort -u \
+    | grep -vxE -e '--dport (${lib.concatStringsSep "|" acceptedPorts})' || true)
+  [ -z "$bad" ] || fail "an accept names a port that is not source-restricted: $bad"
 
   # Position, which is the half no amount of reading the rule text can settle:
   # nixos-fw-log-refuse ends the chain, so an accept appended after it is an

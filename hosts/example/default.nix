@@ -139,8 +139,15 @@
   # ranges and the pod range, which refuses kubectl and presents as a broken
   # cluster. That is the outcome the warning exists to prevent, so the condition
   # has to cover the input that produces it.
+  #
+  # THEY NAME THE HOST AND NOT THIS FILE. A copy is edited into somebody else's
+  # host and keeps these lines: the third of them is silenced by doing the work
+  # it asks for, but the second stays on for as long as the box has no tunnel,
+  # and a standing warning that names a path in a repository the adopter does
+  # not have is one they cannot act on and will learn to scroll past.
   warnings =
     let
+      who = config.networking.hostName;
       isDocumentation = value:
         lib.any (range: lib.hasInfix range value) [ "192.0.2." "198.51.100." "203.0.113." ];
       addresses =
@@ -149,17 +156,17 @@
         ++ config.chuggy.k3s.apiSans;
     in
     lib.optional (lib.any isDocumentation addresses) ''
-      hosts/example: this host still carries the example's documentation
+      ${who}: this host still carries the example's documentation
       addresses (RFC 5737), so it reaches no real network. Replace the LAN
       range, the mesh address and the API SANs with this machine's own.
     ''
     ++ lib.optional (!config.chuggy.tunnel.enable) ''
-      hosts/example: nothing on this host terminates TLS, so its API is served
+      ${who}: nothing on this host terminates TLS, so its API is served
       in plaintext to its LAN and mesh. D15 says that is not an exposure mode;
       see gdoteof/chuggy-fabric#10.
     ''
     ++ lib.optional (lib.hasInfix "example.com" config.chuggy.flux.repositoryUrl) ''
-      hosts/example: chuggy.flux.repositoryUrl still names the documentation
+      ${who}: chuggy.flux.repositoryUrl still names the documentation
       repository, so Flux reconciles nothing. Point it at the repository whose
       cluster/apps/ this box should follow -- not at this one, whose apps
       belong to somebody else's cluster.

@@ -201,11 +201,16 @@ type refuses anything else — but a site whose `kubectl` arrives over IPv6 need
 an `ip6tables` arm, not a longer source list.
 
 None of that is a comment you have to trust. `tests/firewall-rules.nix` reads
-the firewall script each host builds and asserts the six source-restricted
-accepts, the two global ports, that nothing else names 6443 or 8472, and that
-they all land before `nixos-fw-log-refuse`. It is a `runCommand`, so it costs
-an evaluation rather than a VM; what it cannot say is that the kernel accepts
-the rules, which is still a live `iptables -S` on the box.
+the firewall script each host builds and asserts one source-restricted accept
+per entry in `apiAllowedSources`, plus the pod range, for each of the two
+ports; the two global ports; that nothing else names 6443 or 8472; and that
+they all land before `nixos-fw-log-refuse`. Then, because every one of those is
+a whitelist that a rule *added* to the chain would pass, it asserts that no
+accept trusts an interface other than `lo` and that none names a port outside
+that set — which is what makes putting `wg0` back on `trustedInterfaces`, or
+opening kubelet's 10250, a difference the check reports. It is a `runCommand`,
+so it costs an evaluation rather than a VM; what it cannot say is that the
+kernel accepts the rules, which is still a live `iptables -S` on the box.
 
 ## What an adopting machine has to say
 
@@ -261,16 +266,24 @@ declare a directory nothing mounts.
 sets their ownership. It does **not** create the PersistentVolume that binds one
 into the cluster — that object is cluster state and belongs in `cluster/apps/`.
 
-**`cluster/apps/` does not hold one yet**, so nothing in the cluster mounts the
-artifacts directory and the retention a static PV with `Retain` would give it is
-not a property this tree has. What exists today is a directory on the host with
-the right owner. When the volume lands it and this option have to name the same
-path, and nothing will check that they do; a mismatch mounts an empty directory
-and reports healthy.
+**The retention is the volume's property, not this module's.** A static PV with
+`Retain` over the artifacts path is what makes deleting a claim leave the data
+behind; on a host where no such volume has been reconciled, what exists is a
+directory with the right owner and nothing mounting it — and reading that as a
+durability guarantee is reading one this tree does not give. The volume and
+`chuggy.state.artifacts.path` have to name the same path and nothing checks
+that they do; a mismatch mounts an empty directory and reports healthy.
 
-What preserves these across a rebuild and a reboot is `systemd-tmpfiles` `d`,
-which creates a directory when it is absent and adjusts its mode and owner when
-it is not. It never touches contents. `D` would empty it on every boot.
+**Where the two layers both have an opinion, this one wins.** A
+PersistentVolume names a host path; it does not create it and does not set its
+mode or owner. `chuggy.state.artifacts.{user,group,mode}` do, and the mode they
+supply is `0770`. What preserves that across a rebuild and a reboot is
+`systemd-tmpfiles` `d`, which creates a directory when it is absent and adjusts
+its mode and owner when it is not — including back over a mode something else
+set in between. So a manifest that also states a mode for this directory is
+restating the option's answer rather than giving one, and the next rebuild
+settles any disagreement without reporting that it did. `d` never touches
+contents; `D` would empty it on every boot.
 
 The artifacts directory is owned by a numeric uid matching the pods that read
 and write it, and on a NixOS host that uid is also the first normal user — here,
@@ -335,10 +348,17 @@ reads them:
       -d <database> -f deploy/rig/postgres/postgres-roles.sql
     kill $forward
 
-**Check the unit first.** A divergent run exits 1, so `is-active` says `failed`
+**Check the unit first.** A divergent run exits 3, so `is-active` says `failed`
 and `systemctl --failed` lists it; what this hands psql is host state, and on a
 key where host and cluster disagree it would set PostgreSQL to a password the
 workloads do not have. `journalctl -u chuggy-secrets-sync -b` names the keys.
+
+The status is 3 and not 1 because 1 is what a failed `kubectl` gives: an API
+error the unit has to retry, not a disagreement it has to stop on. Divergence
+is the only status the unit refuses to restart after, so a transient error on
+first boot is retried rather than left as a permanently failed unit with a
+Secret the cluster never received. `modules/chuggy-secrets.nix` carries the
+whole map in one place.
 
 **`chuggy-pg-role-env` is on `PATH` only after a `nixos-rebuild switch` carrying
 this module.** Before that switch it is in the built system and not on the box's
@@ -364,9 +384,11 @@ and `/etc/sudoers` has `%wheel … NOPASSWD:SETENV: ALL` for it. The database is
 the deployment's to name: a role is cluster-wide, the grants at the end of that
 file are not.
 
-On gtr, against `chuggy_rehearsal`, it created the three login roles the older
-Secret never had and set the rest to the values that Secret holds; all six then
-authenticate over the cluster network with those values.
+It creates the login roles the Secret does not yet have and sets the rest to
+the values the Secret holds. What tells you it worked is that every role in the
+inventory authenticates over the cluster network with the value the Secret
+carries — not the run's own output, which reports success for a role that was
+already there.
 
 **Rotation is not provided.** Rotating one of these correctly means fencing
 writers, changing the role, changing the Secret and restarting whatever holds a
@@ -401,8 +423,15 @@ The Secret step is the one that can arrive late: the `chuggy` namespace belongs
 to `cluster/apps/`, so on a cold boot it does not exist until Flux has
 reconciled once. `chuggy-secrets-sync` waits, reports could-not-run rather than
 failure when it gives up, and retries — bounded, so a genuinely broken cluster
-ends up in `systemctl --failed` instead of looking busy forever. A workload that
-starts before its Secret exists stays pending and recovers on its own.
+ends up in `systemctl --failed` instead of looking busy forever. The bound is
+sized on the *worst case* a cycle can take, not on the wait it contains: a
+window the burst cannot fit inside is one systemd resets before the burst is
+spent, and a unit whose limit is never tripped restarts for ever in
+`activating`, which `systemctl --failed` does not list. That is the failure
+the derivation in `modules/chuggy-secrets.nix` exists to prevent, and
+`tests/state-and-secrets.nix` asserts the inequality systemd actually uses. A
+workload that starts before its Secret exists stays pending and recovers on its
+own.
 
 **Nothing replicates any of this, and nothing declares it either.** A second node
 does not have the images, neither does this one after its image store is reset,
@@ -865,7 +894,11 @@ they are wrong.
    labelled it.
 3. Set the hostname, and add a radio blacklist if the box has radios — `lspci -k`
    will tell you what they are. Blacklisting `iwlwifi` on a box with a MediaTek
-   card silently does nothing.
+   card silently does nothing. The `warnings` block at the bottom of the file
+   names the host it is on, so from here on the rebuild warnings are about your
+   box and not the example's; two of them go quiet when steps 4 and 5 are done,
+   and the plaintext-ingress one stays on until something terminates TLS. Keep
+   it — a warning you are meant to still be seeing is not a warning to delete.
 4. Replace every address — the LAN range, the mesh address and the API SANs. The
    example uses RFC 5737's documentation ranges throughout, 192.0.2.0/24 for the
    LAN and 198.51.100.0/24 for the mesh, so an unedited copy reaches nothing

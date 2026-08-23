@@ -60,24 +60,58 @@
 # that hold a connection, in that order -- and getting the order wrong locks out
 # the process the rotation was for. Nothing here does any of it, and nothing
 # here pretends to: the value is generated once and then only ever read.
+#
+# WHAT THE SYNCHRONISATION'S EXIT STATUS MEANS, in one place, because the unit's
+# Restart= and RestartPreventExitStatus= read it and a second version of this
+# list would be a unit that retries what it should not or gives up on what it
+# should retry:
+#
+#   0  every key agreed, or was created from host state.
+#   2  could-not-run. Nothing this host controls has gone wrong -- no
+#      kubeconfig, no namespace, a key neither side holds. RETRIES.
+#   3  divergence. Both sides answered and disagreed, and only a person can say
+#      which value PostgreSQL was told about. DOES NOT RETRY.
+#   *  a command failed. `set -o errexit` carries kubectl's, jq's or base64's
+#      own status out, and kubectl exits 1 on an API error it could not reach
+#      past -- a leader election, a compaction, a request timeout. Transient by
+#      nature, so it RETRIES. Divergence is 3 and not 1 for exactly this
+#      reason: a `RestartPreventExitStatus = 1` makes every one of those a
+#      permanently failed unit that nothing on the box retries.
 
 let
   cfg = config.chuggy.secrets;
 
   # What the synchronisation's restart budget is made of. The window is derived
-  # from the attempt rather than chosen alongside it: a window shorter than the
-  # burst it bounds is never reached, the unit restarts forever, and the
+  # from the cycle rather than chosen alongside it: a window the burst cannot
+  # fit inside is never reached, the unit restarts forever, and the
   # `systemctl --failed` the bound exists to produce never happens. Changing
   # namespaceTimeoutSeconds moves the window with it, which is the half a pair
   # of literals gets wrong.
+  #
+  # AND THE WAIT IS A LOWER BOUND ON A RUN, NOT AN UPPER ONE. The loop below
+  # sets its deadline before the first probe and exits only on a probe that
+  # finds the deadline passed, so a run costs the wait plus the sleep and the
+  # request that carry it over -- and a window sized on the wait alone is a
+  # window every cycle overruns. That is the arithmetic this got wrong: it is
+  # the worst case a restart budget is made of, never the nominal one.
   syncRestartSeconds = 30;
   syncStartLimitBurst = 10;
-  syncAttemptSeconds = cfg.namespaceTimeoutSeconds + syncRestartSeconds;
+  syncProbeIntervalSeconds = 5;
 
   # Applied to every kubectl call. Long enough that a busy API server is not
   # mistaken for a wedged one, short enough that a wedged one is a failed unit
   # rather than a unit that never returns.
-  syncRequestTimeout = "30s";
+  syncRequestTimeoutSeconds = 30;
+  syncRequestTimeout = "${toString syncRequestTimeoutSeconds}s";
+
+  # The longest one start-to-start cycle can take: the wait, the sleep and the
+  # probe that carry it past its deadline, and the pause before systemd starts
+  # the unit again.
+  syncCycleSeconds =
+    cfg.namespaceTimeoutSeconds
+    + syncProbeIntervalSeconds
+    + syncRequestTimeoutSeconds
+    + syncRestartSeconds;
 
   # The inventory is fixed rather than an option, and that is a claim worth
   # being explicit about: these are chuggy's internal credentials, so they are
@@ -186,7 +220,7 @@ let
       # Set by any key this run refused to resolve. It is not a could-not-run:
       # both sides answered and disagreed, and only a person can say which one
       # PostgreSQL was told about. The run finishes -- the keys that do agree
-      # are still worth creating -- and then exits 1.
+      # are still worth creating -- and then exits 3.
       diverged=0
 
       # A precondition this host cannot satisfy on its own -- k3s still
@@ -214,7 +248,7 @@ let
           echo "chuggy.secrets: namespace $ns does not exist; Flux has not created it." >&2
           exit 2
         fi
-        sleep 5
+        sleep ${toString syncProbeIntervalSeconds}
       done
 
       sync_secret() {
@@ -300,13 +334,16 @@ let
       # `systemctl status` says active (exited) and `systemctl --failed` is
       # empty -- and the README's guard on running postgres-roles.sql is "only
       # when the synchronisation reported no divergence", which nothing on the
-      # box could then answer. Exit 1 makes it answerable with `systemctl
-      # is-active`, and RestartPreventExitStatus below is what stops the unit
-      # burning its restart budget on a disagreement no retry can settle.
+      # box could then answer. A non-zero exit makes it answerable with
+      # `systemctl is-active`, and RestartPreventExitStatus below is what stops
+      # the unit burning its restart budget on a disagreement no retry can
+      # settle. A status of its own, never 1: 1 is what `set -o errexit` hands
+      # out for a kubectl that could not reach the API server, and that one has
+      # to retry. The header carries the whole map.
       if [ "$diverged" != 0 ]; then
         echo "chuggy.secrets: the keys above were left as they are on both sides." >&2
         echo "  Decide which value PostgreSQL holds, make the two agree, and start this unit again." >&2
-        exit 1
+        exit 3
       fi
     '';
   };
@@ -326,7 +363,7 @@ let
   #   kill $forward
   #
   # THE FIRST AND LAST LINES ARE THE PROCEDURE, not framing for it. A divergent
-  # run exits 1, so `is-active` is the answer to "did this agree" that the box
+  # run exits 3, so `is-active` is the answer to "did this agree" that the box
   # can give -- what this hands psql is host state, and on a key where the two
   # disagree it sets PostgreSQL to a password the workloads do not have. And a
   # port-forward left up is superuser PostgreSQL on 127.0.0.1 for anything on
@@ -461,10 +498,15 @@ in
       # Retries, because everything it waits for arrives on its own schedule:
       # k3s starting, Flux reconciling the namespace. Bounded, because a unit
       # that retries forever reports a broken cluster as a busy one -- after the
-      # burst it stays failed, where `systemctl --failed` shows it. The window
-      # holds one attempt more than the burst spans, which is the margin that
-      # makes the bound reachable when an attempt runs long.
-      startLimitIntervalSec = syncStartLimitBurst * syncAttemptSeconds;
+      # burst it stays failed, where `systemctl --failed` shows it.
+      #
+      # systemd resets the window when `now - begin > StartLimitIntervalSec`,
+      # so the start that trips the limit is reached only if the whole burst of
+      # worst-case cycles fits inside it: the requirement is
+      # `burst * cycle <= interval`, not `burst * wait`. One cycle of margin on
+      # top, because process start-up and systemd's own scheduling are real and
+      # are not in the derivation above.
+      startLimitIntervalSec = (syncStartLimitBurst + 1) * syncCycleSeconds;
       startLimitBurst = syncStartLimitBurst;
 
       serviceConfig = {
@@ -472,11 +514,17 @@ in
         RemainAfterExit = true;
         ExecStart = lib.getExe sync;
         Restart = "on-failure";
-        # Exit 1 is a divergence: both sides answered and disagreed, and no
+        # Exit 3 is a divergence: both sides answered and disagreed, and no
         # number of retries changes that. Retrying it would spend the whole
         # burst below on a report, and the unit would reach `failed` at the end
         # of that window rather than at the end of the run that found it.
-        RestartPreventExitStatus = 1;
+        #
+        # 3 and not 1. `set -o errexit` gives a failed command's own status,
+        # and kubectl exits 1 on an API error -- so naming 1 here would make a
+        # dropped connection during `patch secret` a unit that never runs
+        # again, on the boot where a Secret a workload needs was one call away.
+        # The header above is the whole map.
+        RestartPreventExitStatus = 3;
         RestartSec = syncRestartSeconds;
         RuntimeDirectory = "chuggy-secrets-sync";
         RuntimeDirectoryMode = "0700";

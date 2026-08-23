@@ -85,6 +85,16 @@ let
           echo "secret/''${rest[3]} created"
           ;;
         "patch secret")
+          # How the test produces the failure a real API server produces on its
+          # own: a call that reaches the server and does not complete. It is on
+          # `patch` because that is the last call of a secret's sync, so a run
+          # that fails on the first secret has not reached chuggy-api's keyset
+          # -- the boot on which a unit that gave up here would leave a workload
+          # unable to start.
+          if [ -e "$store/refuse-patch" ]; then
+            echo "Error from server: etcdserver: request timed out" >&2
+            exit 1
+          fi
           jq -s '.[0] * .[1]' "$dir/''${rest[2]}.json" "$patchfile" > "$dir/''${rest[2]}.next"
           mv "$dir/''${rest[2]}.next" "$dir/''${rest[2]}.json"
           echo "secret/''${rest[2]} patched"
@@ -290,19 +300,21 @@ pkgs.testers.runNixOSTest {
         assert status != 0, out
         assert out.count("differs") == 1, out
         assert "api-password differs" in out, out
-        # Exit 1 and not 2: both sides answered, which is the difference between
-        # a disagreement and a could-not-run, and the unit's
-        # RestartPreventExitStatus reads it.
+        # Exit 3, and the number is the assertion. Not 2, because both sides
+        # answered and that is the difference between a disagreement and a
+        # could-not-run; not 1, because 1 is what `set -o errexit` hands out
+        # for a kubectl that could not reach the API server, and the subtest
+        # below is the other half of that pair.
         assert (
             machine.succeed(
                 "systemctl show -p ExecMainStatus --value chuggy-secrets-sync.service"
             ).strip()
-            == "1"
+            == "3"
         )
         # Failed rather than restarting, which is the whole reason for the
         # non-zero exit: `systemctl --failed` is where an operator finds this,
-        # and a retried divergence would still be `activating` twenty-five
-        # minutes later.
+        # and a retried divergence would still be `activating` when the whole
+        # restart window had gone by.
         assert (
             machine.succeed(
                 "systemctl show -p ActiveState --value chuggy-secrets-sync.service"
@@ -320,6 +332,51 @@ pkgs.testers.runNixOSTest {
         )
         status, out = resync()
         assert status == 0, out
+
+    with subtest("a kubectl that failed mid-run is retried, not given up on"):
+        # The other half of the pair above, and the one a passing divergence
+        # subtest says nothing about. `set -o errexit` carries kubectl's own
+        # status out of the script, and kubectl exits 1 on an API error -- a
+        # leader election, a compaction, a dropped connection. Naming that
+        # status in RestartPreventExitStatus turns every one of them into a
+        # unit that never runs again: the run below stops before chuggy-api's
+        # keyset reaches the cluster, and nothing but a person or a reboot
+        # would ever put it there.
+        machine.succeed("touch ${clusterStore}/refuse-patch")
+        status, out = resync()
+        assert status != 0, out
+        assert "request timed out" in out, out
+        assert (
+            machine.succeed(
+                "systemctl show -p ExecMainStatus --value chuggy-secrets-sync.service"
+            ).strip()
+            == "1"
+        )
+        # `activating`, which for a failed oneshot with Restart=on-failure is
+        # auto-restart: the unit is waiting out RestartSec and will run again.
+        # `failed` here is the regression -- the same word the divergence
+        # subtest above asserts, which is why asserting it there proves nothing
+        # about this.
+        assert (
+            machine.succeed(
+                "systemctl show -p ActiveState --value chuggy-secrets-sync.service"
+            ).strip()
+            == "activating"
+        )
+        assert (
+            machine.succeed(
+                "systemctl show -p RestartPreventExitStatus --value chuggy-secrets-sync.service"
+            ).strip()
+            == "3"
+        )
+
+        # Stop it before the pending restart lands in the middle of the next
+        # subtest, then prove the retry the unit was about to make succeeds.
+        machine.succeed("systemctl stop chuggy-secrets-sync.service")
+        machine.succeed("rm ${clusterStore}/refuse-patch")
+        status, out = resync()
+        assert status == 0, out
+        assert read_secrets() == first
 
     with subtest("an empty value in the cluster is a value, not an absence"):
         # `[ -s ]` on the decoded key read this as absent and patched host state
@@ -424,17 +481,40 @@ pkgs.testers.runNixOSTest {
         assert read_secrets() == first
 
     with subtest("the restart budget can be reached before the window closes"):
-        # A window shorter than the burst it bounds is never reached: the unit
-        # restarts for ever and never lands in `systemctl --failed`, which is
-        # the outcome the bound exists to produce. One attempt costs the wait
-        # for the namespace plus the pause before systemd tries again.
+        # systemd resets its window when `now - begin > StartLimitIntervalSec`,
+        # so the start that would trip the limit is reached only if the whole
+        # burst of cycles fits inside it: `burst * cycle <= interval`. A window
+        # shorter than that is never reached -- the unit restarts for ever and
+        # never lands in `systemctl --failed`, which is the outcome the bound
+        # exists to produce.
+        #
+        # AND THE CYCLE IS THE WORST CASE, not the nominal one. The namespace
+        # wait is a lower bound on a run: the deadline is set before the first
+        # probe and only a probe finding it passed exits, so the sleep and the
+        # request that carry the run over are part of every cycle. Asserting
+        # `interval >= (burst - 1) * (wait + RestartSec)` is what a green check
+        # over a false property looked like; it passes on a unit whose limit
+        # cannot be tripped at any value of the wait.
+        #
+        # The sleep and the timeout are read out of the built script rather
+        # than restated here, for the reason tests/firewall-rules.nix reads the
+        # built firewall: a check that restates the module's own literals
+        # agrees with it however they change.
         unit = "/etc/systemd/system/chuggy-secrets-sync.service"
 
         def setting(name):
             return int(machine.succeed("sed -n 's/^" + name + "=//p' " + unit).strip())
 
-        attempt = namespace_timeout + setting("RestartSec")
-        assert setting("StartLimitIntervalSec") >= (setting("StartLimitBurst") - 1) * attempt
+        script = machine.succeed("sed -n 's/^ExecStart=//p' " + unit).strip()
+        probe = int(machine.succeed(
+            "sed -n 's/^ *sleep \\([0-9]*\\)$/\\1/p' " + script + " | head -1"
+        ).strip())
+        request = int(machine.succeed(
+            "sed -n 's/.*--request-timeout=\\([0-9]*\\)s.*/\\1/p' " + script + " | head -1"
+        ).strip())
+
+        cycle = namespace_timeout + probe + request + setting("RestartSec")
+        assert setting("StartLimitIntervalSec") >= setting("StartLimitBurst") * cycle
 
     with subtest("synchronisation reports could-not-run, not success"):
         # The distinction the unit has to make is between "the cluster refused

@@ -10,16 +10,24 @@
 #
 # So this module creates directories and sets their ownership. It does not
 # create the PersistentVolume that binds one into the cluster; that object is
-# cluster state and belongs in cluster/apps/, which does not yet hold one. The
-# split is deliberate and is the one place the two layers touch a single
-# resource: NixOS owns the bytes on disk, Flux owns the object that names them,
-# and each can be read without the other.
+# cluster state and belongs in cluster/apps/. The split is deliberate and is the
+# one place the two layers touch a single resource: NixOS owns the bytes on
+# disk, Flux owns the object that names them, and each can be read without the
+# other.
+#
+# WHICH SIDE WINS WHERE THEY OVERLAP: this one, for everything about the
+# directory itself. A PersistentVolume names a host path; it does not create
+# that path and does not set its mode or owner. The options below do, on every
+# activation. So a cluster-layer manifest that also states a mode is restating
+# this module's answer rather than giving one, and if the two ever say
+# different things the next rebuild settles it without reporting that it did.
 #
 # WHAT PRESERVES THESE ACROSS A REBUILD AND A REBOOT is systemd-tmpfiles `d`,
 # which creates a directory when it is absent and adjusts its mode and owner
-# when it is not. It never touches contents. `D` would empty the directory on
-# every boot and is the one letter between this file and losing the artifacts;
-# `d` is not a typo for it.
+# when it is not -- including back over a mode something else set in between,
+# which is what makes this module the authority above. It never touches
+# contents. `D` would empty the directory on every boot and is the one letter
+# between this file and losing the artifacts; `d` is not a typo for it.
 #
 # D23 NAMES TWO RETAINED PATHS AND THIS MODULE SUPPLIES ONE. PostgreSQL's data
 # is a dynamically provisioned local-path claim declared in cluster/apps/, so
@@ -64,14 +72,16 @@ in
           this machine has room for build output and is not the one holding
           /boot.
 
-          NOTHING IN THE CLUSTER MOUNTS THIS YET. What would is a static
-          PersistentVolume over this path with `Retain`, so that deleting a
-          claim leaves the data here -- and no such object is in cluster/apps/.
-          Until one is, this option creates a directory nothing reads, and
-          taking it for a durability guarantee is taking one this tree does not
-          make. When it lands the two have to name the same path, and nothing
-          will check that they do: a mismatch mounts an empty directory and
-          reports healthy.
+          WHAT MOUNTS IT IS NOT HERE. A static PersistentVolume over this path
+          with `Retain` is what binds it into the cluster and what makes
+          deleting a claim leave the data behind; that object is cluster state
+          and lives in cluster/apps/, on its own release schedule. This option
+          creates the directory either way. On a host where no such volume has
+          been reconciled it creates one nothing reads, and taking that for a
+          durability guarantee is taking one this tree does not make.
+
+          The two have to name the same path and nothing checks that they do: a
+          mismatch mounts an empty directory and reports healthy.
         '';
       };
 
@@ -103,10 +113,17 @@ in
         type = lib.types.str;
         default = "0770";
         description = ''
-          Mode of the artifacts directory. Group-writable so a second pod
+          Mode of the artifacts directory, and the only statement of it that
+          has an effect. The default is 0770: group-writable so a second pod
           identity in the same group can write without being the owner;
           world-nothing, because an artifact is work output and this box's other
           services have no business in it.
+
+          This is what the directory ends up with. The tmpfiles `d` rule below
+          runs on every activation and adjusts the mode of a directory that
+          already exists, so a mode set by hand -- or documented elsewhere as a
+          property of the volume that mounts this path -- is reset to this one
+          at the next rebuild, with nothing reporting the change.
         '';
       };
     };
