@@ -543,10 +543,11 @@ not after it.
 
    ```sh
    sql=$(sed 's/--.*//' deploy/rig/postgres/postgres-roles.sql | tr '\n' ' ')
-   grep -oi 'GRANT [^;]*chuggy_selector_review[^;]* TO chuggy_api_login;' \
-     <<<"$sql" | wc -l                               # must be 1
-   grep -oi 'GRANT [^;]*chuggy_boundary_owner[^;]* TO chuggy_owner;' \
-     <<<"$sql" | wc -l                               # must be 1
+   # each must print 1
+   printf '%s' "$sql" | grep -oi \
+     'GRANT [^;]*chuggy_selector_review[^;]* TO chuggy_api_login;' | wc -l
+   printf '%s' "$sql" | grep -oi \
+     'GRANT [^;]*chuggy_boundary_owner[^;]* TO chuggy_owner;' | wc -l
    ```
 
    Comments are stripped and the lines joined first, because a plain line-wise
@@ -624,12 +625,17 @@ not after it.
    look identical. It must print two rows; a missing row is a name that is not
    in this database, not a membership that is absent.
 
-2. **Build and import an image** from that same checkout, and set the six tags
-   to it. `chuggy.invalid` resolves nowhere, so a tag this node does not hold is
-   a pod that never starts. That includes `chuggy-api`, which is serving traffic
-   today on a different tag: at `replicas: 1` a `RollingUpdate` keeps the old
-   pod until the new one is ready, so the rollout stalls rather than the API
-   going down — a property of the arithmetic, not a guarantee anyone wrote.
+2. **Build and import an image** from that same checkout, and re-pin the tag to
+   it everywhere it is written — `chuggy-ticket-service.yaml` enumerates those
+   places, and they are not all `image:` lines. The migration Job's
+   `metadata.name` carries the tag too, and a Job's pod template is immutable,
+   so bumping the images while leaving that name alone is an apply the API
+   server rejects rather than a stale string. `chuggy.invalid` resolves nowhere,
+   so a tag this node does not hold is a pod that never starts. That includes
+   `chuggy-api`, which is serving traffic today on a different tag: at
+   `replicas: 1` a `RollingUpdate` keeps the old pod until the new one is ready,
+   so the rollout stalls rather than the API going down — a property of the
+   arithmetic, not a guarantee anyone wrote.
    `images/api/Dockerfile` copies `package.json`, the resolved `node_modules`
    and `src/` into the shipped stage and nothing else — `deploy/` is never
    copied at all — so **the roles file is not in the image** and no inspection

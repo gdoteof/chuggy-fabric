@@ -169,7 +169,7 @@ spec:
             # `images/api/Dockerfile` is the only image kasofsk/chuggy builds,
             # so no commit names a worker image and a commit id here would
             # claim one that has never existed. That also puts this string
-            # OUTSIDE "the tag is written in six files and they move together"
+            # OUTSIDE the six `image:` lines that carry the control-plane tag
             # -- re-pinning those six leaves this alone, and PR 5 replaces the
             # whole value when it builds the thing.
             - name: CHUG_SCHEDULER_WORKER_IMAGES
