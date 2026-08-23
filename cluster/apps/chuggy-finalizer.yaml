@@ -21,6 +21,11 @@
 # gap. The three preconditions after it -- the scratch, the artifact root and
 # the credential files -- are all satisfiable from this file, and are.
 #
+# THE THIRD OF THOSE WAS NOT, UNTIL THE MODE ON THE CREDENTIAL VOLUME BELOW WAS
+# CORRECTED. It is worth naming rather than quietly fixing: `git-available`
+# fails first and hides it, so a file claiming all three were satisfiable would
+# have been believed right up to the moment revised PR 2 installed git.
+#
 # ---------------------------------------------------------- the recovery epoch ----
 #
 # `CHUG_FINALIZER_RECOVERY_EPOCH` must equal the newest row in the database's
@@ -206,6 +211,19 @@ spec:
         - name: credentials
           secret:
             secretName: chuggy-finalizer-credentials
-            # Readable by the owner and by nobody else in the container. The
-            # command reads it per act; nothing else in the pod has a reason to.
-            defaultMode: 0400
+            # WORLD-READABLE INSIDE THIS CONTAINER, AND THAT IS THE ONLY MODE
+            # THAT WORKS HERE. The kubelet writes a Secret volume's files owned
+            # by uid 0 whatever `runAsUser` says, and applies `fsGroup` to the
+            # group and nothing else. With no `fsGroup` -- which the pod
+            # securityContext above declines, for the reason it gives -- the
+            # group is 0 too, so any mode without the world bit leaves a file
+            # this process cannot open. `0400` here meant root-only, and
+            # `credentialFilesPrecondition` would have reported
+            # `repository-credentials-available` unmet for as long as it stood.
+            #
+            # What the world bit costs is bounded by the mount namespace it is
+            # in: one container, running one process, which is the process the
+            # file is for. The alternative is an `fsGroup`, which buys `0440`
+            # and charges a recursive chgrp of the artifact store on every pod
+            # start.
+            defaultMode: 0444

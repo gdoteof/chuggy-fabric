@@ -29,11 +29,20 @@
 # be somewhere nobody declared. So a class has to be named.
 #
 # `storageClassName: ""` is the other way to say "bind only a matching static
-# volume", and is rejected here for one reason: it forces immediate binding. A
-# `local` volume must be bound after the scheduler has picked a node, or the
-# binding decides the placement before the scheduler has looked at anything else
-# the pod needs -- which is what `volumeBindingMode: WaitForFirstConsumer`
-# exists for and what an empty class name cannot express.
+# volume", and a named class is preferred here because an empty one cannot
+# carry `volumeBindingMode` at all: the class is where a reader learns that a
+# volume in it is placement-sensitive.
+#
+# BUT WAIT FOR THE CONSUMER IS NOT WHAT DELAYS THIS CLAIM, AND SAYING SO WOULD
+# BE FALSE. The claim below names its volume, and the binder takes the
+# pre-bound path whenever `spec.volumeName` is set -- `shouldDelayBinding`
+# short-circuits on it -- so this claim binds as soon as the volume is
+# `Available`, before any pod is scheduled. What keeps the pod on the right box
+# is the volume's own `nodeAffinity`, which the scheduler honours either way.
+#
+# The mode is still correct and still declared, because it is the class's
+# property rather than this claim's: a second volume in it, claimed without a
+# `volumeName`, would be bound by it.
 #
 # The class provisions nothing. `kubernetes.io/no-provisioner` is the name for
 # that, and every volume in this class is therefore one somebody wrote down.

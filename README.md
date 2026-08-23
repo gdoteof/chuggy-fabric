@@ -423,6 +423,20 @@ Five processes, one per responsibility, all out of one image:
 Plus `chuggy-migrate-<tag>`, a Job that applies the schema and is named after
 the image it applies it from.
 
+**A migration that fails is terminal and needs a human.** Naming the Job after
+the tag makes a re-tag a new object, but when the tag has not changed there is
+nothing for Flux to re-create: it re-applies an identical `Failed` Job every
+five minutes, the API server accepts it as unchanged, and the migration never
+runs again. The Kustomization stays green throughout, because the object on the
+cluster is the object git declares. Read the pod, fix the cause, then delete the
+Job so the next reconcile builds it afresh:
+
+    kubectl -n chuggy logs job/chuggy-migrate-<tag>
+    kubectl -n chuggy delete job chuggy-migrate-<tag>
+
+An image the node does not hold is not this case — that pod waits in
+`ImagePullBackOff` with the Job still active, and importing the image is enough.
+
 The image is `chuggy.invalid/api:<tag>`, which already contains every command —
 its Dockerfile copies the whole source tree and sets a default command of the
 API alone. The name is the only API-specific thing about it, and renaming it
