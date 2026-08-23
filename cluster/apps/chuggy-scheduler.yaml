@@ -112,11 +112,13 @@ spec:
       labels:
         app: chuggy-scheduler
         chuggy.dev/postgres-client: "true"
-        # This workload talks to the Kubernetes API server, which is on the
-        # node's own address rather than on the pod network.
-        # chuggy-control-plane-network-policy.yaml admits that egress by this
-        # label and by no other.
-        chuggy.dev/cluster-client: "true"
+    # This workload's egress -- including to the Kubernetes API server, which
+    # is on the node's own address rather than on the pod network -- is
+    # admitted by `chuggy-scheduler-egress` in
+    # chuggy-control-plane-network-policy.yaml, and that policy selects on
+    # `app: chuggy-scheduler` above. There is no capability label for it: one
+    # would read as the thing egress is keyed on while keying nothing, and a
+    # pod selected by no egress policy is not egress-isolated at all.
     spec:
       serviceAccountName: chuggy-scheduler
       automountServiceAccountToken: true
@@ -126,7 +128,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: scheduler
-          image: chuggy.invalid/api:3411172
+          image: chuggy.invalid/api:0193b36
           imagePullPolicy: IfNotPresent
           command:
             [
@@ -163,14 +165,20 @@ spec:
             # `chuggy-work`; naming it here does not.
             - name: CHUG_SCHEDULER_WORKER_SERVICE_ACCOUNT
               value: chuggy-worker
-            # PR 5's, provisional: nothing has built this tag.
+            # PR 5's, provisional. The tag is deliberately not a commit id:
+            # `images/api/Dockerfile` is the only image kasofsk/chuggy builds,
+            # so no commit names a worker image and a commit id here would
+            # claim one that has never existed. That also puts this string
+            # OUTSIDE "the tag is written in six files and they move together"
+            # -- re-pinning those six leaves this alone, and PR 5 replaces the
+            # whole value when it builds the thing.
             - name: CHUG_SCHEDULER_WORKER_IMAGES
               value: |
                 [
                   {
                     "profile": "default",
                     "runtimeVersion": "0",
-                    "image": "chuggy.invalid/worker:3411172"
+                    "image": "chuggy.invalid/worker:unbuilt"
                   }
                 ]
             # PR 5's, provisional. D30 says the adopting machine must supply

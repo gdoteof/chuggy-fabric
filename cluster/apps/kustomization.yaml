@@ -68,7 +68,20 @@ resources:
 #
 # The generated ConfigMaps are immutable in practice rather than by the
 # `immutable` field: a change makes a new object rather than mutating this one,
-# and `prune: true` removes the old one once nothing references it.
+# and `prune: true` takes the old one away.
+#
+# PRUNE DOES NOT COUNT REFERENCES. kustomize-controller applies the built set,
+# then deletes everything in the previous inventory that is not in the new one,
+# then waits for health -- one pass, and the delete does not ask who is
+# mounting the object. So on the reconcile that lands this file, the two
+# UNHASHED `hydra-config` and `kratos-config` -- which this stage replaces with
+# generated ones -- are deleted while the Hydra and Kratos pods still name
+# them. A RUNNING pod is unharmed: the kubelet mounted the ConfigMap already
+# and does not re-resolve it. What cannot recover is a pod that RESTARTS in the
+# window between that delete and its replacement becoming Ready -- its volume
+# no longer resolves and it sits in `CreateContainerConfigError` until the new
+# ReplicaSet's pod takes over. The window is one rollout of two Deployments
+# that this stage rolls once and never again.
 configMapGenerator:
   - name: hydra-config
     namespace: ory

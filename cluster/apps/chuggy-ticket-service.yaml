@@ -27,9 +27,12 @@
 # `imagePullPolicy: IfNotPresent` against a registry that does not resolve:
 # chuggy-api.yaml carries that argument and it is not repeated.
 #
-# THE TAG BELOW MUST CARRY kasofsk/chuggy#242. Three login roles and the
-# migration command arrive with it; without them these pods have no credential
-# to present and the database has no schema for them to serve.
+# THE TAG BELOW MUST CARRY `src/roots/migrate.ts`, which arrives on
+# kasofsk/chuggy#242 and is what applies the schema these pods then serve --
+# and it must be one whose checkout also carries the two membership grants the
+# README's prerequisite 1 greps for, because part of that branch does not. The
+# login roles those pods present are already on this rig; the memberships are
+# not.
 #
 # --------------------------------------------------- the credential, again ----
 #
@@ -145,7 +148,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: ticket-service
-          image: chuggy.invalid/api:3411172
+          image: chuggy.invalid/api:0193b36
           imagePullPolicy: IfNotPresent
           command:
             [

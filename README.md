@@ -517,31 +517,81 @@ in front of the one thing that has to work before anything else does.
 ### Before any of it runs
 
 Six things, none of which a manifest can do, and each argued in the file that
-needs it. **The first two are ordered, and the order is not enforceable from
-here**: Flux applies `cluster/apps/` as one set on the reconcile after the
-merge, so anything a human must do to the database or the image store has to be
-done *before* that merge, not after it.
+needs it. **Steps 1, 2 and 4 are ordered — 1 before 2, and 4 in the same breath
+as 1 — and the order is not enforceable from here**: Flux applies
+`cluster/apps/` as one set on the reconcile after the merge, so anything a human
+must do to the database or the image store has to be done *before* that merge,
+not after it.
 
-1. **Re-run `postgres-roles.sql`** from a chuggy commit carrying
-   [kasofsk/chuggy#242](https://github.com/kasofsk/chuggy/pull/242), against
-   `chuggy_rehearsal`. It is not optional and it is not a subset of anything
-   below. It creates the three roles this rig is missing, grants
-   `chuggy_selector_review` to `chuggy_api_login` — without which the API
-   refuses to listen — and grants `chuggy_boundary_owner` to `chuggy_owner`,
-   without which **migration 17 commits while granting nothing** and no re-run
-   of the Job ever repairs it. This one is genuinely ordered: run it after the
-   Job and the ledger already claims a grant that is not there.
-2. **Build and import an image** from that same commit, and set the six tags to
-   it. `chuggy.invalid` resolves nowhere, so a tag this node does not hold is a
-   pod that never starts. That includes `chuggy-api`, which is serving traffic
+1. **Re-run `postgres-roles.sql`** against `chuggy_rehearsal`, from a chuggy
+   checkout carrying **both** of the grants below — not merely from
+   [kasofsk/chuggy#242](https://github.com/kasofsk/chuggy/pull/242), because
+   part of that branch has neither. Check the checkout in hand rather than a
+   commit id:
+
+   ```sh
+   grep -c 'GRANT chuggy_selector_review TO chuggy_api_login' \
+     deploy/rig/postgres/postgres-roles.sql          # must be 1
+   grep -c 'GRANT chuggy_boundary_owner' \
+     deploy/rig/postgres/postgres-roles.sql          # must be 1
+   ```
+
+   `0193b36`, the commit the six tags name, answers 1 to both.
+
+   Those two grants are the whole of what this step is still for on this rig.
+   `chuggy_selector_review` to `chuggy_api_login` is what lets the API's second
+   pool become that role, without which **the API refuses to listen**;
+   `chuggy_boundary_owner` to `chuggy_owner` is what makes migration 17's
+   `GRANT EXECUTE` land, without which **17 commits while granting nothing** and
+   no re-run of the Job ever repairs it. That second one is what makes this step
+   ordered: run it after the Job and the ledger already claims a grant that is
+   not there.
+
+   **It is not a read-only file, and three of its side effects matter.** It
+   re-issues every login password unconditionally, so it must be run with
+   exactly the values in `chuggy-postgres-credentials` or step 4 must follow it
+   with the new ones — an unset variable *clears* a password rather than leaving
+   it. It restates every role attribute. And it re-grants `CREATE ON SCHEMA
+   public` to `chuggy_boundary_owner`, which the migrations deliberately revoke;
+   re-issue that revoke afterwards.
+
+   Then check the grants **landed**, which is the only check that does not rest
+   on a commit id:
+
+   ```sh
+   kubectl -n chuggy exec postgres-0 -- \
+     psql -U postgres -d chuggy_rehearsal -Atc \
+     "SELECT r.rolname, m.rolname FROM pg_auth_members am
+        JOIN pg_roles r ON r.oid = am.roleid
+        JOIN pg_roles m ON m.oid = am.member
+       WHERE r.rolname IN ('chuggy_boundary_owner', 'chuggy_selector_review');"
+   ```
+
+   It must list `chuggy_boundary_owner|chuggy_owner` and
+   `chuggy_selector_review|chuggy_api_login`. Today it lists neither: both roles
+   exist and both have no members at all.
+
+2. **Build and import an image** from that same checkout, and set the six tags
+   to it. `chuggy.invalid` resolves nowhere, so a tag this node does not hold is
+   a pod that never starts. That includes `chuggy-api`, which is serving traffic
    today on a different tag: at `replicas: 1` a `RollingUpdate` keeps the old
    pod until the new one is ready, so the rollout stalls rather than the API
    going down — a property of the arithmetic, not a guarantee anyone wrote.
-3. **Create the host directory** the artifact volume binds, owned `1000:1000`.
-   Its path is an option of the machine layer.
+   `images/api/Dockerfile` copies `src/` and the lockfile and nothing else, so
+   **the roles file is not in the image** and no inspection of the image can
+   stand in for step 1's greps.
+3. **Create the host directory** the artifact volume binds:
+   `/var/lib/chuggy/artifacts`, owned `1000:1000`, mode `0750` —
+   `install -d -o 1000 -g 1000 -m 0750 /var/lib/chuggy/artifacts`. It is the
+   value of `chuggy.state.artifacts.path` on fabric's PR 3 module, and PR 3 is
+   what will make it; until then it is by hand. **It does not exist today** —
+   `/var/lib/chuggy` holds `secrets` and nothing else. Do not read the PV going
+   `Bound` as evidence that it does: the claim names its volume, so binding is
+   two API objects agreeing and never touches the node.
 4. **Synchronize `chuggy-postgres-credentials`** with one key per login role.
-   The host generates them; the four keys past `owner-password` and
-   `api-password` are for login roles step 1 creates.
+   All six keys and all six login roles are already there; this step exists
+   because step 1 rewrites every one of those passwords, so it is step 1's
+   companion rather than a gap to fill.
 5. **Create `chuggy-selector` and `chuggy-finalizer-credentials`** by hand — the
    selector's two bearer tokens and the finalizer's git credential. Values never
    go in this repository; it is public. Neither Secret exists today, so both

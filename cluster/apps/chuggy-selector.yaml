@@ -121,7 +121,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: selector
-          image: chuggy.invalid/api:3411172
+          image: chuggy.invalid/api:0193b36
           imagePullPolicy: IfNotPresent
           command:
             [

@@ -10,15 +10,24 @@
 # ------------------------------------------------------- who makes the path ----
 #
 # NOT THIS FILE. A `local` PersistentVolume binds an existing directory; it does
-# not create one, and a claim against a path that is not there leaves the pod in
-# `ContainerCreating` with the reason on the pod and nothing on the PV.
+# not create one.
 #
 # The directory is the machine layer's: `/var/lib/chuggy/artifacts`, owned
 # `1000:1000`, which is the uid every control-plane container runs as. That is
-# the `chuggy.storage.artifactsPath` option of the reusable module in fabric's
-# PR 3; the value written here is what `hosts/gtr` sets it to. Until that lands
-# the directory is an `install -d -o 1000 -g 1000 -m 0750` on the node, and this
-# volume does not bind before it exists.
+# `chuggy.state.artifacts.path` on the reusable module in fabric's PR 3; the
+# value written here is what `hosts/gtr` sets it to. Until that lands the
+# directory is an `install -d -o 1000 -g 1000 -m 0750` on the node. It is NOT
+# there today -- `/var/lib/chuggy` on this rig holds `secrets` and nothing
+# else.
+#
+# AND BINDING IS NOT THE SIGNAL THAT IT IS. Binding a pre-bound claim -- see
+# below -- is a control-plane operation between two API objects; nothing in it
+# consults the node filesystem, so this PV reaches `Bound` with the directory
+# absent and stays there. What an absent directory produces is a `FailedMount`
+# on chuggy-api and chuggy-finalizer at the point the kubelet tries to mount
+# it: both pods sit in `ContainerCreating` with the reason in a `FailedMount`
+# event against the pod, and nothing on the PV. So `Bound` is not evidence for
+# prerequisite 3; `test -d` on the node is.
 #
 # ------------------------------------------------- why a class of its own ----
 #

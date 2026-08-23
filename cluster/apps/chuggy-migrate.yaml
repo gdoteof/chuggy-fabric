@@ -128,14 +128,16 @@
 # re-issues migration 17's grant by hand, because no migration will do it again.
 #
 # WHICH IS WHY THE ORDERING IS A PREREQUISITE AND NOT A NOTE.
-# kasofsk/chuggy#242's `deploy/rig/postgres/postgres-roles.sql` carries that
-# membership grant, and it has to be run BEFORE this Job ever does -- once the
-# Job has committed a ledger row for 17, running the roles file afterwards
-# leaves the grant missing and the ledger claiming otherwise. Nothing here can
-# express that: this object is applied on the first reconcile after the tag
-# lands, and the roles file is run by a human against the server. The README's
-# "Before any of it runs" is where it lives, because there is nowhere else it
-# could.
+# `deploy/rig/postgres/postgres-roles.sql` is where that membership grant is
+# issued -- in a copy of the file that carries it, which not every commit on
+# kasofsk/chuggy#242 does; the README's prerequisite 1 greps for it rather than
+# trusting a commit id, and `0193b36` below carries it. It has to be run BEFORE
+# this Job ever does -- once the Job has committed a ledger row for 17, running
+# the roles file afterwards leaves the grant missing and the ledger claiming
+# otherwise. Nothing here can express that: this object is applied on the first
+# reconcile after the tag lands, and the roles file is run by a human against
+# the server. The README's "Before any of it runs" is where it lives, because
+# there is nowhere else it could.
 #
 # An image that is simply absent from the node does NOT land here. That pod
 # sits in `ImagePullBackOff` and the Job stays `Active`, so importing the image
@@ -174,15 +176,30 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   # The suffix is the image tag below. Change one and change the other.
-  name: chuggy-migrate-3411172
+  name: chuggy-migrate-0193b36
   namespace: chuggy
   labels: { app: chuggy-migrate }
 spec:
-  # One attempt, then a second. A migration that fails twice fails for a reason
-  # a retry does not fix -- a lock it cannot take, a statement the schema
-  # refuses, a ledger this image is behind -- and each attempt leaves its own
-  # pod, so the diagnostic of the first is still readable after the second.
-  backoffLimit: 1
+  # THE FIRST ATTEMPT IS PREDICTED TO FAIL, so the budget starts one past it.
+  # This Job's pod is a newly labelled `chuggy.dev/postgres-client` pod, and
+  # chuggy-api.yaml records that such a pod's first connection loses a race with
+  # the policy controller and arrives as `ECONNREFUSED` -- reproduced on all
+  # three rollouts of that Deployment. Here it is worse than an extra
+  # `RESTARTS 1`: `restartPolicy: Never` makes the losing attempt a failed POD,
+  # and `0193b36`'s migrate proves the connection before the transaction opens,
+  # so it is exactly the case that exits 2 and burns an attempt. At
+  # `backoffLimit: 1` that leaves no margin at all before a terminal `Failed`
+  # Job -- a race this repository documents as reproducible would end the one
+  # thing everything else waits on.
+  #
+  # `backoffLimit: N` is N retries AFTER the first pod, so 2 is three attempts:
+  # one for the race, then the two this Job would have had anyway. A migration
+  # that fails twice having reached the server fails for a reason a retry does
+  # not fix -- a lock it cannot take, a statement the schema refuses, a ledger
+  # this image is behind -- and each attempt leaves its own pod, so the
+  # diagnostic of the first is still readable after the last. The retries are
+  # delayed 10s, 20s, which is also the wait the controller needs.
+  backoffLimit: 2
   template:
     metadata:
       labels:
@@ -203,7 +220,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: migrate
-          image: chuggy.invalid/api:3411172
+          image: chuggy.invalid/api:0193b36
           imagePullPolicy: IfNotPresent
           # Exec form with node as PID 1, for the reason the image's Dockerfile
           # gives: the process is handed SIGTERM itself rather than through a
