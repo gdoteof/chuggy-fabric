@@ -206,9 +206,10 @@ per entry in `apiAllowedSources`, plus the pod range, for each of the two
 ports; the two global ports; that nothing else names 6443 or 8472; and that
 they all land before `nixos-fw-log-refuse`. Then, because every one of those is
 a whitelist that a rule *added* to the chain would pass, it asserts that no
-accept trusts an interface other than `lo` and that none names a port outside
-that set — which is what makes putting `wg0` back on `trustedInterfaces`, or
-opening kubelet's 10250, a difference the check reports. It is a `runCommand`,
+accept trusts a whole interface other than `lo` and that none names a port
+outside that set — which is what makes putting `wg0` back on
+`trustedInterfaces`, or opening kubelet's 10250 on every interface or on one, a
+difference the check reports. It is a `runCommand`,
 so it costs an evaluation rather than a VM; what it cannot say is that the
 kernel accepts the rules, which is still a live `iptables -S` on the box.
 

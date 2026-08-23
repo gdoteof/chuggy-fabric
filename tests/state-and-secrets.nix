@@ -169,8 +169,8 @@ pkgs.testers.runNixOSTest {
     # the option's *default*, and a check that asked the module what its default
     # was would agree with it whatever it became. 0750 and not 0770 -- the group
     # write bit was granted to a group with no members, and the only writer owns
-    # the directory. cluster/apps/ documents this mode; the tmpfiles rule is
-    # what makes it true, which the subtest below is about.
+    # the directory. The tmpfiles rule is what makes it true of a directory that
+    # already exists, which the subtest below is about.
     artifacts_stat = "750 1000 1000"
 
 

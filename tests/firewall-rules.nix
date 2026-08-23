@@ -67,6 +67,16 @@ let
     "8472"
   ];
 
+  # The only accepts NixOS emits into ip6tables alone: ICMPv6 and the DHCPv6
+  # client. They are named line by line so that the rest of that table is read
+  # like any other -- excluding the whole table is broader than the reason for
+  # it, and lets a hand-written `ip6tables -A nixos-fw -i wg0 -j
+  # nixos-fw-accept` in extraCommands past both checks below.
+  ipv6Accepts = [
+    "ip6tables -A nixos-fw -p icmpv6 -j nixos-fw-accept"
+    "ip6tables -A nixos-fw -d fe80::/64 -p udp --dport 546 -j nixos-fw-accept"
+  ];
+
   checkOnce = rule: "present_once ${lib.escapeShellArg rule}\n";
 in
 pkgs.runCommand "chuggy-firewall-rules-${host.config.networking.hostName}" { } ''
@@ -101,12 +111,18 @@ pkgs.runCommand "chuggy-firewall-rules-${host.config.networking.hostName}" { } '
   # of it: `networking.firewall.trustedInterfaces = [ "wg0" ]` and an extra
   # entry in `allowedTCPPorts` each emit an accept that is present, is not a
   # duplicate, names neither 6443 nor 8472, and lands ahead of the refuse. The
-  # two checks below are what make this a specification rather than a list.
+  # two checks below are what make this a specification rather than a list, and
+  # what reaches them is decided by the shape matched here:
   #
-  # ip6tables-only accepts are excluded. NixOS emits them for ICMPv6 and the
-  # DHCPv6 client, nothing in this repository speaks IPv6, and both additions
-  # above emit ip46tables -- so excluding them costs no coverage here.
-  grep -E -e '^(ip46tables|iptables) .*-A nixos-fw .*-j nixos-fw-accept$' rules \
+  #   * `-I` as well as `-A`, because an insert lands ahead of everything and is
+  #     therefore more of an addition than an append, not less.
+  #   * an interface AFTER the jump target. The per-interface forms of
+  #     allowedTCPPorts, allowedUDPPorts and both port-range options append
+  #     `-i <iface>` there, so a pattern anchored on `-j nixos-fw-accept` sees
+  #     neither the interface nor the port of the narrowest -- and most natural
+  #     -- way to open kubelet's 10250 on the house LAN.
+  grep -E -e '^(ip46tables|ip6tables|iptables) .*-[AI] nixos-fw .*-j nixos-fw-accept( -i [^ ]+)?$' rules \
+    | grep -vxF ${lib.concatMapStringsSep " " (r: "-e ${lib.escapeShellArg r}") ipv6Accepts} \
     > accepts || true
   [ -s accepts ] || fail "no accept was emitted into nixos-fw at all"
 
@@ -114,16 +130,20 @@ pkgs.runCommand "chuggy-firewall-rules-${host.config.networking.hostName}" { } '
   # mesh is not a trusted interface, and modules/k3s-server.nix repeats it. That
   # decision was checked by nothing: trusting wg0 makes every listening port on
   # the box reachable by any peer, which is the exposure wireguard.nix removed.
-  # lo is the only interface an accept may name.
-  bad=$(grep -E -e ' -i ' accepts | grep -vE -e ' -i lo( |$)' || true)
-  [ -z "$bad" ] || fail "an accept trusts an interface other than lo: $bad"
+  # An accept naming an interface and no port is that blanket trust, and lo is
+  # the only interface it may name. An accept naming an interface AND a port is
+  # a different rule -- one port on one interface -- so it is the check below
+  # that decides whether it may stand, not this one.
+  bad=$(grep -vE -e '--dports? ' accepts | grep -E -e ' -i ' \
+    | grep -vE -e ' -i lo( |$)' || true)
+  [ -z "$bad" ] || fail "an accept trusts a whole interface other than lo: $bad"
 
   # And the same for a port. The count above bounds 6443 and 8472; this bounds
-  # every other port, so kubelet's 10250 or an exporter's 9100 arriving on
-  # allowedTCPPorts is a difference this reports.
+  # every other port, on every interface and on one, so kubelet's 10250 or an
+  # exporter's 9100 arriving on allowedTCPPorts is a difference this reports.
   bad=$(grep -oE -e '--dports? [0-9,:]+' accepts | sort -u \
     | grep -vxE -e '--dport (${lib.concatStringsSep "|" acceptedPorts})' || true)
-  [ -z "$bad" ] || fail "an accept names a port that is not source-restricted: $bad"
+  [ -z "$bad" ] || fail "an accept opens a port this host does not declare: $bad"
 
   # Position, which is the half no amount of reading the rule text can settle:
   # nixos-fw-log-refuse ends the chain, so an accept appended after it is an

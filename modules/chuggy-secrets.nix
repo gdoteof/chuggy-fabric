@@ -70,7 +70,9 @@
 #   2  could-not-run. Nothing this host controls has gone wrong -- no
 #      kubeconfig, no namespace, a key neither side holds. RETRIES.
 #   3  divergence. Both sides answered and disagreed, and only a person can say
-#      which value PostgreSQL was told about. DOES NOT RETRY.
+#      which value PostgreSQL was told about. DOES NOT RETRY. `jq` exits 3 on a
+#      program that will not compile, which lands here by coincidence of number
+#      and stays here on the merits: a broken filter is permanent, not transient.
 #   *  a command failed. `set -o errexit` carries kubectl's, jq's or base64's
 #      own status out, and kubectl exits 1 on an API error it could not reach
 #      past -- a leader election, a compaction, a request timeout. Transient by
@@ -104,9 +106,13 @@ let
   syncRequestTimeoutSeconds = 30;
   syncRequestTimeout = "${toString syncRequestTimeoutSeconds}s";
 
-  # The longest one start-to-start cycle can take: the wait, the sleep and the
-  # probe that carry it past its deadline, and the pause before systemd starts
-  # the unit again.
+  # The longest a cycle that waits the namespace out can take: the wait, the
+  # sleep and the probe that carry it past its deadline, and the pause before
+  # systemd starts the unit again. THAT PATH, AND NOT A RUN IN GENERAL -- a run
+  # that gets past the namespace makes further `k` calls this sum does not name,
+  # and `--request-timeout` bounds one request where kubectl may issue several.
+  # Each of those shapes is short beside the extra whole cycle the window below
+  # carries, and the wait is the path the bound exists for.
   syncCycleSeconds =
     cfg.namespaceTimeoutSeconds
     + syncProbeIntervalSeconds

@@ -75,6 +75,12 @@ in
         client, loses the API at the next activation. It presents as a broken
         cluster, not as a firewall rule.
 
+        NO OTHER ON-BOX BRIDGE COMES WITH IT. A container on a `docker0` or
+        `br-*` network reaches the API from that bridge's own range, which is
+        neither the pod range nor implied by it -- so a container that comes to
+        need the API needs an entry here, and until it has one it is refused by
+        the host it is running on.
+
         An empty list is refused for the same reason `null` is. It evaluates,
         and what it produces is a cluster that admits its own pods and no
         human -- a decision, if it is one, that has to be made somewhere other
