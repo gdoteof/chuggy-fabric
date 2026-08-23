@@ -1,0 +1,255 @@
+# Ory Kratos: who the people are. Hydra knows nothing about them -- it hands a
+# login challenge to the app in ory-ui.yaml, that app drives a Kratos flow, and
+# only the resulting subject comes back. Swapping Kratos out is a change to that
+# app and to nothing Hydra issues.
+#
+# Reached at https://id.vteng.io, sharing the host with the self-service UI. The
+# Ingress that splits them is in ory-ui.yaml, because the UI owns the root path
+# and the split only makes sense read as a whole.
+#
+# NO MAIL. There is no SMTP server on this rig, so account recovery and address
+# verification are switched off rather than left at their defaults to fail at
+# the point of use, and the one-time-code method is switched off with them --
+# it defaults to enabled and delivers its code by mail. What that costs is
+# real: a person who forgets their password has no self-service way back, and
+# an operator deleting the identity through the admin API is the only recovery
+# there is.
+#
+# 4434 IS THE UNAUTHENTICATED ADMIN API and can mint an identity or a session
+# for anyone. The argument about what does and does not bound it is in
+# ory-hydra.yaml and applies here unchanged.
+#
+# The migration initContainer, the DDL/DML role split, and the fact that
+# changing the ConfigMap does not restart the pod are all as ory-hydra.yaml
+# describes.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kratos-config
+  namespace: ory
+data:
+  kratos.yaml: |
+    # No `dsn` and no `secrets` here -- both arrive as environment variables
+    # from the `kratos` Secret.
+    serve:
+      public:
+        port: 4433
+        host: 0.0.0.0
+        # Kratos builds every URL it hands a browser from this, and decides
+        # whether its cookies are Secure from this scheme. The pod is reached
+        # over plain HTTP; the browser is not, and this is where that is said.
+        base_url: https://id.vteng.io/
+      admin:
+        port: 4434
+        host: 0.0.0.0
+        base_url: http://kratos-admin.ory.svc.cluster.local:4434/
+
+    selfservice:
+      default_browser_return_url: https://id.vteng.io/welcome
+      # An exhaustive list of where a flow may deposit a browser afterwards.
+      # Anything absent is refused, which is what stops `?return_to=` being an
+      # open redirect out of the login page.
+      allowed_return_urls:
+        - https://id.vteng.io
+        - https://chuggy.vteng.io
+
+      methods:
+        password:
+          enabled: true
+        # Both of these deliver a secret by mail. See the header.
+        code:
+          enabled: false
+        link:
+          enabled: false
+
+      flows:
+        error:
+          ui_url: https://id.vteng.io/error
+        login:
+          ui_url: https://id.vteng.io/login
+          lifespan: 10m
+        registration:
+          ui_url: https://id.vteng.io/registration
+          lifespan: 10m
+          after:
+            password:
+              hooks:
+                # Without this a new account is created and then asked to log
+                # in again -- which drops the OAuth2 flow it was registering in
+                # the middle of.
+                - hook: session
+        settings:
+          ui_url: https://id.vteng.io/settings
+          privileged_session_max_age: 15m
+        logout:
+          after:
+            default_browser_return_url: https://id.vteng.io/login
+        recovery:
+          enabled: false
+        verification:
+          enabled: false
+
+    # Where Kratos accepts and resolves Hydra's login challenge. Hydra's admin
+    # API, in-cluster, never through the edge.
+    oauth2_provider:
+      url: http://hydra-admin.ory.svc.cluster.local:4445
+
+    identity:
+      default_schema_id: default
+      schemas:
+        - id: default
+          url: file:///etc/config/identity.default.schema.json
+
+    session:
+      lifespan: 24h
+      cookie:
+        same_site: Lax
+
+    log:
+      level: info
+      format: json
+
+  identity.default.schema.json: |
+    {
+      "$id": "https://id.vteng.io/schemas/default",
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Person",
+      "type": "object",
+      "properties": {
+        "traits": {
+          "type": "object",
+          "properties": {
+            "email": {
+              "type": "string",
+              "format": "email",
+              "title": "E-Mail",
+              "maxLength": 320,
+              "ory.sh/kratos": {
+                "credentials": {
+                  "password": {
+                    "identifier": true
+                  }
+                }
+              }
+            }
+          },
+          "required": ["email"],
+          "additionalProperties": false
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kratos
+  namespace: ory
+  labels: { app: kratos }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: kratos }
+  template:
+    metadata:
+      labels:
+        app: kratos
+        chuggy.dev/postgres-client: "true"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+      initContainers:
+        - name: migrate
+          image: oryd/kratos:v26.2.0@sha256:2a13bb8d362c7a7ae33bd7c0f5168aee46921f15c916a06346db91c06dc76643
+          args: [migrate, sql, up, -e, --yes]
+          env:
+            - name: DSN
+              valueFrom:
+                secretKeyRef: { name: kratos, key: migrate-dsn }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      containers:
+        - name: kratos
+          image: oryd/kratos:v26.2.0@sha256:2a13bb8d362c7a7ae33bd7c0f5168aee46921f15c916a06346db91c06dc76643
+          args: [serve, --config, /etc/config/kratos.yaml]
+          ports:
+            - name: public
+              containerPort: 4433
+            - name: admin
+              containerPort: 4434
+          env:
+            - name: DSN
+              valueFrom:
+                secretKeyRef: { name: kratos, key: dsn }
+            - name: SECRETS_DEFAULT
+              valueFrom:
+                secretKeyRef: { name: kratos, key: secrets-default }
+            - name: SECRETS_COOKIE
+              valueFrom:
+                secretKeyRef: { name: kratos, key: secrets-cookie }
+            # Encrypts credentials at rest. Exactly 32 characters, because it is
+            # an AES-256 key -- ory-namespace.yaml says how that is guaranteed.
+            - name: SECRETS_CIPHER
+              valueFrom:
+                secretKeyRef: { name: kratos, key: secrets-cipher }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/config
+              readOnly: true
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          readinessProbe:
+            httpGet: { path: /health/ready, port: admin }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: { path: /health/alive, port: admin }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: config
+          configMap: { name: kratos-config }
+---
+# Public: the browser-facing flow endpoints, routed by the Ingress in
+# ory-ui.yaml under the paths Kratos owns on id.vteng.io.
+apiVersion: v1
+kind: Service
+metadata:
+  name: kratos-public
+  namespace: ory
+spec:
+  selector: { app: kratos }
+  ports:
+    - name: public
+      port: 4433
+      targetPort: public
+---
+# Admin. A separate object for the reason hydra-admin is one: no Ingress can
+# name a port that is not in the Service it points at.
+apiVersion: v1
+kind: Service
+metadata:
+  name: kratos-admin
+  namespace: ory
+spec:
+  selector: { app: kratos }
+  ports:
+    - name: admin
+      port: 4434
+      targetPort: admin

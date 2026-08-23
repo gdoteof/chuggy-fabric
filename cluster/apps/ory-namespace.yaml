@@ -1,0 +1,155 @@
+# The namespace Ory runs in, and by implication the three Secrets and the two
+# databases inside it. Same arrangement as sirdocalot-namespace.yaml: none of
+# these values can live in a public repo, so the commands that create them are
+# recorded here, beside the Namespace whose deletion takes the Secrets with it.
+#
+# Hydra is the OIDC issuer; Kratos is the identity store; the self-service UI
+# serves Kratos's flows and Hydra's consent screen. They are split across
+# ory-hydra.yaml, ory-kratos.yaml and ory-ui.yaml, each arguing for itself.
+#
+# ----------------------------------------------------------- the databases ----
+#
+# Hydra and Kratos get a database each on the existing server. Not `chuggy`:
+# these are somebody else's migrations, and a schema chuggy does not own has no
+# business in the database chuggy's journal lives in.
+#
+# Two roles per database, and the split is DDL from DML. The migrating role owns
+# the relations; the runtime role is a member of a group that holds SELECT,
+# INSERT, UPDATE and DELETE and nothing else. ALTER DEFAULT PRIVILEGES is what
+# carries that to tables a *later* migration creates -- without it the grants
+# below would be a snapshot, and the next upgrade would leave the runtime role
+# unable to read the tables it just gained.
+#
+# The extensions are pre-created by the superuser because the migrations create
+# them otherwise. Hydra's ask for `uuid-ossp` and Kratos's for `btree_gin` and
+# `pg_trgm`; all three are trusted on PostgreSQL 13 and newer, so a database
+# owner may in fact create them and this is not strictly required. It removes a
+# first-boot failure mode that depends on a property of the server rather than
+# of this deployment, which is the kind of coupling worth spending three
+# statements on.
+#
+# Passwords come from the environment for the reason kasofsk/chuggy's
+# postgres-roles.sql gives: an argument to psql is in the process table. The
+# whole file is transactional except CREATE DATABASE, which PostgreSQL refuses
+# inside a transaction block -- so the roles land or none of them do, and the
+# databases are a separate, idempotent step.
+#
+# RUN AS A SUPERUSER, ONCE, BEFORE ANYTHING STARTS:
+#
+#   ORY_PG_HYDRA_OWNER_PASSWORD=$(openssl rand -hex 24) \
+#   ORY_PG_HYDRA_APP_PASSWORD=$(openssl rand -hex 24) \
+#   ORY_PG_KRATOS_OWNER_PASSWORD=$(openssl rand -hex 24) \
+#   ORY_PG_KRATOS_APP_PASSWORD=$(openssl rand -hex 24) \
+#   kubectl exec -i -n chuggy postgres-0 -- env \
+#     ORY_PG_HYDRA_OWNER_PASSWORD="$ORY_PG_HYDRA_OWNER_PASSWORD" \
+#     ORY_PG_HYDRA_APP_PASSWORD="$ORY_PG_HYDRA_APP_PASSWORD" \
+#     ORY_PG_KRATOS_OWNER_PASSWORD="$ORY_PG_KRATOS_OWNER_PASSWORD" \
+#     ORY_PG_KRATOS_APP_PASSWORD="$ORY_PG_KRATOS_APP_PASSWORD" \
+#     psql -U postgres -d postgres -f - <<'SQL'
+#   \set ON_ERROR_STOP on
+#   \getenv hydra_owner_password ORY_PG_HYDRA_OWNER_PASSWORD
+#   \getenv hydra_app_password ORY_PG_HYDRA_APP_PASSWORD
+#   \getenv kratos_owner_password ORY_PG_KRATOS_OWNER_PASSWORD
+#   \getenv kratos_app_password ORY_PG_KRATOS_APP_PASSWORD
+#
+#   BEGIN;
+#   SELECT format('CREATE ROLE %I NOLOGIN', r)
+#     FROM unnest(ARRAY['hydra_app','kratos_app']) AS r
+#    WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = r)
+#   \gexec
+#   SELECT format('CREATE ROLE %I LOGIN', r)
+#     FROM unnest(ARRAY['hydra_owner','hydra_app_login','kratos_owner','kratos_app_login']) AS r
+#    WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = r)
+#   \gexec
+#
+#   ALTER ROLE hydra_app        WITH NOLOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT -1 PASSWORD NULL VALID UNTIL 'infinity';
+#   ALTER ROLE kratos_app       WITH NOLOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT -1 PASSWORD NULL VALID UNTIL 'infinity';
+#   ALTER ROLE hydra_owner      WITH LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT -1 VALID UNTIL 'infinity';
+#   ALTER ROLE hydra_app_login  WITH LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT -1 VALID UNTIL 'infinity';
+#   ALTER ROLE kratos_owner     WITH LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT -1 VALID UNTIL 'infinity';
+#   ALTER ROLE kratos_app_login WITH LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT -1 VALID UNTIL 'infinity';
+#
+#   ALTER ROLE hydra_owner      PASSWORD :'hydra_owner_password';
+#   ALTER ROLE hydra_app_login  PASSWORD :'hydra_app_password';
+#   ALTER ROLE kratos_owner     PASSWORD :'kratos_owner_password';
+#   ALTER ROLE kratos_app_login PASSWORD :'kratos_app_password';
+#
+#   GRANT hydra_app  TO hydra_app_login,  hydra_owner;
+#   GRANT kratos_app TO kratos_app_login, kratos_owner;
+#   COMMIT;
+#
+#   SELECT format('CREATE DATABASE %I OWNER %I', d.name, d.owner)
+#     FROM (VALUES ('hydra','hydra_owner'), ('kratos','kratos_owner')) AS d(name, owner)
+#    WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = d.name)
+#   \gexec
+#
+#   \c hydra
+#   BEGIN;
+#   CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+#   GRANT CONNECT ON DATABASE hydra TO hydra_owner, hydra_app_login;
+#   GRANT USAGE, CREATE ON SCHEMA public TO hydra_owner;
+#   GRANT USAGE ON SCHEMA public TO hydra_app;
+#   ALTER DEFAULT PRIVILEGES FOR ROLE hydra_owner IN SCHEMA public
+#     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO hydra_app;
+#   ALTER DEFAULT PRIVILEGES FOR ROLE hydra_owner IN SCHEMA public
+#     GRANT USAGE, SELECT ON SEQUENCES TO hydra_app;
+#   GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO hydra_app;
+#   GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO hydra_app;
+#   COMMIT;
+#
+#   \c kratos
+#   BEGIN;
+#   CREATE EXTENSION IF NOT EXISTS btree_gin;
+#   CREATE EXTENSION IF NOT EXISTS pg_trgm;
+#   GRANT CONNECT ON DATABASE kratos TO kratos_owner, kratos_app_login;
+#   GRANT USAGE, CREATE ON SCHEMA public TO kratos_owner;
+#   GRANT USAGE ON SCHEMA public TO kratos_app;
+#   ALTER DEFAULT PRIVILEGES FOR ROLE kratos_owner IN SCHEMA public
+#     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO kratos_app;
+#   ALTER DEFAULT PRIVILEGES FOR ROLE kratos_owner IN SCHEMA public
+#     GRANT USAGE, SELECT ON SEQUENCES TO kratos_app;
+#   GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO kratos_app;
+#   GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO kratos_app;
+#   COMMIT;
+#   SQL
+#
+# ------------------------------------------------------------- the Secrets ----
+#
+# `sslmode=disable` is the truth about this link, not a preference: the server in
+# postgres.yaml serves no TLS. What bounds the link instead is
+# postgres-network-policy.yaml plus the fact that both ends are pods on one node.
+# Read it as a statement of what is NOT protected here.
+#
+#   kubectl create secret generic hydra -n ory \
+#     --from-literal=dsn="postgres://hydra_app_login:$ORY_PG_HYDRA_APP_PASSWORD@postgres.chuggy.svc.cluster.local:5432/hydra?sslmode=disable" \
+#     --from-literal=migrate-dsn="postgres://hydra_owner:$ORY_PG_HYDRA_OWNER_PASSWORD@postgres.chuggy.svc.cluster.local:5432/hydra?sslmode=disable" \
+#     --from-literal=secrets-system="$(openssl rand -base64 32)" \
+#     --from-literal=secrets-cookie="$(openssl rand -base64 32)" \
+#     --from-literal=secrets-pagination="$(openssl rand -base64 32)"
+#
+# ROTATING `secrets-system` INVALIDATES EVERY ISSUED TOKEN AND EVERY STORED
+# CONSENT, and `secrets-pagination` is separate from it deliberately: left unset
+# Hydra falls back to the system secret, and that coupling is the class
+# CVE-2026-33504 belongs to. Both are single values here; Hydra reads these keys
+# as comma-separated lists, so a rotation appends the old value after the new
+# one rather than replacing it.
+#
+#   kubectl create secret generic kratos -n ory \
+#     --from-literal=dsn="postgres://kratos_app_login:$ORY_PG_KRATOS_APP_PASSWORD@postgres.chuggy.svc.cluster.local:5432/kratos?sslmode=disable" \
+#     --from-literal=migrate-dsn="postgres://kratos_owner:$ORY_PG_KRATOS_OWNER_PASSWORD@postgres.chuggy.svc.cluster.local:5432/kratos?sslmode=disable" \
+#     --from-literal=secrets-default="$(openssl rand -base64 32)" \
+#     --from-literal=secrets-cookie="$(openssl rand -base64 32)" \
+#     --from-literal=secrets-cipher="$(openssl rand -hex 16)"
+#
+# `secrets-cipher` must be exactly 32 characters -- it is an AES-256 key and
+# Kratos refuses to start on any other length. `openssl rand -hex 16` is how
+# that length is guaranteed rather than hoped for.
+#
+#   kubectl create secret generic ory-ui -n ory \
+#     --from-literal=cookie-secret="$(openssl rand -hex 24)" \
+#     --from-literal=csrf-cookie-secret="$(openssl rand -hex 24)"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ory

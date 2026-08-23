@@ -1,0 +1,280 @@
+# Ory Hydra: the OAuth2 and OpenID Connect provider, and the only issuer the
+# chuggy API will trust.
+#
+#   https://auth.vteng.io
+#
+# That string, without a trailing slash, is the issuer. Hydra echoes
+# `urls.self.issuer` into the discovery document byte for byte, and the API
+# compares the two for equality before it will fetch a key -- so the value here
+# and the API's CHUG_API_OIDC_ISSUER are one fact written twice, and a trailing
+# slash on either side is an outage.
+#
+# Plain manifests rather than the Helm chart. The chart's Secret and migration
+# Job are driven by Helm hooks, which kustomize renders inert, and with
+# `secret.enabled` the chart mints a fresh `secretsSystem` on every render --
+# which would invalidate every issued token on an unrelated reconcile. What that
+# chart buys is not worth a token store that resets itself.
+#
+# Stateless: everything Hydra remembers is in the `hydra` database, so nothing
+# pins this to a node.
+#
+# ----------------------------------------------------------- the admin port ----
+#
+# 4445 IS UNAUTHENTICATED. It creates clients, mints consent, and reads every
+# grant. Nothing in this file routes it: it has no Ingress, and only hostnames
+# enumerated in hosts/gtr/default.nix reach the tunnel at all. Adding either is
+# how it ends up on the open internet, because this zone has nothing in front of
+# it -- no Cloudflare Access, no allow-list.
+#
+# What that leaves unbounded is the pod network. Any pod on this cluster may
+# reach hydra-admin:4445, and no rule here says otherwise. The two Services
+# below are the whole of the mechanism: `hydra-public` and `hydra-admin` are
+# separate objects so that an Ingress cannot name the admin port by fat-
+# fingering a number, not because the admin port is protected.
+#
+# ------------------------------------------------------------ the migration ----
+#
+# An initContainer, not a Job. A Job in a GitOps directory reruns on nothing and
+# is pruned on a path change; an initContainer runs before every rollout, is
+# idempotent, and blocks the container that would otherwise serve traffic
+# against a schema that is not there yet. It connects as `hydra_owner` and the
+# server connects as `hydra_app_login` -- separate DSNs, one of which can issue
+# DDL. See ory-namespace.yaml for the roles.
+#
+# CHANGING THE ConfigMap BELOW DOES NOT RESTART ANYTHING. Kubernetes updates the
+# mounted file and Hydra reads its config once. After a config change:
+# `kubectl rollout restart -n ory deployment/hydra`.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hydra-config
+  namespace: ory
+data:
+  hydra.yaml: |
+    # No `dsn` and no `secrets` here -- this object is public, and both arrive
+    # as environment variables from the `hydra` Secret.
+    serve:
+      public:
+        port: 4444
+        host: 0.0.0.0
+      admin:
+        port: 4445
+        host: 0.0.0.0
+      cookies:
+        # Lax, not Hydra's default of None. auth.vteng.io and id.vteng.io are
+        # the same site, and every return from the login and consent app is a
+        # top-level GET redirect, which Lax sends. None would need no more than
+        # this and would also travel on requests initiated by any other site.
+        same_site_mode: Lax
+        # TLS terminates at Cloudflare, so the pod never sees HTTPS and cannot
+        # infer this. The browser does see HTTPS, which is what the flag is
+        # about.
+        secure: true
+
+    urls:
+      self:
+        issuer: https://auth.vteng.io
+        public: https://auth.vteng.io
+      login: https://id.vteng.io/login
+      consent: https://id.vteng.io/consent
+      logout: https://id.vteng.io/logout
+      error: https://id.vteng.io/error
+      post_logout_redirect: https://id.vteng.io/welcome
+
+    strategies:
+      # JWT access tokens, because the API verifies them offline against JWKS
+      # and never calls back here to introspect. The cost is that a revoked
+      # token stays valid until it expires -- which is what the 15m TTL below
+      # is sized against.
+      access_token: jwt
+      # Exact, not Hydra's default of wildcard: a client is granted the scopes
+      # it registered and no prefix match of them.
+      scope: exact
+
+    webfinger:
+      jwks:
+        # BOTH KEY SETS, AND THE SECOND IS THE LOAD-BEARING ONE. The default is
+        # the id-token set alone. Under the JWT strategy access tokens are
+        # signed by a separate set, so omitting it publishes a JWKS without the
+        # key that signed the token the API is holding -- every verification
+        # then fails on an unknown `kid`, and the discovery document looks
+        # perfectly healthy while it does.
+        broadcast_keys:
+          - hydra.openid.id-token
+          - hydra.jwt.access-token
+
+    ttl:
+      # Short because these are browser-held and offline-verified: nothing
+      # revokes an access token, so its lifetime is the revocation window.
+      # Hydra's defaults are 1h and 720h.
+      access_token: 15m
+      id_token: 15m
+      refresh_token: 24h
+
+    oauth2:
+      # The SPA cannot keep a client secret, so proof of possession of the code
+      # is all there is. Enforced for public clients rather than for every
+      # client, which would also bind flows that authenticate by secret.
+      pkce:
+        enforced_for_public_clients: true
+
+    # Telemetry off.
+    sqa:
+      opt_out: true
+
+    log:
+      level: info
+      format: json
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hydra
+  namespace: ory
+  labels: { app: hydra }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: hydra }
+  template:
+    metadata:
+      labels:
+        app: hydra
+        # What postgres-network-policy.yaml admits. Drop this label and every
+        # connection to the database is refused; drop the `ory` arm of that
+        # policy and the same happens with this label still in place.
+        chuggy.dev/postgres-client: "true"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        # The image's user is named `nonroot`, and a name is not something the
+        # kubelet can check against runAsNonRoot -- it refuses to start the pod
+        # unless the UID is numeric here.
+        runAsUser: 65532
+        runAsGroup: 65532
+      initContainers:
+        - name: migrate
+          image: oryd/hydra:v26.2.0@sha256:ff67c7fb5f95074fa53374d41151713554960504b340cd3f95b09e65deaea2a9
+          args: [migrate, sql, up, -e, --yes]
+          env:
+            # The owning role, and the only place it is used. `-e` is what makes
+            # `migrate` read DSN from here rather than from a config file, so
+            # this container mounts none.
+            - name: DSN
+              valueFrom:
+                secretKeyRef: { name: hydra, key: migrate-dsn }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      containers:
+        - name: hydra
+          image: oryd/hydra:v26.2.0@sha256:ff67c7fb5f95074fa53374d41151713554960504b340cd3f95b09e65deaea2a9
+          # By digest, not by tag alone: v26.2.0 is the release that carries the
+          # fix for CVE-2026-33504, and a tag is a mutable pointer.
+          args: [serve, all, --config, /etc/config/hydra.yaml]
+          ports:
+            - name: public
+              containerPort: 4444
+            - name: admin
+              containerPort: 4445
+          env:
+            - name: DSN
+              valueFrom:
+                secretKeyRef: { name: hydra, key: dsn }
+            # Hydra reads each of these as a comma-separated list. A rotation
+            # is therefore "new,old" -- putting the new value first and leaving
+            # the old one able to verify what it signed.
+            - name: SECRETS_SYSTEM
+              valueFrom:
+                secretKeyRef: { name: hydra, key: secrets-system }
+            - name: SECRETS_COOKIE
+              valueFrom:
+                secretKeyRef: { name: hydra, key: secrets-cookie }
+            # Set explicitly because unset means "fall back to SECRETS_SYSTEM",
+            # and that coupling is what the CVE above was about.
+            - name: SECRETS_PAGINATION
+              valueFrom:
+                secretKeyRef: { name: hydra, key: secrets-pagination }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/config
+              readOnly: true
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          # /health/ready reaches the database; /health/alive does not. Using
+          # the first for liveness would restart Hydra every time PostgreSQL
+          # was briefly away, which is the opposite of what should happen.
+          readinessProbe:
+            httpGet: { path: /health/ready, port: public }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: { path: /health/alive, port: public }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: config
+          configMap: { name: hydra-config }
+---
+# Public: the issuer. This is the only Ory port with an Ingress.
+apiVersion: v1
+kind: Service
+metadata:
+  name: hydra-public
+  namespace: ory
+spec:
+  selector: { app: hydra }
+  ports:
+    - name: public
+      port: 4444
+      targetPort: public
+---
+# Admin. In-cluster callers only -- the consent app and Kratos. See the header
+# for what does and does not bound that.
+apiVersion: v1
+kind: Service
+metadata:
+  name: hydra-admin
+  namespace: ory
+spec:
+  selector: { app: hydra }
+  ports:
+    - name: admin
+      port: 4445
+      targetPort: admin
+---
+# Single-label host. Cloudflare's Universal SSL covers `vteng.io` and one level
+# of `*.vteng.io`; `auth.chuggy.vteng.io` would be a certificate this zone does
+# not have. No `tls:` block for the same reason every other Ingress here has
+# none: TLS terminates at Cloudflare and Traefik is reached over plain HTTP.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hydra
+  namespace: ory
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: auth.vteng.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hydra-public
+                port: { number: 4444 }
