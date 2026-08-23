@@ -421,7 +421,18 @@ Five processes, one per responsibility, all out of one image:
 | `chuggy-finalizer` | `src/roots/finalizer.ts` | `chuggy_finalizer` | no |
 
 Plus `chuggy-migrate-<tag>`, a Job that applies the schema and is named after
-the image it applies it from.
+the image it applies it from. It waits for the database in an initContainer and
+then migrates once, `backoffLimit: 0`.
+
+**Retrying the Job was never able to survive the NetworkPolicy warm-up, and the
+rig says so.** kube-router admits a pod *IP*, and it needs a few seconds after
+that IP appears; a failed Job pod is replaced rather than restarted, so each
+attempt is a fresh address starting the same wait from nothing. A Job of this
+shape whose container connects once produced five consecutive pods with five
+distinct IPs, over 2m42s, every one refused. A pod that asked again inside the
+same sandbox was admitted on its second attempt, two seconds in. That is also
+why `chuggy-api` gets past it on a kubelet restart — a restart keeps the pod,
+and so keeps the address that has by then been admitted.
 
 **A migration that fails is terminal and needs a human.** Naming the Job after
 the tag makes a re-tag a new object, but when the tag has not changed there is
@@ -480,16 +491,23 @@ An image the node does not hold is not this case — that pod waits in
 The Job carries no `activeDeadlineSeconds`, which is the same decision: a
 deadline would turn that wait into the terminal `Failed` state above.
 
+The wait for the database is bounded anyway, and does not cost that back: it
+runs in the initContainer, so its clock cannot start until the image is on the
+node. Thirty attempts and then a non-zero exit, so a database that is genuinely
+down ends as a failed Job rather than as a Job that hangs.
+
 The image is `chuggy.invalid/api:<tag>`, which already contains every command —
 its Dockerfile copies the whole source tree and sets a default command of the
 API alone. The name is the only API-specific thing about it, and renaming it
-belongs to the repository that builds it. **Re-pinning the tag is eleven edits
-across seven files, and they move together.** Six are the `image:` lines. The
-seventh is the migration Job's `metadata.name`, which carries the tag because a
+belongs to the repository that builds it. **Re-pinning the tag is ten edits
+across seven files, and they move together.** Six are the `image:` lines that
+carry it — `chuggy-migrate.yaml` has a seventh `image:` line, for the
+initContainer that waits on the database, and it is not one of them. The seventh
+edit is the migration Job's `metadata.name`, which carries the tag because a
 Job's pod template is immutable — that one is argued where it is written. The
-remaining four are prose that names the tag: two in `chuggy-migrate.yaml`, one
+remaining three are prose that names the tag: one in `chuggy-migrate.yaml`, one
 in `chuggy-api.yaml`, and one in prerequisite 1 below. Nothing checks that the
-eleven agree, which is why they are counted here.
+ten agree, which is why they are counted here.
 
 Four of the five open no socket, so they have no probe and no Service. They
 report an unmet precondition by name and exit; the kubelet restarts them. A

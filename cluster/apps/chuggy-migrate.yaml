@@ -48,10 +48,10 @@
 #
 # WHICH MAKES A FAILED MIGRATION TERMINAL, AND THAT NEEDS A HUMAN. The two
 # properties above are for a CHANGED tag. When the tag does not change and the
-# run exhausts `backoffLimit` below, this object is `Failed` and stays that
-# way: Flux re-applies a byte-identical Job every five minutes, the API server
-# accepts it as unchanged, and NOTHING RUNS AGAIN. There is no self-healing
-# path.
+# run exhausts `backoffLimit` below -- which at 0 is its single pod failing --
+# this object is `Failed` and stays that way: Flux re-applies a byte-identical
+# Job every five minutes, the API server accepts it as unchanged, and NOTHING
+# RUNS AGAIN. There is no self-healing path.
 #
 # THE KUSTOMIZATION DOES NOT STAY GREEN, AND SAYING IT DID WOULD COST THE ONE
 # SIGNAL THERE IS. gotk-sync.yaml sets `wait: true`, which health-checks every
@@ -149,6 +149,11 @@
 # own. What it costs is that a migration wedged on a lock waits forever, which
 # is the trade a single-node rig with one operator can make.
 #
+# THE WAIT FOR THE DATABASE IS BOUNDED ALL THE SAME, and does not cost that
+# trade back. Its clock starts when the initContainer starts, so it cannot run
+# while a pod is still waiting for its image; the argument is beside the
+# container that carries it.
+#
 # ----------------------------------------------------------- the credential ----
 #
 # `chuggy_owner`, and no `role=` option: it is a login role in its own right and
@@ -181,26 +186,32 @@ metadata:
   namespace: chuggy
   labels: { app: chuggy-migrate }
 spec:
-  # THE FIRST ATTEMPT IS PREDICTED TO FAIL, so the budget starts one past it.
-  # This Job's pod is a newly labelled `chuggy.dev/postgres-client` pod, and
-  # chuggy-api.yaml records that such a pod's first connection loses a race with
-  # the policy controller and arrives as `ECONNREFUSED` -- reproduced on all
-  # three rollouts of that Deployment. Here it is worse than an extra
-  # `RESTARTS 1`: `restartPolicy: Never` makes the losing attempt a failed POD,
-  # and `0193b36`'s migrate proves the connection before the transaction opens,
-  # so it is exactly the case that exits 2 and burns an attempt. At
-  # `backoffLimit: 1` that leaves no margin at all before a terminal `Failed`
-  # Job -- a race this repository documents as reproducible would end the one
-  # thing everything else waits on.
+  # ONE ATTEMPT, because retrying this JOB was never what could survive the race
+  # it used to be budgeted for. This Job's pod is a newly labelled
+  # `chuggy.dev/postgres-client` pod, and chuggy-api.yaml records that such a
+  # pod's first connection loses a race with the policy controller and arrives
+  # as `ECONNREFUSED`. A budget answers that only if a later attempt is better
+  # placed than the first, and none is: kube-router admits a POD IP, and
+  # `restartPolicy: Never` means a losing attempt is REPLACED by a new pod whose
+  # IP is as new as the first one's was. Every attempt draws the same hand at
+  # the same moment of its own pod's life, so the delay between them buys
+  # nothing.
   #
-  # `backoffLimit: N` is N retries AFTER the first pod, so 2 is three attempts:
-  # one for the race, then the two this Job would have had anyway. A migration
-  # that fails twice having reached the server fails for a reason a retry does
-  # not fix -- a lock it cannot take, a statement the schema refuses, a ledger
-  # this image is behind -- and each attempt leaves its own pod, so the
-  # diagnostic of the first is still readable after the last. The retries are
-  # delayed 10s, 20s, which is also the wait the controller needs.
-  backoffLimit: 2
+  # MEASURED HERE, against `postgres-admits-labelled-clients` as this rig runs
+  # it today. A Job whose container connects once and exits produced five
+  # consecutive pods with five distinct IPs, over 2m42s, every one refused, and
+  # the Job ended `Failed`. A pod that instead asked again inside the same
+  # sandbox was admitted on its second attempt, two seconds in. The retry UNIT
+  # was wrong and not the count, which is what the initContainer below fixes.
+  #
+  # WITH THE WAIT IN THE POD, NOTHING IS LEFT FOR A RETRY TO FIX. A pod that
+  # gets past the wait and then fails, fails for a reason a second pod meets
+  # identically -- a lock it cannot take, a statement the schema refuses, a
+  # ledger this image is behind. A pod that does not get past the wait is
+  # looking at a database that is genuinely down, and a second pod would spend
+  # the same bound discovering it again. So: one pod, one log to read, and the
+  # terminal `Failed` state above reached in about a minute rather than five.
+  backoffLimit: 0
   template:
     metadata:
       labels:
@@ -219,6 +230,62 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         runAsGroup: 1000
+      initContainers:
+        # THE WAIT THE RETRY BUDGET COULD NOT BE. What kube-router admits is
+        # this pod's IP, and it needs a few seconds after that IP appears; a
+        # container that keeps asking keeps the IP it is admitted for and gets
+        # in. That is the same reason chuggy-api recovers on a kubelet RESTART
+        # -- same sandbox, same address -- and the reason a replacement Job pod
+        # never could. So the wait belongs here: same pod, same IP, and finished
+        # before the migration opens anything.
+        #
+        # `postgres:18.3-trixie` because the control-plane image is node and
+        # carries nothing that can ask -- no `pg_isready`, no `psql`, no `nc`.
+        # It is the tag postgres.yaml already runs, so the node holds it for the
+        # same reason it holds the server, and it is NOT one of the six `image:`
+        # lines a re-pin moves.
+        #
+        # DNS and 5432 are the whole of what this needs, which is what
+        # chuggy-control-plane-network-policy.yaml's `chuggy-migrate-egress`
+        # permits. The wait adds no destination that rule does not already
+        # allow.
+        #
+        # `-U` IS REQUIRED AND IS NOT A CREDENTIAL. `pg_isready` sends a startup
+        # packet and never authenticates, but libpq will not assemble a conninfo
+        # without a user name and `runAsUser: 1000` has no passwd entry to take
+        # one from. Without it every attempt exits 3, `no attempt`, and the wait
+        # would never succeed however long it were given -- a wait that cannot
+        # end well is worse than no wait, so this is the part to keep true.
+        #
+        # BOUNDED, AND THE BOUND IS NOT `activeDeadlineSeconds`. Thirty attempts
+        # and then a non-zero exit, so a database that is genuinely down ends as
+        # a failed Job rather than as a Job that hangs. That does not reopen the
+        # deadline argued against above, because the two clocks start in
+        # different places: a deadline runs from the moment the Job is CREATED
+        # and so runs through `ImagePullBackOff`, which is exactly the wait that
+        # must be allowed to outlast it; this one cannot start until the image
+        # is on the node and the container is running.
+        - name: wait-for-postgres
+          image: postgres:18.3-trixie
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              for i in $(seq 1 30); do
+                pg_isready -h postgres.chuggy.svc.cluster.local -U chuggy_owner -t 2 && exit 0
+                sleep 2
+              done
+              exit 1
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile: { type: RuntimeDefault }
       containers:
         - name: migrate
           image: chuggy.invalid/api:0193b36

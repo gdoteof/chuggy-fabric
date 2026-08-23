@@ -25,9 +25,9 @@
 # schema. There is no gate in this repository that checks the six agree.
 #
 # RE-PINNING TOUCHES MORE THAN THOSE SIX. The migration Job's `metadata.name`
-# repeats the tag, for the reason chuggy-migrate.yaml gives, and four comments
-# name it in prose -- two in chuggy-migrate.yaml, one in chuggy-api.yaml, one in
-# the README's prerequisite 1. Eleven occurrences over seven files. The prose
+# repeats the tag, for the reason chuggy-migrate.yaml gives, and three comments
+# name it in prose -- one in chuggy-migrate.yaml, one in chuggy-api.yaml, one in
+# the README's prerequisite 1. Ten occurrences over seven files. The prose
 # ones break nothing when they go stale; they instead leave the repository
 # asserting a commit that is no longer the one running.
 #

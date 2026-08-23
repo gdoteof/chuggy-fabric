@@ -275,6 +275,20 @@ spec:
         # Deployment. What would remove it is a retry in the composition root
         # of kasofsk/chuggy, not anything in this file -- an initContainer here
         # would only move the same wait somewhere quieter.
+        #
+        # WHAT MAKES THAT RESTART WORK IS THAT IT IS THE SAME POD, and the
+        # distinction is the whole difference between "retry" and "retry in the
+        # same pod". kube-router admits an IP, not a label as such: the label
+        # decides which IP goes into the set, and the set is what the packet is
+        # matched against. A kubelet restart keeps the sandbox and so keeps the
+        # address the controller has by then admitted, which is why the second
+        # attempt is free. A REPLACEMENT pod is issued a new address and starts
+        # the same wait over from nothing.
+        #
+        # That is why chuggy-migrate.yaml cannot get past this the way this
+        # Deployment does. It is a Job, its pods are replaced rather than
+        # restarted, and no `backoffLimit` reaches the state a restart reaches
+        # for free -- so it waits inside its pod instead. Measured there.
         chuggy.dev/postgres-client: "true"
     spec:
       # This process calls no Kubernetes API, so the token the kubelet would
