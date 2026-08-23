@@ -87,12 +87,19 @@
     # invalidating every token and every client registration. id is Kratos and
     # the self-service UI. Neither admin port appears here, and cluster/apps/
     # ory-hydra.yaml says why that matters.
+    #
+    # chuggy is one name for two backends: the operations console at / and the
+    # web API at /api/v1. They share it because the API answers no cross-origin
+    # preflight, so a console on a second name could not read it -- the split is
+    # Traefik's, in cluster/apps/chuggy-web.yaml, and this list cannot express it
+    # either way.
     hostnames = [
       "whoami.vteng.io"
       "grafana.vteng.io"
       "sirdocalot.vteng.io"
       "auth.vteng.io"
       "id.vteng.io"
+      "chuggy.vteng.io"
     ];
   };
 

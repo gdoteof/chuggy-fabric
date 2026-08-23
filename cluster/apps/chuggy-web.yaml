@@ -1,0 +1,198 @@
+# The operations console, and the Ingress for the host it shares with the API.
+#
+# nginx over a directory of static files: no build step, no bundler, no server
+# side. Everything the console decides it decides in the browser, and everything
+# it decides about is behind the API next door.
+#
+# ------------------------------------------------- the chuggy.vteng.io split ----
+#
+# ONE ORIGIN, AND THAT IS THE WHOLE REASON FOR THIS SHAPE. The API implements no
+# cross-origin preflight -- no OPTIONS handler and no Access-Control-Allow-Origin
+# anywhere in it -- so a console served from any other hostname could not read it
+# at all. `/api/v1` and `/` are therefore two backends behind one Ingress rather
+# than two Ingresses, and moving either to a host of its own breaks the console
+# without breaking anything a curl would notice.
+#
+# Traefik orders rules by the length of the matcher it builds, so `/api/v1` wins
+# over `/` without anything here saying so. The two are disjoint, so that
+# ordering is a convenience and not the mechanism.
+#
+# The image proxies nothing. `/api/v1` reaches the API because this Ingress sends
+# it there and for no other reason -- there is no proxy_pass in the container, so
+# a request that arrives at the console's port under that path is served the
+# index like any other unresolved route.
+#
+# NEITHER PROBE PATH IS PUBLISHED, and that is a decision rather than an
+# omission. `/health/live` and `/health/ready` are unauthenticated and the
+# kubelet reaches them on the pod address, which is the only reader that acts on
+# them. `/health/ready` runs a database query for every request it answers, so
+# publishing it would put an unauthenticated round trip to the durable authority
+# on the open internet with nothing throttling it and no consumer asking for it.
+# What that costs is a `kubectl` away from anyone who needs the answer. Both
+# paths therefore fall to the console below and are served its index.
+#
+# --------------------------------------------------------- the runtime config ----
+#
+# The console reads `/config.json` at start-up, so one image serves every
+# installation and the deployment is what tells it which one it is. The image
+# serves that path by `alias` from OUTSIDE the document root, which is why the
+# ConfigMap mounts at /etc/chuggy/web and not into the site: a copy of the file
+# inside the site is then unreachable rather than silently authoritative, and an
+# unmounted config is a 404 rather than the index -- a console handed HTML where
+# its configuration should be cannot tell what went wrong.
+#
+# Every value in it is public by construction. `chuggy-web` is a public client:
+# it holds no secret, it proves possession of the authorization code with PKCE,
+# and the redirect below is registered with Hydra. What stops someone else's page
+# using this client id is that registration, not the secrecy of this file.
+#
+# `audience` is not decoration. Hydra puts the GRANTED audience in the token, so
+# a console that does not ask for one is issued `aud: []` and every read the API
+# serves it is a 401 -- with a token that verifies perfectly.
+#
+# CHANGING THE ConfigMap BELOW DOES NOT RESTART ANYTHING, and here it does not
+# need to: nginx re-reads the file per request and the browser is told not to
+# store it. A change is live on the next reload of the page.
+#
+# ---------------------------------------------------------------- the image ----
+#
+# `chuggy.invalid/web:<tag>`, imported into this node's containerd from
+# kasofsk/chuggy, exactly as the API's is -- chuggy-api.yaml carries that
+# argument and it is not repeated here. The tag is the same commit as the API's
+# because both come out of one build of one tree; nothing requires that, and the
+# day they diverge the two lines are what say so.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chuggy-web-config
+  namespace: chuggy
+data:
+  config.json: |
+    {
+      "issuer": "https://auth.vteng.io",
+      "clientId": "chuggy-web",
+      "audience": "https://chuggy.vteng.io/api",
+      "redirectUri": "https://chuggy.vteng.io/auth/callback",
+      "scopes": ["openid", "offline_access"]
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chuggy-web
+  namespace: chuggy
+  labels: { app: chuggy-web }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: chuggy-web }
+  template:
+    metadata:
+      # No postgres-client label: this holds no database role and reaches
+      # PostgreSQL through nothing. Everything it reads it reads through the
+      # API, with the caller's own token.
+      labels: { app: chuggy-web }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        # Numeric for the reason chuggy-api.yaml gives. 101 is this image's
+        # `nginx` user.
+        runAsUser: 101
+        runAsGroup: 101
+      containers:
+        - name: web
+          image: chuggy.invalid/web:561cd52
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            # nginx writes its pid and every temporary path under /tmp, and the
+            # root filesystem below refuses writes. Without this the master
+            # process cannot start and the container never listens.
+            - name: tmp
+              mountPath: /tmp
+            - name: config
+              mountPath: /etc/chuggy/web
+              readOnly: true
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          # /healthz belongs to the image and answers whether or not the
+          # document root has anything in it, so this reports the server and
+          # never the site. Liveness and readiness are the same path because
+          # there is nothing this server waits for: it has no upstream, no
+          # database and no warm-up, so a process that answers is a process that
+          # is serving.
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile: { type: RuntimeDefault }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: config
+          configMap: { name: chuggy-web-config }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chuggy-web
+  namespace: chuggy
+  labels: { app: chuggy-web }
+spec:
+  selector: { app: chuggy-web }
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+# Single-label host, for the reason ory-hydra.yaml's Ingress gives: Cloudflare's
+# Universal SSL covers `vteng.io` and one level of `*.vteng.io`, and a two-label
+# name would be a certificate this zone does not have. No `tls:` block, because
+# TLS terminates at Cloudflare and Traefik is reached over plain HTTP.
+#
+# The hostname reaches this cluster only while it is enumerated in
+# hosts/gtr/default.nix AND has a CNAME to the tunnel. Both are in this change;
+# the first of them needs a `nixos-rebuild switch` on the node before it is true
+# of the running system, and until then the edge answers 404 for this host and
+# nothing below is reachable.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chuggy
+  namespace: chuggy
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: chuggy.vteng.io
+      http:
+        paths:
+          # Unrewritten: the API serves this prefix itself, so Traefik passes
+          # the path through and a rewrite here would take the version out of
+          # every route.
+          - path: /api/v1
+            pathType: Prefix
+            backend:
+              service:
+                name: chuggy-api
+                port: { number: 3000 }
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: chuggy-web
+                port: { number: 8080 }

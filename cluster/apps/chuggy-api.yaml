@@ -1,0 +1,236 @@
+# The chuggy web API: the native HTTP surface over the journal, and the only
+# thing on this cluster that holds the `chuggy_api` database role.
+#
+# It answers under `/api/v1` on chuggy.vteng.io. The Ingress that puts it there
+# is in chuggy-web.yaml, beside the console that holds `/` on the same host --
+# one origin, because the API implements no cross-origin preflight and a console
+# served from anywhere else could not read it at all.
+#
+# ------------------------------------------------------------- the image ----
+#
+# `chuggy.invalid/api:<tag>` is built from kasofsk/chuggy and imported straight
+# into this node's containerd; there is no registry. `chuggy.invalid` resolves
+# nowhere, so a node that does not hold the tag fails the pod loudly instead of
+# pulling whatever stands at that name on a public registry -- which is what
+# `imagePullPolicy: IfNotPresent` is here to make possible rather than to
+# optimise. The procedure and its undo are in that repo under
+# `deploy/rig/images/`.
+#
+# NOTHING REPLICATES THE IMAGE. A second node would not have it, and neither
+# would this one after its image store is reset. That is the price of no
+# registry and it is paid knowingly on a single-node rig.
+#
+# -------------------------------------------------- the database, and role ----
+#
+# The API asserts at start-up that `current_user` is `chuggy_api` and refuses to
+# listen otherwise. `chuggy_api` is NOLOGIN -- it is a group the login role
+# holds by grant -- so the connection authenticates as `chuggy_api_login` and
+# then becomes the group. `?options=-c%20role%3Dchuggy_api` is what does that,
+# and it is in this file rather than inside the Secret so that a reader can
+# check it: without it the pod starts, connects, and exits on an assertion whose
+# message names neither the option nor this line.
+#
+# The URL is assembled here from a password the Secret holds. Kubernetes expands
+# `$(NAME)` in an env value against variables defined earlier in the same list,
+# so the shape of the connection stays public and reviewable while the
+# credential does not. A `$(NAME)` with no such variable is left in the value
+# verbatim -- which would be a connection failure and not a silent empty
+# password -- and a `secretKeyRef` naming a key that is not there refuses to
+# start the pod at all.
+#
+# `sslmode` is unset and therefore `prefer`, which this server answers with
+# plaintext because it serves no TLS. Read that as a statement of what is NOT
+# protected here: what bounds the link instead is postgres-network-policy.yaml
+# plus both ends being pods on one node.
+#
+# THE DATABASE IS `chuggy_rehearsal` AND SHOULD BE `chuggy`. The database this
+# server calls `chuggy` holds the rows kasofsk/chuggy's PostgreSQL suite left
+# behind -- every tenant in it is named `tenant-<case>-<uuid>` -- and its schema
+# stopped at the migration before the one that adds a NOT NULL column to
+# `journal_entry`, which those rows have no value for. So the schema this API
+# needs cannot be applied there while they are in it, and the name here is the
+# database that could be migrated rather than the one that should be.
+#
+# It is one swap to fix, and it destroys nothing:
+#
+#   ALTER DATABASE chuggy RENAME TO chuggy_suite_fixtures;
+#   ALTER DATABASE chuggy_rehearsal RENAME TO chuggy;
+#
+# after which this value is `chuggy` and the fixtures are still there to read.
+# Both statements need every connection to the database closed, so scale this
+# Deployment to zero first and back afterwards.
+#
+# ---------------------------------------------------------- the artifacts ----
+#
+# `CHUG_API_ARTIFACT_ROOT` names a directory the API only ever reads from. It is
+# an `emptyDir` because nothing on this rig writes one: the fabric that produces
+# artifacts is not deployed here, so every read is a miss whatever backs the
+# path, and an emptyDir says that where a PVC would imply a durability it does
+# not have. The day a producer arrives, the two need a volume they can share,
+# and that is a different object and a different argument -- not a resize of
+# this one.
+#
+# Mounted read-only, which is the same claim the composition makes: the web
+# composition is handed the store through one read port and holds no write.
+#
+# ------------------------------------------------------------ the Secrets ----
+#
+# Out of band, because this repository is public. `chuggy-postgres-credentials`
+# already exists -- kasofsk/chuggy's `deploy/rig/postgres/README.md` issues it
+# alongside the roles, and this workload borrows the `api-password` key from it
+# rather than keeping a second copy that could drift from the role's.
+#
+# The keying secret is this workload's own:
+#
+#   kubectl -n chuggy create secret generic chuggy-api --from-env-file=/dev/stdin <<EOF
+#   idempotency-keying={"current":"v1","versions":[{"version":"v1","secret":"$(openssl rand -hex 32)"}]}
+#   EOF
+#
+# It is the HMAC key a client idempotency key is stored under, never the key
+# itself. ROTATING IT IS NOT A REPLACEMENT: a retry of a request accepted before
+# the rotation must still find its operation, so a rotation appends a new
+# version, points `current` at it, and keeps the old one in `versions` for as
+# long as rows written under it are still worth matching. Dropping a version
+# strands every row that names it -- those retries stop being recognised as
+# retries and are executed again.
+#
+# --------------------------------------------------------------- the OIDC ----
+#
+# The issuer string is compared for equality against the one the discovery
+# document returns, so `https://auth.vteng.io` here and `urls.self.issuer` in
+# ory-hydra.yaml are one fact written twice; a trailing slash on either side is
+# an outage. The audience is what Hydra must have GRANTED, not merely what the
+# client registered: a console that omits `audience=` from its authorize request
+# gets a token with an empty audience and every read here is refused.
+#
+# DISCOVERY LEAVES THE CLUSTER. The pod resolves auth.vteng.io publicly, egresses
+# to the Cloudflare edge and comes back in through the tunnel to Traefik, rather
+# than reaching hydra-public over the pod network -- because the issuer must be
+# the string in the token and that string is an HTTPS URL this cluster cannot
+# serve itself. So the hostname's tunnel route is a start-up dependency of this
+# workload, not only of anyone's browser.
+#
+# WHAT NO RULE HERE BOUNDS. Nothing restricts this pod's egress. The namespace
+# has no default-deny, and postgres-denies-egress selects the database and not
+# this, so the API may open a connection to anywhere -- the issuer above is
+# where it is pointed, not where it is confined.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  # The namespace is declared in dev2-access.yaml, which owns it.
+  name: chuggy-api
+  namespace: chuggy
+  labels: { app: chuggy-api }
+spec:
+  # One. The journal makes concurrent writers safe, so this is not a
+  # correctness bound -- but a rolling second replica would hold a second set of
+  # database connections against a server sized for this rig, and nothing here
+  # needs the capacity.
+  replicas: 1
+  selector:
+    matchLabels: { app: chuggy-api }
+  template:
+    metadata:
+      labels:
+        app: chuggy-api
+        # What postgres-network-policy.yaml admits, together with this
+        # namespace. Drop this label and every connection to the database is
+        # refused, with no error anywhere to say the label is why.
+        chuggy.dev/postgres-client: "true"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        # Numeric because `runAsNonRoot` is checked by the kubelet against a
+        # number: it cannot tell that the image's `node` user is not root.
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: api
+          image: chuggy.invalid/api:561cd52
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            # Defined before the URL that expands it, which is the ordering
+            # Kubernetes resolves `$(...)` in.
+            - name: CHUG_API_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  { name: chuggy-postgres-credentials, key: api-password }
+            - name: CHUG_API_DATABASE_URL
+              value: postgres://chuggy_api_login:$(CHUG_API_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy_rehearsal?options=-c%20role%3Dchuggy_api
+            - name: CHUG_API_IDEMPOTENCY_KEYING
+              valueFrom:
+                secretKeyRef: { name: chuggy-api, key: idempotency-keying }
+            - name: CHUG_API_OIDC_ISSUER
+              value: https://auth.vteng.io
+            - name: CHUG_API_OIDC_AUDIENCE
+              value: https://chuggy.vteng.io/api
+            # RS256 alone. The list is what `jwtVerify` will accept, so leaving
+            # it wider than what Hydra signs with is the algorithm-confusion
+            # surface and nothing else; `none` is refused by the API whatever is
+            # written here.
+            - name: CHUG_API_OIDC_ALGORITHMS
+              value: RS256
+            - name: CHUG_API_ARTIFACT_ROOT
+              value: /var/lib/chuggy/artifacts
+            # The image already sets this. Repeated because the source default
+            # is loopback and a container's loopback is its own namespace's --
+            # an inherited value that no manifest states is one an image rebuild
+            # can quietly drop, and the symptom would be probes that never
+            # connect.
+            - name: CHUG_API_HOST
+              value: 0.0.0.0
+          volumeMounts:
+            - name: artifacts
+              mountPath: /var/lib/chuggy/artifacts
+              readOnly: true
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          # /health/ready asks the database whether this process is connected as
+          # the role it must be and may call what it must call; /health/live
+          # asks the process only. Using the first for liveness would restart
+          # the API every time PostgreSQL was briefly away, which is the
+          # opposite of what should happen -- the pod should leave the Service
+          # and come back, not lose its process.
+          readinessProbe:
+            httpGet: { path: /health/ready, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: { path: /health/live, port: http }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile: { type: RuntimeDefault }
+      # The drain in the process outlasts the default grace period's usefulness
+      # only if the kubelet waits for it: SIGTERM starts a drain bounded by
+      # CHUG_API_SHUTDOWN_DRAIN_MS, which is unset here and therefore its own
+      # default. This budget is what keeps the kubelet from killing the process
+      # in the middle of that.
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: artifacts
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chuggy-api
+  namespace: chuggy
+  labels: { app: chuggy-api }
+spec:
+  selector: { app: chuggy-api }
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
