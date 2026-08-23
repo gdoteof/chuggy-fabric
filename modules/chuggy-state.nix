@@ -21,6 +21,12 @@
 # every boot and is the one letter between this file and losing the artifacts;
 # `d` is not a typo for it.
 #
+# D23 NAMES TWO RETAINED PATHS AND THIS MODULE SUPPLIES ONE. PostgreSQL's data
+# is a dynamically provisioned local-path claim declared in cluster/apps/, so
+# there is no host directory here to declare and an option that named one would
+# name a directory nothing mounts. The cluster-layer volume comes first; the
+# README says so where the other missing inputs are.
+#
 # WHAT THIS DOES NOT GIVE YOU: durability. A directory on this box's single
 # filesystem survives pod replacement, k3s restarts and reboots, and survives
 # nothing about the disk failing. D13 says exactly that and this module is where

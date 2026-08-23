@@ -33,6 +33,15 @@
 # anything: the value already exists, already authenticates, and is already
 # readable by anything that can read the Secret.
 #
+# AND THE BOOT ORDER DOES NOT REACH IT. The generator runs first and writes
+# every value it does not find, so the host never holds nothing and the adoption
+# below is reached only for a key deleted by hand. An adopting host reports
+# divergence on each key the cluster already had instead -- both sides honest,
+# the host's copy simply never having been anywhere. Seeding host state from the
+# cluster before the generator first runs is what an adopting host does, and the
+# README carries it; gdoteof/chuggy-fabric#12 is the ordering that would make
+# the step unnecessary.
+#
 # THE OTHER HALF OF A GENERATED PASSWORD IS NOT HERE, and pretending otherwise
 # would be the worst thing this file could do. A password this module generates
 # authenticates nothing until PostgreSQL is told about it. That is what
@@ -53,6 +62,16 @@
 
 let
   cfg = config.chuggy.secrets;
+
+  # What the synchronisation's restart budget is made of. The window is derived
+  # from the attempt rather than chosen alongside it: a window shorter than the
+  # burst it bounds is never reached, the unit restarts forever, and the
+  # `systemctl --failed` the bound exists to produce never happens. Changing
+  # namespaceTimeoutSeconds moves the window with it, which is the half a pair
+  # of literals gets wrong.
+  syncRestartSeconds = 30;
+  syncStartLimitBurst = 10;
+  syncAttemptSeconds = cfg.namespaceTimeoutSeconds + syncRestartSeconds;
 
   # The inventory is fixed rather than an option, and that is a claim worth
   # being explicit about: these are chuggy's internal credentials, so they are
@@ -138,13 +157,25 @@ let
 
   sync = pkgs.writeShellApplication {
     name = "chuggy-secrets-sync";
-    runtimeInputs = [ pkgs.kubectl pkgs.jq pkgs.coreutils ];
+    # diffutils is here for `cmp`, which is not in coreutils and is not on the
+    # PATH systemd hands a unit. An absent `cmp` exits 127, `if !` reads that as
+    # a difference, and the divergence branch is then taken for every key --
+    # a warning indistinguishable from the real one it exists to raise.
+    runtimeInputs = [ pkgs.kubectl pkgs.jq pkgs.coreutils pkgs.diffutils ];
     text = ''
       umask 077
       kc="${cfg.kubeconfig}"
       ns="${cfg.namespace}"
       state="${cfg.stateDir}"
       run="''${RUNTIME_DIRECTORY:-$(mktemp -d)}"
+
+      # The runtime directory holds a decoded password and the cluster's own
+      # copy of every key, and systemd does not remove it until the unit stops
+      # -- which, under RemainAfterExit, is at the next reboot. So the script
+      # removes its own working files, on the way out of a failure as well: an
+      # exit 2 partway through is exactly when there is a decoded value lying
+      # in it.
+      trap 'rm -f "$run"/*' EXIT
 
       # Every diagnostic below exits 2, not 1. A precondition this host cannot
       # satisfy on its own -- k3s still starting, a namespace Flux has not
@@ -188,7 +219,12 @@ let
         echo '{"metadata":{"labels":{"chuggy.dev/managed-by":"nixos"}}}' > "$run/patch.json"
 
         for key in "$@"; do
-          jq -r --arg k "$key" '(.data // {})[$k] // empty' "$run/live.json" > "$run/live.b64"
+          # -j, not -r: `-r` terminates its output with a newline and
+          # `base64 -w0` writes none, so the comparison below would find every
+          # key different on a cluster that agrees. `empty` writes nothing
+          # under either flag, which is what leaves the file empty for the
+          # test that follows.
+          jq -j --arg k "$key" '(.data // {})[$k] // empty' "$run/live.json" > "$run/live.b64"
 
           if [ -s "$run/live.b64" ]; then
             if [ -s "$dir/$key" ]; then
@@ -220,8 +256,8 @@ let
 
         # --patch-file, never --patch: an argument is in the process table for
         # anything on this box to read, and so is an environment variable of a
-        # process someone can strace. The runtime directory is tmpfs, 0700, and
-        # systemd removes it when the unit stops.
+        # process someone can strace. The runtime directory is tmpfs and 0700,
+        # and the trap above is what empties it.
         k patch secret "$secret" --type=merge --patch-file "$run/patch.json" >/dev/null
       }
 
@@ -238,15 +274,34 @@ let
   # exists so that giving the roles their passwords does not require reading the
   # values onto a terminal, into shell history, or through an argument list.
   #
-  #   sudo chuggy-pg-role-env psql -h 127.0.0.1 -U postgres -d chuggy \
-  #     -f deploy/rig/postgres/postgres-roles.sql
+  #   kubectl -n chuggy port-forward svc/postgres 55440:5432 &
+  #   export PGPASSWORD="$(kubectl -n chuggy get secret postgres-superuser \
+  #     -o jsonpath='{.data.password}' | base64 -d)"
+  #   sudo -E chuggy-pg-role-env psql -h 127.0.0.1 -p 55440 -U postgres \
+  #     -d <database> -f deploy/rig/postgres/postgres-roles.sql
   #
-  # Running that file rotates every role it names. That is safe on a cluster
-  # whose roles were set from these same values and destructive on one whose
-  # were not -- see the header.
+  # Three things in that which are not decoration. The server is a headless
+  # Service and listens on no address this host has, so a forwarded port is the
+  # only transport; the superuser password is not one of the values here, it is
+  # in its own Secret beside the server, and `sudo -E` is what carries it
+  # without its becoming an argument; and the database is the deployment's to
+  # name, because a role is cluster-wide but the grants at the end of that file
+  # are not.
+  #
+  # RUN IT ONLY WHEN THE SYNCHRONISATION REPORTED NO DIVERGENCE. What this hands
+  # psql is host state, so on a key where host and cluster disagree it would set
+  # PostgreSQL to a password the workloads -- which read the Secret -- do not
+  # have. Running the file rotates every role it names: safe on a cluster whose
+  # roles were set from these same values, destructive on one whose were not.
   pgRoleEnv = pkgs.writeShellApplication {
     name = "chuggy-pg-role-env";
-    runtimeInputs = [ pkgs.coreutils ];
+    # postgresql for the psql this exists to hand the values to. It is on this
+    # tool's own PATH rather than the host's: the command above is the whole
+    # documented use, and a procedure whose first step is to install a client
+    # is a procedure nobody has run. nixpkgs has no client-only output, so what
+    # this costs is a server package in the closure of a box that runs its
+    # database in a pod.
+    runtimeInputs = [ pkgs.coreutils pkgs.postgresql_17 ];
     text = ''
       if [ "$#" -eq 0 ]; then
         echo "usage: chuggy-pg-role-env <command> [args...]" >&2
@@ -280,9 +335,10 @@ in
 
         Deleting this directory is not a reset. The values in the cluster and
         the passwords PostgreSQL holds are unaffected by it, so what it produces
-        is a host that adopts back whatever the cluster has and generates
-        replacements for whatever it does not -- which is a rig with credentials
-        no role was ever given.
+        is a host that generates a replacement for every value and then
+        disagrees with the cluster about all of them -- recoverable by seeding
+        host state back out of the Secrets, which is what the README's adopting
+        host does.
       '';
     };
 
@@ -339,16 +395,18 @@ in
       # Retries, because everything it waits for arrives on its own schedule:
       # k3s starting, Flux reconciling the namespace. Bounded, because a unit
       # that retries forever reports a broken cluster as a busy one -- after the
-      # burst it stays failed, where `systemctl --failed` shows it.
-      startLimitIntervalSec = 3600;
-      startLimitBurst = 40;
+      # burst it stays failed, where `systemctl --failed` shows it. The window
+      # holds one attempt more than the burst spans, which is the margin that
+      # makes the bound reachable when an attempt runs long.
+      startLimitIntervalSec = syncStartLimitBurst * syncAttemptSeconds;
+      startLimitBurst = syncStartLimitBurst;
 
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
         ExecStart = lib.getExe sync;
         Restart = "on-failure";
-        RestartSec = 30;
+        RestartSec = syncRestartSeconds;
         RuntimeDirectory = "chuggy-secrets-sync";
         RuntimeDirectoryMode = "0700";
       };

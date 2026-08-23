@@ -34,6 +34,15 @@
 # NOTHING REPLICATES THESE. A second node does not have them, and neither does
 # this one after its image store is reset. That is what no registry costs, and
 # it is paid knowingly on a single-node rig.
+#
+# AND NOTHING DECLARES THEM. The chain above starts from whatever the box
+# happens to hold: no option names the archives a host needs, and nothing checks
+# that the directory has any. A fresh adopter therefore gets an empty directory
+# and workloads in ImagePullBackOff against a registry that does not exist,
+# which reads as a broken cluster. Declaring them means naming images built by
+# Docker in another repository, at a commit this flake cannot see -- so the
+# input that would make the check possible is the thing that is missing, and it
+# is missing here rather than hidden.
 
 let
   cfg = config.chuggy.images;

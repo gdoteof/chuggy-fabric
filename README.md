@@ -38,7 +38,8 @@ only by their own directory.
     hosts/gtr/hardware-configuration.nix
     hosts/example/                  a second host that holds nothing of gtr's
 
-    tests/substrate.nix             boots the substrate and checks what it kept
+    tests/state-and-secrets.nix     boots the four chuggy-* modules and checks
+                                    what they kept and what they synchronised
 
     nixos-live/                     the original /etc/nixos, captured verbatim
 
@@ -214,13 +215,27 @@ ingress. Nothing here would read them: on this rig TLS terminates at the
 Cloudflare edge, and a host that turns the tunnel off has no TLS terminator at
 all. An option nothing reads is a claim the tree cannot keep, so there is none —
 which means a host without the tunnel serves its API in plaintext on its LAN and
-mesh, and that is a real gap rather than a deferred one.
+mesh, and that is a real gap rather than a deferred one. It is filed as
+[#10](https://github.com/gdoteof/chuggy-fabric/issues/10), which names what
+would close it: a terminator first, then the validation that gates ingress on
+its material. `hosts/example/` warns about it on every rebuild rather than
+leaving it to this page.
 
 **What a task may cost is stated but not yet spent.** `chuggy.work.*` refuses a
 host that has not decided, and nothing on the machine reads the numbers: worker
 admission, requests, limits and the workspace bound are Kubernetes objects, and
 Kubernetes objects are cluster state. Carrying them into an object nothing
 mounts would look like the work was done.
+
+**Where PostgreSQL keeps its data.** D23 asks for an explicit, configurable host
+path behind a static `Retain` volume for the database as well as for artifacts.
+`chuggy.state.artifacts.path` is one of the two; there is no option for the
+other, because there is nothing yet for it to name — `cluster/apps/postgres.yaml`
+claims `local-path`, which is provisioned dynamically, so the directory is k3s's
+to choose and it is not this host's to declare. Closing it is a cluster-layer
+change first (a PersistentVolume over a named path, and a claim that binds it)
+and an option beside `artifacts.path` second; doing the second alone would
+declare a directory nothing mounts.
 
 ### Retained state
 
@@ -258,24 +273,58 @@ that wrote a fresh password over the Secret would change one and not the other,
 and the running API would be locked out of its own database by a rebuild that
 reported success.
 
+**A host whose cluster already holds these has one step to do first.** The
+generator runs before the synchronisation and writes every value it does not
+find, so on such a host it writes fresh values the cluster has never seen and
+the synchronisation reports divergence on each of them — correctly, and for
+good. Seed host state from the cluster before the first rebuild, once, for the
+keys the cluster already has:
+
+    sudo install -d -m 0700 -o root -g root /var/lib/chuggy/secrets/<secret>
+    kubectl -n chuggy get secret <secret> -o jsonpath='{.data.<key>}' | base64 -d \
+      | sudo install -m 0600 -o root -g root /dev/stdin /var/lib/chuggy/secrets/<secret>/<key>
+
+That is the adoption the module would do if the boot order let it reach the
+branch; [#12](https://github.com/gdoteof/chuggy-fabric/issues/12) is the
+ordering that would make the step unnecessary. Afterwards the synchronisation is
+silent about those keys and creates the rest, which is how you know the two
+agree.
+
 **The other half is not automatic, and the gap is real.** A password this
 generates authenticates nothing until PostgreSQL is told about it, which is what
 kasofsk/chuggy's `deploy/rig/postgres/postgres-roles.sql` does. That file is run
 by an operator against a running database, not by this module — activation
 happens while PostgreSQL is still an unscheduled pod, and re-running it rotates
 every role it names. `chuggy-pg-role-env` hands it the values without their
-passing through a terminal or an argument list:
+passing through a terminal or an argument list, and carries the `psql` that
+reads them:
 
-    sudo chuggy-pg-role-env psql -h 127.0.0.1 -U postgres -d chuggy \
-      -f deploy/rig/postgres/postgres-roles.sql
+    kubectl -n chuggy port-forward svc/postgres 55440:5432 &
+    export PGPASSWORD="$(kubectl -n chuggy get secret postgres-superuser \
+      -o jsonpath='{.data.password}' | base64 -d)"
+    sudo -E chuggy-pg-role-env psql -h 127.0.0.1 -p 55440 -U postgres \
+      -d <database> -f deploy/rig/postgres/postgres-roles.sql
+
+The server is a headless Service and listens on no address this host has, so the
+forwarded port is the transport, not a convenience. The superuser password is
+not one of the values above — it is in its own Secret beside the server — and
+`sudo -E` is what carries it without its becoming an argument anyone on the box
+can read. The database is the deployment's to name: a role is cluster-wide, the
+grants at the end of that file are not. **Run it only when the synchronisation
+reported no divergence**, because what it hands psql is host state.
+
+On gtr, against `chuggy_rehearsal`, it created the three login roles the older
+Secret never had and set the rest to the values that Secret holds; all six then
+authenticate over the cluster network with those values.
 
 **Rotation is not provided.** Rotating one of these correctly means fencing
 writers, changing the role, changing the Secret and restarting whatever holds a
 connection, in that order — and the wrong order locks out the process the
 rotation was for. Nothing here does any of it, which is why nothing here claims
 to. Deleting the host state directory is not a reset either: the cluster and the
-database are unaffected by it, so what it produces is a host that adopts back
-whatever the cluster has and generates replacements for whatever it does not.
+database are unaffected by it, so what it produces is a host that generates a
+replacement for every value and then disagrees with the cluster about all of
+them — recoverable only by seeding host state back, as above.
 
 ### Images, and the order things come up in
 
@@ -289,7 +338,7 @@ containerd as the agent starts, which is *before* the kubelet can schedule a pod
 that references one. That, not a systemd unit, is what makes the ordering hold:
 
     k3s starts → containerd imports the archives → k3s auto-deploy applies Flux
-      → chuggy-secrets-sync writes the Secrets → Flux reconciles cluster/apps
+      → Flux reconciles cluster/apps → chuggy-secrets-sync writes the Secrets
       → workloads start
 
 `chuggy-import-image <archive.tar>` is for the other case — adding an image to a
@@ -304,9 +353,14 @@ failure when it gives up, and retries — bounded, so a genuinely broken cluster
 ends up in `systemctl --failed` instead of looking busy forever. A workload that
 starts before its Secret exists stays pending and recovers on its own.
 
-**Nothing replicates any of this.** A second node does not have the images, and
-neither does this one after its image store is reset. That is what no registry
-costs, and it is paid knowingly on a single-node rig.
+**Nothing replicates any of this, and nothing declares it either.** A second node
+does not have the images, neither does this one after its image store is reset,
+and no option names which archives a host needs or checks that the directory has
+any — so the chain above starts from whatever the box happens to hold, and a
+fresh adopter's workloads sit in `ImagePullBackOff` against a registry that does
+not exist. The images are built by Docker in kasofsk/chuggy at a commit this
+flake cannot see, which is the input a declaration would need and the reason
+there is not one.
 
 ## Ingress
 
@@ -760,9 +814,12 @@ they are wrong.
 3. Set the hostname, and add a radio blacklist if the box has radios — `lspci -k`
    will tell you what they are. Blacklisting `iwlwifi` on a box with a MediaTek
    card silently does nothing.
-4. Replace every address. The example uses RFC 5737's documentation range on
-   purpose, so an unedited copy refuses to work rather than admitting the wrong
-   network.
+4. Replace every address — the LAN range, the mesh address and the API SANs. The
+   example uses RFC 5737's documentation ranges throughout, 192.0.2.0/24 for the
+   LAN and 198.51.100.0/24 for the mesh, so an unedited copy reaches nothing
+   rather than coming up on a network that is somebody's. Nothing refuses it:
+   the host has to keep evaluating or `nix flake check` stops building it, so an
+   unedited copy warns at every rebuild instead.
 5. Set the worker budgets against what the machine actually has.
 6. Pick the right `nixos-hardware` modules for its CPU/GPU, and add one entry to
    `nixosConfigurations` in `flake.nix`.

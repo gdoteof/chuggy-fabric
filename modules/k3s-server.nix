@@ -10,6 +10,24 @@
 let
   cfg = config.chuggy.k3s;
 
+  # An IPv4 address or CIDR block, and nothing else -- the type is the guard,
+  # not a nicety. These strings become `iptables -s` arguments in
+  # networking.firewall.extraCommands, which runs under `bash -e`: one entry
+  # iptables will not parse aborts firewall-start after it has flushed the
+  # chain and before it has refilled it, and the box is left with an empty
+  # INPUT policy ACCEPT and a failed unit as the only sign. A string option
+  # cannot say that; this one refuses it at evaluation.
+  #
+  # IPv4 only, which is a statement about the rules below rather than about
+  # networks: they are `iptables`, so an IPv6 source could not be applied by
+  # them and would silently name a range the firewall never sees.
+  cidr =
+    let
+      octet = "(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])";
+      prefix = "(3[0-2]|[12]?[0-9])";
+    in
+    lib.types.strMatching "^${octet}(\\.${octet}){3}(/${prefix})?$";
+
   # Where API traffic actually comes from, which is not the same list an adopter
   # supplies. See apiAllowedSources for why the cluster's own pod range is on it.
   apiSources = (if cfg.apiAllowedSources == null then [ ] else cfg.apiAllowedSources)
@@ -36,7 +54,7 @@ in
     };
 
     apiAllowedSources = lib.mkOption {
-      type = lib.types.nullOr (lib.types.listOf lib.types.str);
+      type = lib.types.nullOr (lib.types.listOf cidr);
       default = null;
       example = [ "192.168.0.0/24" "10.100.0.0/24" ];
       description = ''
@@ -56,11 +74,16 @@ in
         source. Leave that range out and Flux, and every other in-cluster
         client, loses the API at the next activation. It presents as a broken
         cluster, not as a firewall rule.
+
+        An empty list is refused for the same reason `null` is. It evaluates,
+        and what it produces is a cluster that admits its own pods and no
+        human -- a decision, if it is one, that has to be made somewhere other
+        than by omission.
       '';
     };
 
     clusterCidr = lib.mkOption {
-      type = lib.types.str;
+      type = cidr;
       default = "10.42.0.0/16";
       description = ''
         The range pods are addressed from. k3s's own default, restated here
@@ -102,6 +125,15 @@ in
           host -- typically its LAN and the WireGuard range. There is no
           default: the safe one refuses the workstation this box is
           administered from, and the convenient one is every network it can see.
+        '';
+      }
+      {
+        assertion = cfg.apiAllowedSources != [ ];
+        message = ''
+          chuggy.k3s.apiAllowedSources is empty. The pod range is added to the
+          rule regardless, so this builds and produces a cluster that reaches
+          its own API and refuses every workstation -- a host that said nothing
+          rather than a host that chose that.
         '';
       }
     ];
@@ -150,8 +182,8 @@ in
     # ports closed and the cluster unreachable.
     networking.firewall.extraCommands = lib.concatMapStrings
       (src: ''
-        iptables -w -A nixos-fw -s ${src} -p tcp --dport 6443 -j nixos-fw-accept
-        iptables -w -A nixos-fw -s ${src} -p udp --dport 8472 -j nixos-fw-accept
+        iptables -w -A nixos-fw -s ${lib.escapeShellArg src} -p tcp --dport 6443 -j nixos-fw-accept
+        iptables -w -A nixos-fw -s ${lib.escapeShellArg src} -p udp --dport 8472 -j nixos-fw-accept
       '')
       apiSources;
 

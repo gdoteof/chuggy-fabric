@@ -54,19 +54,40 @@
           (lib.filter (a: !a.assertion)
             (mkNode { hostPath = ./hosts/example; extraModules = [ overrides ]; }).config.assertions);
 
-      # Fails the build unless removing one required input produces a refusal
-      # that names it. The interesting half is the negative: a module that
-      # quietly grew a default would still evaluate, and this is what notices.
-      refusesWithout = name: overrides: expected:
+      # Fails the build unless one override of a required input produces a
+      # refusal that names it. The interesting half is the negative: a module
+      # that quietly grew a default, or an assertion that reads a value it does
+      # not mean to accept, would still evaluate -- and this is what notices.
+      refuses = name: overrides: expected:
         let
           messages = refusalsOf overrides;
         in
-        pkgs.runCommand "chuggy-refuses-without-${name}" { } (
+        pkgs.runCommand "chuggy-refuses-${name}" { } (
           if lib.any (m: lib.hasInfix expected m) messages
           then "touch $out"
           else ''
-            echo "hosts/example evaluated without ${name}, or refused for another reason." >&2
+            echo "hosts/example evaluated with the ${name} override, or refused for another reason." >&2
             echo "expected a refusal mentioning: ${expected}" >&2
+            echo "got: ${lib.escapeShellArg (lib.concatStringsSep " || " messages)}" >&2
+            exit 1
+          ''
+        );
+
+      # The same for what hosts/example says rather than refuses. An example has
+      # to keep evaluating -- it is the host `nix flake check` builds -- so where
+      # a real host would assert, it warns, and these are what hold the warning
+      # in place: an example edited into something plausible stops saying it and
+      # this is what notices.
+      warns = name: expected:
+        let
+          messages = (mkNode { hostPath = ./hosts/example; }).config.warnings;
+        in
+        pkgs.runCommand "chuggy-warns-${name}" { } (
+          if lib.any (m: lib.hasInfix expected m) messages
+          then "touch $out"
+          else ''
+            echo "hosts/example no longer warns about ${name}." >&2
+            echo "expected a warning mentioning: ${expected}" >&2
             echo "got: ${lib.escapeShellArg (lib.concatStringsSep " || " messages)}" >&2
             exit 1
           ''
@@ -103,36 +124,56 @@
         # said what a task may cost, or who may reach its API, is refused rather
         # than built against a guess.
         refuses-without-worker-cpu =
-          refusesWithout "worker-cpu"
+          refuses "without-worker-cpu"
             { chuggy.work.worker.cpu = lib.mkForce null; }
             "chuggy.work.worker.cpu is unset";
 
         refuses-without-worker-memory =
-          refusesWithout "worker-memory"
+          refuses "without-worker-memory"
             { chuggy.work.worker.memory = lib.mkForce null; }
             "chuggy.work.worker.memory is unset";
 
         refuses-without-worker-ephemeral-storage =
-          refusesWithout "worker-ephemeral-storage"
+          refuses "without-worker-ephemeral-storage"
             { chuggy.work.worker.ephemeralStorage = lib.mkForce null; }
             "chuggy.work.worker.ephemeralStorage is unset";
 
         refuses-without-artifacts-path =
-          refusesWithout "artifacts-path"
+          refuses "without-artifacts-path"
             { chuggy.state.artifacts.path = lib.mkForce null; }
             "chuggy.state.artifacts.path is unset";
 
         refuses-without-api-allowed-sources =
-          refusesWithout "api-allowed-sources"
+          refuses "without-api-allowed-sources"
             { chuggy.k3s.apiAllowedSources = lib.mkForce null; }
             "chuggy.k3s.apiAllowedSources is unset";
 
         refuses-without-flux-repository =
-          refusesWithout "flux-repository"
+          refuses "without-flux-repository"
             { chuggy.flux.repositoryUrl = lib.mkForce null; }
             "chuggy.flux.repositoryUrl is unset";
 
-        substrate-boot = import ./tests/substrate.nix { inherit pkgs; };
+        # An empty list is not the same omission and needs its own check: it
+        # satisfies `!= null`, so the refusal above would have passed a host
+        # whose firewall admits its own pods and nobody else.
+        refuses-with-empty-api-allowed-sources =
+          refuses "empty-api-allowed-sources"
+            { chuggy.k3s.apiAllowedSources = lib.mkForce [ ]; }
+            "chuggy.k3s.apiAllowedSources is empty";
+
+        # The two things about the example that only a reader would otherwise
+        # catch: that its addresses are still the ones nobody can be using, and
+        # that nothing on it terminates TLS.
+        warns-about-documentation-addresses =
+          warns "documentation-addresses" "still carries the example's documentation";
+
+        warns-about-plaintext-ingress =
+          warns "plaintext-ingress" "nothing on this host terminates TLS";
+
+        # Named for the four modules it boots rather than for the substrate:
+        # the other seven above are not imported there, and a check called
+        # substrate-boot would be reporting on them without having built one.
+        state-and-secrets-boot = import ./tests/state-and-secrets.nix { inherit pkgs; };
       };
     };
 }
