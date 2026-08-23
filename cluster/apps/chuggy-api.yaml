@@ -87,8 +87,9 @@
 #
 # THE REMEDY IS NOT TO RUN THAT ONE STATEMENT BY HAND. Running it closes this
 # gap and leaves the ones beside it -- the same file is what makes
-# `chuggy_owner` a member of `chuggy_boundary_owner`, without which the
-# migration Job fails terminally, and chuggy-migrate.yaml argues that at length.
+# `chuggy_owner` a member of `chuggy_boundary_owner`, without which migration 17
+# commits while granting nothing and no re-run repairs it. chuggy-migrate.yaml
+# argues that at length, including why it has to happen BEFORE the Job runs.
 # Re-run the whole file from a commit carrying #242, once, before any of this
 # starts.
 #

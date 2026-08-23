@@ -445,14 +445,35 @@ afresh:
     kubectl -n chuggy logs job/chuggy-migrate-<tag>
     kubectl -n chuggy delete job chuggy-migrate-<tag>
 
-**On this rig today the cause is a role membership, and the delete alone will
-not fix it.** Migration 17 grants EXECUTE on a function `chuggy_boundary_owner`
-owns; `chuggy_owner` — the role the Job connects as — is not a member of that
-role and holds no privilege on the function at all, which is the case PostgreSQL
-answers with an *error* rather than with the warning it gives a grantor who
-holds some privilege without grant option. The runner applies every pending
-version in one transaction, so nothing commits and the ledger does not move.
-Prerequisite 1 below is what fixes it; then delete the Job.
+Nothing has put this rig in that state — treat it as argued from the mechanism,
+not observed.
+
+**The failure this rig actually has is the opposite one, and it is worse: the
+Job reports success.** Migration 17 grants EXECUTE on a function
+`chuggy_boundary_owner` owns, and `chuggy_owner` — the role the Job connects as
+— is not a member of that role. A GRANT with no grant option goes one of two
+ways, and which one decides whether anyone hears about it:
+
+| grantor holds | PostgreSQL answers | outcome |
+|---|---|---|
+| no privilege on the object at all | `ERROR: permission denied` | transaction rolls back, exit 1, loud |
+| **any** privilege, inherited included | `WARNING: no privileges were granted` | statement succeeds granting nothing, **everything commits** |
+
+**This rig is on the warning branch**, by a route worth spelling out: the
+function's ACL never names `chuggy_owner`, but it grants EXECUTE to
+`chuggy_ticket_service`, and `chuggy_owner` is a member of that group — so it
+inherits a privilege, and the check is satisfied.
+`has_function_privilege('chuggy_owner', …, 'EXECUTE')` is true while the same
+call `WITH GRANT OPTION` is false; that pair is the discriminator. Membership in
+every service group is deliberate in `postgres-roles.sql`, so a correctly
+provisioned database is on this branch by construction.
+
+So the Job goes `Complete`, the ledger says 17, the grant did not land, and the
+API's selector-context reads fail at runtime with `permission denied for
+function project_capacity_account`. **Deleting the Job does not fix it** — the
+ledger committed, so a re-run has nothing pending and applies nothing. Recovery
+is the membership grant plus re-issuing migration 17's grant by hand. Which is
+why prerequisite 1 below has to happen *before* the Job runs, not after.
 
 An image the node does not hold is not this case — that pod waits in
 `ImagePullBackOff` with the Job still active, and importing the image is enough.
@@ -507,8 +528,9 @@ done *before* that merge, not after it.
    below. It creates the three roles this rig is missing, grants
    `chuggy_selector_review` to `chuggy_api_login` — without which the API
    refuses to listen — and grants `chuggy_boundary_owner` to `chuggy_owner`,
-   without which **the migration Job fails terminally** on migration 17 and a
-   re-run of the Job fails identically.
+   without which **migration 17 commits while granting nothing** and no re-run
+   of the Job ever repairs it. This one is genuinely ordered: run it after the
+   Job and the ledger already claims a grant that is not there.
 2. **Build and import an image** from that same commit, and set the six tags to
    it. `chuggy.invalid` resolves nowhere, so a tag this node does not hold is a
    pod that never starts. That includes `chuggy-api`, which is serving traffic
