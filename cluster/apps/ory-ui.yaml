@@ -7,19 +7,29 @@
 #
 # ------------------------------------------------------- the id.vteng.io split ----
 #
-# The UI holds the root path; Kratos holds the paths a browser is sent to
-# directly. They must be one origin: a Kratos flow sets a CSRF cookie that the
-# form posted from the UI has to carry back, and a cookie does not cross hosts.
-# That is why this is a path split on one hostname and not a second hostname.
+# The UI holds the root path; Kratos holds `/self-service`, the one prefix a
+# browser is sent to directly. They must be one origin: a Kratos flow sets a
+# CSRF cookie that the form posted from the UI has to carry back, and a cookie
+# does not cross hosts. That is why this is a path split on one hostname and not
+# a second hostname.
 #
 # Traefik orders Ingress rules by the length of the matcher it builds, so the
-# two prefixes below win over `/` without anything here saying so. The rules are
-# also disjoint, so that ordering is a convenience and not the mechanism.
+# prefix below wins over `/` without anything here saying so. The rules are also
+# disjoint, so that ordering is a convenience and not the mechanism.
 #
-# Only the two prefixes are published. Kratos's admin API is on another port
-# entirely and is not in `kratos-public`; its `/schemas` and `/.well-known/ory`
-# endpoints are reached by this app over the cluster network, so a browser has
-# no reason to and does not.
+# ONE PREFIX, AND ADDING A SECOND TAKES A PAGE OFF THIS APP. Every path but
+# `/self-service` belongs to a route this image registers -- `/sessions`,
+# `/consent`, `/welcome` and the rest -- so an arm added here for a Kratos
+# endpoint under one of those names does not sit beside the UI's page, it
+# replaces it, and the symptom is Kratos's 401 where a redirect to /login
+# should be. Kratos's own paths are not needed at the edge for this app anyway:
+# it is server-rendered and calls Kratos over KRATOS_PUBLIC_URL in-cluster, and
+# a browser on another origin could not use an edge route either, because
+# Kratos serves no CORS headers.
+#
+# Kratos's admin API is on another port entirely and is not in `kratos-public`;
+# its `/schemas` and `/.well-known/ory` endpoints are reached by this app over
+# the cluster network, so a browser has no reason to and does not.
 #
 # --------------------------------------------------------------- the consent ----
 #
@@ -137,14 +147,6 @@ spec:
         paths:
           # The flow endpoints a browser is redirected to and posts forms at.
           - path: /self-service
-            pathType: Prefix
-            backend:
-              service:
-                name: kratos-public
-                port: { number: 4433 }
-          # `/sessions/whoami`, which the browser calls to learn whether it is
-          # logged in.
-          - path: /sessions
             pathType: Prefix
             backend:
               service:

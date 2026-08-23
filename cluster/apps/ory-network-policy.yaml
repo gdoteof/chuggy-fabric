@@ -1,0 +1,89 @@
+# The network boundary around the two unauthenticated admin APIs, declared for
+# the reason postgres-network-policy.yaml is declared: without it any pod on the
+# cluster may create an identity, mint a session for it, or register an OAuth2
+# client, and nothing would report that as a failure.
+#
+# One policy and not two. Ingress only, and the same set of pods either way, so
+# there is one question here and one object to answer it.
+#
+# NO EGRESS RULE. Naming Egress would mean enumerating DNS, PostgreSQL and the
+# edge, and neither Hydra nor Kratos is a service whose outbound reach is the
+# worry -- what makes the admin ports dangerous is who may call IN. Adding an
+# egress rule later is a change to this object, not a second one.
+#
+# WHAT SELECTING A POD DOES NOT BOUND. Every exemption recorded in
+# postgres-network-policy.yaml applies here unchanged and for the same reasons:
+# `kubectl exec` and `kubectl port-forward` never touch the pod network, and
+# k3s's kube-router accepts node-local sources ahead of the policy chain, so
+# the node and every host-network pod on it reach these ports whatever they are
+# labelled.
+#
+# THE THIRD OF THOSE IS BOUNDED BY ADMISSION, NOT BY ANYTHING HERE. A pod is
+# host-network because a field says so, and who may set that field is what
+# `pod-security.kubernetes.io/enforce` decides. Without a baseline label on the
+# namespace a caller creates pods in, `create pods` -- which ClusterRole `edit`
+# carries -- is one field away from the node-local ACCEPT and therefore past
+# every rule below. cluster/apps/dev2-access.yaml labels `chuggy` for exactly
+# that reason and says so; a namespace added later without the label reopens
+# this, and nothing in this file would report it.
+#
+# The other two are bounded by who may exec in `ory`, which is nobody outside
+# the operator today.
+#
+# NOTHING HERE DEPENDS ON THAT CNI BEHAVIOUR TO WORK. The exemption is a leak
+# and not a mechanism: every probe in `ory` is on a port this policy admits
+# from anywhere, so replacing kube-router tightens enforcement and breaks no
+# workload. ory-kratos.yaml records the choice that keeps it that way.
+#
+# It also does not bound the identity store itself. `hydra` and `kratos` are
+# databases on the `chuggy` PostgreSQL, and `edit` in `chuggy` carries
+# pods/exec, which lands on a `trust` socket as superuser. Closing the admin
+# ports closes one of two roads to the same place; ory-namespace.yaml states the
+# other, which is inherent to sharing the server.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ory-admin-apis-are-namespace-local
+  namespace: ory
+spec:
+  # Hydra and Kratos, and not ory-ui: the UI serves one port and it is public.
+  # An expression rather than two policies because the rule is the same rule.
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [hydra, kratos]
+  policyTypes:
+    - Ingress
+  ingress:
+    # The public ports, from anywhere on the pod network -- unchanged. Traefik
+    # is what actually calls them, but naming it here would couple this file to
+    # the ingress controller's namespace and labels for no gain: these ports
+    # face the open internet through the tunnel already.
+    - ports:
+        - protocol: TCP
+          port: 4444 # hydra-public
+        - protocol: TCP
+          port: 4433 # kratos-public
+    # The admin ports, from this namespace only. A bare podSelector is scoped to
+    # the policy's own namespace, so this is ory-ui reaching hydra-admin for
+    # consent and kratos-admin for identities, and Kratos reaching hydra-admin
+    # to resolve a login challenge -- and nothing outside `ory`.
+    #
+    # These are pod ports, not Service ports. They coincide here because both
+    # Services target the container port by name and the numbers match; a future
+    # Service that renumbers would not move this rule with it.
+    #
+    # A SCRAPE WOULD NEED A THIRD ELEMENT. Hydra publishes Prometheus metrics on
+    # the admin port only, so a ServiceMonitor added in `monitoring` fails here
+    # -- silently, as a target that never comes up. Admit it the way
+    # flux-system/allow-scraping does, by namespace and metrics port, rather
+    # than by widening this element.
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 4445 # hydra-admin
+        - protocol: TCP
+          port: 4434 # kratos-admin

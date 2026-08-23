@@ -16,8 +16,9 @@
 # there is.
 #
 # 4434 IS THE UNAUTHENTICATED ADMIN API and can mint an identity or a session
-# for anyone. The argument about what does and does not bound it is in
-# ory-hydra.yaml and applies here unchanged.
+# for anyone. What holds it to callers inside `ory` is the policy in
+# ory-network-policy.yaml, which also states the three ways past it and the one
+# road to these same tables it does not touch at all.
 #
 # The migration initContainer, the DDL/DML role split, and the fact that
 # changing the ConfigMap does not restart the pod are all as ory-hydra.yaml
@@ -50,6 +51,13 @@ data:
       # An exhaustive list of where a flow may deposit a browser afterwards.
       # Anything absent is refused, which is what stops `?return_to=` being an
       # open redirect out of the login page.
+      #
+      # NO auth.vteng.io, AND THAT IS NOT AN OMISSION. This list bounds
+      # `?return_to=`, which Kratos checks when the flow is created. An OAuth2
+      # login arrives as `?login_challenge=` with no `return_to` at all, and
+      # where it lands afterwards comes back from Hydra's accept-login call --
+      # Hydra's own registered redirect, not a parameter anyone can set. Adding
+      # the issuer here would widen the open-redirect surface to buy nothing.
       allowed_return_urls:
         - https://id.vteng.io
         - https://chuggy.vteng.io
@@ -207,12 +215,22 @@ spec:
           resources:
             requests: { cpu: 100m, memory: 128Mi }
             limits: { memory: 512Mi }
+          # PUBLIC, NOT ADMIN, AND THE REASON IS THE NETWORKPOLICY. A kubelet
+          # probe arrives from the node, so no podSelector can ever match it
+          # and ory-network-policy.yaml admits it on the admin port only by way
+          # of kube-router's node-local ACCEPT. Probing there would make the
+          # liveness of this pod a property of the CNI: under one without that
+          # rule Kratos would fail its probes and crash-loop minutes after the
+          # policy landed. Kratos serves both health endpoints on the public
+          # port, which the policy admits from anywhere, so this costs nothing
+          # -- and neither path is published, because the Ingress in
+          # ory-ui.yaml routes `/self-service` here and nothing else.
           readinessProbe:
-            httpGet: { path: /health/ready, port: admin }
+            httpGet: { path: /health/ready, port: public }
             periodSeconds: 10
             timeoutSeconds: 3
           livenessProbe:
-            httpGet: { path: /health/alive, port: admin }
+            httpGet: { path: /health/alive, port: public }
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 5
