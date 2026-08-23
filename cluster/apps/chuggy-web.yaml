@@ -129,7 +129,7 @@ spec:
         runAsGroup: 101
       containers:
         - name: web
-          image: chuggy.invalid/web:e6c16af
+          image: chuggy.invalid/web:cd44061
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
