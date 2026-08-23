@@ -88,14 +88,16 @@ in
 
       # Deliberately NOT `trustedInterfaces = [ cfg.interface ]`, which is what
       # used to be here. The stated reason was that trusting the mesh kept
-      # 6443/8472 off the LAN-facing rules -- but modules/k3s-server.nix opens
+      # 6443/8472 off the LAN-facing rules -- but modules/k3s-server.nix opened
       # both globally anyway, so the trust bought nothing and cost a lot: it
       # handed every peer the whole box, kubelet on 10250 included, plus
       # whatever a future module happens to bind.
       #
-      # A peer now reaches exactly what the global rules allow -- 22, 6443,
-      # 8472/udp -- which is enough for an agent to join the cluster and for a
-      # human to run kubectl, and nothing more.
+      # A peer now reaches 22, plus whatever chuggy.k3s.apiAllowedSources opens
+      # to the mesh range -- enough for an agent to join the cluster and for a
+      # human to run kubectl, and nothing more. That is two decisions now rather
+      # than one: leave the mesh range out of that list and peers get sshd and
+      # nothing else, which is a working tunnel to a cluster they cannot see.
       #
       # Note this widens who can *reach* sshd from LAN-only to LAN-plus-mesh.
       # Reaching it is not entering it; it still wants a key. But it moves
