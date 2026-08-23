@@ -75,6 +75,17 @@ spec:
           podSelector:
             matchLabels:
               chuggy.dev/postgres-client: "true"
+        # Ory, the same way and for the same reason: Hydra and Kratos run in
+        # `ory` against the `hydra` and `kratos` databases and their own roles.
+        # Three workloads there, and only the two that hold a database role
+        # carry the label -- the self-service UI reaches PostgreSQL through
+        # neither of them and is not admitted here.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ory
+          podSelector:
+            matchLabels:
+              chuggy.dev/postgres-client: "true"
       ports:
         - protocol: TCP
           port: 5432

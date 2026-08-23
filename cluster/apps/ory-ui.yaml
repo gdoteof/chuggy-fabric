@@ -1,0 +1,158 @@
+# The self-service UI, and the Ingress for the host it shares with Kratos.
+#
+# One app, two jobs: it renders Kratos's login, registration and settings flows,
+# and it is also Hydra's consent endpoint. Ory ships it as a reference
+# implementation, which is what it is here -- a rig needs a login page, not a
+# product.
+#
+# ------------------------------------------------------- the id.vteng.io split ----
+#
+# The UI holds the root path; Kratos holds the paths a browser is sent to
+# directly. They must be one origin: a Kratos flow sets a CSRF cookie that the
+# form posted from the UI has to carry back, and a cookie does not cross hosts.
+# That is why this is a path split on one hostname and not a second hostname.
+#
+# Traefik orders Ingress rules by the length of the matcher it builds, so the
+# two prefixes below win over `/` without anything here saying so. The rules are
+# also disjoint, so that ordering is a convenience and not the mechanism.
+#
+# Only the two prefixes are published. Kratos's admin API is on another port
+# entirely and is not in `kratos-public`; its `/schemas` and `/.well-known/ory`
+# endpoints are reached by this app over the cluster network, so a browser has
+# no reason to and does not.
+#
+# --------------------------------------------------------------- the consent ----
+#
+# `/consent` answers with a redirect to `/404` unless HYDRA_ADMIN_URL,
+# CSRF_COOKIE_SECRET and CSRF_COOKIE_NAME are all three set -- the route is
+# registered either way, so a missing variable presents as a broken OAuth2 flow
+# and not as a failure to start.
+#
+# It echoes Hydra's `requested_access_token_audience` back as
+# `grant_access_token_audience`, which is the half of the audience chain that
+# lives here. The other half is the client's registered allow-list and the
+# `audience=` parameter on the authorize request: Hydra puts the GRANTED
+# audience in the token, so a client that never asks gets `aud: []` and the API
+# rejects it.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ory-ui
+  namespace: ory
+  labels: { app: ory-ui }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: ory-ui }
+  template:
+    metadata:
+      # No postgres-client label: this app holds no database role and reaches
+      # PostgreSQL through nothing.
+      labels: { app: ory-ui }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+      containers:
+        - name: ory-ui
+          image: oryd/kratos-selfservice-ui-node:v26.2.0@sha256:46a7bac1ad0c67c692b37d0380613fd4618fd751afac2c5314aa8d3ae77ef1f0
+          # The image starts this through `npm run serve`, and npm insists on a
+          # writable $HOME for its cache before it will run anything -- which
+          # the read-only root filesystem below refuses. Running node directly
+          # is the same process without the package manager in front of it.
+          command: [node]
+          args: [lib/index.js]
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            # Where this app calls Kratos, and where it tells a browser to. The
+            # two differ because only one of them crosses the edge.
+            - name: KRATOS_PUBLIC_URL
+              value: http://kratos-public.ory.svc.cluster.local:4433
+            - name: KRATOS_BROWSER_URL
+              value: https://id.vteng.io
+            - name: KRATOS_ADMIN_URL
+              value: http://kratos-admin.ory.svc.cluster.local:4434
+            - name: HYDRA_ADMIN_URL
+              value: http://hydra-admin.ory.svc.cluster.local:4445
+            # `__Host-` binds the cookie to this exact host over HTTPS with no
+            # Domain attribute -- the browser enforces it, so a cookie set for
+            # a sibling of id.vteng.io cannot be presented here.
+            - name: CSRF_COOKIE_NAME
+              value: __Host-ory-ui-csrf
+            - name: CSRF_COOKIE_SECRET
+              valueFrom:
+                secretKeyRef: { name: ory-ui, key: csrf-cookie-secret }
+            - name: COOKIE_SECRET
+              valueFrom:
+                secretKeyRef: { name: ory-ui, key: cookie-secret }
+            - name: PORT
+              value: "3000"
+            - name: NODE_ENV
+              value: production
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 384Mi }
+          readinessProbe:
+            httpGet: { path: /health/ready, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: { path: /health/alive, port: http }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ory-ui
+  namespace: ory
+spec:
+  selector: { app: ory-ui }
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ory-id
+  namespace: ory
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: id.vteng.io
+      http:
+        paths:
+          # The flow endpoints a browser is redirected to and posts forms at.
+          - path: /self-service
+            pathType: Prefix
+            backend:
+              service:
+                name: kratos-public
+                port: { number: 4433 }
+          # `/sessions/whoami`, which the browser calls to learn whether it is
+          # logged in.
+          - path: /sessions
+            pathType: Prefix
+            backend:
+              service:
+                name: kratos-public
+                port: { number: 4433 }
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ory-ui
+                port: { number: 3000 }

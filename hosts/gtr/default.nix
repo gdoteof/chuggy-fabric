@@ -78,7 +78,22 @@
   chuggy.tunnel = {
     enable = true;
     tunnelId = "84115dde-a1d0-4e8a-832a-e4da2cf98180";  # tunnel "gtr"
-    hostnames = [ "whoami.vteng.io" "grafana.vteng.io" "sirdocalot.vteng.io" ];
+    # Single-label subdomains only. Universal SSL covers vteng.io and one level
+    # of *.vteng.io, so `auth.chuggy.vteng.io` would need a certificate this
+    # zone does not have.
+    #
+    # auth is Ory Hydra's public port and nothing else -- it is the OIDC issuer
+    # string, so the name is load-bearing and cannot be changed without
+    # invalidating every token and every client registration. id is Kratos and
+    # the self-service UI. Neither admin port appears here, and cluster/apps/
+    # ory-hydra.yaml says why that matters.
+    hostnames = [
+      "whoami.vteng.io"
+      "grafana.vteng.io"
+      "sirdocalot.vteng.io"
+      "auth.vteng.io"
+      "id.vteng.io"
+    ];
   };
 
   # ----------------------------------------------------------------- ddns ----
