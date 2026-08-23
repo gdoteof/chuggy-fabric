@@ -1,0 +1,111 @@
+# No `dsn` and no `secrets` here -- both arrive as environment variables
+# from the `kratos` Secret.
+serve:
+  public:
+    port: 4433
+    host: 0.0.0.0
+    # Kratos builds every URL it hands a browser from this, and decides
+    # whether its cookies are Secure from this scheme. The pod is reached
+    # over plain HTTP; the browser is not, and this is where that is said.
+    base_url: https://id.vteng.io/
+  admin:
+    port: 4434
+    host: 0.0.0.0
+    base_url: http://kratos-admin.ory.svc.cluster.local:4434/
+
+selfservice:
+  default_browser_return_url: https://id.vteng.io/welcome
+  # An exhaustive list of where a flow may deposit a browser afterwards.
+  # Anything absent is refused, which is what stops `?return_to=` being an
+  # open redirect out of the login page.
+  #
+  # NO auth.vteng.io, AND THAT IS NOT AN OMISSION. This list bounds
+  # `?return_to=`, which Kratos checks when the flow is created. An OAuth2
+  # login arrives as `?login_challenge=` with no `return_to` at all, and
+  # where it lands afterwards comes back from Hydra's accept-login call --
+  # Hydra's own registered redirect, not a parameter anyone can set. Adding
+  # the issuer here would widen the open-redirect surface to buy nothing.
+  allowed_return_urls:
+    - https://id.vteng.io
+    - https://chuggy.vteng.io
+
+  methods:
+    password:
+      enabled: true
+    # Both of these deliver a secret by mail. See the header.
+    code:
+      enabled: false
+    link:
+      enabled: false
+
+  flows:
+    error:
+      ui_url: https://id.vteng.io/error
+    login:
+      ui_url: https://id.vteng.io/login
+      lifespan: 10m
+    # CLOSED, AND THIS HOST IS ON THE OPEN INTERNET. Kratos serves
+    # id.vteng.io through the tunnel with nothing in front of it, so an
+    # enabled registration flow is an invitation to the whole internet to
+    # create identities -- and `verification` and `recovery` below are off,
+    # so nothing would even establish that an address belongs to whoever
+    # typed it.
+    #
+    # What that would NOT grant is worth stating, because it is the reason
+    # this is a decision rather than an emergency: an identity carries no
+    # authorization here. Access is a `project_membership` row, written
+    # only by an operator holding the database owner's credential, and the
+    # API role is refused every privilege on that table. A stranger who
+    # registered would hold a valid token and see 404 on every resource.
+    # The cost is unbounded identity creation, not access.
+    #
+    # Disabling the flow is what refuses it. Removing `ui_url` alone would
+    # not: the flow would still be created and the browser sent nowhere
+    # useful, which reads as a broken page rather than a closed door.
+    #
+    # Identities are created administratively instead, through Kratos's
+    # admin API, which no Ingress and no tunnel hostname reaches --
+    # ory-network-policy.yaml is what bounds who can.
+    registration:
+      enabled: false
+      ui_url: https://id.vteng.io/registration
+      lifespan: 10m
+      after:
+        password:
+          hooks:
+            # Without this a new account is created and then asked to log
+            # in again -- which drops the OAuth2 flow it was registering in
+            # the middle of. Kept against the flow being reopened: it is
+            # the hook's absence that breaks a registration mid-OAuth2,
+            # and that is not a thing to rediscover.
+            - hook: session
+    settings:
+      ui_url: https://id.vteng.io/settings
+      privileged_session_max_age: 15m
+    logout:
+      after:
+        default_browser_return_url: https://id.vteng.io/login
+    recovery:
+      enabled: false
+    verification:
+      enabled: false
+
+# Where Kratos accepts and resolves Hydra's login challenge. Hydra's admin
+# API, in-cluster, never through the edge.
+oauth2_provider:
+  url: http://hydra-admin.ory.svc.cluster.local:4445
+
+identity:
+  default_schema_id: default
+  schemas:
+    - id: default
+      url: file:///etc/config/identity.default.schema.json
+
+session:
+  lifespan: 24h
+  cookie:
+    same_site: Lax
+
+log:
+  level: info
+  format: json

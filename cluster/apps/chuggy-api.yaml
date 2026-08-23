@@ -8,6 +8,18 @@
 #
 # ------------------------------------------------------------- the image ----
 #
+# THE NAME IS API-SPECIFIC AND THE IMAGE IS NOT. It copies the whole of `src/`
+# and sets a default CMD of this root alone, so the same bytes carry the
+# selector, the scheduler, the ticket service, the finalizer and the migration
+# command, and the four files beside this one select theirs from it. Renaming it
+# to the control-plane image is revised PR 2 of kasofsk/chuggy#197, in the
+# repository that builds it; nothing here can rename an image it does not build.
+#
+# The tag is written in six `image:` lines, one per file -- this, the four
+# workloads and the migration Job -- and they move together.
+# chuggy-ticket-service.yaml argues what catches a bump that misses one, what
+# does not, and what else a re-pin has to touch beyond those six.
+#
 # `chuggy.invalid/api:<tag>` is built from kasofsk/chuggy and imported straight
 # into this node's containerd; there is no registry. `chuggy.invalid` resolves
 # nowhere, so a node that does not hold the tag fails the pod loudly instead of
@@ -19,6 +31,25 @@
 # NOTHING REPLICATES THE IMAGE. A second node would not have it, and neither
 # would this one after its image store is reset. That is the price of no
 # registry and it is paid knowingly on a single-node rig.
+#
+# MERGING THIS BEFORE THE IMPORT RE-POINTS A WORKING API AT A TAG THIS NODE DOES
+# NOT HOLD. `k3s ctr images ls` has 85c36c8, ac02043 and cbf8dcc; the API
+# serving traffic right now is on ac02043, and the tag below is none of them.
+#
+# WHAT SAVES IT IS THE ROLLOUT STRATEGY, WHICH IS A DEFAULT AND NOT A DECISION
+# ANYONE MADE HERE. `RollingUpdate` at `replicas: 1` computes `maxUnavailable`
+# by rounding 25% down, which is zero, so the new pod is created first and the
+# old one is not touched until it is ready. The new pod never is -- it sits in
+# `ImagePullBackOff` -- so the old pod keeps serving and the console behind it
+# keeps working. The rollout simply stalls, `apps` goes `Ready=False`, and the
+# migration Job waits in the same state.
+#
+# THAT IS A NARROW ESCAPE AND NOT A SAFETY PROPERTY. It holds because one
+# replica rounds that way; a second replica, or a `Recreate` strategy, and the
+# same merge is an outage. Nothing in this file asks for either, and nothing in
+# this file would stop someone adding one. Import the image before the merge,
+# which is why the README lists it second -- behind the roles file, and ahead of
+# everything that can be done after the fact.
 #
 # -------------------------------------------------- the database, and role ----
 #
@@ -37,6 +68,42 @@
 # verbatim -- which would be a connection failure and not a silent empty
 # password -- and a `secretKeyRef` naming a key that is not there refuses to
 # start the pod at all.
+#
+# TWO POOLS, TWO ROLES, ONE PROCESS. The API also opens a second connection as
+# `chuggy_selector_review`, which reads the selector's proposal deliveries and
+# reviews and nothing else, and it refuses to listen unless that connection is
+# that role. It is a separate least-authority credential rather than a widening
+# of `chuggy_api`, which is why it is a second URL and not a second query.
+#
+# THE GRANT THAT MAKES IT WORK IS IN NO MIGRATION AND IS NOT ON THIS RIG. The
+# migration creates `chuggy_selector_review` NOLOGIN and grants it its two
+# reads; what grants the group to a login role is kasofsk/chuggy's
+# `deploy/rig/postgres/postgres-roles.sql`, in a copy of it carrying
+#
+#   GRANT chuggy_selector_review TO chuggy_api_login;
+#
+# NOT EVERY #242 COMMIT CARRIES IT. That line and the membership grant beside it
+# arrive part-way along the branch, so "from #242" is not the check. The
+# README's prerequisite 1 pre-filters the checkout in hand for both grants and
+# then reads `pg_auth_members` on the server, which is the only thing that
+# settles whether they landed. `4ec1192`, which the six tags name, carries both.
+#
+# This rig was rolled out from an older copy: `pg_auth_members` shows
+# `chuggy_selector_review` with no members at all, so no credential here can
+# become it and the API refuses to listen.
+#
+# THE REMEDY IS NOT TO RUN THAT ONE STATEMENT BY HAND. Running it closes this
+# gap and leaves the one beside it -- the same file is what makes `chuggy_owner`
+# a member of `chuggy_boundary_owner`, without which migration 17 commits while
+# granting nothing and no re-run repairs it. chuggy-migrate.yaml argues that at
+# length, including why it has to happen BEFORE the Job runs. Re-run the whole
+# file, once, before any of this starts -- and read prerequisite 4 first,
+# because the file re-issues every login password.
+#
+# What the grant widens is what `chuggy_api_login` inherits on its ordinary
+# connection -- two more SELECTs, on tables this same process already reads
+# through the other pool. What it buys is that the review reads arrive under a
+# role that can do nothing else.
 #
 # `sslmode` is unset and therefore `prefer`, which this server answers with
 # plaintext because it serves no TLS. Read that as a statement of what is NOT
@@ -73,8 +140,9 @@
 # after which this value is `chuggy` and the fixtures are still there to read.
 #
 # THE SUSPEND IS NOT OPTIONAL. Both statements need every connection to the
-# database closed, and `replicas: 1` is in this file: gotk-sync.yaml reconciles
-# this directory every five minutes with `prune: true` and `wait: true`, so a
+# database closed, and `replicas: 1` is in this file: the `apps` Kustomization
+# reconciles this directory every five minutes with `prune: true` and
+# `wait: true` -- `modules/flux.nix` generates it -- so a
 # hand-run `kubectl scale` is undone inside that window -- most likely between
 # the two renames, where the first has landed and `chuggy` no longer exists.
 # `wait: true` would also be health-checking a Deployment deliberately held at
@@ -87,23 +155,49 @@
 #
 # ---------------------------------------------------------- the artifacts ----
 #
-# `CHUG_API_ARTIFACT_ROOT` names a directory the API only ever reads from. It is
-# an `emptyDir` because nothing on this rig writes one: the fabric that produces
-# artifacts is not deployed here, so every read is a miss whatever backs the
-# path, and an emptyDir says that where a PVC would imply a durability it does
-# not have. The day a producer arrives, the two need a volume they can share,
-# and that is a different object and a different argument -- not a resize of
-# this one.
+# `CHUG_API_ARTIFACT_ROOT` names a directory the API only ever reads from. The
+# producer has arrived: chuggy-finalizer.yaml writes this store, so the emptyDir
+# that stood here -- correct while every read was a miss -- is now the claim in
+# chuggy-artifacts.yaml, which is the shared volume that file predicted.
 #
 # Mounted read-only, which is the same claim the composition makes: the web
-# composition is handed the store through one read port and holds no write.
+# composition is handed the store through one read port and holds no write. The
+# finalizer mounts the same claim writable, and that asymmetry is the whole
+# division of labour between the two.
+#
+# THE PV PINS THIS POD. Its node affinity is `chuggy.dev/durable=true`, so this
+# Deployment is now schedulable on the durable node alone -- which it already
+# was in practice, because the image is only in that node's containerd.
 #
 # ------------------------------------------------------------ the Secrets ----
 #
 # Out of band, because this repository is public. `chuggy-postgres-credentials`
-# already exists -- kasofsk/chuggy's `deploy/rig/postgres/README.md` issues it
-# alongside the roles, and this workload borrows the `api-password` key from it
-# rather than keeping a second copy that could drift from the role's.
+# holds one key per control-plane login role -- `owner-password`,
+# `api-password`, `ticket-service-password`, `selector-service-password`,
+# `scheduler-password`, `finalizer-password` -- and every workload in this
+# namespace borrows its own from it rather than keeping a second copy that could
+# drift from the role's.
+#
+# D21 SAYS THE HOST GENERATES THOSE AND SYNCHRONIZES THEM HERE, and fabric's PR
+# 9 is what does it: generated once into a root-only state directory outside the
+# Nix store, and pushed into this Secret without the values reaching a process
+# argument, a build log or this repository. Until that lands they are
+# kasofsk/chuggy's `deploy/rig/postgres/README.md` issued by hand.
+#
+# ALL SEVEN KEYS ARE ALREADY THERE, and so is every login role they name -- read
+# off the rig, not assumed. Six of the seven are the credentials this namespace
+# presents; the seventh, `chuggy_dispatcher_login`, is legacy and no workload
+# here names it. So no workload here is waiting on a key. What the roles file
+# still has to fix is the two MEMBERSHIPS below it, not a missing credential:
+# `chuggy_selector_review` has no members and `chuggy_owner` is not in
+# `chuggy_boundary_owner`. Which makes prerequisite 4 the hazard rather than the
+# gap -- the roles file re-issues the six passwords it names unconditionally, so
+# a re-run with values that are not the ones in this Secret leaves the Secret
+# wrong and every pod here dies at its next restart.
+#
+# A `secretKeyRef` NAMING A KEY THAT IS NOT THERE REFUSES TO START THE POD,
+# which is the ordering this stage relies on: a workload whose credential has
+# not been synchronized yet does not run with a wrong one.
 #
 # The keying secret is this workload's own:
 #
@@ -138,7 +232,15 @@
 # WHAT NO RULE HERE BOUNDS. Nothing restricts this pod's egress. The namespace
 # has no default-deny, and postgres-denies-egress selects the database and not
 # this, so the API may open a connection to anywhere -- the issuer above is
-# where it is pointed, not where it is confined.
+# where it is pointed, not where it is confined. Every other pod in this
+# namespace carries an egress rule, the migration Job included; this one does
+# not, because narrowing the egress of
+# the only service the internet reaches is a change whose failure mode is an
+# outage, and nothing in this repository can rehearse it before it lands.
+#
+# What IS bounded now is the other direction:
+# chuggy-control-plane-network-policy.yaml admits Traefik and the selector to
+# port 3000 and refuses every other pod on the cluster.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -174,6 +276,20 @@ spec:
         # Deployment. What would remove it is a retry in the composition root
         # of kasofsk/chuggy, not anything in this file -- an initContainer here
         # would only move the same wait somewhere quieter.
+        #
+        # WHAT MAKES THAT RESTART WORK IS THAT IT IS THE SAME POD, and the
+        # distinction is the whole difference between "retry" and "retry in the
+        # same pod". kube-router admits an IP, not a label as such: the label
+        # decides which IP goes into the set, and the set is what the packet is
+        # matched against. A kubelet restart keeps the sandbox and so keeps the
+        # address the controller has by then admitted, which is why the second
+        # attempt is free. A REPLACEMENT pod is issued a new address and starts
+        # the same wait over from nothing.
+        #
+        # That is why chuggy-migrate.yaml cannot get past this the way this
+        # Deployment does. It is a Job, its pods are replaced rather than
+        # restarted, and no `backoffLimit` reaches the state a restart reaches
+        # for free -- so it waits inside its pod instead. Measured there.
         chuggy.dev/postgres-client: "true"
     spec:
       # This process calls no Kubernetes API, so the token the kubelet would
@@ -190,13 +306,13 @@ spec:
         runAsGroup: 1000
       containers:
         - name: api
-          image: chuggy.invalid/api:ac02043
+          image: chuggy.invalid/api:4ec1192
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 3000
           env:
-            # Defined before the URL that expands it, which is the ordering
+            # Defined before the URLs that expand it, which is the ordering
             # Kubernetes resolves `$(...)` in.
             - name: CHUG_API_PASSWORD
               valueFrom:
@@ -204,6 +320,12 @@ spec:
                   { name: chuggy-postgres-credentials, key: api-password }
             - name: CHUG_API_DATABASE_URL
               value: postgres://chuggy_api_login:$(CHUG_API_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy_rehearsal?options=-c%20role%3Dchuggy_api
+            # The same credential becoming a different group. One password,
+            # because one process holds both pools and a second password would
+            # be a second thing to rotate for no separation it does not already
+            # have; the separation is the role, and it is in the option.
+            - name: CHUG_API_SELECTOR_REVIEW_DATABASE_URL
+              value: postgres://chuggy_api_login:$(CHUG_API_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy_rehearsal?options=-c%20role%3Dchuggy_selector_review
             - name: CHUG_API_IDEMPOTENCY_KEYING
               valueFrom:
                 secretKeyRef: { name: chuggy-api, key: idempotency-keying }
@@ -277,7 +399,13 @@ spec:
       terminationGracePeriodSeconds: 30
       volumes:
         - name: artifacts
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: chuggy-artifacts
+            # Read-only on the claim as well as on the mount. The mount is what
+            # the process sees; this is what the kubelet is asked for, and a
+            # read-only claim cannot be made writable by a mount that forgot to
+            # say so.
+            readOnly: true
 ---
 apiVersion: v1
 kind: Service

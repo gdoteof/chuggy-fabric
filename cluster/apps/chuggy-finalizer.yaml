@@ -1,0 +1,263 @@
+# The finalizer: the only process trusted to turn an accepted result into a
+# commit, and the only writer of the artifact store.
+#
+# One responsibility, one pod, one command, one database role. The shared image,
+# the six places its tag is written, the login-role-becomes-group connection,
+# the password's URL-reserved-character constraint and the absence of a health
+# listener are argued in chuggy-ticket-service.yaml.
+#
+# THIS WORKLOAD CANNOT REACH READY WITH THE IMAGE AS IT IS BUILT TODAY, and the
+# reason is one line of somebody else's Dockerfile. The finalizer's first
+# precondition is `git-available`: it runs `git --version` and requires a
+# version that writes merge trees. `images/api/Dockerfile` in kasofsk/chuggy
+# builds on `node:26.7.0-trixie-slim`, and that image has no git -- verified by
+# running `git --version` in it, which answers `not found`. So this command
+# reports `finalizer: git-available is not met` and exits 2, every time, until
+# the control-plane image installs git. That belongs to revised PR 2 of
+# kasofsk/chuggy#197, which owns the image.
+#
+# It is deployed anyway, and for the reason chuggy-selector.yaml gives: a
+# command that names the precondition it is missing is the visible form of the
+# gap. The three preconditions after it -- the scratch, the artifact root and
+# the credential files -- are all satisfiable from this file, and are.
+#
+# THE THIRD OF THOSE DEPENDS ON THE MODE ON THE CREDENTIAL VOLUME BELOW, and
+# `git-available` fails ahead of it, so getting that mode wrong is invisible
+# until revised PR 2 installs git. Read the argument there before changing it:
+# nothing on this rig can currently report it wrong.
+#
+# ---------------------------------------------------------- the recovery epoch ----
+#
+# `CHUG_FINALIZER_RECOVERY_EPOCH` must equal the newest row in the database's
+# `recovery_epoch` table, and the finalizer refuses to run when it does not.
+# NO MIGRATION WRITES THAT ROW: the table is created empty, and reading it when
+# it is empty raises "this database has no recovery epoch, so no lease can be
+# issued under one" -- which arrives here as an unmet `recovery-epoch-current`.
+#
+# So a fresh database needs one deliberate insert before the finalizer or the
+# scheduler can start. It is an installation step, not a recovery one; the
+# operator operations that establish a *later* epoch after a restore belong to
+# PR 7 of kasofsk/chuggy#197 and are not here.
+#
+#   kubectl -n chuggy exec -it postgres-0 -- \
+#     psql -U chuggy_owner -d chuggy_rehearsal \
+#     -c "INSERT INTO recovery_epoch (epoch) VALUES ('rehearsal-1')"
+#
+# The value must match this file and chuggy-scheduler.yaml, which name the same
+# epoch because they fence against the same one.
+#
+# ---------------------------------------------------------- the artifact store ----
+#
+# Read-write here and read-only in chuggy-api.yaml, which is the whole
+# asymmetry: this process is the producer and the API is the reader. Both mount
+# the claim in chuggy-artifacts.yaml, whose volume is `Retain` over a host
+# directory -- which is the ARGUMENT that what this writes outlives this pod,
+# this Deployment and the node's next boot, and not the evidence. Nothing has
+# replaced this pod and read the bytes back through the API, and nothing has
+# rebooted the box. The README says the same and says what would settle it.
+#
+# `artifact-root-writable` is a precondition rather than a runtime error, so a
+# volume that failed to mount is reported before anything is promoted.
+#
+# --------------------------------------------------------------- the git side ----
+#
+# THE CREDENTIAL IS A PATH AND NEVER A VALUE. The command is given the file each
+# repository's credential stands in and reads one at the moment a single remote
+# act needs it, so no token is in this process's environment, its arguments or
+# its diagnostics -- and a git child inherits an allowlist of variables rather
+# than this environment.
+#
+# The scratch is an `emptyDir` on purpose. A working tree is not state: it is
+# rebuilt from the remote for each promotion, and a copy of it surviving the pod
+# would be a stale checkout the next promotion has to decide whether to trust.
+# The artifact store is the thing that must persist, and it is the other volume.
+#
+# `HOME` points at the scratch because git writes there, and the root filesystem
+# below refuses writes. Without it git fails on a home directory it cannot use,
+# with a message about configuration rather than about permissions.
+#
+# The Secret, out of band, because this repository is public:
+#
+#   kubectl -n chuggy create secret generic chuggy-finalizer-credentials \
+#     --from-literal=kasofsk-chuggy=<token with push rights on that repository>
+#
+# D39 is why there is one entry: this rig dogfoods `kasofsk/chuggy` and nothing
+# else. Adding a repository is another key, another entry in the sources below,
+# and nothing structural.
+#
+# D34 IS NOT IMPLEMENTED BY THIS FILE. Only the finalizer may advance the
+# deployed revision, and what enforces that here is that no other workload holds
+# this Secret -- not any check on the branch, which is a repository setting, and
+# not the short-lived GitHub App minting D31 asks for, which is PR 5's and PR
+# 6's work. A static token in a Secret is what stands there in the meantime and
+# it is weaker than what the design asks for.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chuggy-finalizer
+  namespace: chuggy
+  labels: { app: chuggy-finalizer }
+spec:
+  replicas: 1
+  # Recreate, and here it is load-bearing rather than tidy: the rolling default
+  # would start a second finalizer while the first still held the artifact
+  # volume and a promotion in flight. One producer at a time.
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: chuggy-finalizer }
+  template:
+    metadata:
+      labels:
+        app: chuggy-finalizer
+        chuggy.dev/postgres-client: "true"
+    # This workload's egress -- including to remote git, which is off this
+    # cluster -- is admitted by `chuggy-finalizer-egress` in
+    # chuggy-control-plane-network-policy.yaml, and that policy selects on
+    # `app: chuggy-finalizer` above. There is no capability label for it: one
+    # would read as the thing egress is keyed on while keying nothing, and a
+    # pod selected by no egress policy is not egress-isolated at all.
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        # No fsGroup, because the artifact volume is a host directory the
+        # machine layer already owns 1000:1000 -- the uid and gid below. An
+        # fsGroup would be a second declaration of an ownership that is stated
+        # once, in the layer that creates the directory, and two statements of
+        # one fact is how they come to disagree.
+        #
+        # THE COST ARGUMENT FOR OMITTING IT DOES NOT HOLD, and it is worth
+        # saying so rather than leaving it standing. `fsGroupChangePolicy:
+        # OnRootMismatch` has been GA since 1.23 and is unrestricted under
+        # baseline; it skips the recursive walk whenever the top-level ownership
+        # already matches, which on this directory is every start after the
+        # first. So the choice is not bought by avoiding a chgrp of a growing
+        # store. What it is bought by is the Secret mode below, which is the
+        # only thing an fsGroup would change here.
+      containers:
+        - name: finalizer
+          image: chuggy.invalid/api:4ec1192
+          imagePullPolicy: IfNotPresent
+          command:
+            [
+              node,
+              --experimental-strip-types,
+              src/roots/finalizer.ts,
+            ]
+          env:
+            - name: CHUG_FINALIZER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  {
+                    name: chuggy-postgres-credentials,
+                    key: finalizer-password,
+                  }
+            - name: CHUG_FINALIZER_DATABASE_URL
+              value: postgres://chuggy_finalizer_login:$(CHUG_FINALIZER_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy_rehearsal?options=-c%20role%3Dchuggy_finalizer
+            # The claim holder's name, taken from the pod so that two live
+            # processes can never hold one finalization request under one
+            # identity.
+            - name: CHUG_FINALIZER_OWNER
+              valueFrom:
+                fieldRef: { fieldPath: metadata.name }
+            - name: CHUG_FINALIZER_RECOVERY_EPOCH
+              value: rehearsal-1
+            - name: CHUG_FINALIZER_ARTIFACT_ROOT
+              value: /var/lib/chuggy/artifacts
+            - name: CHUG_FINALIZER_GIT_SCRATCH_ROOT
+              value: /var/lib/chuggy/git
+            # What the commits this process makes are attributed to. A machine
+            # account rather than a person, because a person did not write them.
+            - name: CHUG_FINALIZER_GIT_COMMIT_NAME
+              value: chuggy finalizer
+            - name: CHUG_FINALIZER_GIT_COMMIT_EMAIL
+              value: finalizer@chuggy.vteng.io
+            - name: CHUG_FINALIZER_CREDENTIAL_SOURCES
+              value: |
+                [
+                  {
+                    "repository": "kasofsk/chuggy",
+                    "path": "/var/run/chuggy/credentials/kasofsk-chuggy"
+                  }
+                ]
+            # git writes into HOME, and the root filesystem below refuses
+            # writes. The scratch is the one writable place this process has
+            # that is not the artifact store, which git has no business in.
+            - name: HOME
+              value: /var/lib/chuggy/git
+            # AND THE SAME ARGUMENT REACHES ONE MORE VARIABLE. `TMPDIR` is in
+            # `finalizerGitEnvironmentNames` -- the allowlist a git child
+            # inherits -- so the command's own contract says git may be handed
+            # one, and with `readOnlyRootFilesystem: true` and no /tmp mount the
+            # default `/tmp` is not writable. git falls back to it for the
+            # temporaries a fetch and a pack build, so leaving this unset is
+            # leaving one of the two writable-path variables pointed at a path
+            # that is not. Pointing it at the same scratch closes it; the
+            # scratch is an emptyDir, so a temporary that outlives a promotion
+            # does not outlive the pod.
+            - name: TMPDIR
+              value: /var/lib/chuggy/git
+            # Every pass bound the finalizer decides under is left to the
+            # defaults its own module publishes, for the reason
+            # chuggy-ticket-service.yaml gives about restating a default.
+          volumeMounts:
+            - name: artifacts
+              mountPath: /var/lib/chuggy/artifacts
+            - name: git-scratch
+              mountPath: /var/lib/chuggy/git
+            - name: credentials
+              mountPath: /var/run/chuggy/credentials
+              readOnly: true
+          resources:
+            # More than the other loops: a promotion forks git, which clones a
+            # working tree and writes it to the scratch above.
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 768Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            # Still true with three writable mounts: what it refuses is a write
+            # anywhere this file did not name.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile: { type: RuntimeDefault }
+      # Longer than the other loops. A drain here may be waiting on a git child
+      # that is talking to a remote, and the command's own remote timeout is the
+      # bound on that rather than this.
+      terminationGracePeriodSeconds: 60
+      volumes:
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: chuggy-artifacts
+        - name: git-scratch
+          emptyDir: {}
+        - name: credentials
+          secret:
+            secretName: chuggy-finalizer-credentials
+            # WORLD-READABLE INSIDE THIS CONTAINER, AND THAT IS THE ONLY MODE
+            # THAT WORKS HERE. The kubelet writes a Secret volume's files owned
+            # by uid 0 whatever `runAsUser` says, and applies `fsGroup` to the
+            # group and nothing else. With no `fsGroup` -- which the pod
+            # securityContext above declines, for the reason it gives -- the
+            # group is 0 too, so any mode without the world bit leaves a file
+            # this process cannot open. `0400` here is root-only, and
+            # `credentialFilesPrecondition` reports
+            # `repository-credentials-available` unmet against it.
+            #
+            # What the world bit costs is bounded by the mount namespace it is
+            # in: one container, running one process, which is the process the
+            # file is for. There is no second uid in this pod to read it.
+            #
+            # THE ALTERNATIVE IS AN `fsGroup`, AND IT IS NOT THE EXPENSIVE ONE
+            # IT LOOKS LIKE. `fsGroup: 1000` with
+            # `fsGroupChangePolicy: OnRootMismatch` would put this file in group
+            # 1000 and buy `0440`, and it would not walk the artifact store
+            # after the first start, because that directory's top-level
+            # ownership already matches. So the choice between them is not a
+            # performance one. It is that an fsGroup restates the ownership the
+            # machine layer declares -- see the pod securityContext above -- to
+            # remove a world bit from one file in a pod with one uid in it.
+            defaultMode: 0444

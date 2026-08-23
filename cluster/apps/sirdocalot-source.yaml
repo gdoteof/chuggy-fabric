@@ -6,8 +6,8 @@
 # repo had no remote. The namespace it runs in stays here -- see
 # sirdocalot-namespace.yaml for why.
 #
-# The repo is public, so there is no secretRef, for the same reason gotk-sync.yaml
-# has none.
+# The repo is public, so there is no secretRef, for the same reason the `fabric`
+# GitRepository `modules/flux.nix` generates has none.
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository

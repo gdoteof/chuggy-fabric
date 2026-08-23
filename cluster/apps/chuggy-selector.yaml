@@ -1,0 +1,201 @@
+# The selector: the process that decides which dispatchable ticket to take
+# next, from the project view the API serves it and the advisory context beside
+# it.
+#
+# One responsibility, one pod, one command, one database role. What this file
+# shares with the other four -- the shared image, the tag that must move in six
+# places, the login-role-becomes-group connection, the URL-reserved-character
+# constraint on the password, the absence of any health listener -- is argued in
+# chuggy-ticket-service.yaml and is not repeated.
+#
+# THIS WORKLOAD CANNOT REACH READY ON THIS RIG TODAY. Two of its preconditions
+# have no answer here, both of them for reasons outside this repository, and
+# both are stated below where the value that depends on them is written. It is
+# deployed anyway because a command that reports the precondition it is missing,
+# by name, is the visible form of the gap -- and because the alternative is a
+# manifest that does not exist and a gap nobody is looking at.
+#
+# ------------------------------------------------ what it reaches, and how ----
+#
+# It is a client of the API, not of the API's database: `source.baseUrl` is the
+# in-cluster Service, and every project read goes through `/api/v1` with a
+# bearer token, exactly as a console would. Its own database role is for the
+# selector's own state -- interactions, attempts, deliveries, planning intents
+# -- and for nothing it could read through the API instead.
+#
+# The base URL is the ORIGIN and not a path. The client builds `/api/v1/...`
+# itself, and asks `/health/ready` at the root; a base URL carrying the version
+# prefix would send both somewhere that does not exist.
+#
+# ------------------------------------------- the token, and what expires it ----
+#
+# `source.bearerToken` IS A STATIC VALUE AND THE ISSUER SIGNS SHORT TOKENS.
+# ory-hydra.yaml sets `ttl.access_token` to fifteen minutes, deliberately,
+# because nothing revokes an offline-verified JWT. This configuration hands the
+# command one token and there is nothing in this repository, and nothing in the
+# command, that gets another: after that lifetime every call this workload makes
+# to the API is a 401, and the pod stays up.
+#
+# The seam for the fix is already in kasofsk/chuggy -- `nativeHttpClient` takes
+# `accessToken` as a function of a signal, and `src/roots/selector.ts` wires a
+# constant into it. What closes this is that command asking Hydra for a
+# client-credentials token and refreshing it, plus a confidential client
+# registered on the admin port. Neither is a manifest, so neither is here.
+#
+# --------------------------------------------------- the policy host, absent ----
+#
+# `policy.baseUrl` names a trusted selector policy service. NOTHING SERVES THAT
+# PROTOCOL. kasofsk/chuggy defines the client and the media type in
+# `src/adapters/http/trustedSelectorPolicy.ts` and implements no server for it;
+# no Service in `cluster/apps/` answers it either. So the `selector-policy`
+# precondition cannot pass, and it is the one this workload is ultimately
+# blocked on.
+#
+# IT IS NOT THE ONE THAT FAILS FIRST, AND IT IS NOT THE FIRST THING TO GO WRONG.
+# `selectorCommandPreconditions` orders `selector-source` ahead of it, so that
+# is the name a run reports first if the API does not accept the source token --
+# and this file already argues that the token is a static string against an
+# issuer that signs short-lived ones. And no run gets that far today: neither
+# Secret named below exists on this rig, so the kubelet
+# cannot build the container and the pod sits in `CreateContainerConfigError`
+# having executed nothing. Three failures deep, and the one this section is
+# about is the last of them. Create the Secrets and the report moves to
+# `selector-source`; fix the token and it moves here.
+#
+# The name below is what that Service will be called when it exists. It is a
+# name that does not resolve today, which is the loud failure rather than the
+# quiet one -- a base URL pointing at something that answers with the wrong
+# thing would be worse.
+#
+# ------------------------------------------------------------- the Secrets ----
+#
+# Out of band, because this repository is public. Both tokens are the
+# selector's own, so they are its own Secret rather than more keys on the
+# credential Secret the machine layer synchronizes:
+#
+#   kubectl -n chuggy create secret generic chuggy-selector \
+#     --from-literal=source-bearer-token=<access token for the API> \
+#     --from-literal=policy-bearer-token=<token the policy host accepts>
+#
+# A `secretKeyRef` naming a key that is not there refuses to start the pod,
+# which is the right failure: a selector with no credential should not run.
+#
+# BOTH TOKENS ARE HAND-WRITTEN AND BOTH LAND IN A JSON STRING, so both carry the
+# constraint chuggy-ticket-service.yaml states in full. Two lines of it bite
+# here and the URL ones do not, because a token is not in a userinfo: a `"` or a
+# `\` in either value makes the configuration below unparseable, and a `$(` is
+# expanded by the kubelet before the process ever reads it. The database
+# password in the same document carries the whole list.
+#
+# That is worth stating for a token more than for a password, because nothing
+# generates these. The password comes from the machine layer's hex generator;
+# these two are typed by whoever runs the command above. A base64 or JWT-shaped
+# value is safe on both counts. A passphrase somebody invents is not.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chuggy-selector
+  namespace: chuggy
+  labels: { app: chuggy-selector }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: chuggy-selector }
+  template:
+    metadata:
+      labels:
+        app: chuggy-selector
+        chuggy.dev/postgres-client: "true"
+        # This is the only workload in this namespace that calls the API from
+        # inside the cluster, and chuggy-control-plane-network-policy.yaml
+        # admits port 3000 by this label. Traefik reaches the API by a rule of
+        # its own; nothing else here may.
+        chuggy.dev/api-client: "true"
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: selector
+          image: chuggy.invalid/api:4ec1192
+          imagePullPolicy: IfNotPresent
+          command:
+            [
+              node,
+              --experimental-strip-types,
+              src/roots/selector.ts,
+            ]
+          env:
+            - name: CHUG_SELECTOR_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  {
+                    name: chuggy-postgres-credentials,
+                    key: selector-service-password,
+                  }
+            - name: CHUG_SELECTOR_SOURCE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  { name: chuggy-selector, key: source-bearer-token }
+            - name: CHUG_SELECTOR_POLICY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  { name: chuggy-selector, key: policy-bearer-token }
+            # Every operation and decision this process writes is named after
+            # the instance that wrote it, so the pod is the instance. A fixed
+            # string would make two pods' work indistinguishable in the journal.
+            - name: CHUG_POD_NAME
+              valueFrom:
+                fieldRef: { fieldPath: metadata.name }
+            # `selector` is omitted: its three bounds have defaults in
+            # kasofsk/chuggy's selector runtime, and restating a default is how
+            # two copies of one number come to disagree.
+            #
+            # `identity.principal` must name the same subject the source token
+            # carries. The API authorizes by the token; this value is what the
+            # selector's own reads are attributed to, and a mismatch between the
+            # two shows up as an authorization refusal on a call the token
+            # should have allowed.
+            - name: CHUG_SELECTOR_CONFIG
+              value: |
+                {
+                  "database": {
+                    "url": "postgres://chuggy_selector_service_login:$(CHUG_SELECTOR_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy_rehearsal?options=-c%20role%3Dchuggy_selector_service"
+                  },
+                  "runtime": {
+                    "idleIntervalMilliseconds": 1000,
+                    "shutdownDrainMilliseconds": 15000
+                  },
+                  "identity": {
+                    "principal": "selector@chuggy.vteng.io",
+                    "instance": "$(CHUG_POD_NAME)"
+                  },
+                  "source": {
+                    "baseUrl": "http://chuggy-api.chuggy.svc.cluster.local:3000",
+                    "bearerToken": "$(CHUG_SELECTOR_SOURCE_TOKEN)",
+                    "requestDeadlineMs": 10000,
+                    "responseBytesMax": 1048576,
+                    "responseReadsMax": 1024
+                  },
+                  "policy": {
+                    "baseUrl": "http://chuggy-selector-policy.chuggy.svc.cluster.local:8080",
+                    "bearerToken": "$(CHUG_SELECTOR_POLICY_TOKEN)",
+                    "requestDeadlineMs": 10000,
+                    "responseBytesMax": 1048576,
+                    "controlDeadlineMs": 30000
+                  }
+                }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 384Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile: { type: RuntimeDefault }
+      terminationGracePeriodSeconds: 30
