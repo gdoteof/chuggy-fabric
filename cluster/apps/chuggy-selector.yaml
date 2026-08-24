@@ -8,12 +8,13 @@
 # constraint on the password, the absence of any health listener -- is argued in
 # chuggy-ticket-service.yaml and is not repeated.
 #
-# THIS WORKLOAD CANNOT REACH READY ON THIS RIG TODAY. Two of its preconditions
+# THIS WORKLOAD IS DECLARED HERE AND RUNS NO REPLICA. Two of its preconditions
 # have no answer here, both of them for reasons outside this repository, and
-# both are stated below where the value that depends on them is written. It is
-# deployed anyway because a command that reports the precondition it is missing,
-# by name, is the visible form of the gap -- and because the alternative is a
-# manifest that does not exist and a gap nobody is looking at.
+# both are stated below where the value that depends on them is written. One of
+# the two has a fix with a seam already cut for it; the other has none anywhere,
+# and that is what `replicas: 0` is argued from, beside the number. Everything
+# else stays declared, so the gap is a manifest with a zero in it rather than a
+# manifest nobody wrote.
 #
 # ------------------------------------------------ what it reaches, and how ----
 #
@@ -51,16 +52,14 @@
 # precondition cannot pass, and it is the one this workload is ultimately
 # blocked on.
 #
-# IT IS NOT THE ONE THAT FAILS FIRST, AND IT IS NOT THE FIRST THING TO GO WRONG.
-# `selectorCommandPreconditions` orders `selector-source` ahead of it, so that
-# is the name a run reports first if the API does not accept the source token --
-# and this file already argues that the token is a static string against an
-# issuer that signs short-lived ones. And no run gets that far today: neither
-# Secret named below exists on this rig, so the kubelet
-# cannot build the container and the pod sits in `CreateContainerConfigError`
-# having executed nothing. Three failures deep, and the one this section is
-# about is the last of them. Create the Secrets and the report moves to
-# `selector-source`; fix the token and it moves here.
+# IT IS NOT THE ONE THAT FAILS FIRST. `selectorCommandPreconditions` orders
+# `selector-source` ahead of it, and that is the name a replica of this
+# Deployment reported: `selector could not run: selector-source`, with the
+# Secret below in place. The API is not what is wrong there -- `/health/ready`
+# answers 200, and the hand-written token in that Secret is refused 401 on
+# `/api/v1/projects`, which is the static-token problem this file argues above.
+# So this section is hidden behind that one: fix the token and the report moves
+# here, and here there is nothing to fix.
 #
 # The name below is what that Service will be called when it exists. It is a
 # name that does not resolve today, which is the loud failure rather than the
@@ -99,7 +98,27 @@ metadata:
   namespace: chuggy
   labels: { app: chuggy-selector }
 spec:
-  replicas: 1
+  # ZERO, AND NOT BECAUSE THIS IS UNFINISHED. `selector-source` is what a run
+  # reports, and it is not the reason: it is unsatisfied today and there is a
+  # seam for it. `selector-policy` is the reason. Nothing implements the trusted
+  # selector policy protocol -- not here, not in kasofsk/chuggy, not anywhere --
+  # so nothing outside this repository clears it either. A replica restates that
+  # absence every backoff interval and tells nobody anything, and it is one more
+  # red pod for a real one to hide behind.
+  #
+  # A Deployment with no available replica also never passes `wait: true`, which
+  # health-checks every object in this directory. At zero it does: kstatus reads
+  # `observedGeneration`, the `Progressing` and `Available` conditions and the
+  # replica counts, and a Deployment asked for none and running none satisfies
+  # all of them -- `Available` is the one that is False at one replica. That
+  # takes this object out of the set the health check fails on. It does not make
+  # `apps` Ready: chuggy-finalizer is in that set too and stays at one, because
+  # its blocker is reachable and this one is not.
+  #
+  # Everything else in this file stays declared, because none of it is wrong --
+  # the RBAC, the network policy and the configuration are what PR 5 turns on.
+  # Restoring this to 1 is the last step of that, not a step of its own.
+  replicas: 0
   strategy: { type: Recreate }
   selector:
     matchLabels: { app: chuggy-selector }

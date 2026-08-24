@@ -6,24 +6,37 @@
 # the password's URL-reserved-character constraint and the absence of a health
 # listener are argued in chuggy-ticket-service.yaml.
 #
-# THIS WORKLOAD CANNOT REACH READY WITH THE IMAGE AS IT IS BUILT TODAY, and the
-# reason is one line of somebody else's Dockerfile. The finalizer's first
-# precondition is `git-available`: it runs `git --version` and requires a
-# version that writes merge trees. `images/api/Dockerfile` in kasofsk/chuggy
-# builds on `node:26.7.0-trixie-slim`, and that image has no git -- verified by
-# running `git --version` in it, which answers `not found`. So this command
-# reports `finalizer: git-available is not met` and exits 2, every time, until
-# the control-plane image installs git. That belongs to revised PR 2 of
-# kasofsk/chuggy#197, which owns the image.
+# THIS WORKLOAD CANNOT REACH READY ON THE TAG PINNED BELOW, and one of the two
+# reasons is one line of somebody else's Dockerfile. The finalizer's first
+# precondition is `git-available`: it runs `git --version` and requires a version
+# that writes merge trees. `images/api/Dockerfile` in kasofsk/chuggy builds on
+# `node:26.7.0-trixie-slim`, which carries no git -- verified by running
+# `git --version` in a pod on this rig at the pinned tag, which answers `not
+# found`. So this command reports `finalizer: git-available is not met` and exits
+# 2, every time, on that image.
 #
-# It is deployed anyway, and for the reason chuggy-selector.yaml gives: a
-# command that names the precondition it is missing is the visible form of the
-# gap. The three preconditions after it -- the scratch, the artifact root and
-# the credential files -- are all satisfiable from this file, and are.
+# THE IMAGE IS NO LONGER THE OPEN QUESTION. kasofsk/chuggy#254 installs git and
+# the certificate bundle it needs to reach a remote at all, so what stands
+# between this file and a running finalizer is the re-pin, and then
+# prerequisite 5's Secret.
 #
-# THE THIRD OF THOSE DEPENDS ON THE MODE ON THE CREDENTIAL VOLUME BELOW, and
-# `git-available` fails ahead of it, so getting that mode wrong is invisible
-# until revised PR 2 installs git. Read the argument there before changing it:
+# IT IS DEPLOYED AT ONE REPLICA BECAUSE THAT BLOCKER IS REACHABLE: an image with
+# git in it clears it, and until then a command that names the precondition it
+# is missing is the visible form of the gap. `composeFinalizerRuntime` orders
+# `git-scratch-writable` and `artifact-root-writable` after it, and the two
+# volumes below answer both -- the scratch is an emptyDir, and the artifact root
+# is the host directory the README's prerequisite 3 creates, owned by the uid
+# this pod runs as.
+#
+# THE FOURTH, `repository-credentials-available`, IS NOT THIS FILE'S TO ANSWER.
+# `chuggy-finalizer-credentials` is created by hand, and it is not on this rig:
+# the kubelet cannot mount the volume, so the container is never built and no
+# precondition is reached at all. That is the state `kubectl get pods` shows
+# today, and the paragraph above is what it becomes once the Secret exists.
+#
+# THAT PRECONDITION ALSO DEPENDS ON THE MODE ON THE CREDENTIAL VOLUME BELOW, and
+# `git-available` fails ahead of it on the pinned tag, so getting that mode wrong
+# is invisible until the re-pin. Read the argument there before changing it:
 # nothing on this rig can currently report it wrong.
 #
 # ---------------------------------------------------------- the recovery epoch ----
@@ -39,12 +52,22 @@
 # operator operations that establish a *later* epoch after a restore belong to
 # PR 7 of kasofsk/chuggy#197 and are not here.
 #
-#   kubectl -n chuggy exec -it postgres-0 -- \
+#   epoch="epoch-$(uuidgen)"
+#   kubectl -n chuggy create secret generic chuggy-recovery-epoch \
+#     --from-literal=epoch="$epoch"
+#   kubectl -n chuggy exec -i postgres-0 -- \
 #     psql -U chuggy_owner -d chuggy \
-#     -c "INSERT INTO recovery_epoch (epoch) VALUES ('rehearsal-1')"
+#     -c "INSERT INTO recovery_epoch (epoch) VALUES ('$epoch')"
 #
-# The value must match this file and chuggy-scheduler.yaml, which name the same
-# epoch because they fence against the same one.
+# The value is not written in this repository. `schema.ts` requires the epoch be
+# unpredictable and never reused -- it exists to defeat a counter restored from
+# the past -- and a literal in a public directory is neither: it is published to
+# everyone who clones this, and a revert of the directory reinstates a retired
+# epoch as the current one. Those two are what the Secret restores, and not
+# confidentiality: k3s on this rig stores Secrets unencrypted, and whoever can
+# read this namespace's Secrets already holds chuggy-postgres-credentials. Both
+# this file and chuggy-scheduler.yaml read the one Secret, which is what makes
+# them name the same epoch.
 #
 # ---------------------------------------------------------- the artifact store ----
 #
@@ -57,7 +80,10 @@
 # rebooted the box. The README says the same and says what would settle it.
 #
 # `artifact-root-writable` is a precondition rather than a runtime error, so a
-# volume that failed to mount is reported before anything is promoted.
+# root this process cannot write is reported by name before anything is
+# promoted. A volume the kubelet could not mount at all is earlier than that and
+# is not this command's to report: the container is never built, which is what
+# the missing credential Secret looks like above.
 #
 # --------------------------------------------------------------- the git side ----
 #
@@ -164,7 +190,8 @@ spec:
               valueFrom:
                 fieldRef: { fieldPath: metadata.name }
             - name: CHUG_FINALIZER_RECOVERY_EPOCH
-              value: rehearsal-1
+              valueFrom:
+                secretKeyRef: { name: chuggy-recovery-epoch, key: epoch }
             - name: CHUG_FINALIZER_ARTIFACT_ROOT
               value: /var/lib/chuggy/artifacts
             - name: CHUG_FINALIZER_GIT_SCRATCH_ROOT

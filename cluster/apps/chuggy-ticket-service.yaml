@@ -38,8 +38,8 @@
 # kasofsk/chuggy#242 and is what applies the schema these pods then serve --
 # and it must be one whose checkout also carries the two membership grants the
 # README's prerequisite 1 pre-filters for, because part of that branch does not.
-# The login roles those pods present are already on this rig; the memberships
-# are not.
+# The login roles those pods present are already on this rig, and so are those
+# two memberships: the roles file has been re-run here.
 #
 # --------------------------------------------------- the credential, again ----
 #

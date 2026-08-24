@@ -7,8 +7,8 @@
 # the password's URL-reserved-character constraint and the absence of a health
 # listener are argued in chuggy-ticket-service.yaml. The recovery epoch and the
 # insert that establishes it are argued in chuggy-finalizer.yaml; both processes
-# fence against the same epoch, which is why the value is written twice and must
-# agree.
+# fence against the same epoch, which is why both read it from one Secret rather
+# than each carrying a copy.
 #
 # ------------------------------------------ the credential that is not a secret ----
 #
@@ -21,13 +21,21 @@
 #
 # WHAT THE TOKEN MAY DO IS BOUND BY THE RBAC BELOW AND BY NOTHING ELSE. It
 # grants `get` on one namespace by name, which is what the command's
-# `cluster-namespace-reachable` precondition asks. IT CANNOT CREATE A POD. The
-# Role that lets it place workers in `chuggy-work`, the pod security that bounds
-# what it may place, and the immutable worker-image allowlist are PR 5 of
-# kasofsk/chuggy#197 -- so this scheduler starts, and every placement it
-# attempts is answered 403 and held as unavailable rather than denied. That is
-# the adapter's own reading of a forbidden answer and it is the right one: a
-# 403 cannot be told apart from an exhausted quota by its status line.
+# `cluster-namespace-reachable` precondition asks. IT CANNOT CREATE A POD:
+# `kubectl auth can-i create pods -n chuggy-work
+# --as=system:serviceaccount:chuggy:chuggy-scheduler` answers no. The Role that
+# would let it place workers there, the pod security that bounds what it may
+# place, and the immutable worker-image allowlist are PR 5 of
+# kasofsk/chuggy#197.
+#
+# NOTHING REACHES THAT REFUSAL UNDER THE POLICY BELOW, and the two must not be
+# confused for each other. `kubernetesWorkerPodRequest` resolves the profile
+# first and answers `Denied` before it builds a request, so no placement is ever
+# submitted and the API server never answers anything. The 403 is what would
+# arrive once a policy names an admitted profile, and `kubernetesPlaced` holds a
+# forbidden answer as unavailable rather than denied -- only 400, 413, 415 and
+# 422 are refusals of the document itself. That is the right reading: a 403
+# cannot be told apart from an exhausted quota by its status line.
 #
 # NODE_EXTRA_CA_CERTS IS NOT DECORATION. The adapter reaches the API server with
 # plain `fetch`, which trusts the public root store and nothing else. Without
@@ -39,15 +47,20 @@
 #
 # This command refuses to parse a configuration that does not name an admitted
 # worker image, a worker resource budget, an execution policy and at least one
-# task configuration. They are site policy and they belong to PR 5. So the
-# values below are the smallest thing that parses, they are marked where they
-# are written, and they are not this rig's policy:
+# task configuration -- each of the four by name, and an empty list for either
+# of the two lists as well. They are site policy and they belong to PR 5. So the
+# values below are placeholders that satisfy those four requirements, they are
+# marked where they are written, and they are not this rig's policy:
 #
 #   - the worker image names a tag nothing has built. The default worker image
 #     is revised PR 2's, in kasofsk/chuggy.
-#   - the execution policy is empty, so no task kind has a profile and every
-#     execution is denied at the point of decision. D26's allowlist and D30's
-#     adopter-supplied budgets replace it.
+#   - the execution policy names a profile no worker image is admitted for, so
+#     every execution is denied `ExecutionProfileUnavailable` when its pod is
+#     asked for. An empty policy would say the same thing one step earlier, but
+#     the command refuses one that grants no task kind at all, so this is how
+#     the denial is written. Both task kinds are named, so both take that
+#     refusal from the image allowlist rather than one taking it from an absent
+#     grant. D26's allowlist and D30's adopter-supplied budgets replace it.
 #   - the task configuration's digest is sixty-four zeroes, which is a well
 #     formed digest of nothing. A real one is the digest of a real authored
 #     configuration.
@@ -149,9 +162,14 @@ spec:
               valueFrom:
                 fieldRef: { fieldPath: metadata.name }
             # Must equal chuggy-finalizer.yaml's, and the newest row in the
-            # database's `recovery_epoch` table.
+            # database's `recovery_epoch` table. In a Secret rather than here
+            # because `schema.ts` requires the epoch be unpredictable and never
+            # reused, and a value written here is published to everyone who
+            # clones this and is reinstated by a revert of the directory.
+            # chuggy-finalizer.yaml carries the argument and the two commands.
             - name: CHUG_SCHEDULER_RECOVERY_EPOCH
-              value: rehearsal-1
+              valueFrom:
+                secretKeyRef: { name: chuggy-recovery-epoch, key: epoch }
             - name: NODE_EXTRA_CA_CERTS
               value: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
             - name: CHUG_SCHEDULER_CLUSTER_API_URL
@@ -193,11 +211,41 @@ spec:
                   "memoryRequest": "512Mi",
                   "memoryLimit": "2Gi"
                 }
-            # PR 5's, and empty: no task kind has a profile, so every execution
-            # is denied at the point of decision rather than placed under a
-            # policy this stage did not write.
+            # PR 5's. `{}` is what this said, and the command would not start on
+            # it: `checkedSuppliedExecutionPolicyConfig` refuses a policy that
+            # grants no task kind, so a deployment cannot write "deny
+            # everything" as the empty policy. The pod wrote `execution
+            # scheduler: supplied execution policy grants no task kind` and
+            # exited. What stands instead grants both kinds a profile named
+            # `denied`, which CHUG_SCHEDULER_WORKER_IMAGES above does not admit
+            # -- so a placement resolves `ExecutionProfileUnavailable`, the same
+            # refusal an absent task kind gives, and the grant is empty besides.
             - name: CHUG_SCHEDULER_EXECUTION_POLICY
-              value: "{}"
+              value: |
+                {
+                  "Work": {
+                    "profile": "denied",
+                    "runtimeVersion": "denied",
+                    "grant": {
+                      "tools": [],
+                      "credentials": [],
+                      "network": false,
+                      "filesystem": "None",
+                      "mayCompleteTask": false
+                    }
+                  },
+                  "Evaluation": {
+                    "profile": "denied",
+                    "runtimeVersion": "denied",
+                    "grant": {
+                      "tools": [],
+                      "credentials": [],
+                      "network": false,
+                      "filesystem": "None",
+                      "mayCompleteTask": false
+                    }
+                  }
+                }
             # D39: one project, and it is this rig's own repository. The digest
             # is sixty-four zeroes because no authored configuration has been
             # pinned yet.

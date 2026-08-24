@@ -62,11 +62,11 @@
 # there until a human clears it.
 #
 # WHAT THAT SIGNAL IS WORTH IS LESS THAN IT SOUNDS, for the reason the README's
-# "what does not work yet" gives: four of the five Deployments beside this Job
-# never reach an available replica either, so `apps` is `Ready=False` before it
-# has run at all and a failure here adds a line to a list that is already long.
-# Nothing routes it anywhere -- Alertmanager is off and notification-controller
-# is not installed -- so it is read by looking. Read the message, not the bit.
+# "what does not work yet" gives: a Deployment beside this Job never reaches an
+# available replica either, so `apps` is `Ready=False` before it has run at all
+# and a failure here adds a line to a list that is already long. Nothing routes
+# it anywhere -- Alertmanager is off and notification-controller is not
+# installed -- so it is read by looking. Read the message, not the bit.
 #
 # The recovery is to read the pod, fix the cause, and delete the Job so the
 # next reconcile builds it afresh:
@@ -77,20 +77,23 @@
 # NOTHING HAS PUT THIS RIG IN THAT STATE. It is a possibility argued from the
 # mechanism, not something observed, and it is worth saying which because the
 # obvious argument for it is wrong: a database BEHIND the ledger this image
-# declares is the case that SUCCEEDS. The rig is at 15, this image declares 17,
-# and 15 is a prefix of 17, so the run applies the difference and exits 0.
+# declares is the case that SUCCEEDS. A ledger that is a prefix of what the
+# image declares means the run applies the difference and exits 0; this rig's
+# ledger is at 18, which is all of it, and the run said `the schema was already
+# current`.
 #
-# NONE OF WHICH IS THIS RIG'S PROBLEM, AND THE ONE IT HAS IS WORSE. Everything
-# above is about a Job that fails. What happens here is a Job that SUCCEEDS
-# while applying nothing, and there is no state in Kubernetes that is wrong
-# afterwards for anyone to find.
+# THE FAILURE MODE THAT MATTERS IS NEITHER OF THOSE. Everything above is about a
+# Job that fails. The one worth this much text is a Job that SUCCEEDS while
+# applying nothing, and leaves no state in Kubernetes that is wrong afterwards
+# for anyone to find.
 #
 # Migration 17 of the image below is
 # `GRANT EXECUTE ON FUNCTION project_capacity_account(text,text) TO chuggy_api`.
-# That function is owned by `chuggy_boundary_owner`, and `chuggy_owner` -- the
-# role this Job connects as -- is not a member of it, so this is a GRANT by a
-# role holding no grant option on the object. PostgreSQL answers that in one of
-# two ways, and WHICH ONE decides whether anybody ever hears about it:
+# That function is owned by `chuggy_boundary_owner`, and it is issued by
+# `chuggy_owner`, the role this Job connects as. Where `chuggy_owner` is not a
+# member of the owning role, that is a GRANT by a role holding no grant option
+# on the object. PostgreSQL answers that in one of two ways, and WHICH ONE
+# decides whether anybody ever hears about it:
 #
 #   ERROR    if the granting role holds NO privilege on the object at all.
 #            The statement raises, the runner's single transaction rolls back,
@@ -100,25 +103,24 @@
 #            INHERITED privilege counts. The statement SUCCEEDS having granted
 #            nothing, and everything after it commits.
 #
-# THIS RIG IS ON THE WARNING BRANCH, and by a route that is easy to miss.
-# `chuggy_owner` appears nowhere in the function's ACL, which names only
-# `chuggy_boundary_owner` and `chuggy_ticket_service`. But `chuggy_owner` IS a
-# member of `chuggy_ticket_service`, so it inherits EXECUTE, so it holds a
-# privilege, so the check is satisfied. `has_function_privilege` on that role
-# for EXECUTE is true while the same call `WITH GRANT OPTION` is false: that
-# pair is the discriminator, and it is the query to run before assuming which
-# branch any particular statement is on.
+# A DATABASE WITHOUT THAT MEMBERSHIP IS ON THE WARNING BRANCH, by a route that
+# is easy to miss. `chuggy_owner` appears nowhere in the function's ACL, which
+# names only `chuggy_boundary_owner` and `chuggy_ticket_service`. But
+# `chuggy_owner` IS a member of `chuggy_ticket_service`, so it inherits EXECUTE,
+# so it holds a privilege, so the check is satisfied. `has_function_privilege`
+# on that role for EXECUTE is true while the same call `WITH GRANT OPTION` is
+# false: that pair is the discriminator, and it is the query to run before
+# assuming which branch any particular statement is on.
 #
 # Membership in every service group is deliberate -- `postgres-roles.sql` has a
 # section headed "WHY chuggy_owner IS A MEMBER OF EVERY GROUP" -- so a correctly
 # provisioned database is on the warning branch by construction. The loud branch
 # is the accident, not the rule.
 #
-# SO THE RUN REPORTS `applied 16,17`, EXITS 0, AND THE JOB IS `Complete`. The
-# ledger says 17. The grant did not land, and the API's selector-context reads
-# fail at runtime with `permission denied for function
-# project_capacity_account` -- a failure with no signal at the layer that caused
-# it.
+# THEN THE RUN EXITS 0 AND THE JOB IS `Complete`, the ledger advances, the grant
+# does not land, and the API's selector-context reads fail at runtime with
+# `permission denied for function project_capacity_account` -- a failure with no
+# signal at the layer that caused it.
 #
 # AND DELETING THE JOB DOES NOT FIX IT. That is the property that makes this
 # worth this much text. The ledger row committed, so the applied ledger is still
@@ -128,7 +130,12 @@
 # `GRANT chuggy_boundary_owner TO chuggy_owner` and then a statement that
 # re-issues migration 17's grant by hand, because no migration will do it again.
 #
-# WHICH IS WHY THE ORDERING IS A PREREQUISITE AND NOT A NOTE.
+# THIS RIG IS PAST THAT BRANCH, because prerequisite 1 was run here:
+# `chuggy_owner` is a member of `chuggy_boundary_owner`, `WITH GRANT OPTION` on
+# that function is true for it, and the function's ACL carries
+# `chuggy_api=X/chuggy_boundary_owner`.
+#
+# THE ORDERING IS THEREFORE A PREREQUISITE AND NOT A NOTE.
 # `deploy/rig/postgres/postgres-roles.sql` is where that membership grant is
 # issued -- in a copy of the file that carries it, which not every commit on
 # kasofsk/chuggy#242 does; the README's prerequisite 1 pre-filters the checkout

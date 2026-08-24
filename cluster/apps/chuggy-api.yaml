@@ -32,9 +32,10 @@
 # would this one after its image store is reset. That is the price of no
 # registry and it is paid knowingly on a single-node rig.
 #
-# MERGING THIS BEFORE THE IMPORT RE-POINTS A WORKING API AT A TAG THIS NODE DOES
-# NOT HOLD. `k3s ctr images ls` has 85c36c8, ac02043 and cbf8dcc; the API
-# serving traffic right now is on ac02043, and the tag below is none of them.
+# MERGING A RE-PIN BEFORE THE IMPORT RE-POINTS A WORKING API AT A TAG THIS NODE
+# DOES NOT HOLD. That is not where this rig is -- `k3s ctr images ls` holds the
+# tag below and the API is serving on it -- but it is one merge away every time
+# those six lines move, so what happens then is worth knowing before it does.
 #
 # WHAT SAVES IT IS THE ROLLOUT STRATEGY, WHICH IS A DEFAULT AND NOT A DECISION
 # ANYONE MADE HERE. `RollingUpdate` at `replicas: 1` computes `maxUnavailable`
@@ -75,9 +76,9 @@
 # that role. It is a separate least-authority credential rather than a widening
 # of `chuggy_api`, which is why it is a second URL and not a second query.
 #
-# THE GRANT THAT MAKES IT WORK IS IN NO MIGRATION AND IS NOT ON THIS RIG. The
-# migration creates `chuggy_selector_review` NOLOGIN and grants it its two
-# reads; what grants the group to a login role is kasofsk/chuggy's
+# THE GRANT THAT MAKES IT WORK IS IN NO MIGRATION. The migration creates
+# `chuggy_selector_review` NOLOGIN and grants it its two reads; what grants the
+# group to a login role is kasofsk/chuggy's
 # `deploy/rig/postgres/postgres-roles.sql`, in a copy of it carrying
 #
 #   GRANT chuggy_selector_review TO chuggy_api_login;
@@ -88,16 +89,17 @@
 # then reads `pg_auth_members` on the server, which is the only thing that
 # settles whether they landed. `9d88703`, which the six tags name, carries both.
 #
-# This rig was rolled out from an older copy: `pg_auth_members` shows
-# `chuggy_selector_review` with no members at all, so no credential here can
-# become it and the API refuses to listen.
+# It is on this rig: `pg_auth_members` carries
+# `chuggy_selector_review|chuggy_api_login` and this API is listening. A
+# database rolled out from an older copy of that file has neither grant, and
+# then no credential here can become the role and the API refuses to listen.
 #
-# THE REMEDY IS NOT TO RUN THAT ONE STATEMENT BY HAND. Running it closes this
-# gap and leaves the one beside it -- the same file is what makes `chuggy_owner`
-# a member of `chuggy_boundary_owner`, without which migration 17 commits while
-# granting nothing and no re-run repairs it. chuggy-migrate.yaml argues that at
-# length, including why it has to happen BEFORE the Job runs. Re-run the whole
-# file, once, before any of this starts -- and read prerequisite 4 first,
+# THE REMEDY THERE IS NOT TO RUN THAT ONE STATEMENT BY HAND. Running it closes
+# that gap and leaves the one beside it -- the same file is what makes
+# `chuggy_owner` a member of `chuggy_boundary_owner`, without which 17 commits
+# while granting nothing and no re-run repairs it. chuggy-migrate.yaml argues
+# that at length, including why it has to happen BEFORE the Job runs. Re-run the
+# whole file, once, before any of this starts -- and read prerequisite 4 first,
 # because the file re-issues every login password.
 #
 # What the grant widens is what `chuggy_api_login` inherits on its ordinary
@@ -120,10 +122,12 @@
 # survivable by accident any more, and the default is what changed under them.
 #
 # `chuggy_suite_fixtures` is where those leftovers went, under a name nothing
-# points at. Every tenant in it is named `tenant-<case>-<uuid>` and its schema
-# stops at the migration before the one that adds a NOT NULL column to
-# `journal_entry`, which those rows have no value for -- so it cannot be
-# migrated forward while they are in it. It is kept, not cleaned up.
+# points at. Every tenant in it is named `tenant-<case>-<uuid>`, and its ledger
+# stops at migration 2 -- far enough behind that nothing has tried to carry it
+# forward. Migration 5 is where an attempt would be decided: it backfills
+# `journal_entry.cause_id` from a `cause_operation` column and then makes it
+# NOT NULL, and that table there carries none of the three. It is kept, not
+# cleaned up.
 #
 # ---------------------------------------------------------- the artifacts ----
 #

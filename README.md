@@ -772,9 +772,9 @@ kustomization apps` goes `Ready=False` with the Job among the objects its
 message names. That is the loudest signal this repo has, and it is quieter than
 it sounds: Alertmanager is off and `notification-controller` is not installed,
 so nothing routes it anywhere, and — see [what does not work
-yet](#what-does-not-work-yet-and-why) — `apps` is already `Ready=False` for four
-Deployments that never reach an available replica. Read the message, not the
-bit.
+yet](#what-does-not-work-yet-and-why) — `apps` is `Ready=False` already, held
+there by a Deployment that never reaches an available replica. Read the message,
+not the bit.
 
 Read the pod, fix the cause, then delete the Job so the next reconcile builds it
 afresh:
@@ -785,32 +785,38 @@ afresh:
 Nothing has put this rig in that state — treat it as argued from the mechanism,
 not observed.
 
-**The failure this rig actually has is the opposite one, and it is worse: the
-Job reports success.** Migration 17 grants EXECUTE on a function
-`chuggy_boundary_owner` owns, and `chuggy_owner` — the role the Job connects as
-— is not a member of that role. A GRANT with no grant option goes one of two
-ways, and which one decides whether anyone hears about it:
+**The failure that matters is the opposite one, and it is worse: the Job reports
+success.** Migration 17 grants EXECUTE on a function `chuggy_boundary_owner`
+owns, and it is issued by `chuggy_owner`, the role the Job connects as. Where
+`chuggy_owner` is not a member of that role, a GRANT with no grant option goes
+one of two ways, and which one decides whether anyone hears about it:
 
 | grantor holds | PostgreSQL answers | outcome |
 |---|---|---|
 | no privilege on the object at all | `ERROR: permission denied` | transaction rolls back, exit 1, loud |
 | **any** privilege, inherited included | `WARNING: no privileges were granted` | statement succeeds granting nothing, **everything commits** |
 
-**This rig is on the warning branch**, by a route worth spelling out: the
-function's ACL never names `chuggy_owner`, but it grants EXECUTE to
-`chuggy_ticket_service`, and `chuggy_owner` is a member of that group — so it
-inherits a privilege, and the check is satisfied.
+**A database without that membership is on the warning branch**, by a route
+worth spelling out: the function's ACL never names `chuggy_owner`, but it grants
+EXECUTE to `chuggy_ticket_service`, and `chuggy_owner` is a member of that
+group — so it inherits a privilege, and the check is satisfied.
 `has_function_privilege('chuggy_owner', …, 'EXECUTE')` is true while the same
 call `WITH GRANT OPTION` is false; that pair is the discriminator. Membership in
 every service group is deliberate in `postgres-roles.sql`, so a correctly
 provisioned database is on this branch by construction.
 
-So the Job goes `Complete`, the ledger says 17, the grant did not land, and the
-API's selector-context reads fail at runtime with `permission denied for
+Then the Job goes `Complete`, the ledger advances, the grant does not land, and
+the API's selector-context reads fail at runtime with `permission denied for
 function project_capacity_account`. **Deleting the Job does not fix it** — the
 ledger committed, so a re-run has nothing pending and applies nothing. Recovery
 is the membership grant plus re-issuing migration 17's grant by hand. Which is
 why prerequisite 1 below has to happen *before* the Job runs, not after.
+
+**This rig is past it**, because the roles file has been re-run here: the
+membership is in `pg_auth_members`, `WITH GRANT OPTION` on that function is true
+for `chuggy_owner`, and the function's ACL carries
+`chuggy_api=X/chuggy_boundary_owner`. The step stays ordered where it is,
+because a fresh database is the state it is written for.
 
 An image the node does not hold is not this case — that pod waits in
 `ImagePullBackOff` with the Job still active, and importing the image is enough.
@@ -938,10 +944,12 @@ not after it.
      "SELECT has_schema_privilege('chuggy_boundary_owner', 'public', 'CREATE');"
    ```
 
-   The second must answer `f`, which is what this rig reads today and what the
-   revoke restores it to. Migrations 16 and 17 — the two this Job has left to
-   apply here — touch neither this privilege nor the membership above, so
-   nothing in them is disturbed by revoking it.
+   The second must answer `f`. **On this rig it answers `t`**, so the revoke
+   above is not a precaution here — the privilege is standing and that statement
+   is what removes it. The ledger does not disturb it either way:
+   `schema_migration` is at 18, which is every migration `9d88703` defines, and
+   16, 17 and 18 are `GRANT SELECT` and `GRANT EXECUTE` statements that touch
+   neither this privilege nor the membership above.
 
    Then check the grants **landed**. This is the check the step rests on; the
    greps above only decide whether the file is worth running:
@@ -962,8 +970,9 @@ not after it.
    ```
 
    The second must list `chuggy_boundary_owner|chuggy_owner` and
-   `chuggy_selector_review|chuggy_api_login`. Today it lists neither: both roles
-   exist and both have no members at all. **The first is what tells those two
+   `chuggy_selector_review|chuggy_api_login`. Both rows are on this rig today.
+   They were not when this step was written, which is the state a fresh database
+   is still in and what the step is for. **The first is what tells those two
    answers apart**, because `-Atc` prints nothing and exits 0 for an empty
    result, so a mistyped role name, the wrong `-d` and "granted nothing" all
    look identical. It must print two rows; a missing row is a name that is not
@@ -992,10 +1001,11 @@ not after it.
    `chuggy.state.artifacts.path` and `chuggy.state.artifacts.mode` on the
    reusable state module in fabric's PR 9; its tmpfiles rule adjusts an existing
    directory to whatever that option says, so this file does not restate a mode
-   PR 9 owns. **The directory does not exist today** — `/var/lib/chuggy` holds
-   `secrets` and nothing else. Do not read the PV going `Bound` as evidence that
-   it does: the claim names its volume, so binding is two API objects agreeing
-   and never touches the node.
+   PR 9 owns. **The directory is there on this rig**, owned as this step asks.
+   It was created by hand, so a rebuilt node has it again only once PR 9's
+   tmpfiles rule lands. Do not read the PV going `Bound` as evidence either way:
+   the claim names its volume, so binding is two API objects agreeing and never
+   touches the node.
 4. **Synchronize `chuggy-postgres-credentials`** with one key per login role.
    All seven keys and all seven login roles are already there — six `*_login`
    roles and `chuggy_owner`, which is a login role in its own right. This step
@@ -1005,32 +1015,56 @@ not after it.
    and step 1 does not touch it, so its key stays whatever it is.
 5. **Create `chuggy-selector` and `chuggy-finalizer-credentials`** by hand — the
    selector's two bearer tokens and the finalizer's git credential. Values never
-   go in this repository; it is public. Neither Secret exists today, so both
-   pods sit in `CreateContainerConfigError` until they do.
-6. **Insert the first recovery epoch.** The table is created empty and the
-   scheduler and the finalizer both fence against its newest row.
+   go in this repository; it is public. A pod whose Secret is missing is never
+   built, under one of two names: a `secretKeyRef` env gives
+   `CreateContainerConfigError`, a mounted secret gives `ContainerCreating` on a
+   `FailedMount`. `chuggy-selector` is on this rig;
+   `chuggy-finalizer-credentials` is not, and the finalizer pod is in the
+   second state.
+6. **Establish the first recovery epoch**, as a Secret and a row that carry the
+   same value. `chuggy-recovery-epoch` is read by both the scheduler and the
+   finalizer, and the row is what they fence against; no migration writes it,
+   because the table is created empty. `chuggy-finalizer.yaml` carries the two
+   commands. The value is generated, never written down here: `schema.ts`
+   requires an epoch be unpredictable and never reused, and a literal in a
+   public repository is neither.
 
 ### What does not work yet, and why
 
-- **The selector and the finalizer do not run at all.** Their Secrets do not
-  exist on this rig, so the kubelet cannot build either container and both pods
-  sit in `CreateContainerConfigError` having executed nothing. That is
-  prerequisite 5, and it comes before either failure below.
-- **The finalizer's first precondition then fails.** It runs `git --version`,
-  and the image's base — `node:26.7.0-trixie-slim` — has no git. Verified by
-  running it. The fix is in the Dockerfile, in chuggy's repository.
-- **The selector's would too.** It needs a trusted selector policy service, and
-  no server implements that protocol anywhere — but `selector-source` is ordered
-  ahead of `selector-policy`, and its API token is a static string against an
-  issuer that signs short-lived ones, so that is the name a run reports first.
-- **The scheduler starts and places nothing.** Its credential may read one
-  namespace and may not create a pod there. The worker namespace, its RBAC, the
-  image allowlist and the resource budgets are the next stage's.
+- **The selector is deployed at zero replicas.** Its `selector-policy`
+  precondition asks a trusted selector policy service whether it is ready, and
+  no server implements that protocol anywhere, so nothing outside this
+  repository clears it. `selector-source` is ordered ahead of it and is what a
+  replica reported — `selector could not run: selector-source`, the API
+  answering `/health/ready` 200 and refusing the hand-written token 401 — and
+  that one has a seam for a fix. `chuggy-selector.yaml` argues both beside the
+  number, and PR 5 is what restores it to one.
+- **The finalizer has no credential Secret, and then waits on git in the
+  image.** `chuggy-finalizer-credentials` is prerequisite 5 and is not on this
+  rig, so the volume does not mount and the container is never built. Once it
+  exists the first precondition is `git-available`: the command runs `git
+  --version`, and the image's base — `node:26.7.0-trixie-slim` — has none,
+  verified by running it in a pod here. kasofsk/chuggy#254 puts it there. The
+  two preconditions ordered between those, a writable scratch and a writable
+  artifact root, are answered by the volumes `chuggy-finalizer.yaml` declares
+  over prerequisite 3's host directory.
+- **The scheduler places nothing.** Its execution policy names a profile the
+  worker image list does not admit, so `kubernetesWorkerPodRequest` answers
+  `Denied` with `ExecutionProfileUnavailable` before it builds a request — no
+  placement is submitted and the credential is never reached. That credential
+  could not create a worker pod if it were: `kubectl auth can-i create pods -n
+  chuggy-work --as=system:serviceaccount:chuggy:chuggy-scheduler` answers no.
+  The worker namespace, its RBAC, the image allowlist and the resource budgets
+  are the next stage's.
 
-The last three are a `CouldNotRun` reported by name in the pod's log, which is
-the shape this design asks for — but it also means `flux get kustomization apps`
-reports NotReady until they clear, because a Deployment that never has an
-available replica never passes the `wait`. That is why a failed migration Job
+**`apps` stays NotReady after this.** `wait: true` health-checks every object,
+and `flux get kustomizations -A` names the one it stops on:
+`Deployment/chuggy/chuggy-finalizer status: 'Failed'` — a Deployment past its
+progress deadline with no available replica. That clears when the credential
+Secret exists and git is in the image, which is why the finalizer is left at
+one. The zero above takes the selector out of that set instead, because nothing
+clears its blocker and a Deployment nobody can make available is one more red
+object for a real one to hide behind. That is also why a failed migration Job
 adds a line to a list rather than raising a flag.
 
 ### Storage, and what it does and does not survive
