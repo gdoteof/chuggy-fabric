@@ -909,7 +909,7 @@ not after it.
    **grantee**, which is the half that decides whether the grant is the one this
    step needs.
 
-   `9d88703`, the commit the six tags name, answers 1 to both. But a pre-filter
+   `f8c6d7b`, the commit the six tags name, answers 1 to both. But a pre-filter
    is all this is: it reads a file, not the server. What settles the question is
    the `pg_auth_members` query below.
 
@@ -946,10 +946,14 @@ not after it.
 
    The second must answer `f`. **On this rig it answers `t`**, so the revoke
    above is not a precaution here — the privilege is standing and that statement
-   is what removes it. The ledger does not disturb it either way:
-   `schema_migration` is at 18, which is every migration `9d88703` defines, and
-   16, 17 and 18 are `GRANT SELECT` and `GRANT EXECUTE` statements that touch
-   neither this privilege nor the membership above.
+   is what removes it. The work the ledger still has does not need it back:
+   `schema_migration` is at 18 and `f8c6d7b` defines 19, and that migration
+   creates a function it hands to `chuggy_boundary_owner` without the
+   schema-level CREATE this step removes — run against `postgres:18-alpine` with
+   the privilege already revoked, which is the state this leaves. What it does
+   need is the **membership** above, and that is why this step is ordered before
+   the Job rather than after it: `ALTER FUNCTION … OWNER TO` requires the
+   migrating role to be able to become that role.
 
    Then check the grants **landed**. This is the check the step rests on; the
    greps above only decide whether the file is worth running:
@@ -1039,29 +1043,45 @@ not after it.
   answering `/health/ready` 200 and refusing the hand-written token 401 — and
   that one has a seam for a fix. `chuggy-selector.yaml` argues both beside the
   number, and PR 5 is what restores it to one.
-- **The finalizer has no credential Secret, and then waits on git in the
-  image.** `chuggy-finalizer-credentials` is prerequisite 5 and is not on this
-  rig, so the volume does not mount and the container is never built. Once it
-  exists the first precondition is `git-available`: the command runs `git
-  --version`, and the image's base — `node:26.7.0-trixie-slim` — has none,
-  verified by running it in a pod here. kasofsk/chuggy#254 puts it there. The
-  two preconditions ordered between those, a writable scratch and a writable
-  artifact root, are answered by the volumes `chuggy-finalizer.yaml` declares
-  over prerequisite 3's host directory.
-- **The scheduler places nothing.** Its execution policy names a profile the
-  worker image list does not admit, so `kubernetesWorkerPodRequest` answers
-  `Denied` with `ExecutionProfileUnavailable` before it builds a request — no
-  placement is submitted and the credential is never reached. That credential
-  could not create a worker pod if it were: `kubectl auth can-i create pods -n
-  chuggy-work --as=system:serviceaccount:chuggy:chuggy-scheduler` answers no.
-  The worker namespace, its RBAC, the image allowlist and the resource budgets
-  are the next stage's.
+- **The finalizer has no credential Secret, and that is now the whole of it.**
+  `chuggy-finalizer-credentials` is prerequisite 5 and is not on this rig, so
+  the volume does not mount and the container is never built —
+  `ContainerCreating` on a `FailedMount`, which is where the pod sits. Its
+  other three preconditions are all answered: `git-available` runs `git
+  --version`, and the tag above carries git 2.47.3, checked by running it in a
+  pod here rather than inferred from the Dockerfile; a writable scratch and a
+  writable artifact root are the volumes `chuggy-finalizer.yaml` declares over
+  prerequisite 3's host directory. This is the one object holding `apps` red,
+  and a hand-made Secret is what clears it.
+- **The scheduler places nothing, and until the tag above it could not start at
+  all.** Migrations 12 and 15 were edited after this rig applied them, so
+  `execution` here carries none of the five requirement columns the code reads
+  while the ledger still says 18 — and the ledger compares a version and a name,
+  so `schema-compatible` passed and the first quantum failed `column
+  e.requirement_identity does not exist`. Migration 19 in the tag above is what
+  adds them; kasofsk/chuggy#255 is where it is argued.
+- **A scheduler whose loop dies says nothing, which is worth knowing before
+  reading a log.** That failure was recorded in the runtime's own `health()` and
+  read by no root: the process exited **0** with an **empty log**, so `kubectl
+  get pods` said `Completed` and restarted it, thirteen times here. An empty log
+  on a control-plane pod is therefore not evidence that nothing happened. The
+  fix is chuggy's and is not in this repository.
+- **Placement is still refused, by design.** The execution policy names a
+  profile the worker image list does not admit, so `kubernetesWorkerPodRequest`
+  answers `Denied` with `ExecutionProfileUnavailable` before it builds a request
+  — no placement is submitted and the credential is never reached. That
+  credential could not create a worker pod if it were: `kubectl auth can-i
+  create pods -n chuggy-work
+  --as=system:serviceaccount:chuggy:chuggy-scheduler` answers no. The worker
+  namespace, its RBAC, the image allowlist and the resource budgets are the next
+  stage's.
 
 **`apps` stays NotReady after this.** `wait: true` health-checks every object,
 and `flux get kustomizations -A` names the one it stops on:
 `Deployment/chuggy/chuggy-finalizer status: 'Failed'` — a Deployment past its
-progress deadline with no available replica. That clears when the credential
-Secret exists and git is in the image, which is why the finalizer is left at
+progress deadline with no available replica. Git in the image was the other half
+of that and is now in the tag above, so the credential Secret is the only thing
+left between this and a green `apps`, which is why the finalizer is left at
 one. The zero above takes the selector out of that set instead, because nothing
 clears its blocker and a Deployment nobody can make available is one more red
 object for a real one to hide behind. That is also why a failed migration Job
