@@ -903,7 +903,7 @@ not after it.
    **grantee**, which is the half that decides whether the grant is the one this
    step needs.
 
-   `4ec1192`, the commit the six tags name, answers 1 to both. But a pre-filter
+   `9d88703`, the commit the six tags name, answers 1 to both. But a pre-filter
    is all this is: it reads a file, not the server. What settles the question is
    the `pg_auth_members` query below.
 

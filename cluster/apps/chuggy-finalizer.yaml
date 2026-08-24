@@ -139,7 +139,7 @@ spec:
         # only thing an fsGroup would change here.
       containers:
         - name: finalizer
-          image: chuggy.invalid/api:4ec1192
+          image: chuggy.invalid/api:9d88703
           imagePullPolicy: IfNotPresent
           command:
             [
