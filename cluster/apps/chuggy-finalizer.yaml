@@ -98,21 +98,39 @@
 # below refuses writes. Without it git fails on a home directory it cannot use,
 # with a message about configuration rather than about permissions.
 #
-# The Secret, out of band, because this repository is public:
+# THE REMOTE IS THIS CLUSTER'S OWN GIT AND NOT A HOST ON THE INTERNET. The
+# repository below is `rig.git` on the rig's git service, which is the tree Flux
+# reconciles this cluster from -- so the ref a promotion advances is the deployed
+# revision itself, which is what D34 is about. Nothing here can reach
+# kasofsk/chuggy, and nothing here holds a credential that could write to it.
+#
+# WHY THAT IS THE TARGET RATHER THAN A CONVENIENCE. D34 says only the finalizer
+# may advance the deployed revision, and what enforces it is that no other
+# workload holds a credential which may push. `deploy/rig/git/README.md` in
+# kasofsk/chuggy divides the rig's git credentials into a reader the Flux
+# `GitRepository` uses and an operator break-glass that may push, and nginx
+# validates a push against the writers file on `/git-receive-pack` alone. The
+# finalizer is given the pushing one. Loading an EXTERNAL repository is a later
+# thing and wants the short-lived minting D31 asks for, not a static token in a
+# Secret on a rig.
+#
+# The Secret, out of band, because this repository is public. The value is the
+# operator credential the rig's git service already validates, so it is copied
+# rather than minted:
 #
 #   kubectl -n chuggy create secret generic chuggy-finalizer-credentials \
-#     --from-literal=kasofsk-chuggy=<token with push rights on that repository>
+#     --from-literal=rig-git="$(kubectl -n chuggy-git get secret git-operator \
+#       -o jsonpath='{.data.password}' | base64 -d)"
 #
-# D39 is why there is one entry: this rig dogfoods `kasofsk/chuggy` and nothing
-# else. Adding a repository is another key, another entry in the sources below,
-# and nothing structural.
+# D39 is why there is one entry: one repository is served here and nothing else.
+# Adding a repository is another key, another entry in the sources below, and
+# nothing structural.
 #
-# D34 IS NOT IMPLEMENTED BY THIS FILE. Only the finalizer may advance the
-# deployed revision, and what enforces that here is that no other workload holds
-# this Secret -- not any check on the branch, which is a repository setting, and
-# not the short-lived GitHub App minting D31 asks for, which is PR 5's and PR
-# 6's work. A static token in a Secret is what stands there in the meantime and
-# it is weaker than what the design asks for.
+# THE USERNAME IS PART OF THE CREDENTIAL AND IS NOT A SECRET.
+# `CHUG_FINALIZER_GIT_CREDENTIAL_USERNAME` is `operator`, which is the name the
+# htpasswd writers file carries; the command's default is `chuggy`, which that
+# file does not, so leaving it unset fails authentication rather than falling
+# back to anything.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -198,12 +216,17 @@ spec:
               value: chuggy finalizer
             - name: CHUG_FINALIZER_GIT_COMMIT_EMAIL
               value: finalizer@chuggy.vteng.io
+            # The repository is the string handed to git as the remote, which is
+            # also the key a credential is looked up under, so the two cannot
+            # drift apart.
+            - name: CHUG_FINALIZER_GIT_CREDENTIAL_USERNAME
+              value: operator
             - name: CHUG_FINALIZER_CREDENTIAL_SOURCES
               value: |
                 [
                   {
-                    "repository": "kasofsk/chuggy",
-                    "path": "/var/run/chuggy/credentials/kasofsk-chuggy"
+                    "repository": "http://git.chuggy-git.svc.cluster.local./rig.git",
+                    "path": "/var/run/chuggy/credentials/rig-git"
                   }
                 ]
             # git writes into HOME, and the root filesystem below refuses
