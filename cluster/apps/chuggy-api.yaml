@@ -21,16 +21,16 @@
 # does not, and what else a re-pin has to touch beyond those six.
 #
 # `chuggy.invalid/api:<tag>` is built from kasofsk/chuggy and imported straight
-# into this node's containerd; there is no registry. `chuggy.invalid` resolves
-# nowhere, so a node that does not hold the tag fails the pod loudly instead of
+# into this node's containerd. That registry name resolves nowhere, so a node
+# that does not hold the tag fails the pod loudly instead of
 # pulling whatever stands at that name on a public registry -- which is what
 # `imagePullPolicy: IfNotPresent` is here to make possible rather than to
 # optimise. The procedure and its undo are in that repo under
 # `deploy/rig/images/`.
 #
-# NOTHING REPLICATES THE IMAGE. A second node would not have it, and neither
-# would this one after its image store is reset. That is the price of no
-# registry and it is paid knowingly on a single-node rig.
+# NOTHING REPLICATES THIS LEGACY IMAGE REFERENCE. A second node would not have
+# it, and neither would this one after its image store is reset. Registry-backed
+# references replace this path only after their content has been pushed.
 #
 # MERGING A RE-PIN BEFORE THE IMPORT RE-POINTS A WORKING API AT A TAG THIS NODE
 # DOES NOT HOLD. That is not where this rig is -- `k3s ctr images ls` holds the

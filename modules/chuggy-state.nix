@@ -151,6 +151,41 @@ in
         '';
       };
     };
+
+    registry = {
+      path = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "/var/lib/chuggy/registry";
+        description = ''
+          Filesystem path retained for the in-cluster OCI registry. Required:
+          the registry is the source of release images and build artifacts, so
+          placing it on an incidental filesystem is not a safe default.
+
+          A static PersistentVolume in cluster/apps/ binds this path. The
+          machine layer creates it and owns its mode; the cluster layer mounts
+          it and owns its retention policy.
+        '';
+      };
+
+      user = lib.mkOption {
+        type = lib.types.int;
+        default = 1000;
+        description = "Numeric owner matching the registry container's runtime uid.";
+      };
+
+      group = lib.mkOption {
+        type = lib.types.int;
+        default = 1000;
+        description = "Numeric group matching the registry container's runtime gid.";
+      };
+
+      mode = lib.mkOption {
+        type = lib.types.str;
+        default = "0750";
+        description = "Mode enforced on the registry storage directory at activation.";
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -163,11 +198,21 @@ in
           not guess a filesystem for durable data.
         '';
       }
+      {
+        assertion = cfg.registry.path != null;
+        message = ''
+          chuggy.state.enable is on but chuggy.state.registry.path is unset.
+          Name the directory this host keeps OCI images and artifacts in; the
+          module will not guess a filesystem for retained data.
+        '';
+      }
     ];
 
     systemd.tmpfiles.rules = [
       "d ${cfg.directory} 0700 root root -"
     ] ++ lib.optional (cfg.artifacts.path != null)
-      "d ${cfg.artifacts.path} ${cfg.artifacts.mode} ${toString cfg.artifacts.user} ${toString cfg.artifacts.group} -";
+      "d ${cfg.artifacts.path} ${cfg.artifacts.mode} ${toString cfg.artifacts.user} ${toString cfg.artifacts.group} -"
+    ++ lib.optional (cfg.registry.path != null)
+      "d ${cfg.registry.path} ${cfg.registry.mode} ${toString cfg.registry.user} ${toString cfg.registry.group} -";
   };
 }

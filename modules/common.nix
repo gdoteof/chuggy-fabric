@@ -110,10 +110,9 @@
   # cluster/apps/dev2-access.yaml; on this single node that is root-equivalent
   # already -- a cluster-admin can schedule a privileged host-mounting pod, and
   # the kubeconfig is 0644, so the system:masters cert is theirs to read. This
-  # block does not widen that power; it makes it a usable shell so they can
-  # build an image and `sudo k3s ctr images import` it, which no kubectl verb
-  # does while images are tagged `chuggy.invalid` and never pulled. A registry
-  # retires that need once this grows past one box; until then, the shell.
+  # block does not widen that power; it makes it a usable shell for bootstrap
+  # imports and host diagnostics. Registry-backed releases retire routine
+  # imports once the remaining `chuggy.invalid` references migrate.
   #
   # THE COST, stated so the next reader sees it beside the grant: this softens
   # the revocation story dev2-access.yaml rests on. That file prefers a
@@ -127,7 +126,7 @@
   users.users.dev2 = {
     isNormalUser = true;
     description = "dev2 (david)";
-    # wheel -> passwordless sudo -> `k3s ctr`; docker -> build images on the box.
+    # wheel -> passwordless sudo; docker -> build images on the box.
     # Same pair geoff carries; both are root-equivalent, matching the access
     # dev2 already holds rather than pretending to a boundary sudo erases.
     extraGroups = [ "wheel" "docker" ];

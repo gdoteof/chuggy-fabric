@@ -46,6 +46,7 @@ resources:
   - chuggy-migrate.yaml
   - chuggy-scheduler.yaml
   - chuggy-selector.yaml
+  - chuggy-storage.yaml
   - chuggy-ticket-service.yaml
   - chuggy-web.yaml
   - dev2-access.yaml
@@ -57,6 +58,7 @@ resources:
   - ory-ui.yaml
   - postgres-network-policy.yaml
   - postgres.yaml
+  - registry.yaml
   - sirdocalot-namespace.yaml
   - sirdocalot-source.yaml
   - whoami.yaml
@@ -83,6 +85,10 @@ resources:
 # ReplicaSet's pod takes over. The window is one rollout of two Deployments
 # that this stage rolls once and never again.
 configMapGenerator:
+  - name: registry-config
+    namespace: chuggy-registry
+    files:
+      - config.yml=registry/config.yml
   - name: hydra-config
     namespace: ory
     files:

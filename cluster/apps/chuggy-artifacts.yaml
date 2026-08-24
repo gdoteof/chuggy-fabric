@@ -85,20 +85,6 @@
 # data directory, deleting and re-creating the claim, and rebinding -- a
 # destructive operation on a running rig that no bullet of this stage asks for.
 # It is a gap, it is named in the README, and closing it is its own change.
----
-apiVersion: storage.k8s.io/v1
-kind: StorageClass
-metadata:
-  name: chuggy-retained
-provisioner: kubernetes.io/no-provisioner
-# Every volume in this class is written down in this repository, so `Retain` is
-# the class's own default as well as the volume's. A future volume that omits
-# `persistentVolumeReclaimPolicy` inherits it rather than the `Delete` it would
-# otherwise get.
-reclaimPolicy: Retain
-volumeBindingMode: WaitForFirstConsumer
-allowVolumeExpansion: false
----
 apiVersion: v1
 kind: PersistentVolume
 metadata:

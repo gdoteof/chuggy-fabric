@@ -24,7 +24,7 @@ only by their own directory.
 
     modules/chuggy-state.nix        retained host directories, chuggy.state.*
     modules/chuggy-secrets.nix      generated credentials, chuggy.secrets.*
-    modules/chuggy-images.nix       registry-free image delivery, chuggy.images.*
+    modules/chuggy-images.nix       bootstrap image delivery, chuggy.images.*
     modules/chuggy-work.nix         what one task may cost, chuggy.work.*
 
     modules/cloudflare-tunnel.nix   public ingress, with chuggy.tunnel.* options
@@ -227,6 +227,7 @@ that builds clean and is not actually supported.
 |---|---|---|
 | `chuggy.k3s.apiAllowedSources` | `k3s-server.nix` | the safe guess refuses the workstation; the convenient one is every network the box can see |
 | `chuggy.state.artifacts.path` | `chuggy-state.nix` | durable data on whichever filesystem happened to have room |
+| `chuggy.state.registry.path` | `chuggy-state.nix` | OCI content on an incidental or boot-constrained filesystem |
 | `chuggy.work.worker.cpu`, `.memory`, `.ephemeralStorage` | `chuggy-work.nix` | one task starves the control plane, or cannot finish — neither looks like a missing setting |
 | `chuggy.flux.repositoryUrl` | `flux.nix` | Flux installed and following nothing, reporting no error |
 
@@ -423,20 +424,32 @@ database are unaffected by it, so what it produces is a host that generates a
 replacement for every value and then disagrees with the cluster about all of
 them — recoverable only by seeding host state back, as above.
 
-### Images, and the order things come up in
+### Images, the registry, and the order things come up in
 
-There is no registry. Every workload runs on the machine that holds the image,
-so a registry would add a network dependency and no distribution capability —
-and a way for bootstrap to fail, since the images are the one thing that has to
-exist before anything else does.
+The cluster runs a private OCI registry from the upstream `registry:3` image.
+Its retained volume holds release images and immutable artifacts; it has no
+Ingress or NodePort. Operators reach it through a port-forward:
+
+    kubectl -n chuggy-registry port-forward service/registry 5000:5000
+
+Publish through that forward; the hostname is transport, while the repository
+and tag are what the registry stores:
+
+    docker tag chuggy.invalid/api:<tag> localhost:5000/chuggy/api:<tag>
+    docker push localhost:5000/chuggy/api:<tag>
+    oras push localhost:5000/artifacts/<name>:<tag> <file>
+
+The registry cannot contain the image needed to start itself. Its pinned public
+image is therefore the bootstrap root, and the air-gap directory remains the
+recovery path when that upstream cannot be reached.
 
 k3s imports every archive under `/var/lib/rancher/k3s/agent/images` into
 containerd as the agent starts, which is *before* the kubelet can schedule a pod
 that references one. That, not a systemd unit, is what makes the ordering hold:
 
-    k3s starts → containerd imports the archives → k3s auto-deploy applies Flux
-      → Flux reconciles cluster/apps → chuggy-secrets-sync writes the Secrets
-      → workloads start
+    k3s starts → containerd imports bootstrap archives → k3s applies Flux
+      → Flux reconciles cluster/apps → registry starts from its public image
+      → chuggy-secrets-sync writes the Secrets → workloads start
 
 `chuggy-import-image <archive.tar>` is for the other case — adding an image to a
 node that is already running, where waiting for a k3s restart would restart every
@@ -457,14 +470,17 @@ the derivation in `modules/chuggy-secrets.nix` exists to prevent, and
 workload that starts before its Secret exists stays pending and recovers on its
 own.
 
-**Nothing replicates any of this, and nothing declares it either.** A second node
-does not have the images, neither does this one after its image store is reset,
-and no option names which archives a host needs or checks that the directory has
-any — so the chain above starts from whatever the box happens to hold, and a
-fresh adopter's workloads sit in `ImagePullBackOff` against a registry that does
-not exist. The images are built by Docker in kasofsk/chuggy at a commit this
-flake cannot see, which is the input a declaration would need and the reason
-there is not one.
+The current `chuggy.invalid` workload references are still node-local during
+registry bootstrap. They move only after their tags have been pushed and pulled
+successfully: changing the references in the same change that first creates an
+empty registry would deadlock recovery. Archives therefore remain undeclared
+bootstrap inputs during this stage. Registry content is declared by repository,
+tag and digest once those references move.
+
+The registry volume survives pod replacement and claim deletion; it does not
+survive loss of the node filesystem. Its `50Gi` capacity is a matching value,
+not a quota, because the static local volume is a directory on the root disk.
+Garbage collection and root disk usage are operator responsibilities.
 
 ## Ingress
 

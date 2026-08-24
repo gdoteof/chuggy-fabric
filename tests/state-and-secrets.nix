@@ -130,6 +130,7 @@ pkgs.testers.runNixOSTest {
     chuggy.state = {
       enable = true;
       artifacts.path = "/var/lib/chuggy/artifacts";
+      registry.path = "/var/lib/chuggy/registry";
     };
     chuggy.secrets.enable = true;
     chuggy.images.enable = true;
@@ -172,6 +173,7 @@ pkgs.testers.runNixOSTest {
     # the directory. The tmpfiles rule is what makes it true of a directory that
     # already exists, which the subtest below is about.
     artifacts_stat = "750 1000 1000"
+    registry_stat = "750 1000 1000"
 
 
     def read_secrets():
@@ -229,6 +231,10 @@ pkgs.testers.runNixOSTest {
             == artifacts_stat
         )
         assert (
+            machine.succeed("stat -c '%a %u %g' /var/lib/chuggy/registry").strip()
+            == registry_stat
+        )
+        assert (
             machine.succeed("stat -c '%a %U %G' /var/lib/chuggy/secrets").strip()
             == "700 root root"
         )
@@ -256,6 +262,17 @@ pkgs.testers.runNixOSTest {
         )
         machine.succeed("test -f /var/lib/chuggy/artifacts/survives")
         machine.succeed("rm /var/lib/chuggy/artifacts/survives")
+
+    with subtest("the registry mode is reset without removing its content"):
+        machine.succeed("chmod 0777 /var/lib/chuggy/registry")
+        machine.succeed("install -m 0644 -o 1000 -g 1000 /dev/null /var/lib/chuggy/registry/survives")
+        machine.succeed("systemd-tmpfiles --create")
+        assert (
+            machine.succeed("stat -c '%a %u %g' /var/lib/chuggy/registry").strip()
+            == registry_stat
+        )
+        machine.succeed("test -f /var/lib/chuggy/registry/survives")
+        machine.succeed("rm /var/lib/chuggy/registry/survives")
 
     with subtest("every declared credential exists, root-only, and is 256 bits"):
         # The length is asserted, not just non-emptiness. `test -s` and

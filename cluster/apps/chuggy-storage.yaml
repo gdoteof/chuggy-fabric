@@ -1,0 +1,12 @@
+# Static retained volumes are declared individually and bind directories the
+# machine layer owns. This class provisions nothing; it keeps those volumes out
+# of the default local-path provisioner, whose deletion removes its directory.
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: chuggy-retained
+provisioner: kubernetes.io/no-provisioner
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: false

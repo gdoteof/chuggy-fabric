@@ -1,12 +1,11 @@
 { config, pkgs, lib, ... }:
 
-# Getting chuggy's container images onto this node, with no registry anywhere.
+# Getting bootstrap and legacy chuggy images onto this node before a registry
+# can serve them.
 #
-# Every workload runs on the machine that holds the image, so a registry would
-# add a network dependency and no distribution capability. What it would add is
-# a way for bootstrap to fail: a node that cannot reach the registry cannot
-# start, and the images are the one thing that has to exist before anything
-# else does.
+# The registry itself must start from an upstream image before anything can be
+# pushed into it. Air-gap import remains the recovery path for that bootstrap
+# and the delivery path for workloads that still carry `chuggy.invalid` refs.
 #
 # WHAT MAKES THE ORDERING WORK is k3s's own airgap directory, not a unit here.
 # k3s imports every archive under the images directory into containerd as the
@@ -31,14 +30,13 @@
 # tarball into the store would make this flake's closure depend on bytes nothing
 # in it can reproduce.
 #
-# NOTHING REPLICATES THESE. A second node does not have them, and neither does
-# this one after its image store is reset. That is what no registry costs, and
-# it is paid knowingly on a single-node rig.
+# NOTHING REPLICATES THESE ARCHIVES. Registry-backed images have a declared
+# source; an archive here remains node-local bootstrap material.
 #
 # AND NOTHING DECLARES THEM. The chain above starts from whatever the box
 # happens to hold: no option names the archives a host needs, and nothing checks
 # that the directory has any. A fresh adopter therefore gets an empty directory
-# and workloads in ImagePullBackOff against a registry that does not exist,
+# and legacy workloads in ImagePullBackOff against a registry that does not exist,
 # which reads as a broken cluster. Declaring them means naming images built by
 # Docker in another repository, at a commit this flake cannot see -- so the
 # input that would make the check possible is the thing that is missing, and it
@@ -91,7 +89,7 @@ let
 in
 {
   options.chuggy.images = {
-    enable = lib.mkEnableOption "registry-free local image delivery for chuggy";
+    enable = lib.mkEnableOption "local bootstrap image delivery for chuggy";
 
     archiveDir = lib.mkOption {
       type = lib.types.str;
