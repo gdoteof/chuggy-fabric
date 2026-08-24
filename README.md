@@ -482,6 +482,55 @@ survive loss of the node filesystem. Its `50Gi` capacity is a matching value,
 not a quota, because the static local volume is a directory on the root disk.
 Garbage collection and root disk usage are operator responsibilities.
 
+#### Registry operations
+
+Use a conflict-free local port; macOS may already reserve `5000`:
+
+    kubectl -n chuggy-registry port-forward service/registry 5050:5000
+
+The endpoint is intentionally plain HTTP inside the cluster. A client used
+through the port-forward must opt out of TLS explicitly. Record the digest a
+push returns, then read the same reference back before changing a workload:
+
+    skopeo copy --dest-tls-verify=false \
+      docker-archive:web.tar \
+      docker://localhost:5050/chuggy/web:<tag>
+    skopeo inspect --tls-verify=false \
+      docker://localhost:5050/chuggy/web:<tag> --format '{{.Digest}}'
+
+An ordinary pod replacement is the persistence check. Restart the Deployment,
+wait for it, create a fresh port-forward, and require the inspected digest to
+remain unchanged:
+
+    kubectl -n chuggy-registry rollout restart deployment/registry
+    kubectl -n chuggy-registry rollout status deployment/registry
+
+Delete manifests by digest, never by guessing from a tag. Deletion only removes
+the manifest reference; reclaiming its unreferenced blobs requires garbage
+collection. Distribution garbage collection is stop-the-world: first stop the
+registry, run `registry garbage-collect --delete-untagged` in a one-shot pod
+that mounts the same config and PVC, then restore the Deployment. Do not run it
+beside a writable registry; a concurrent upload can lose a layer that the mark
+phase did not see. Verify every retained release digest again after the
+registry returns.
+
+Rollback changes only the consumer's digest. Keep the previous manifest in the
+registry, restore that digest in the workload declaration, and let Flux
+reconcile it. Rolling the registry Deployment back cannot recover deleted
+content: restore `/var/lib/chuggy/registry` from a filesystem backup, or push
+the original archive again and verify its digest before restoring consumers.
+Loss of that host directory is the registry disaster boundary.
+
+The registry implementation is shared cluster state: its Deployment, Service,
+volume objects, policy and configuration all live under `cluster/apps/`. A new
+machine imports the shared NixOS modules and sets
+`chuggy.state.registry.path = "/var/lib/chuggy/registry"`, as
+`hosts/example/` does; it does not copy the registry into its host module. The
+path is also the static PersistentVolume's host path, so keep that mount point
+stable even when another disk backs it. A machine that needs a different path
+needs a cluster overlay that changes the PersistentVolume with the host option;
+changing only the option creates a healthy registry over the wrong directory.
+
 ## Ingress
 
 Public traffic arrives through a **Cloudflare Tunnel**, not a port-forward. The
