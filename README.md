@@ -732,6 +732,40 @@ Without `admin.existingSecret` the chart falls back to the well-known default
 password at all. Anonymous access and sign-up are both off, so that credential
 is the whole of the auth surface.
 
+#### That Secret is only read once, and the sidecars pay for it
+
+**Grafana applies `GF_SECURITY_ADMIN_PASSWORD` when it first creates the admin
+user and never again.** The password after that lives in `grafana.db` on
+Grafana's `local-path` claim, which outlives every rollout. So editing the
+Secret does not change the login — it changes what everything *else* believes
+the login is, and the two drift apart silently.
+
+The thing that finds out is not you. Both of Grafana's sidecars authenticate
+with that Secret to call the admin API, and when it is stale they get a 401:
+
+    POST /api/admin/provisioning/datasources/reload  status=401
+    POST /api/admin/provisioning/dashboards/reload   status=401
+
+**The failure is invisible from every direction that normally reports one.**
+Flux is green, the ConfigMap exists and carries its label, the sidecar writes
+the file into `/etc/grafana/provisioning/` — and Grafana never re-reads it. The
+401 appears only in the sidecar container's own log. What you see in the UI is
+the old state, or nothing.
+
+Provisioning files ARE read at startup, so `kubectl rollout restart deployment
+kube-prometheus-stack-grafana -n monitoring` picks up anything the sidecar
+could not. That is the workaround; this is the fix, run against a Grafana whose
+Secret is the one you want to keep:
+
+    kubectl exec -n monitoring deploy/kube-prometheus-stack-grafana -c grafana -- \
+      sh -c 'grafana cli --homepath /usr/share/grafana \
+             admin reset-admin-password "$GF_SECURITY_ADMIN_PASSWORD"'
+
+It reads the password out of the pod's own environment, so the value is never
+typed and never lands in a shell history. Afterwards the database and the
+Secret agree, the reloads return 200, and a datasource or dashboard added to
+`cluster/apps/` appears without a restart.
+
 `server.root_url` is set to the public address. Without it Grafana builds
 redirect and share links from the in-cluster address, and they break the moment
 you follow one.
@@ -815,6 +849,12 @@ deleting one file should leave the other standing.
 | Loki | 7.3.0, single binary, filesystem storage on a 20Gi `local-path` claim |
 | Alloy | 1.12.0, a DaemonSet reading `/var/log/pods` on every node |
 | datasource | a labelled ConfigMap, picked up by Grafana's sidecar |
+
+The datasource is a ConfigMap here rather than more `kube-prometheus-stack`
+values so that adding logs costs no upgrade of the metrics release. It landed
+in Grafana only after a restart, though, for a reason that has nothing to do
+with Loki — see [that Secret is only read
+once](#that-secret-is-only-read-once-and-the-sidecars-pay-for-it).
 
 Nothing new is exposed and there is no second credential. Loki has no ingress:
 Grafana proxies the queries in-cluster and the browser only ever talks to
