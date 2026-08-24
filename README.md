@@ -879,7 +879,7 @@ as 1 — and the order is not enforceable from here**: Flux applies
 must do to the database or the image store has to be done *before* that merge,
 not after it.
 
-1. **Re-run `postgres-roles.sql`** against `chuggy_rehearsal`, from a chuggy
+1. **Re-run `postgres-roles.sql`** against `chuggy`, from a chuggy
    checkout carrying **both** of the grants below — not merely from
    [kasofsk/chuggy#242](https://github.com/kasofsk/chuggy/pull/242), because
    part of that branch has neither. Pre-filter the checkout in hand rather than
@@ -931,10 +931,10 @@ not after it.
 
    ```sh
    kubectl -n chuggy exec postgres-0 -- \
-     psql -U postgres -d chuggy_rehearsal -c \
+     psql -U postgres -d chuggy -c \
      "REVOKE CREATE ON SCHEMA public FROM chuggy_boundary_owner;"
    kubectl -n chuggy exec postgres-0 -- \
-     psql -U postgres -d chuggy_rehearsal -Atc \
+     psql -U postgres -d chuggy -Atc \
      "SELECT has_schema_privilege('chuggy_boundary_owner', 'public', 'CREATE');"
    ```
 
@@ -948,13 +948,13 @@ not after it.
 
    ```sh
    kubectl -n chuggy exec postgres-0 -- \
-     psql -U postgres -d chuggy_rehearsal -Atc \
+     psql -U postgres -d chuggy -Atc \
      "SELECT r.rolname, count(am.member) FROM pg_roles r
         LEFT JOIN pg_auth_members am ON am.roleid = r.oid
        WHERE r.rolname IN ('chuggy_boundary_owner', 'chuggy_selector_review')
        GROUP BY 1 ORDER BY 1;"
    kubectl -n chuggy exec postgres-0 -- \
-     psql -U postgres -d chuggy_rehearsal -Atc \
+     psql -U postgres -d chuggy -Atc \
      "SELECT r.rolname, m.rolname FROM pg_auth_members am
         JOIN pg_roles r ON r.oid = am.roleid
         JOIN pg_roles m ON m.oid = am.member

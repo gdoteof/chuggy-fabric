@@ -182,7 +182,7 @@ spec:
               value: |
                 {
                   "database": {
-                    "url": "postgres://chuggy_ticket_service_login:$(CHUG_TICKET_SERVICE_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy_rehearsal?options=-c%20role%3Dchuggy_ticket_service"
+                    "url": "postgres://chuggy_ticket_service_login:$(CHUG_TICKET_SERVICE_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy?options=-c%20role%3Dchuggy_ticket_service"
                   },
                   "runtime": {
                     "idleIntervalMilliseconds": 1000,
