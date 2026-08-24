@@ -115,6 +115,7 @@ metadata:
   name: registry
   namespace: chuggy-registry
 spec:
+  clusterIP: 10.43.129.13
   selector: { app: registry }
   ports:
     - name: registry

@@ -94,6 +94,7 @@
         );
 
       firewallRules = host: import ./tests/firewall-rules.nix { inherit pkgs lib host; };
+      registryWiring = host: import ./tests/registry-wiring.nix { inherit pkgs host; };
     in
     {
       nixosConfigurations = {
@@ -192,6 +193,11 @@
         # silent about the shape of the other.
         firewall-rules-gtr = firewallRules self.nixosConfigurations.gtr;
         firewall-rules-example = firewallRules self.nixosConfigurations.example;
+
+        # The node's containerd endpoint and the Service address are one
+        # contract even though NixOS and Kubernetes consume different files.
+        registry-wiring-gtr = registryWiring self.nixosConfigurations.gtr;
+        registry-wiring-example = registryWiring self.nixosConfigurations.example;
       };
     };
 }
