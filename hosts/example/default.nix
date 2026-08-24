@@ -83,6 +83,7 @@
   chuggy.state = {
     enable = true;
     artifacts.path = "/var/lib/chuggy/artifacts";
+    registry.path = "/var/lib/chuggy/registry";
   };
 
   chuggy.secrets.enable = true;

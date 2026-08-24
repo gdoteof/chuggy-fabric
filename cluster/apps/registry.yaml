@@ -1,0 +1,132 @@
+# Private OCI distribution for release images and immutable build artifacts.
+# It is reachable only through Kubernetes: operators publish through a
+# port-forward. Node containerd adopts it only after it has been populated, so
+# this object never depends on an image stored inside itself.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: chuggy-registry
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: chuggy-registry
+spec:
+  capacity:
+    storage: 50Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: chuggy-retained
+  local:
+    path: /var/lib/chuggy/registry
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: chuggy.dev/durable
+              operator: In
+              values: ["true"]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: registry
+  namespace: chuggy-registry
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: chuggy-retained
+  resources:
+    requests:
+      storage: 50Gi
+  volumeName: chuggy-registry
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry
+  namespace: chuggy-registry
+  labels: { app: registry }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: registry }
+  template:
+    metadata:
+      labels: { app: registry }
+    spec:
+      nodeSelector:
+        chuggy.dev/durable: "true"
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: registry
+          image: registry:3@sha256:1be55279f18a2fe1a74edf2664cac61c1bea305b7b4642dab412e7affdcb3e33
+          imagePullPolicy: IfNotPresent
+          args: [/etc/distribution/config.yml]
+          ports:
+            - name: registry
+              containerPort: 5000
+          readinessProbe:
+            httpGet: { path: /v2/, port: registry }
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet: { path: /v2/, port: registry }
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests: { cpu: 25m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/distribution/config.yml
+              subPath: config.yml
+              readOnly: true
+            - name: storage
+              mountPath: /var/lib/registry
+      volumes:
+        - name: config
+          configMap:
+            name: registry-config
+        - name: storage
+          persistentVolumeClaim:
+            claimName: registry
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: registry
+  namespace: chuggy-registry
+spec:
+  selector: { app: registry }
+  ports:
+    - name: registry
+      port: 5000
+      targetPort: registry
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: registry-denies-pod-traffic
+  namespace: chuggy-registry
+spec:
+  podSelector:
+    matchLabels: { app: registry }
+  policyTypes: [Ingress, Egress]

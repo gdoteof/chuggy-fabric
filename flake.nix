@@ -145,6 +145,11 @@
             { chuggy.state.artifacts.path = lib.mkForce null; }
             "chuggy.state.artifacts.path is unset";
 
+        refuses-without-registry-path =
+          refuses "without-registry-path"
+            { chuggy.state.registry.path = lib.mkForce null; }
+            "chuggy.state.registry.path is unset";
+
         refuses-without-api-allowed-sources =
           refuses "without-api-allowed-sources"
             { chuggy.k3s.apiAllowedSources = lib.mkForce null; }
