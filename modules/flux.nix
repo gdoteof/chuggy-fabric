@@ -89,6 +89,78 @@ let
       prune: ${lib.boolToString cfg.prune}
       wait: true
       timeout: ${cfg.timeout}
+    ---
+    apiVersion: kustomize.toolkit.fluxcd.io/v1
+    kind: Kustomization
+    metadata:
+      name: build-prerequisites
+      namespace: flux-system
+    spec:
+      interval: ${cfg.interval}
+      path: ${cfg.buildPrerequisitesPath}
+      sourceRef:
+        kind: GitRepository
+        name: fabric
+      prune: ${lib.boolToString cfg.prune}
+      wait: true
+      timeout: ${cfg.timeout}
+    ---
+    apiVersion: kustomize.toolkit.fluxcd.io/v1
+    kind: Kustomization
+    metadata:
+      name: build-system
+      namespace: flux-system
+    spec:
+      dependsOn:
+        - name: build-prerequisites
+      interval: ${cfg.interval}
+      path: ${cfg.buildSystemPath}
+      sourceRef:
+        kind: GitRepository
+        name: fabric
+      prune: ${lib.boolToString cfg.prune}
+      wait: true
+      timeout: ${cfg.timeout}
+    ---
+    apiVersion: kustomize.toolkit.fluxcd.io/v1
+    kind: Kustomization
+    metadata:
+      name: builds
+      namespace: flux-system
+    spec:
+      dependsOn:
+        - name: build-system
+      interval: ${cfg.interval}
+      path: ${cfg.buildsPath}
+      sourceRef:
+        kind: GitRepository
+        name: fabric
+      prune: ${lib.boolToString cfg.prune}
+      wait: true
+      timeout: ${cfg.buildTimeout}
+      healthCheckExprs:
+        - apiVersion: shipwright.io/v1beta1
+          kind: BuildRun
+          inProgress: >-
+            !has(status) || !has(status.conditions) ||
+            status.conditions.filter(e, e.type == 'Succeeded').all(e, e.status == 'Unknown')
+          failed: >-
+            has(status) && has(status.conditions) &&
+            (status.conditions.filter(e, e.type == 'Succeeded').exists(e, e.status == 'False') ||
+            (status.conditions.filter(e, e.type == 'Succeeded').exists(e, e.status == 'True') &&
+            (!has(status.sources) ||
+            !status.sources.exists(s, s.name == 'default' && has(s.git) &&
+            s.git.commitSha == metadata.annotations['fabric.chuggy.dev/source-commit']) ||
+            !has(status.output) || !has(status.output.digest) ||
+            !status.output.digest.matches('^sha256:[0-9a-f]{64}$'))))
+          current: >-
+            has(status) && has(status.conditions) &&
+            status.conditions.filter(e, e.type == 'Succeeded').exists(e, e.status == 'True') &&
+            has(status.sources) &&
+            status.sources.exists(s, s.name == 'default' && has(s.git) &&
+            s.git.commitSha == metadata.annotations['fabric.chuggy.dev/source-commit']) &&
+            has(status.output) && has(status.output.digest) &&
+            status.output.digest.matches('^sha256:[0-9a-f]{64}$')
   '';
 in
 {
@@ -124,6 +196,24 @@ in
       description = "Directory inside the repository holding the desired cluster state.";
     };
 
+    buildSystemPath = lib.mkOption {
+      type = lib.types.str;
+      default = "./cluster/build-system";
+      description = "Directory holding pinned build controllers and the builder profile.";
+    };
+
+    buildPrerequisitesPath = lib.mkOption {
+      type = lib.types.str;
+      default = "./cluster/build-prerequisites";
+      description = "Directory holding the pinned certificate controller required by Shipwright.";
+    };
+
+    buildsPath = lib.mkOption {
+      type = lib.types.str;
+      default = "./builds";
+      description = "Directory holding immutable build requests materialized from release handoffs.";
+    };
+
     sourceInterval = lib.mkOption {
       type = lib.types.str;
       default = "1m";
@@ -144,6 +234,12 @@ in
       type = lib.types.str;
       default = "3m";
       description = "How long one reconciliation may take before it is reported failed.";
+    };
+
+    buildTimeout = lib.mkOption {
+      type = lib.types.str;
+      default = "75m";
+      description = "Health timeout for a materialized BuildRun.";
     };
 
     prune = lib.mkOption {

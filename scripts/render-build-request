@@ -1,0 +1,156 @@
+#!/usr/bin/env python3
+import argparse
+import hashlib
+import json
+import re
+from pathlib import Path
+
+RENDERER = "shipwright-build-request/v1"
+PROFILE = "shipwright-buildkit-rootless/v1"
+PROFILE_DIGEST = "sha256:008a003eaea08b2bbacb0f54c5daad4f1cd9d6d4a9de778d581e5babaf5b6e76"
+SHIPWRIGHT_VERSION = "v0.18.4"
+
+
+def quoted(value):
+    return json.dumps(value)
+
+
+def require(value, pattern, name):
+    if re.fullmatch(pattern, value) is None:
+        raise SystemExit(f"invalid {name}: {value!r}")
+
+
+def request_from(arguments):
+    require(arguments.repository_id, r"[a-z0-9](?:[a-z0-9.-]{0,61}[a-z0-9])?", "repository id")
+    require(arguments.source_commit, r"(?:[0-9a-f]{40}|[0-9a-f]{64})", "source commit")
+    require(arguments.source_secret, r"[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?", "source secret")
+    require(arguments.output_secret, r"[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?", "output secret")
+    return {
+        "renderer": RENDERER,
+        "source": {
+            "repositoryId": arguments.repository_id,
+            "url": arguments.source_url,
+            "commit": arguments.source_commit,
+            "credentialRole": "source-read",
+            "credentialRef": arguments.source_secret,
+            "contextDir": arguments.context_dir,
+            "dockerfile": arguments.dockerfile,
+        },
+        "output": {
+            "repository": arguments.target_image_repository,
+            "credentialRole": "registry-push",
+            "credentialRef": arguments.output_secret,
+        },
+        "profile": {"name": PROFILE, "digest": PROFILE_DIGEST},
+        "platforms": [arguments.platform],
+        "cache": arguments.cache,
+    }
+
+
+def render(request):
+    canonical = json.dumps(request, sort_keys=True, separators=(",", ":")).encode()
+    digest_hex = hashlib.sha256(canonical).hexdigest()
+    digest = f"sha256:{digest_hex}"
+    name = f"build-{digest_hex[:40]}"
+    attempt = f"{name}-a1"
+    source = request["source"]
+    output = request["output"]
+    image = f'{output["repository"]}:request-{digest_hex}'
+    manifest = f"""apiVersion: shipwright.io/v1beta1
+kind: Build
+metadata:
+  name: {name}
+  namespace: chuggy-build
+  annotations:
+    fabric.chuggy.dev/request-digest: {digest}
+    fabric.chuggy.dev/source-commit: {source['commit']}
+    fabric.chuggy.dev/target-image-repository: {quoted(output['repository'])}
+    fabric.chuggy.dev/renderer: {RENDERER}
+    fabric.chuggy.dev/profile: {PROFILE}
+    fabric.chuggy.dev/profile-digest: {PROFILE_DIGEST}
+    fabric.chuggy.dev/shipwright-version: {SHIPWRIGHT_VERSION}
+spec:
+  source:
+    type: Git
+    git:
+      url: {quoted(source['url'])}
+      revision: {source['commit']}
+    contextDir: {quoted(source['contextDir'])}
+    credentials:
+      name: {source['credentialRef']}
+  strategy:
+    kind: ClusterBuildStrategy
+    name: buildkit-rootless-v1
+  paramValues:
+    - name: dockerfile
+      value: {quoted(source['dockerfile'])}
+    - name: cache
+      value: {request['cache']}
+  output:
+    image: {quoted(image)}
+    credentials:
+      name: {output['credentialRef']}
+  timeout: 1h
+---
+apiVersion: shipwright.io/v1beta1
+kind: BuildRun
+metadata:
+  name: {attempt}
+  namespace: chuggy-build
+  labels:
+    fabric.chuggy.dev/provenance: required
+  annotations:
+    fabric.chuggy.dev/request-digest: {digest}
+    fabric.chuggy.dev/source-commit: {source['commit']}
+    fabric.chuggy.dev/target-image-repository: {quoted(output['repository'])}
+    fabric.chuggy.dev/renderer: {RENDERER}
+    fabric.chuggy.dev/profile: {PROFILE}
+    fabric.chuggy.dev/profile-digest: {PROFILE_DIGEST}
+    fabric.chuggy.dev/shipwright-version: {SHIPWRIGHT_VERSION}
+    fabric.chuggy.dev/attempt-ordinal: "1"
+  finalizers:
+    - fabric.chuggy.dev/provenance-required
+spec:
+  build:
+    name: {name}
+  serviceAccount:
+    name: builder
+  nodeSelector:
+    chuggy.dev/node-role: builder
+    kubernetes.io/os: linux
+    kubernetes.io/arch: amd64
+  tolerations:
+    - key: chuggy.dev/node-role
+      operator: Equal
+      value: builder
+      effect: NoSchedule
+"""
+    path = Path("builds") / source["repositoryId"] / source["commit"] / f"{digest_hex}.yaml"
+    return path, manifest
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--repository-id", required=True)
+    parser.add_argument("--source-url", required=True)
+    parser.add_argument("--source-commit", required=True)
+    parser.add_argument("--source-secret", required=True)
+    parser.add_argument("--target-image-repository", required=True)
+    parser.add_argument("--output-secret", required=True)
+    parser.add_argument("--context-dir", default=".")
+    parser.add_argument("--dockerfile", default="Dockerfile")
+    parser.add_argument("--cache", choices=("registry", "disabled"), default="registry")
+    parser.add_argument("--platform", choices=("linux/amd64",), default="linux/amd64")
+    parser.add_argument("--output-root", type=Path, default=Path("."))
+    arguments = parser.parse_args()
+    path, manifest = render(request_from(arguments))
+    destination = arguments.output_root / path
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists() and destination.read_text() != manifest:
+        raise SystemExit(f"immutable request already exists with different content: {destination}")
+    destination.write_text(manifest)
+    print(path)
+
+
+if __name__ == "__main__":
+    main()

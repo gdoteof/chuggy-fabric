@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -eu
+while [[ $1 == --* ]]; do
+  case "$1" in
+    --kubeconfig) shift 2 ;;
+    *) break ;;
+  esac
+done
+case "$1" in
+  get) cat "$BUILD_RUN_FIXTURE" ;;
+  patch) printf '%s\n' "$*" >> "$PATCH_LOG" ;;
+  *) exit 64 ;;
+esac

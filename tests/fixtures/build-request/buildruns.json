@@ -1,0 +1,30 @@
+{
+  "apiVersion": "shipwright.io/v1beta1",
+  "kind": "BuildRunList",
+  "items": [{
+    "metadata": {
+      "name": "build-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-a1",
+      "resourceVersion": "17",
+      "finalizers": ["fabric.chuggy.dev/provenance-required"],
+      "annotations": {
+        "fabric.chuggy.dev/attempt-ordinal": "1",
+        "fabric.chuggy.dev/profile": "shipwright-buildkit-rootless/v1",
+        "fabric.chuggy.dev/profile-digest": "sha256:008a003eaea08b2bbacb0f54c5daad4f1cd9d6d4a9de778d581e5babaf5b6e76",
+        "fabric.chuggy.dev/request-digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "fabric.chuggy.dev/shipwright-version": "v0.18.4",
+        "fabric.chuggy.dev/source-commit": "0123456789abcdef0123456789abcdef01234567",
+        "fabric.chuggy.dev/target-image-repository": "registry.example.internal/team/example-service"
+      }
+    },
+    "status": {
+      "startTime": "2026-08-24T19:59:00Z",
+      "completionTime": "2026-08-24T20:00:00Z",
+      "conditions": [{"type": "Succeeded", "status": "True", "reason": "Succeeded"}],
+      "output": {"digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+      "sources": [{
+        "name": "default",
+        "git": {"commitSha": "0123456789abcdef0123456789abcdef01234567"}
+      }]
+    }
+  }]
+}

@@ -125,6 +125,17 @@ in
         the same value here, so the next box needs no fix.
       '';
     };
+
+    nodeTaints = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [ "chuggy.dev/node-role=builder:NoSchedule" ];
+      description = ''
+        Taints this node registers with. Dedicated builder nodes carry
+        chuggy.dev/node-role=builder:NoSchedule so ordinary workloads cannot
+        enter the rootlesskit security boundary.
+      '';
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -156,6 +167,7 @@ in
 
       extraFlags = toString (
         map (label: "--node-label=${label}") cfg.nodeLabels
+        ++ map (taint: "--node-taint=${taint}") cfg.nodeTaints
         ++ [
           # k3s writes /etc/rancher/k3s/k3s.yaml as root:root 0600 by default.
           # 0644 grants nothing new here: geoff already has passwordless sudo, so

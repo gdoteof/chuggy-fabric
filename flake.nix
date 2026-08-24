@@ -31,6 +31,7 @@
         ./modules/chuggy-secrets.nix
         ./modules/chuggy-images.nix
         ./modules/chuggy-work.nix
+        ./modules/build-provenance.nix
         ./modules/cloudflare-tunnel.nix
         ./modules/ddns.nix
         ./modules/flux.nix
@@ -96,6 +97,7 @@
       firewallRules = host: import ./tests/firewall-rules.nix { inherit pkgs lib host; };
       registryWiring = host: import ./tests/registry-wiring.nix { inherit pkgs host; };
       releaseImages = import ./tests/release-images.nix { inherit pkgs; };
+      buildPlatform = import ./tests/build-platform.nix { inherit pkgs; };
     in
     {
       nixosConfigurations = {
@@ -152,6 +154,11 @@
             { chuggy.state.registry.path = lib.mkForce null; }
             "chuggy.state.registry.path is unset";
 
+        refuses-without-build-results-path =
+          refuses "without-build-results-path"
+            { chuggy.state.buildResults.path = lib.mkForce null; }
+            "chuggy.state.buildResults.path is unset";
+
         refuses-without-api-allowed-sources =
           refuses "without-api-allowed-sources"
             { chuggy.k3s.apiAllowedSources = lib.mkForce null; }
@@ -200,6 +207,7 @@
         registry-wiring-gtr = registryWiring self.nixosConfigurations.gtr;
         registry-wiring-example = registryWiring self.nixosConfigurations.example;
         release-images = releaseImages;
+        build-platform = buildPlatform;
       };
     };
 }

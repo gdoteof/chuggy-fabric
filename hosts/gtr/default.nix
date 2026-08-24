@@ -96,10 +96,12 @@
     # but does mean reading an artifact from a shell here needs sudo.
     artifacts.path = "/var/lib/chuggy/artifacts";
     registry.path = "/var/lib/chuggy/registry";
+    buildResults.path = "/var/lib/chuggy/build-results";
   };
 
   chuggy.secrets.enable = true;
   chuggy.images.enable = true;
+  chuggy.buildProvenance.enable = true;
 
   # One task at a time, sized against the box in the header above and against
   # what already runs on it: the control plane, PostgreSQL, Ory and the

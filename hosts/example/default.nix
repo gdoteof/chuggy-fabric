@@ -84,10 +84,12 @@
     enable = true;
     artifacts.path = "/var/lib/chuggy/artifacts";
     registry.path = "/var/lib/chuggy/registry";
+    buildResults.path = "/var/lib/chuggy/build-results";
   };
 
   chuggy.secrets.enable = true;
   chuggy.images.enable = true;
+  chuggy.buildProvenance.enable = true;
 
   # Numbers, not a copy of gtr's numbers. They are here because the module
   # refuses to evaluate without them, which is the point: a host that has not

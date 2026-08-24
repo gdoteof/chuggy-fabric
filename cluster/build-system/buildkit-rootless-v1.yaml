@@ -1,0 +1,84 @@
+apiVersion: shipwright.io/v1beta1
+kind: ClusterBuildStrategy
+metadata:
+  name: buildkit-rootless-v1
+  annotations:
+    container.apparmor.security.beta.kubernetes.io/step-build-and-push: unconfined
+    fabric.chuggy.dev/profile: shipwright-buildkit-rootless/v1
+spec:
+  parameters:
+    - name: cache
+      type: string
+      default: registry
+    - name: dockerfile
+      type: string
+      default: Dockerfile
+    - name: target
+      type: string
+      default: ""
+  steps:
+    - name: build-and-push
+      image: moby/buildkit:v0.26.2-rootless@sha256:0ffa2fcf6b8757c47d569b3ef0f03f9d5eb3b9ff5ce68d858f994f89b749da0c
+      imagePullPolicy: IfNotPresent
+      workingDir: $(params.shp-source-root)
+      securityContext:
+        allowPrivilegeEscalation: true
+        capabilities:
+          add: [SETGID, SETUID]
+          drop: [ALL]
+        readOnlyRootFilesystem: true
+        seccompProfile: { type: Unconfined }
+      env:
+        - { name: XDG_RUNTIME_DIR, value: /home/user/.local/tmp }
+        - { name: DOCKER_CONFIG, value: /tekton/home/.docker }
+        - { name: HOME, value: /tekton/home }
+        - { name: BUILDKITD_FLAGS, value: --oci-worker-no-process-sandbox }
+        - { name: SOURCE_CONTEXT, value: $(params.shp-source-context) }
+        - { name: DOCKERFILE, value: $(params.dockerfile) }
+        - { name: OUTPUT_DIRECTORY, value: $(params.shp-output-directory) }
+        - { name: OUTPUT_IMAGE, value: $(params.shp-output-image) }
+        - { name: OUTPUT_INSECURE, value: $(params.shp-output-insecure) }
+        - { name: CACHE_MODE, value: $(params.cache) }
+        - { name: TARGET, value: $(params.target) }
+      command: [/bin/ash, -c]
+      args:
+        - |
+          set -euo pipefail
+          test -d "$SOURCE_CONTEXT" || {
+            printf ContextDirNotFound > '$(results.shp-error-reason.path)'
+            exit 1
+          }
+          dockerfile_path="$SOURCE_CONTEXT/$DOCKERFILE"
+          test -f "$dockerfile_path" || {
+            printf DockerfileNotFound > '$(results.shp-error-reason.path)'
+            exit 1
+          }
+          case "$CACHE_MODE" in
+            registry) cache_args="--export-cache=type=inline --import-cache=type=registry,ref=$OUTPUT_IMAGE,registry.insecure=$OUTPUT_INSECURE" ;;
+            disabled) cache_args="--no-cache" ;;
+            *) printf InvalidParameterValue > '$(results.shp-error-reason.path)'; exit 1 ;;
+          esac
+          target_arg=""
+          test -z "$TARGET" || target_arg="--opt=target=$TARGET"
+          buildctl-daemonless.sh build \
+            --frontend=dockerfile.v0 \
+            --opt="filename=$(basename "$dockerfile_path")" \
+            --opt=platform=linux/amd64 \
+            --local="context=$SOURCE_CONTEXT" \
+            --local="dockerfile=$(dirname "$dockerfile_path")" \
+            --output="type=oci,tar=false,dest=$OUTPUT_DIRECTORY" \
+            $cache_args $target_arg --progress=plain
+      resources:
+        requests: { cpu: "1", memory: 2Gi, ephemeral-storage: 10Gi }
+        limits: { cpu: "4", memory: 8Gi, ephemeral-storage: 40Gi }
+      volumeMounts:
+        - { name: buildkit-state, mountPath: /home/user/.local/share/buildkit }
+        - { name: buildkit-runtime, mountPath: /home/user/.local/tmp }
+        - { name: shp-tmp, mountPath: /tmp }
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+  volumes:
+    - { name: shp-tmp, emptyDir: {} }
+    - { name: buildkit-state, emptyDir: {} }
+    - { name: buildkit-runtime, emptyDir: {} }
