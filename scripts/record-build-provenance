@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -o errexit -o nounset -o pipefail
+
+: "${RESULTS_PATH:?RESULTS_PATH is required}"
+namespace=${BUILD_NAMESPACE:-chuggy-build}
+batch_size=${BATCH_SIZE:-100}
+kubeconfig=${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}
+kubectl_command=("${KUBECTL:-kubectl}" --kubeconfig "$kubeconfig")
+
+mkdir -p "$RESULTS_PATH"
+"${kubectl_command[@]}" get --raw \
+  "/apis/shipwright.io/v1beta1/namespaces/$namespace/buildruns?labelSelector=fabric.chuggy.dev%2Fprovenance%3Drequired&limit=$batch_size" |
+  jq -c '.items[]' |
+  while IFS= read -r buildrun; do
+    condition=$(printf '%s' "$buildrun" | jq -c '.status.conditions[]? | select(.type == "Succeeded")' | tail -1)
+    terminal=$(printf '%s' "$condition" | jq -r '.status // empty')
+    case "$terminal" in True|False) ;; *) continue ;; esac
+
+    name=$(printf '%s' "$buildrun" | jq -r '.metadata.name')
+    request=$(printf '%s' "$buildrun" | jq -r '.metadata.annotations["fabric.chuggy.dev/request-digest"]')
+    expected=$(printf '%s' "$buildrun" | jq -r '.metadata.annotations["fabric.chuggy.dev/source-commit"]')
+    observed=$(printf '%s' "$buildrun" | jq -r '.status.sources[]? | select(.name == "default") | .git.commitSha' | tail -1)
+    digest=$(printf '%s' "$buildrun" | jq -r '.status.output.digest // empty')
+    if [[ $terminal == True ]]; then
+      [[ $observed == "$expected" ]] || { echo "$name: observed commit mismatch" >&2; continue; }
+      [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "$name: missing output digest" >&2; continue; }
+    fi
+
+    directory="$RESULTS_PATH/$request"
+    record="$directory/$name.json"
+    checksum="$record.sha256"
+    mkdir -p "$directory"
+    if [[ ! -e $record ]]; then
+      umask 077
+      printf '%s' "$buildrun" | jq -S '{
+        requestDigest: .metadata.annotations["fabric.chuggy.dev/request-digest"],
+        attempt: {name: .metadata.name, ordinal: (.metadata.annotations["fabric.chuggy.dev/attempt-ordinal"] | tonumber)},
+        source: {requestedCommit: .metadata.annotations["fabric.chuggy.dev/source-commit"], observedCommit: ([.status.sources[]? | select(.name == "default") | .git.commitSha] | last // null)},
+        output: {repository: .metadata.annotations["fabric.chuggy.dev/target-image-repository"], digest: (.status.output.digest // null)},
+        terminalCondition: ([.status.conditions[] | select(.type == "Succeeded")] | last),
+        timestamps: {started: .status.startTime, completed: .status.completionTime},
+        controller: .metadata.annotations["fabric.chuggy.dev/shipwright-version"],
+        profile: {name: .metadata.annotations["fabric.chuggy.dev/profile"], digest: .metadata.annotations["fabric.chuggy.dev/profile-digest"]}
+      }' > "$record.payload.tmp"
+      provenance_digest=$(sha256sum "$record.payload.tmp" | awk '{print "sha256:" $1}')
+      jq -nS --arg digest "$provenance_digest" --slurpfile result "$record.payload.tmp" \
+        '{provenanceRecordDigest:$digest,result:$result[0]}' > "$record.tmp"
+      mv "$record.tmp" "$record"
+      rm "$record.payload.tmp"
+    fi
+    if [[ ! -e $checksum ]]; then
+      umask 077
+      sha256sum "$record" | awk '{print "sha256:" $1}' > "$checksum.tmp"
+      mv "$checksum.tmp" "$checksum"
+    fi
+    sync "$record" "$checksum"
+    stored=$(sha256sum "$record" | awk '{print "sha256:" $1}')
+    [[ $stored == "$(<"$checksum")" ]] || { echo "$name: durable record checksum mismatch" >&2; continue; }
+    provenance_digest=$(jq -r '.provenanceRecordDigest' "$record")
+
+    resource_version=$(printf '%s' "$buildrun" | jq -r '.metadata.resourceVersion')
+    finalizers=$(printf '%s' "$buildrun" | jq -c '[.metadata.finalizers[]? | select(. != "fabric.chuggy.dev/provenance-required")]')
+    patch=$(jq -cn --arg rv "$resource_version" --argjson finalizers "$finalizers" --arg digest "$provenance_digest" \
+      '{metadata:{resourceVersion:$rv,finalizers:$finalizers,labels:{"fabric.chuggy.dev/provenance":"recorded"},annotations:{"fabric.chuggy.dev/provenance-record-digest":$digest}}}')
+    "${kubectl_command[@]}" patch buildrun.shipwright.io "$name" -n "$namespace" --type=merge -p "$patch"
+  done

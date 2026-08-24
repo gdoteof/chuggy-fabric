@@ -31,6 +31,7 @@
         ./modules/chuggy-secrets.nix
         ./modules/chuggy-images.nix
         ./modules/chuggy-work.nix
+        ./modules/build-provenance.nix
         ./modules/cloudflare-tunnel.nix
         ./modules/ddns.nix
         ./modules/flux.nix
@@ -98,6 +99,7 @@
       releaseImages = import ./tests/release-images.nix { inherit pkgs; };
       fluxWiring = host: expectSecretRef:
         import ./tests/flux-wiring.nix { inherit pkgs host expectSecretRef; };
+      buildPlatform = import ./tests/build-platform.nix { inherit pkgs; };
     in
     {
       nixosConfigurations = {
@@ -153,6 +155,11 @@
           refuses "without-registry-path"
             { chuggy.state.registry.path = lib.mkForce null; }
             "chuggy.state.registry.path is unset";
+
+        refuses-without-build-results-path =
+          refuses "without-build-results-path"
+            { chuggy.state.buildResults.path = lib.mkForce null; }
+            "chuggy.state.buildResults.path is unset";
 
         refuses-without-api-allowed-sources =
           refuses "without-api-allowed-sources"
@@ -217,6 +224,7 @@
             }];
           })
           "fabric-source-auth";
+        build-platform = buildPlatform;
       };
     };
 }

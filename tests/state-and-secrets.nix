@@ -131,6 +131,7 @@ pkgs.testers.runNixOSTest {
       enable = true;
       artifacts.path = "/var/lib/chuggy/artifacts";
       registry.path = "/var/lib/chuggy/registry";
+      buildResults.path = "/var/lib/chuggy/build-results";
     };
     chuggy.secrets.enable = true;
     chuggy.images.enable = true;
@@ -174,6 +175,7 @@ pkgs.testers.runNixOSTest {
     # already exists, which the subtest below is about.
     artifacts_stat = "750 1000 1000"
     registry_stat = "750 1000 1000"
+    build_results_stat = "700 0 0"
 
 
     def read_secrets():
@@ -233,6 +235,10 @@ pkgs.testers.runNixOSTest {
         assert (
             machine.succeed("stat -c '%a %u %g' /var/lib/chuggy/registry").strip()
             == registry_stat
+        )
+        assert (
+            machine.succeed("stat -c '%a %u %g' /var/lib/chuggy/build-results").strip()
+            == build_results_stat
         )
         assert (
             machine.succeed("stat -c '%a %U %G' /var/lib/chuggy/secrets").strip()
