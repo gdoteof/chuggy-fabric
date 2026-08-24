@@ -6,38 +6,34 @@
 # the password's URL-reserved-character constraint and the absence of a health
 # listener are argued in chuggy-ticket-service.yaml.
 #
-# THIS WORKLOAD CANNOT REACH READY ON THE TAG PINNED BELOW, and one of the two
-# reasons is one line of somebody else's Dockerfile. The finalizer's first
-# precondition is `git-available`: it runs `git --version` and requires a version
-# that writes merge trees. `images/api/Dockerfile` in kasofsk/chuggy builds on
-# `node:26.7.0-trixie-slim`, which carries no git -- verified by running
-# `git --version` in a pod on this rig at the pinned tag, which answers `not
-# found`. So this command reports `finalizer: git-available is not met` and exits
-# 2, every time, on that image.
+# THE IMAGE IS NO LONGER THE OPEN QUESTION. The finalizer's first precondition is
+# `git-available`: it runs `git --version` and requires a version that writes
+# merge trees. That was the second of two blockers here for as long as the pin
+# named an image built on bare `node:26.7.0-trixie-slim`, which carries no git.
+# The tag below carries git 2.47.3 and the certificate bundle a remote needs --
+# verified by running `git --version` in a pod on this rig at that tag, not read
+# off the Dockerfile.
 #
-# THE IMAGE IS NO LONGER THE OPEN QUESTION. kasofsk/chuggy#254 installs git and
-# the certificate bundle it needs to reach a remote at all, so what stands
-# between this file and a running finalizer is the re-pin, and then
-# prerequisite 5's Secret.
+# WHAT IS LEFT IS ONE SECRET, AND IT IS NOT THIS FILE'S TO ANSWER. The fourth
+# precondition is `repository-credentials-available`;
+# `chuggy-finalizer-credentials` is created by hand and is not on this rig, so
+# the kubelet cannot mount the volume, the container is never built, and no
+# precondition is reached at all. `ContainerCreating` on a `FailedMount` is the
+# state `kubectl get pods` shows today.
 #
-# IT IS DEPLOYED AT ONE REPLICA BECAUSE THAT BLOCKER IS REACHABLE: an image with
-# git in it clears it, and until then a command that names the precondition it
-# is missing is the visible form of the gap. `composeFinalizerRuntime` orders
-# `git-scratch-writable` and `artifact-root-writable` after it, and the two
-# volumes below answer both -- the scratch is an emptyDir, and the artifact root
-# is the host directory the README's prerequisite 3 creates, owned by the uid
-# this pod runs as.
+# IT IS DEPLOYED AT ONE REPLICA BECAUSE THAT BLOCKER IS REACHABLE, which is also
+# why this is the one object holding `apps` red rather than a zero like the
+# selector's. `composeFinalizerRuntime` orders `git-scratch-writable` and
+# `artifact-root-writable` between the two, and the volumes below answer both --
+# the scratch is an emptyDir, and the artifact root is the host directory the
+# README's prerequisite 3 creates, owned by the uid this pod runs as. So the
+# Secret is the whole of the remaining gap.
 #
-# THE FOURTH, `repository-credentials-available`, IS NOT THIS FILE'S TO ANSWER.
-# `chuggy-finalizer-credentials` is created by hand, and it is not on this rig:
-# the kubelet cannot mount the volume, so the container is never built and no
-# precondition is reached at all. That is the state `kubectl get pods` shows
-# today, and the paragraph above is what it becomes once the Secret exists.
-#
-# THAT PRECONDITION ALSO DEPENDS ON THE MODE ON THE CREDENTIAL VOLUME BELOW, and
-# `git-available` fails ahead of it on the pinned tag, so getting that mode wrong
-# is invisible until the re-pin. Read the argument there before changing it:
-# nothing on this rig can currently report it wrong.
+# THE MODE ON THE CREDENTIAL VOLUME BELOW IS NOW OBSERVABLE, and it was not
+# before: `git-available` used to fail ahead of it, so getting that mode wrong
+# was invisible. On this tag the credential precondition is the first thing that
+# can report it, which is the argument for reading that mode before changing it
+# rather than after.
 #
 # ---------------------------------------------------------- the recovery epoch ----
 #
@@ -165,7 +161,7 @@ spec:
         # only thing an fsGroup would change here.
       containers:
         - name: finalizer
-          image: chuggy.invalid/api:9d88703
+          image: chuggy.invalid/api:f8c6d7b
           imagePullPolicy: IfNotPresent
           command:
             [

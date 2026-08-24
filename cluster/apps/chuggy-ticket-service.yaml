@@ -155,7 +155,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: ticket-service
-          image: chuggy.invalid/api:9d88703
+          image: chuggy.invalid/api:f8c6d7b
           imagePullPolicy: IfNotPresent
           command:
             [

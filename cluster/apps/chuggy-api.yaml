@@ -34,8 +34,9 @@
 #
 # MERGING A RE-PIN BEFORE THE IMPORT RE-POINTS A WORKING API AT A TAG THIS NODE
 # DOES NOT HOLD. That is not where this rig is -- `k3s ctr images ls` holds the
-# tag below and the API is serving on it -- but it is one merge away every time
-# those six lines move, so what happens then is worth knowing before it does.
+# tag below, imported before this pin was moved to it, and the API rolls onto it
+# on the next reconcile -- but it is one merge away every time those six lines
+# move, so what happens then is worth knowing before it does.
 #
 # WHAT SAVES IT IS THE ROLLOUT STRATEGY, WHICH IS A DEFAULT AND NOT A DECISION
 # ANYONE MADE HERE. `RollingUpdate` at `replicas: 1` computes `maxUnavailable`
@@ -87,7 +88,7 @@
 # arrive part-way along the branch, so "from #242" is not the check. The
 # README's prerequisite 1 pre-filters the checkout in hand for both grants and
 # then reads `pg_auth_members` on the server, which is the only thing that
-# settles whether they landed. `9d88703`, which the six tags name, carries both.
+# settles whether they landed. `f8c6d7b`, which the six tags name, carries both.
 #
 # It is on this rig: `pg_auth_members` carries
 # `chuggy_selector_review|chuggy_api_login` and this API is listening. A
@@ -282,7 +283,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: api
-          image: chuggy.invalid/api:9d88703
+          image: chuggy.invalid/api:f8c6d7b
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

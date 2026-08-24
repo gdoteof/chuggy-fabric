@@ -78,9 +78,10 @@
 # mechanism, not something observed, and it is worth saying which because the
 # obvious argument for it is wrong: a database BEHIND the ledger this image
 # declares is the case that SUCCEEDS. A ledger that is a prefix of what the
-# image declares means the run applies the difference and exits 0; this rig's
-# ledger is at 18, which is all of it, and the run said `the schema was already
-# current`.
+# image declares means the run applies the difference and exits 0, and that is
+# the case this rig is in: its ledger is at 18 and the tag below declares 19, so
+# this Job applies migration 19 -- the requirement columns migrations 12 and 15
+# gained after this database ran them -- and exits 0.
 #
 # THE FAILURE MODE THAT MATTERS IS NEITHER OF THOSE. Everything above is about a
 # Job that fails. The one worth this much text is a Job that SUCCEEDS while
@@ -140,7 +141,7 @@
 # issued -- in a copy of the file that carries it, which not every commit on
 # kasofsk/chuggy#242 does; the README's prerequisite 1 pre-filters the checkout
 # for it rather than trusting a commit id and then reads `pg_auth_members` to
-# see that it landed, and `9d88703` below carries it. It has to be run BEFORE
+# see that it landed, and `f8c6d7b` below carries it. It has to be run BEFORE
 # this Job ever does -- once the Job has committed a ledger row for 17, running
 # the roles file afterwards leaves the grant missing and the ledger claiming
 # otherwise. Nothing here can express that: this object is applied on the first
@@ -192,7 +193,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   # The suffix is the image tag below. Change one and change the other.
-  name: chuggy-migrate-9d88703
+  name: chuggy-migrate-f8c6d7b
   namespace: chuggy
   labels: { app: chuggy-migrate }
 spec:
@@ -298,7 +299,7 @@ spec:
             seccompProfile: { type: RuntimeDefault }
       containers:
         - name: migrate
-          image: chuggy.invalid/api:9d88703
+          image: chuggy.invalid/api:f8c6d7b
           imagePullPolicy: IfNotPresent
           # Exec form with node as PID 1, for the reason the image's Dockerfile
           # gives: the process is handed SIGTERM itself rather than through a
