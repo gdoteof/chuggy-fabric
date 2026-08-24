@@ -40,7 +40,7 @@
 # PR 7 of kasofsk/chuggy#197 and are not here.
 #
 #   kubectl -n chuggy exec -it postgres-0 -- \
-#     psql -U chuggy_owner -d chuggy_rehearsal \
+#     psql -U chuggy_owner -d chuggy \
 #     -c "INSERT INTO recovery_epoch (epoch) VALUES ('rehearsal-1')"
 #
 # The value must match this file and chuggy-scheduler.yaml, which name the same
@@ -156,7 +156,7 @@ spec:
                     key: finalizer-password,
                   }
             - name: CHUG_FINALIZER_DATABASE_URL
-              value: postgres://chuggy_finalizer_login:$(CHUG_FINALIZER_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy_rehearsal?options=-c%20role%3Dchuggy_finalizer
+              value: postgres://chuggy_finalizer_login:$(CHUG_FINALIZER_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy?options=-c%20role%3Dchuggy_finalizer
             # The claim holder's name, taken from the pod so that two live
             # processes can never hold one finalization request under one
             # identity.

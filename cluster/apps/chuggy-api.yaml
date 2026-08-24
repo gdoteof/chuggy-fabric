@@ -110,48 +110,20 @@
 # protected here: what bounds the link instead is postgres-network-policy.yaml
 # plus both ends being pods on one node.
 #
-# THE DATABASE IS `chuggy_rehearsal` AND SHOULD BE `chuggy`. The database this
-# server calls `chuggy` holds the rows kasofsk/chuggy's PostgreSQL suite left
-# behind -- every tenant in it is named `tenant-<case>-<uuid>` -- and its schema
-# stopped at the migration before the one that adds a NOT NULL column to
-# `journal_entry`, which those rows have no value for. So the schema this API
-# needs cannot be applied there while they are in it, and the name here is the
-# database that could be migrated rather than the one that should be.
+# THE DATABASE IS `chuggy`, and two things in kasofsk/chuggy now mean THIS one.
+# `deploy/rig/durability/rehearse.sh` defaults `CHUG_RIG_DATABASE` to `chuggy`
+# and has a destroy phase; `deploy/rig/postgres/README.md` points the PostgreSQL
+# suite at `chuggy` too. Both named the leftover fixtures until the rename and
+# name the control plane after it, so each is now a drop or a refill of the
+# database this API serves. Rehearsing durability against the real database is
+# what that script is for, so neither is wrong to run -- but neither is
+# survivable by accident any more, and the default is what changed under them.
 #
-# WHILE THE NAME STANDS, TWO THINGS ON THIS RIG STILL MEAN THE OTHER DATABASE,
-# and both of them matter more than this Deployment does. kasofsk/chuggy's
-# `deploy/rig/durability/rehearse.sh` defaults its database to `chuggy` and has
-# a destroy phase, so the rehearsal whose whole job is proving the data comes
-# back now snapshots, destroys and restores the fixtures -- and covers nothing
-# the API runs against. postgres.yaml's two probes name `chuggy` as well, which
-# is harmless only because that database still exists. Neither is worth a patch:
-# both are correct again the moment the swap below happens, which is the
-# argument for doing it rather than for documenting it harder.
-#
-# It is one swap to fix, and it destroys nothing:
-#
-#   flux suspend kustomization apps -n flux-system
-#   kubectl -n chuggy scale deploy/chuggy-api --replicas=0
-#   # ALTER DATABASE chuggy RENAME TO chuggy_suite_fixtures;
-#   # ALTER DATABASE chuggy_rehearsal RENAME TO chuggy;
-#   # then edit this value to `chuggy` and commit
-#   flux resume kustomization apps -n flux-system
-#
-# after which this value is `chuggy` and the fixtures are still there to read.
-#
-# THE SUSPEND IS NOT OPTIONAL. Both statements need every connection to the
-# database closed, and `replicas: 1` is in this file: the `apps` Kustomization
-# reconciles this directory every five minutes with `prune: true` and
-# `wait: true` -- `modules/flux.nix` generates it -- so a
-# hand-run `kubectl scale` is undone inside that window -- most likely between
-# the two renames, where the first has landed and `chuggy` no longer exists.
-# `wait: true` would also be health-checking a Deployment deliberately held at
-# zero.
-#
-# One thing the swap does not fix, and it is what put the fixtures there:
-# `deploy/rig/postgres/README.md` still points the PostgreSQL suite at the
-# `chuggy` database, so running it against the rig refills whatever holds that
-# name.
+# `chuggy_suite_fixtures` is where those leftovers went, under a name nothing
+# points at. Every tenant in it is named `tenant-<case>-<uuid>` and its schema
+# stops at the migration before the one that adds a NOT NULL column to
+# `journal_entry`, which those rows have no value for -- so it cannot be
+# migrated forward while they are in it. It is kept, not cleaned up.
 #
 # ---------------------------------------------------------- the artifacts ----
 #
@@ -319,13 +291,13 @@ spec:
                 secretKeyRef:
                   { name: chuggy-postgres-credentials, key: api-password }
             - name: CHUG_API_DATABASE_URL
-              value: postgres://chuggy_api_login:$(CHUG_API_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy_rehearsal?options=-c%20role%3Dchuggy_api
+              value: postgres://chuggy_api_login:$(CHUG_API_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy?options=-c%20role%3Dchuggy_api
             # The same credential becoming a different group. One password,
             # because one process holds both pools and a second password would
             # be a second thing to rotate for no separation it does not already
             # have; the separation is the role, and it is in the option.
             - name: CHUG_API_SELECTOR_REVIEW_DATABASE_URL
-              value: postgres://chuggy_api_login:$(CHUG_API_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy_rehearsal?options=-c%20role%3Dchuggy_selector_review
+              value: postgres://chuggy_api_login:$(CHUG_API_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy?options=-c%20role%3Dchuggy_selector_review
             - name: CHUG_API_IDEMPOTENCY_KEYING
               valueFrom:
                 secretKeyRef: { name: chuggy-api, key: idempotency-keying }

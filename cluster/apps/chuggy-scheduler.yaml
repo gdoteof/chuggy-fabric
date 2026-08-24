@@ -142,7 +142,7 @@ spec:
                 secretKeyRef:
                   { name: chuggy-postgres-credentials, key: scheduler-password }
             - name: CHUG_SCHEDULER_DATABASE_URL
-              value: postgres://chuggy_scheduler_login:$(CHUG_SCHEDULER_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy_rehearsal?options=-c%20role%3Dchuggy_scheduler
+              value: postgres://chuggy_scheduler_login:$(CHUG_SCHEDULER_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy?options=-c%20role%3Dchuggy_scheduler
             # The claim holder's name, taken from the pod so that two live
             # processes can never hold one execution request under one identity.
             - name: CHUG_SCHEDULER_OWNER

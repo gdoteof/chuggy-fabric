@@ -175,9 +175,11 @@
 # grant itself. A database rolled out before the file carried it is the silent
 # failure argued above -- the one that reports success.
 #
-# The database is `chuggy_rehearsal` for the reason chuggy-api.yaml gives at
-# length. All six objects in this namespace that hold a chuggy role name the
-# same database; the swap that file describes moves all six.
+# The database is `chuggy`, which all six objects in this namespace that hold a
+# chuggy role name. The one it must never be is `chuggy_suite_fixtures`, which
+# chuggy-api.yaml describes: its ledger stops at 2, and 2 is a valid prefix of
+# this Job's, so nothing here would refuse it -- the Job would apply 3 upward to
+# the fixtures and fail partway through on the rows that stopped it.
 ---
 apiVersion: batch/v1
 kind: Job
@@ -308,7 +310,7 @@ spec:
                 secretKeyRef:
                   { name: chuggy-postgres-credentials, key: owner-password }
             - name: CHUG_MIGRATE_DATABASE_URL
-              value: postgres://chuggy_owner:$(CHUG_PG_OWNER_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy_rehearsal
+              value: postgres://chuggy_owner:$(CHUG_PG_OWNER_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy
           resources:
             requests: { cpu: 100m, memory: 128Mi }
             limits: { memory: 512Mi }
