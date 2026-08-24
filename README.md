@@ -1022,9 +1022,23 @@ not after it.
    go in this repository; it is public. A pod whose Secret is missing is never
    built, under one of two names: a `secretKeyRef` env gives
    `CreateContainerConfigError`, a mounted secret gives `ContainerCreating` on a
-   `FailedMount`. `chuggy-selector` is on this rig;
-   `chuggy-finalizer-credentials` is not, and the finalizer pod is in the
-   second state.
+   `FailedMount`.
+
+   The finalizer's is **not a credential for anywhere outside this cluster**. Its
+   remote is `rig.git` on the rig's own git service, so the value is the operator
+   credential that service already validates, copied rather than minted:
+
+   ```sh
+   kubectl -n chuggy create secret generic chuggy-finalizer-credentials \
+     --from-literal=rig-git="$(kubectl -n chuggy-git get secret git-operator \
+       -o jsonpath='{.data.password}' | base64 -d)"
+   ```
+
+   That is the one credential the git service's htpasswd admits on
+   `/git-receive-pack`, which is what makes D34 — only the finalizer advances the
+   deployed revision — true here rather than aspirational. An external
+   repository is a later thing and wants D31's short-lived minting, not a static
+   token on a rig.
 6. **Establish the first recovery epoch**, as a Secret and a row that carry the
    same value. `chuggy-recovery-epoch` is read by both the scheduler and the
    finalizer, and the row is what they fence against; no migration writes it,
@@ -1043,16 +1057,19 @@ not after it.
   answering `/health/ready` 200 and refusing the hand-written token 401 — and
   that one has a seam for a fix. `chuggy-selector.yaml` argues both beside the
   number, and PR 5 is what restores it to one.
-- **The finalizer has no credential Secret, and that is now the whole of it.**
-  `chuggy-finalizer-credentials` is prerequisite 5 and is not on this rig, so
-  the volume does not mount and the container is never built —
-  `ContainerCreating` on a `FailedMount`, which is where the pod sits. Its
-  other three preconditions are all answered: `git-available` runs `git
-  --version`, and the tag above carries git 2.47.3, checked by running it in a
-  pod here rather than inferred from the Dockerfile; a writable scratch and a
-  writable artifact root are the volumes `chuggy-finalizer.yaml` declares over
-  prerequisite 3's host directory. This is the one object holding `apps` red,
-  and a hand-made Secret is what clears it.
+- **The finalizer promotes onto this cluster's own git and nothing external.**
+  Its remote is `rig.git` in `chuggy-git`, and `chuggy-finalizer-egress` admits
+  that one pod on port 80 and no longer admits the public internet at all. All
+  four of its preconditions are answerable here: `git-available` runs `git
+  --version` and the tag above carries git 2.47.3, checked by running it in a pod
+  rather than read off the Dockerfile; a writable scratch and a writable artifact
+  root are the volumes `chuggy-finalizer.yaml` declares over prerequisite 3's
+  host directory; and `repository-credentials-available` reads prerequisite 5's
+  Secret, which only has to be readable — it is never validated against a remote.
+- **Nothing binds a repository yet, so a healthy finalizer idles.**
+  `finalization_request` is empty, so the credential makes the process ready
+  without making it do anything. Loading an external repository is later work and
+  wants D31's short-lived minting.
 - **The scheduler places nothing, and until the tag above it could not start at
   all.** Migrations 12 and 15 were edited after this rig applied them, so
   `execution` here carries none of the five requirement columns the code reads

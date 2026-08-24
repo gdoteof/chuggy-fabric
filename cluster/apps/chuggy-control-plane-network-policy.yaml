@@ -210,21 +210,30 @@ spec:
         - protocol: TCP
           port: 3000
 ---
-# The finalizer adds the public internet on 443, because a promotion pushes to a
-# remote that is not on this cluster.
+# The finalizer adds the rig's own git service, and nothing else. A promotion
+# pushes to `rig.git` in `chuggy-git`, so the remote is one pod in one namespace
+# on one port and this rule names exactly that.
 #
-# WHAT THE `except` LIST BUYS AND WHAT IT DOES NOT. It refuses this workload the
-# pod network, the service network, every RFC1918 range and link-local -- so a
-# repository URL that resolved to something inside this site, or to the cloud
-# metadata address, is refused rather than fetched. That is the shape of the
-# defence D25 asks for around work pods, applied here to the one control-plane
-# process that talks to a remote at all.
+# THERE IS NO PUBLIC-INTERNET RULE HERE, AND THAT IS A CHANGE. This policy used
+# to admit 443 to `0.0.0.0/0` with the pod network, the service network, every
+# RFC1918 range and link-local in an `except` list -- the shape of the defence
+# D25 asks for, on the argument that a promotion pushes to a remote that is not
+# on this cluster. That argument is no longer true: the remote is on this
+# cluster, so the rule it justified is gone rather than left standing beside a
+# reason that has stopped applying.
 #
-# What it does not buy is any statement about WHICH public host. github.com and
-# anywhere else on the internet are the same rule to this policy. Bounding that
-# is a proxy with an allow list, which is PR 5's egress proxy and not a
-# NetworkPolicy -- an `ipBlock` cannot express a hostname, and a rule written
-# against today's GitHub addresses would be wrong within the month.
+# WHAT THAT COSTS IS THE ABILITY TO PUSH ANYWHERE EXTERNAL, deliberately. An
+# external repository wants the short-lived minting D31 asks for and the egress
+# proxy with an allow list that PR 5 carries -- a `NetworkPolicy` could never
+# have bounded WHICH public host anyway, because an `ipBlock` cannot express a
+# hostname and a rule written against today's GitHub addresses would be wrong
+# within the month. Re-adding blanket 443 is not the way back to that.
+#
+# A NAMED POD IS A STRONGER STATEMENT THAN THE `except` LIST WAS. The one
+# internal destination admitted is selected by namespace and pod label, so every
+# other address inside this site -- including the cloud metadata address the
+# `except` list was there for -- is refused by this rule having nothing that
+# matches it.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -257,19 +266,15 @@ spec:
         - protocol: TCP
           port: 5432
     - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except:
-              - 10.42.0.0/16
-              - 10.43.0.0/16
-              - 10.0.0.0/8
-              - 172.16.0.0/12
-              - 192.168.0.0/16
-              - 169.254.0.0/16
-              - 127.0.0.0/8
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy-git
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: git
       ports:
         - protocol: TCP
-          port: 443
+          port: 80
 ---
 # The scheduler reaches the Kubernetes API server, and that is why its rule is
 # the loosest of the four.
