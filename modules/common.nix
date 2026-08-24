@@ -105,6 +105,41 @@
     ];
   };
 
+  # A second human on the box, reachable only over the WireGuard mesh (its peer
+  # is declared in hosts/gtr/default.nix). dev2 already holds cluster-admin via
+  # cluster/apps/dev2-access.yaml; on this single node that is root-equivalent
+  # already -- a cluster-admin can schedule a privileged host-mounting pod, and
+  # the kubeconfig is 0644, so the system:masters cert is theirs to read. This
+  # block does not widen that power; it makes it a usable shell so they can
+  # build an image and `sudo k3s ctr images import` it, which no kubectl verb
+  # does while images are tagged `chuggy.invalid` and never pulled. A registry
+  # retires that need once this grows past one box; until then, the shell.
+  #
+  # THE COST, stated so the next reader sees it beside the grant: this softens
+  # the revocation story dev2-access.yaml rests on. That file prefers a
+  # ServiceAccount to a client cert because deleting the SA invalidates every
+  # token at once, whereas a cert cannot be revoked short of rotating the CA. A
+  # wheel shell reintroduces the un-revocable half -- the 0644 system:masters
+  # cert is copyable from any root shell here -- so cutting dev2 off now means
+  # deleting this user AND rotating what a root shell could have taken, not just
+  # deleting the ServiceAccount. Accepted deliberately for a rig; revisit with
+  # --write-kubeconfig-mode=0600 (see modules/k3s-server.nix) if it ever isn't.
+  users.users.dev2 = {
+    isNormalUser = true;
+    description = "dev2 (david)";
+    # wheel -> passwordless sudo -> `k3s ctr`; docker -> build images on the box.
+    # Same pair geoff carries; both are root-equivalent, matching the access
+    # dev2 already holds rather than pretending to a boundary sudo erases.
+    extraGroups = [ "wheel" "docker" ];
+    shell = pkgs.zsh;
+
+    # Public key only, same argument as geoff's above: not secret, belongs in a
+    # public repo, and the single way in while password auth is off.
+    openssh.authorizedKeys.keys = [
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBI+Q42CQ3DZ0/+ocfwTEqsLXFSO/ano20kVH+jkGk3e david@Mac.lan"
+    ];
+  };
+
   # users.users.geoff.shell points here -- dropping this block breaks login.
   programs.zsh = {
     enable = true;
