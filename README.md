@@ -45,6 +45,10 @@ only by their own directory.
     tests/state-and-secrets.nix     boots the four chuggy-* modules and checks
                                     what they kept and what they synchronised
 
+    docs/autonomous-installations-and-release-handoffs.md
+                                    authority, bootstrap, adoption, and release
+                                    handoff contracts
+
     nixos-live/                     the original /etc/nixos, captured verbatim
 
 Anything in `modules/` must be true of every node. Anything hardware-specific —
