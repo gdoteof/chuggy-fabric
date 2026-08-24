@@ -140,7 +140,7 @@
 # issued -- in a copy of the file that carries it, which not every commit on
 # kasofsk/chuggy#242 does; the README's prerequisite 1 pre-filters the checkout
 # for it rather than trusting a commit id and then reads `pg_auth_members` to
-# see that it landed, and the release built from `f8c6d7b` carries it. It has to
+# see that it landed, and the release built from `c80a4e2` carries it. It has to
 # be run BEFORE this Job ever does -- once the Job has committed a ledger row for 17, running
 # the roles file afterwards leaves the grant missing and the ledger claiming
 # otherwise. Nothing here can express that: this object is applied on the first
@@ -192,7 +192,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   # The suffix changes whenever the immutable pod template's release transport does.
-  name: chuggy-migrate-f8c6d7b-registry
+  name: chuggy-migrate-c80a4e2-registry
   namespace: chuggy
   labels: { app: chuggy-migrate }
 spec:
@@ -298,7 +298,7 @@ spec:
             seccompProfile: { type: RuntimeDefault }
       containers:
         - name: migrate
-          image: registry.chuggy.internal/chuggy/api@sha256:5653783a13ec4557b7c69200d2542be0e182047f8270bf78439b883fa9f2e53d
+          image: registry.chuggy.internal/chuggy/api@sha256:b230434593a7a90a3afd425596a2a67aafa9d552bbd75c0c36c5594b8d19b991
           imagePullPolicy: IfNotPresent
           # Exec form with node as PID 1, for the reason the image's Dockerfile
           # gives: the process is handed SIGTERM itself rather than through a

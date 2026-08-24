@@ -155,7 +155,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: ticket-service
-          image: registry.chuggy.internal/chuggy/api@sha256:5653783a13ec4557b7c69200d2542be0e182047f8270bf78439b883fa9f2e53d
+          image: registry.chuggy.internal/chuggy/api@sha256:b230434593a7a90a3afd425596a2a67aafa9d552bbd75c0c36c5594b8d19b991
           imagePullPolicy: IfNotPresent
           command:
             [

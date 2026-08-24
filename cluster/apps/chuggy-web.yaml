@@ -123,7 +123,7 @@ spec:
         runAsGroup: 101
       containers:
         - name: web
-          image: registry.chuggy.internal/chuggy/web@sha256:9f633f6a44702cbb84e768d6ed2a210172811696440cc1d3157c526fd2ab20db
+          image: registry.chuggy.internal/chuggy/web@sha256:168371d499b4c08514a5e9b97c7dd455ffa2e483cea98cd389b0e044384678a5
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
