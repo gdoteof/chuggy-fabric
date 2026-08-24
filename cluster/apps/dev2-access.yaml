@@ -1,5 +1,13 @@
 # Cluster access for a second person, without a shell on the box.
 #
+# dev2 is bound to cluster-admin below -- unrestricted, every namespace,
+# every resource, including secrets and the identity provider's database.
+# The two scoped grants that follow (view cluster-wide, edit in `chuggy`)
+# predate that and are now redundant; they are left in place rather than
+# removed, but everything below about "the right first rung" and staying
+# out of the identity store no longer bounds what this ServiceAccount can
+# do -- cluster-admin already covers all of it.
+#
 # Two grants, deliberately different in shape:
 #
 #   view   cluster-wide -- see everything, change nothing. The built-in role
@@ -73,6 +81,21 @@ kind: ServiceAccount
 metadata:
   name: dev2
   namespace: chuggy
+---
+# Unrestricted -- every namespace, every resource, including secrets and
+# the identity provider's database. Supersedes the scoped grants below.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dev2-cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: dev2
+    namespace: chuggy
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
 ---
 # Read-only everywhere.
 apiVersion: rbac.authorization.k8s.io/v1
