@@ -86,7 +86,7 @@
 # arrive part-way along the branch, so "from #242" is not the check. The
 # README's prerequisite 1 pre-filters the checkout in hand for both grants and
 # then reads `pg_auth_members` on the server, which is the only thing that
-# settles whether they landed. `4ec1192`, which the six tags name, carries both.
+# settles whether they landed. `9d88703`, which the six tags name, carries both.
 #
 # This rig was rolled out from an older copy: `pg_auth_members` shows
 # `chuggy_selector_review` with no members at all, so no credential here can
@@ -306,7 +306,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: api
-          image: chuggy.invalid/api:4ec1192
+          image: chuggy.invalid/api:9d88703
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
