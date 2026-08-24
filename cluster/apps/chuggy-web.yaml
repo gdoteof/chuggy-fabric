@@ -62,7 +62,7 @@
 # ---------------------------------------------------------------- the image ----
 #
 # The digest is the release identity. Every node maps the logical
-# `registry.chuggy.invalid` name to the private registry through k3s, so a new
+# `registry.chuggy.internal` name to the private registry through k3s, so a new
 # node can pull these bytes without an archive imported into its own containerd.
 #
 # ------------------------------------------------------- the security headers ----
@@ -123,7 +123,7 @@ spec:
         runAsGroup: 101
       containers:
         - name: web
-          image: registry.chuggy.invalid/chuggy/web@sha256:9f633f6a44702cbb84e768d6ed2a210172811696440cc1d3157c526fd2ab20db
+          image: registry.chuggy.internal/chuggy/web@sha256:9f633f6a44702cbb84e768d6ed2a210172811696440cc1d3157c526fd2ab20db
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

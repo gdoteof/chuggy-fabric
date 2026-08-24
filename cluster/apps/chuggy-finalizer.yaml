@@ -2,7 +2,7 @@
 # commit, and the only writer of the artifact store.
 #
 # One responsibility, one pod, one command, one database role. The shared image,
-# the six places its tag is written, the login-role-becomes-group connection,
+# the six places its digest is written, the login-role-becomes-group connection,
 # the password's URL-reserved-character constraint and the absence of a health
 # listener are argued in chuggy-ticket-service.yaml.
 #
@@ -179,7 +179,7 @@ spec:
         # only thing an fsGroup would change here.
       containers:
         - name: finalizer
-          image: chuggy.invalid/api:f8c6d7b
+          image: registry.chuggy.internal/chuggy/api@sha256:5653783a13ec4557b7c69200d2542be0e182047f8270bf78439b883fa9f2e53d
           imagePullPolicy: IfNotPresent
           command:
             [

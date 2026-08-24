@@ -30,13 +30,12 @@
 # guarantee, at the cost of splitting `cluster/apps/` into two reconcilers with
 # their own intervals and their own failure modes.
 #
-# ---------------------------------------------------- the name is the tag ----
+# ----------------------------------------------- the name tracks the template ----
 #
 # A Job's pod template is immutable, so re-applying this file with a new image
 # under the same name is rejected by the API server -- the reconcile fails and
-# nothing migrates. Naming the Job after the tag makes a re-tag a different
-# object: Flux creates the new one and, because `prune: true` is set on the
-# Kustomization, deletes the old one in the same pass.
+# nothing migrates. The name changes with the release or its image transport,
+# so Flux creates a new object and prunes the old one in the same pass.
 #
 # It also makes the run visible. `kubectl -n chuggy get jobs` names the exact
 # image whose schema this database was last brought to.
@@ -47,8 +46,8 @@
 # -- but a rerun loop is not what an idempotent command is for.
 #
 # WHICH MAKES A FAILED MIGRATION TERMINAL, AND THAT NEEDS A HUMAN. The two
-# properties above are for a CHANGED tag. When the tag does not change and the
-# run exhausts `backoffLimit` below -- which at 0 is its single pod failing --
+# properties above are for a CHANGED image reference. When the name does not
+# change and the run exhausts `backoffLimit` below -- which at 0 is its single pod failing --
 # this object is `Failed` and stays that way: Flux re-applies a byte-identical
 # Job every five minutes, the API server accepts it as unchanged, and NOTHING
 # RUNS AGAIN. There is no self-healing path.
@@ -71,8 +70,8 @@
 # The recovery is to read the pod, fix the cause, and delete the Job so the
 # next reconcile builds it afresh:
 #
-#   kubectl -n chuggy logs job/chuggy-migrate-<tag>
-#   kubectl -n chuggy delete job chuggy-migrate-<tag>
+#   kubectl -n chuggy logs job/chuggy-migrate-<release>
+#   kubectl -n chuggy delete job chuggy-migrate-<release>
 #
 # NOTHING HAS PUT THIS RIG IN THAT STATE. It is a possibility argued from the
 # mechanism, not something observed, and it is worth saying which because the
@@ -141,16 +140,16 @@
 # issued -- in a copy of the file that carries it, which not every commit on
 # kasofsk/chuggy#242 does; the README's prerequisite 1 pre-filters the checkout
 # for it rather than trusting a commit id and then reads `pg_auth_members` to
-# see that it landed, and `f8c6d7b` below carries it. It has to be run BEFORE
-# this Job ever does -- once the Job has committed a ledger row for 17, running
+# see that it landed, and the release built from `f8c6d7b` carries it. It has to
+# be run BEFORE this Job ever does -- once the Job has committed a ledger row for 17, running
 # the roles file afterwards leaves the grant missing and the ledger claiming
 # otherwise. Nothing here can express that: this object is applied on the first
 # reconcile after the tag lands, and the roles file is run by a human against
 # the server. The README's "Before any of it runs" is where it lives, because
 # there is nowhere else it could.
 #
-# An image that is simply absent from the node does NOT land here. That pod
-# sits in `ImagePullBackOff` and the Job stays `Active`, so importing the image
+# An image that is simply absent from the registry does NOT land here. That pod
+# sits in `ImagePullBackOff` and the Job stays `Active`, so publishing the image
 # is enough and nothing needs deleting. THAT AND THE ABSENT
 # `activeDeadlineSeconds` ARE ONE DECISION, not two: a deadline ends a Job by
 # the wall clock whatever its pod is doing, so it would turn that wait into the
@@ -192,8 +191,8 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  # The suffix is the image tag below. Change one and change the other.
-  name: chuggy-migrate-f8c6d7b
+  # The suffix changes whenever the immutable pod template's release transport does.
+  name: chuggy-migrate-f8c6d7b-registry
   namespace: chuggy
   labels: { app: chuggy-migrate }
 spec:
@@ -253,7 +252,7 @@ spec:
         # `postgres:18.3-trixie` because the control-plane image is node and
         # carries nothing that can ask -- no `pg_isready`, no `psql`, no `nc`.
         # It is the tag postgres.yaml already runs, so the node holds it for the
-        # same reason it holds the server, and it is NOT one of the six `image:`
+        # same reason it holds the server, and it is NOT one of the six release
         # lines a re-pin moves.
         #
         # DNS and 5432 are the whole of what this needs, which is what
@@ -299,7 +298,7 @@ spec:
             seccompProfile: { type: RuntimeDefault }
       containers:
         - name: migrate
-          image: chuggy.invalid/api:f8c6d7b
+          image: registry.chuggy.internal/chuggy/api@sha256:5653783a13ec4557b7c69200d2542be0e182047f8270bf78439b883fa9f2e53d
           imagePullPolicy: IfNotPresent
           # Exec form with node as PID 1, for the reason the image's Dockerfile
           # gives: the process is handed SIGTERM itself rather than through a

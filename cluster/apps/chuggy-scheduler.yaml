@@ -3,7 +3,7 @@
 # a Kubernetes credential.
 #
 # One responsibility, one pod, one command, one database role. The shared image,
-# the six places its tag is written, the login-role-becomes-group connection,
+# the six places its digest is written, the login-role-becomes-group connection,
 # the password's URL-reserved-character constraint and the absence of a health
 # listener are argued in chuggy-ticket-service.yaml. The recovery epoch and the
 # insert that establishes it are argued in chuggy-finalizer.yaml; both processes
@@ -141,7 +141,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: scheduler
-          image: chuggy.invalid/api:f8c6d7b
+          image: registry.chuggy.internal/chuggy/api@sha256:5653783a13ec4557b7c69200d2542be0e182047f8270bf78439b883fa9f2e53d
           imagePullPolicy: IfNotPresent
           command:
             [
@@ -187,7 +187,7 @@ spec:
             # `images/api/Dockerfile` is the only image kasofsk/chuggy builds,
             # so no commit names a worker image and a commit id here would
             # claim one that has never existed. That also puts this string
-            # OUTSIDE the six `image:` lines that carry the control-plane tag
+            # OUTSIDE the six `image:` lines that carry the control-plane digest
             # -- re-pinning those six leaves this alone, and PR 5 replaces the
             # whole value when it builds the thing.
             - name: CHUG_SCHEDULER_WORKER_IMAGES
@@ -196,7 +196,7 @@ spec:
                   {
                     "profile": "default",
                     "runtimeVersion": "0",
-                    "image": "chuggy.invalid/worker:unbuilt"
+                    "image": "registry.chuggy.internal/chuggy/worker:unbuilt"
                   }
                 ]
             # PR 5's, provisional. D30 says the adopting machine must supply

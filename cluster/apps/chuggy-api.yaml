@@ -15,43 +15,14 @@
 # to the control-plane image is revised PR 2 of kasofsk/chuggy#197, in the
 # repository that builds it; nothing here can rename an image it does not build.
 #
-# The tag is written in six `image:` lines, one per file -- this, the four
+# The digest is written in six `image:` lines, one per file -- this, the four
 # workloads and the migration Job -- and they move together.
 # chuggy-ticket-service.yaml argues what catches a bump that misses one, what
 # does not, and what else a re-pin has to touch beyond those six.
 #
-# `chuggy.invalid/api:<tag>` is built from kasofsk/chuggy and imported straight
-# into this node's containerd. That registry name resolves nowhere, so a node
-# that does not hold the tag fails the pod loudly instead of
-# pulling whatever stands at that name on a public registry -- which is what
-# `imagePullPolicy: IfNotPresent` is here to make possible rather than to
-# optimise. The procedure and its undo are in that repo under
-# `deploy/rig/images/`.
-#
-# NOTHING REPLICATES THIS LEGACY IMAGE REFERENCE. A second node would not have
-# it, and neither would this one after its image store is reset. Registry-backed
-# references replace this path only after their content has been pushed.
-#
-# MERGING A RE-PIN BEFORE THE IMPORT RE-POINTS A WORKING API AT A TAG THIS NODE
-# DOES NOT HOLD. That is not where this rig is -- `k3s ctr images ls` holds the
-# tag below, imported before this pin was moved to it, and the API rolls onto it
-# on the next reconcile -- but it is one merge away every time those six lines
-# move, so what happens then is worth knowing before it does.
-#
-# WHAT SAVES IT IS THE ROLLOUT STRATEGY, WHICH IS A DEFAULT AND NOT A DECISION
-# ANYONE MADE HERE. `RollingUpdate` at `replicas: 1` computes `maxUnavailable`
-# by rounding 25% down, which is zero, so the new pod is created first and the
-# old one is not touched until it is ready. The new pod never is -- it sits in
-# `ImagePullBackOff` -- so the old pod keeps serving and the console behind it
-# keeps working. The rollout simply stalls, `apps` goes `Ready=False`, and the
-# migration Job waits in the same state.
-#
-# THAT IS A NARROW ESCAPE AND NOT A SAFETY PROPERTY. It holds because one
-# replica rounds that way; a second replica, or a `Recreate` strategy, and the
-# same merge is an outage. Nothing in this file asks for either, and nothing in
-# this file would stop someone adding one. Import the image before the merge,
-# which is why the README lists it second -- behind the roles file, and ahead of
-# everything that can be done after the fact.
+# Every node maps `registry.chuggy.internal` to the retained private registry
+# through k3s. Promotion records a digest only after CRI has pulled it, so a
+# second node and a rebuilt image store recover from the same declaration.
 #
 # -------------------------------------------------- the database, and role ----
 #
@@ -88,7 +59,7 @@
 # arrive part-way along the branch, so "from #242" is not the check. The
 # README's prerequisite 1 pre-filters the checkout in hand for both grants and
 # then reads `pg_auth_members` on the server, which is the only thing that
-# settles whether they landed. `f8c6d7b`, which the six tags name, carries both.
+# settles whether they landed. The shared digest built from `f8c6d7b` carries both.
 #
 # It is on this rig: `pg_auth_members` carries
 # `chuggy_selector_review|chuggy_api_login` and this API is listening. A
@@ -144,7 +115,7 @@
 #
 # THE PV PINS THIS POD. Its node affinity is `chuggy.dev/durable=true`, so this
 # Deployment is now schedulable on the durable node alone -- which it already
-# was in practice, because the image is only in that node's containerd.
+# Deployment is schedulable on the durable node alone.
 #
 # ------------------------------------------------------------ the Secrets ----
 #
@@ -283,7 +254,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: api
-          image: chuggy.invalid/api:f8c6d7b
+          image: registry.chuggy.internal/chuggy/api@sha256:5653783a13ec4557b7c69200d2542be0e182047f8270bf78439b883fa9f2e53d
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

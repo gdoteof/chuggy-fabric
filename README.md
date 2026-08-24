@@ -432,12 +432,16 @@ Ingress or NodePort. Operators reach it through a port-forward:
 
     kubectl -n chuggy-registry port-forward service/registry 5000:5000
 
-Publish through that forward; the hostname is transport, while the repository
-and tag are what the registry stores:
+Publish through that forward; the port-forward hostname is transport, while
+the repository and digest are what the registry stores:
 
-    docker tag chuggy.invalid/api:<tag> localhost:5000/chuggy/api:<tag>
-    docker push localhost:5000/chuggy/api:<tag>
-    oras push localhost:5000/artifacts/<name>:<tag> <file>
+    skopeo copy --dest-tls-verify=false \
+      docker-archive:api.tar docker://localhost:5000/chuggy/api:<tag>
+    oras push --plain-http localhost:5000/artifacts/<name>:<tag> <file>
+
+Workloads name `registry.chuggy.internal`, which ICANN reserves for private
+use. Every fabric node maps that logical name to the registry ClusterIP through
+k3s; it is not a public DNS record and the registry remains unexposed.
 
 The registry cannot contain the image needed to start itself. Its pinned public
 image is therefore the bootstrap root, and the air-gap directory remains the
@@ -470,12 +474,10 @@ the derivation in `modules/chuggy-secrets.nix` exists to prevent, and
 workload that starts before its Secret exists stays pending and recovers on its
 own.
 
-The current `chuggy.invalid` workload references are still node-local during
-registry bootstrap. They move only after their tags have been pushed and pulled
-successfully: changing the references in the same change that first creates an
-empty registry would deadlock recovery. Archives therefore remain undeclared
-bootstrap inputs during this stage. Registry content is declared by repository,
-tag and digest once those references move.
+Release workloads use registry digests. Bootstrap archives remain only for the
+registry's own public image and for recovery when its retained directory or
+upstream is unavailable; ordinary service promotion does not import an archive
+into each node.
 
 The registry volume survives pod replacement and claim deletion; it does not
 survive loss of the node filesystem. Its `50Gi` capacity is a matching value,
@@ -883,8 +885,9 @@ for `chuggy_owner`, and the function's ACL carries
 `chuggy_api=X/chuggy_boundary_owner`. The step stays ordered where it is,
 because a fresh database is the state it is written for.
 
-An image the node does not hold is not this case — that pod waits in
-`ImagePullBackOff` with the Job still active, and importing the image is enough.
+An image the registry does not hold is not this case — that pod waits in
+`ImagePullBackOff` with the Job still active, and publishing the expected digest
+is enough.
 The Job carries no `activeDeadlineSeconds`, which is the same decision: a
 deadline would turn that wait into the terminal `Failed` state above.
 
@@ -893,18 +896,11 @@ runs in the initContainer, so its clock cannot start until the image is on the
 node. Thirty attempts and then a non-zero exit, so a database that is genuinely
 down ends as a failed Job rather than as a Job that hangs.
 
-The image is `chuggy.invalid/api:<tag>`, which already contains every command —
-its Dockerfile copies the whole source tree and sets a default command of the
-API alone. The name is the only API-specific thing about it, and renaming it
-belongs to the repository that builds it. **Re-pinning the tag is ten edits
-across seven files, and they move together.** Six are the `image:` lines that
-carry it — `chuggy-migrate.yaml` has a seventh `image:` line, for the
-initContainer that waits on the database, and it is not one of them. The seventh
-edit is the migration Job's `metadata.name`, which carries the tag because a
-Job's pod template is immutable — that one is argued where it is written. The
-remaining three are prose that names the tag: one in `chuggy-migrate.yaml`, one
-in `chuggy-api.yaml`, and one in prerequisite 1 below. Nothing checks that the
-ten agree, which is why they are counted here.
+The API image already contains every control-plane command: its Dockerfile
+copies the whole source tree and sets the API as its default. Six workload
+`image:` fields carry one immutable digest and move together. The migration
+Job's name also changes when its pod template changes because Kubernetes makes
+that template immutable.
 
 Four of the five open no socket, so they have no probe and no Service. They
 report an unmet precondition by name and exit; the kubelet restarts them. A
@@ -974,7 +970,7 @@ not after it.
    **grantee**, which is the half that decides whether the grant is the one this
    step needs.
 
-   `f8c6d7b`, the commit the six tags name, answers 1 to both. But a pre-filter
+   `f8c6d7b`, the commit the shared digest was built from, answers 1 to both. But a pre-filter
    is all this is: it reads a file, not the server. What settles the question is
    the `pg_auth_members` query below.
 
@@ -1047,17 +1043,12 @@ not after it.
    look identical. It must print two rows; a missing row is a name that is not
    in this database, not a membership that is absent.
 
-2. **Build and import an image** from that same checkout, and re-pin the tag to
-   it everywhere it is written — `chuggy-ticket-service.yaml` enumerates those
-   places, and they are not all `image:` lines. The migration Job's
-   `metadata.name` carries the tag too, and a Job's pod template is immutable,
-   so bumping the images while leaving that name alone is an apply the API
-   server rejects rather than a stale string. `chuggy.invalid` resolves nowhere,
-   so a tag this node does not hold is a pod that never starts. That includes
-   `chuggy-api`, which is serving traffic today on a different tag: at
-   `replicas: 1` a `RollingUpdate` keeps the old pod until the new one is ready,
-   so the rollout stalls rather than the API going down — a property of the
-   arithmetic, not a guarantee anyone wrote.
+2. **Build and publish an image** from that same checkout, verify its digest
+   through CRI, and re-pin the six control-plane workloads together. The
+   migration Job's `metadata.name` changes with its immutable pod template.
+   A digest the registry does not hold leaves the new pod in
+   `ImagePullBackOff`; at one replica the API's rolling update retains the old
+   ready pod while that is repaired.
    `images/api/Dockerfile` copies `package.json`, the resolved `node_modules`
    and `src/` into the shipped stage and nothing else — `deploy/` is never
    copied at all — so **the roles file is not in the image** and no inspection

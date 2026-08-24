@@ -8,7 +8,7 @@
 #
 # ------------------------------------------------------- the shared image ----
 #
-# `chuggy.invalid/api:<tag>` copies the whole of `src/` and sets a default CMD
+# The retained API image copies the whole of `src/` and sets a default CMD
 # of the API root alone, so it already contains every control-plane command.
 # The name is the only thing that is still API-specific, and correcting it is
 # kasofsk/chuggy's work -- revised PR 2 of kasofsk/chuggy#197 renames it to the
@@ -16,7 +16,7 @@
 # else builds, so every workload here selects its command from the image under
 # the name it has.
 #
-# SIX `image:` LINES CARRY THE TAG AND THEY MOVE TOGETHER: this, the selector,
+# SIX `image:` LINES CARRY THE DIGEST AND THEY MOVE TOGETHER: this, the selector,
 # the scheduler, the finalizer, the migration Job and chuggy-api.yaml. A bump
 # that misses one runs a mixed control plane against one database. What catches
 # the shape of that which matters is the `schema-compatible` precondition -- a
@@ -31,7 +31,7 @@
 # ones break nothing when they go stale; they instead leave the repository
 # asserting a commit that is no longer the one running.
 #
-# `imagePullPolicy: IfNotPresent` against a registry that does not resolve:
+# k3s maps the logical registry name to retained cluster storage;
 # chuggy-api.yaml carries that argument and it is not repeated.
 #
 # THE TAG BELOW MUST CARRY `src/roots/migrate.ts`, which arrives on
@@ -155,7 +155,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: ticket-service
-          image: chuggy.invalid/api:f8c6d7b
+          image: registry.chuggy.internal/chuggy/api@sha256:5653783a13ec4557b7c69200d2542be0e182047f8270bf78439b883fa9f2e53d
           imagePullPolicy: IfNotPresent
           command:
             [
