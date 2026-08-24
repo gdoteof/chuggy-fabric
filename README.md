@@ -1059,7 +1059,9 @@ not after it.
   number, and PR 5 is what restores it to one.
 - **The finalizer promotes onto this cluster's own git and nothing external.**
   Its remote is `rig.git` in `chuggy-git`, and `chuggy-finalizer-egress` admits
-  that one pod on port 80 and no longer admits the public internet at all. All
+  that one pod on its own 8080 and no longer admits the public internet at all --
+  the URL names the Service's 80, but a `NetworkPolicy` port is the destination
+  pod's. All
   four of its preconditions are answerable here: `git-available` runs `git
   --version` and the tag above carries git 2.47.3, checked by running it in a pod
   rather than read off the Dockerfile; a writable scratch and a writable artifact
