@@ -32,6 +32,12 @@
 # chuggy-web.yaml, because that file argues that nginx re-reads it per request
 # and the console picks up a change on the next page load. Hashing it would roll
 # the console for a change it does not need a rollout for.
+#
+# `loki-datasource` in logging.yaml stays plain for a different reason: nothing
+# mounts it. Grafana's sidecar watches it by LABEL, so a hashed name would be a
+# new object the sidecar picks up just the same -- and the name it replaced
+# would be one more thing for prune to take away. There is no pod template here
+# for a hash to move.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -50,6 +56,7 @@ resources:
   - chuggy-ticket-service.yaml
   - chuggy-web.yaml
   - dev2-access.yaml
+  - logging.yaml
   - monitoring.yaml
   - ory-hydra.yaml
   - ory-kratos.yaml
