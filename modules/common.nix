@@ -112,7 +112,7 @@
   # the kubeconfig is 0644, so the system:masters cert is theirs to read. This
   # block does not widen that power; it makes it a usable shell for bootstrap
   # imports and host diagnostics. Registry-backed releases retire routine
-  # imports once the remaining `chuggy.invalid` references migrate.
+  # imports retained for bootstrap and registry disaster recovery.
   #
   # THE COST, stated so the next reader sees it beside the grant: this softens
   # the revocation story dev2-access.yaml rests on. That file prefers a

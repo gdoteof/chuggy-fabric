@@ -5,7 +5,7 @@
 #
 # The registry itself must start from an upstream image before anything can be
 # pushed into it. Air-gap import remains the recovery path for that bootstrap
-# and the delivery path for workloads that still carry `chuggy.invalid` refs.
+# and the recovery path for images needed before the private registry is usable.
 #
 # WHAT MAKES THE ORDERING WORK is k3s's own airgap directory, not a unit here.
 # k3s imports every archive under the images directory into containerd as the

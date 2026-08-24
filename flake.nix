@@ -95,6 +95,7 @@
 
       firewallRules = host: import ./tests/firewall-rules.nix { inherit pkgs lib host; };
       registryWiring = host: import ./tests/registry-wiring.nix { inherit pkgs host; };
+      releaseImages = import ./tests/release-images.nix { inherit pkgs; };
     in
     {
       nixosConfigurations = {
@@ -198,6 +199,7 @@
         # contract even though NixOS and Kubernetes consume different files.
         registry-wiring-gtr = registryWiring self.nixosConfigurations.gtr;
         registry-wiring-example = registryWiring self.nixosConfigurations.example;
+        release-images = releaseImages;
       };
     };
 }
