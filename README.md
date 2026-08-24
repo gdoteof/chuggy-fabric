@@ -47,6 +47,9 @@ only by their own directory.
 
     nixos-live/                     the original /etc/nixos, captured verbatim
 
+    docs/bootstrap-and-recovery.md  autonomous bootstrap, Git cutover, and
+                                    same-authority recovery runbook
+
 Anything in `modules/` must be true of every node. Anything hardware-specific —
 disks, radios, hostname — belongs in `hosts/<name>/`. The Wi-Fi blacklist is the
 worked example: `iwlwifi` is correct for the GTR's AX200 and wrong for any box
@@ -637,11 +640,14 @@ correct drift.
 Nobody runs `kubectl`. A fresh box, or the second dev's box, reaches a populated
 cluster from one command.
 
-This deliberately is **not** `flux bootstrap`. That command wants a GitHub token
-with write scope so it can commit manifests and create a deploy key. Those
-manifests are already committed here, and the repo is public, so Flux needs no
-credentials at all — which matters given how tangled the GitHub identities on
-these machines are. Fewer moving parts, nothing to rotate.
+This deliberately is **not** `flux bootstrap`. That command wants provider write
+scope so it can commit manifests and create a deploy key, while those manifests
+are already committed here. The current public source needs no credential. A
+private source instead names a separately provisioned, read-only Secret with
+`chuggy.flux.secretRef`; credential material never enters the Nix store. A new
+machine first reconciles an anonymous external bootstrap source, then provisions
+that Secret and activates a pinned cutover revision. The Secret cannot precede
+the Kubernetes API and `flux-system` namespace that hold it.
 
 **Which repository and branch it follows are host inputs**, not a committed
 file. `chuggy.flux.repositoryUrl` and `.branch` generate the `GitRepository` and
@@ -650,6 +656,10 @@ because that is a vendored upstream artifact identical on every adopter. A box
 being brought up, or one being used to try a change, has to be able to follow
 something other than whatever the shared branch holds at that moment, and a
 committed sync file made that a property of the repository instead of the host.
+
+The [bootstrap and recovery runbook](docs/bootstrap-and-recovery.md) defines the
+external recovery root, private-source provisioning, single-authority cutover,
+rollback, and the state required for same-authority disaster recovery.
 
 The object names are not options. Nothing in `cluster/apps/` reads the label;
 [Verified](#verified) below does, and so does anyone telling this repo's objects
