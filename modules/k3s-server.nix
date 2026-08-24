@@ -9,6 +9,12 @@
 
 let
   cfg = config.chuggy.k3s;
+  registry = import ./registry-contract.nix;
+  registryConfig = (pkgs.formats.yaml { }).generate "k3s-registries.yaml" {
+    mirrors.${registry.logicalName}.endpoint = [
+      "http://${registry.clusterIP}:${toString registry.port}"
+    ];
+  };
 
   # An IPv4 address or CIDR block, and nothing else -- the type is the guard,
   # not a nicety. These strings become `iptables -s` arguments in
@@ -160,6 +166,12 @@ in
         ++ map (san: "--tls-san=${san}") cfg.apiSans
       );
     };
+
+    # Every schedulable node resolves the logical release-image name through
+    # the private registry. The endpoint is HTTP because it is a ClusterIP and
+    # never crosses the cluster network.
+    environment.etc."rancher/k3s/registries.yaml".source = registryConfig;
+    systemd.services.k3s.restartTriggers = [ registryConfig ];
 
     # Bundled components are left on deliberately: traefik (ingress), servicelb
     # (LoadBalancer services), local-path (default StorageClass), coredns,
