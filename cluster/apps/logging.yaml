@@ -1,0 +1,321 @@
+# Loki, and Alloy to feed it -- the logs half of what Grafana shows.
+#
+# `cluster/apps/monitoring.yaml` gets metrics into Grafana; this file gets logs
+# there, into the same Grafana, from the same namespace. Two files rather than
+# one because they are two charts with two release lifecycles: an upgrade of
+# kube-prometheus-stack should not be able to take logging down with it, and
+# deleting this file should take logging away and leave metrics standing.
+#
+# WHY THIS IS NOT PROMTAIL. Promtail is the collector every Loki tutorial still
+# names, and it reached end of life in March 2026. Alloy is what replaced it,
+# and the pipeline below is the same four stages Promtail ran -- discover pods,
+# turn each into a log path, parse CRI framing, push -- written in Alloy's
+# syntax instead of a scrape_config.
+#
+# There is no credential here and nothing new is exposed. Loki has no ingress:
+# Grafana reaches it in-cluster and the browser only ever talks to Grafana, so
+# the auth surface stays the one admin password `monitoring.yaml` describes.
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  interval: 24h
+  url: https://grafana.github.io/helm-charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: loki
+  namespace: monitoring
+spec:
+  interval: 1h
+  chart:
+    spec:
+      chart: loki
+      # Pinned, like every other version in this repo. Bump deliberately.
+      version: "7.3.0"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+        namespace: monitoring
+  install:
+    timeout: 10m
+  values:
+    # This chart's defaults are for a cluster that is not this one. Left alone
+    # it installs MinIO, two memcached pools, an nginx gateway, a canary
+    # DaemonSet and a test pod -- roughly 10Gi of requests before a single log
+    # line arrives. Everything switched off below is switched off for that
+    # reason, and each one is a thing a bigger deployment would want back.
+    deploymentMode: SingleBinary
+
+    loki:
+      # Single tenant. The chart defaults this to true, and with it on every
+      # read and write must carry an X-Scope-OrgID header -- so Grafana's
+      # datasource returns "no org id" on a query that looks otherwise correct.
+      auth_enabled: false
+
+      commonConfig:
+        # One replica cannot replicate to three, and the chart's default says
+        # three. Without this the ingester refuses to start.
+        replication_factor: 1
+
+      storage:
+        # A directory on the node, the same trade as every other volume here.
+        # The chart's default is S3, and its filesystem paths already sit under
+        # the /var/loki path_prefix that the PVC below is mounted at.
+        type: filesystem
+
+      schemaConfig:
+        configs:
+          # One schema, from before this was installed, so there is no boundary
+          # for the index to straddle. TSDB and v13 are current for Loki 3.x;
+          # anything older is a migration you would have to do later.
+          - from: "2026-08-01"
+            store: tsdb
+            object_store: filesystem
+            schema: v13
+            index:
+              prefix: loki_index_
+              period: 24h
+
+      limits_config:
+        # 15d, to match Prometheus. Merged into the chart's other limits rather
+        # than replacing them.
+        retention_period: 360h
+
+      compactor:
+        working_directory: /var/loki/compactor
+        # Retention is the compactor's job, and it does nothing about it unless
+        # told. Without this the period above is a number Loki reads and
+        # ignores, and the disk grows until the node fills.
+        retention_enabled: true
+        delete_request_store: filesystem
+
+    singleBinary:
+      replicas: 1
+      # local-path PVCs are directories on the node that created them, so this
+      # pod is pinned here regardless -- the same note monitoring.yaml makes
+      # about Prometheus and Grafana, and the same reason for saying it aloud.
+      nodeSelector:
+        chuggy.dev/durable: "true"
+      resources:
+        requests: { cpu: 100m, memory: 256Mi }
+        limits: { memory: 2Gi }
+      persistence:
+        enabled: true
+        storageClass: local-path
+        size: 20Gi
+      extraEnv:
+        # Below the limit, so Go collects before the cgroup does. Unlike the
+        # Grafana chart, this one emits no GOMEMLIMIT of its own, so there is
+        # nothing here to collide with -- see the README on why that matters.
+        - name: GOMEMLIMIT
+          value: 1750MiB
+
+    # The single binary is the whole of Loki. Every other mode's replica count
+    # is zeroed so nothing from them is scheduled.
+    backend: { replicas: 0 }
+    read: { replicas: 0 }
+    write: { replicas: 0 }
+    ingester: { replicas: 0 }
+    querier: { replicas: 0 }
+    queryFrontend: { replicas: 0 }
+    queryScheduler: { replicas: 0 }
+    distributor: { replicas: 0 }
+    compactor: { replicas: 0 }
+    indexGateway: { replicas: 0 }
+    bloomPlanner: { replicas: 0 }
+    bloomBuilder: { replicas: 0 }
+    bloomGateway: { replicas: 0 }
+
+    # Object storage for a chart that is not using object storage.
+    minio: { enabled: false }
+    # Two memcached pools asking for 8Gi and 1Gi. The single binary serves
+    # queries from the page cache of a local disk; there is nothing here for a
+    # cache tier to be in front of.
+    chunksCache: { enabled: false }
+    resultsCache: { enabled: false }
+    # An nginx in front of a service that one datasource talks to.
+    gateway: { enabled: false }
+    # A DaemonSet that writes synthetic logs to measure Loki's own latency, and
+    # a Helm test that reads them back.
+    lokiCanary: { enabled: false }
+    test: { enabled: false }
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: alloy
+  namespace: monitoring
+spec:
+  interval: 1h
+  chart:
+    spec:
+      chart: alloy
+      # Pinned, like every other version in this repo. Bump deliberately.
+      version: "1.12.0"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+        namespace: monitoring
+  install:
+    timeout: 10m
+  values:
+    controller:
+      # Every node, including the spot agents that do not exist yet -- which is
+      # why this carries no `chuggy.dev/durable` selector. A log collector that
+      # only runs where the durable work runs would miss exactly the machines
+      # whose logs you cannot get back after they go away.
+      type: daemonset
+
+      volumes:
+        extra:
+          # Where Alloy remembers how far it has read into each log file. The
+          # chart's default puts this on the container's writable layer, which
+          # a restart discards -- and an Alloy that has forgotten its offsets
+          # re-reads every log file on the node from the beginning.
+          #
+          # This is a cache and not state, which is why it is a plain hostPath
+          # and not a `chuggy.state` directory. `modules/chuggy-state.nix` is
+          # for data that must outlive the object mounting it and whose
+          # ownership is the host's decision; losing this costs a duplicate
+          # ingest and nothing else, and the kubelet creating it root-owned is
+          # the right answer rather than a compromise.
+          - name: positions
+            hostPath:
+              path: /var/lib/alloy
+              type: DirectoryOrCreate
+
+    alloy:
+      # /var/log/pods, where the kubelet writes container output. On k3s these
+      # are real files, not symlinks into the containerd state directory, so
+      # this one mount is the whole of what the collector needs to read.
+      mounts:
+        varlog: true
+        extra:
+          - name: positions
+            mountPath: /var/lib/alloy
+
+      storagePath: /var/lib/alloy
+
+      securityContext:
+        # /var/log/pods is 0750 root:root. Nothing less than uid 0 can read it,
+        # and the failure if you try is an empty Loki rather than a crash.
+        runAsUser: 0
+        runAsGroup: 0
+
+      resources:
+        requests: { cpu: 50m, memory: 128Mi }
+        limits: { memory: 512Mi }
+
+      configMap:
+        content: |-
+          // Pods on this node, and only this node. The field selector puts the
+          // filter on the API server: a collector that discovered every pod in
+          // the cluster would build paths for files that are on someone else's
+          // disk, and find nothing at all of them.
+          //
+          // K8S_NODE_NAME is the chart's own env var, wired to spec.nodeName on
+          // every Alloy pod. There is no need to declare one.
+          discovery.kubernetes "pods" {
+            role = "pod"
+
+            selectors {
+              role  = "pod"
+              field = "spec.nodeName=" + sys.env("K8S_NODE_NAME")
+            }
+          }
+
+          // What each pod is, and where its log file is. The last rule is the
+          // one that matters: joined by "/", the uid and container name give
+          // the path the kubelet actually wrote, and the leading glob absorbs
+          // the "namespace_name_" prefix in the directory name.
+          discovery.relabel "pod_logs" {
+            targets = discovery.kubernetes.pods.targets
+
+            rule {
+              source_labels = ["__meta_kubernetes_namespace"]
+              target_label  = "namespace"
+            }
+
+            rule {
+              source_labels = ["__meta_kubernetes_pod_name"]
+              target_label  = "pod"
+            }
+
+            rule {
+              source_labels = ["__meta_kubernetes_pod_container_name"]
+              target_label  = "container"
+            }
+
+            // The label this repo's workloads are selected by everywhere else,
+            // so a query can name one the same way a Service does.
+            rule {
+              source_labels = ["__meta_kubernetes_pod_label_app"]
+              target_label  = "app"
+            }
+
+            rule {
+              source_labels = ["__meta_kubernetes_pod_uid", "__meta_kubernetes_pod_container_name"]
+              separator     = "/"
+              action        = "replace"
+              replacement   = "/var/log/pods/*$1/*.log"
+              target_label  = "__path__"
+            }
+          }
+
+          local.file_match "pod_logs" {
+            path_targets = discovery.relabel.pod_logs.output
+          }
+
+          loki.source.file "pod_logs" {
+            targets    = local.file_match.pod_logs.targets
+            forward_to = [loki.process.pod_logs.receiver]
+          }
+
+          // Containerd writes each line as "<timestamp> <stream> <flag> <line>",
+          // and stage.cri unwraps it. Without this the timestamp Loki stores is
+          // the moment Alloy read the line, and every log line in Grafana
+          // carries that framing as text.
+          loki.process "pod_logs" {
+            stage.cri {}
+
+            forward_to = [loki.write.default.receiver]
+          }
+
+          loki.write "default" {
+            endpoint {
+              url = "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+            }
+          }
+---
+# Grafana's datasource sidecar reads every ConfigMap in this namespace carrying
+# this label and drops its contents into the provisioning directory. That is why
+# the datasource is here and not in the kube-prometheus-stack values: adding
+# logs then costs no upgrade of the metrics release, and `prune: true` means
+# deleting this file takes the datasource away with the Loki it points at.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-datasource
+  namespace: monitoring
+  labels:
+    grafana_datasource: "1"
+data:
+  loki-datasource.yaml: |-
+    apiVersion: 1
+    datasources:
+      - name: Loki
+        type: loki
+        uid: loki
+        access: proxy
+        url: http://loki.monitoring.svc.cluster.local:3100
+        isDefault: false
+        jsonData:
+          # The cap on what one query returns to the browser. Grafana's default
+          # is this number; it is written down so that raising it later is an
+          # edit rather than a discovery.
+          maxLines: 1000

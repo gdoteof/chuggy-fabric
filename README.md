@@ -714,6 +714,8 @@ node-exporter, kube-state-metrics, and a few dozen dashboards.
 | Grafana | `grafana.vteng.io`, through the tunnel |
 | node-exporter | the box itself — CPU, memory, disk, load |
 | kube-state-metrics | object state — restarts, phases, PVC usage |
+| Loki | 15d of pod logs, queried through the same Grafana |
+| Alloy | the DaemonSet that reads them off each node and pushes them |
 
 Both Prometheus and Grafana carry `nodeSelector: chuggy.dev/durable=true`. They
 hold `local-path` volumes and so are pinned to this box regardless; saying it
@@ -800,6 +802,85 @@ which here is the page cache behind the mmap'd bleve index Grafana 13 keeps at
 `GF_UNIFIED_STORAGE_INDEX_PATH`. The cgroup went over on memory Go was never
 counting. Raising the limit fixes that; lowering the soft ceiling would have
 made it worse.
+
+### Logs
+
+`cluster/apps/logging.yaml`, and it is a separate file from `monitoring.yaml`
+on purpose: two charts, two release lifecycles. An upgrade of
+kube-prometheus-stack should not be able to take logging down with it, and
+deleting one file should leave the other standing.
+
+| | |
+|---|---|
+| Loki | 7.3.0, single binary, filesystem storage on a 20Gi `local-path` claim |
+| Alloy | 1.12.0, a DaemonSet reading `/var/log/pods` on every node |
+| datasource | a labelled ConfigMap, picked up by Grafana's sidecar |
+
+Nothing new is exposed and there is no second credential. Loki has no ingress:
+Grafana proxies the queries in-cluster and the browser only ever talks to
+Grafana, so the admin password above stays the whole of the auth surface.
+
+Query it in Grafana under **Explore → Loki**. Each stream carries `namespace`,
+`pod`, `container`, and `app` — the last so a log query names a workload the
+same way a Service selector does:
+
+    {app="chuggy-api"}
+    {namespace="chuggy"} |= "error"
+
+**It is not Promtail.** Promtail is the collector every Loki tutorial still
+names and it reached end of life in March 2026. Alloy replaced it, and the
+pipeline in `logging.yaml` is the same four stages Promtail ran — discover
+pods, turn each into a log path, parse the CRI framing, push — written in
+Alloy's syntax rather than a `scrape_config`.
+
+#### What the chart defaults would have installed
+
+Loki's chart is written for a cluster that is not this one. Left alone it
+brings MinIO, two memcached pools, an nginx gateway, a canary DaemonSet and a
+test pod — roughly 10Gi of requests before a single log line arrives. Each is
+switched off explicitly in `logging.yaml`, and each is a thing a larger
+deployment would want back.
+
+Three of its defaults are load-bearing rather than merely large, and all three
+fail in ways that do not name themselves:
+
+- `auth_enabled` defaults to **true**, which makes Loki multi-tenant and makes
+  every read and write require an `X-Scope-OrgID` header. The symptom is a
+  datasource that looks right and answers `no org id`.
+- `replication_factor` defaults to **3**. One ingester cannot replicate to
+  three, and it declines to start.
+- `retention_enabled` on the compactor defaults to **false**, so
+  `retention_period` is a number Loki reads and ignores. Nothing tells you; the
+  disk simply grows. Both are set, and the period is 15d to match Prometheus.
+
+#### Two things about reading logs off a node
+
+**k3s writes real files under `/var/log/pods`.** On some runtimes those entries
+are symlinks into the container runtime's state directory, and a collector that
+mounts only `/var/log` finds dangling links. Here `readlink -f` on a pod log
+resolves to itself, so the one `/var/log` mount is the whole of what Alloy
+needs. That is worth re-checking rather than assuming if this ever runs on
+something other than k3s.
+
+**Alloy runs as uid 0, and that is not incidental.** `/var/log/pods` is
+`0750 root:root`. A collector that cannot read it does not crash — it reports
+healthy and ships nothing, which is the failure shape you would find out about
+from an empty Grafana a week later.
+
+Its read offsets live on a `hostPath` at `/var/lib/alloy` rather than the
+chart's default of the container's writable layer. A restart discards that
+layer, and an Alloy that has forgotten how far it read starts every log file on
+the node again from the beginning. This is a cache and not state, which is why
+it is a plain `hostPath` and not a `chuggy.state` directory — losing it costs a
+duplicate ingest and nothing else, and `modules/chuggy-state.nix` is for data
+that must outlive the object mounting it.
+
+#### The storage numbers are not real here either
+
+Loki's 20Gi is a `local-path` claim, so it is a request and not a ceiling — the
+[same sharp edge](#the-storage-numbers-are-not-real) as Prometheus and Grafana.
+`retention_period: 360h` is what actually bounds it. Root disk usage remains the
+only honest storage signal on this node.
 
 ## The chuggy control plane
 
