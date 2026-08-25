@@ -2,9 +2,10 @@
 
 let
   cfg = config.chuggy.buildProvenance;
-  resultsPath = if config.chuggy.state.buildResults.path == null
+  configuredResultsPath = config.chuggy.state.buildResults.path;
+  resultsPath = if configuredResultsPath == null
     then "/run/chuggy-build-results-unconfigured"
-    else config.chuggy.state.buildResults.path;
+    else configuredResultsPath;
   recorder = pkgs.writeShellApplication {
     name = "chuggy-build-provenance";
     runtimeInputs = [ pkgs.coreutils pkgs.gawk pkgs.gnugrep pkgs.jq pkgs.kubectl ];
@@ -22,6 +23,15 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = configuredResultsPath != null;
+        message = ''
+          chuggy.buildProvenance.enable is on but chuggy.state.buildResults.path is unset.
+          Name durable storage for verified build provenance before enabling the recorder.
+        '';
+      }
+    ];
     systemd.services.chuggy-build-provenance = {
       description = "Persist terminal Shipwright build provenance";
       after = [ "k3s.service" ];

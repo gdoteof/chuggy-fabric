@@ -567,8 +567,15 @@ initial attempt is `-a1`; later retry automation must add the next
 
 Create the two named Secrets in `chuggy-build`. Shipwright mounts the source
 credential only for cloning and the output credential only for pushing; the
-Flux service accounts receive neither. Requests are fixed to `linux/amd64` and
-schedule only where both of these node properties exist:
+Flux service accounts receive neither. The v1 network profile accepts only
+public HTTPS Git/registry endpoints on port 443, the internal
+`*.chuggy-git.svc` Git service on port 8080, and the internal
+`*.chuggy-registry.svc` registry on port 5000. SSH, arbitrary private services,
+and custom ports are rejected because the matching default-deny NetworkPolicy
+cannot reach them.
+
+Requests are fixed to `linux/amd64` and schedule only where both of these node
+properties exist:
 
     chuggy.k3s.nodeLabels = [ "chuggy.dev/node-role=builder" ];
     chuggy.k3s.nodeTaints = [ "chuggy.dev/node-role=builder:NoSchedule" ];
@@ -576,7 +583,16 @@ schedule only where both of these node properties exist:
 That node is a dedicated security boundary. Rootless BuildKit remains
 daemonless, but rootlesskit requires unconfined seccomp/AppArmor and permits
 privilege escalation for user-namespace setup. Do not put the builder label on
-an ordinary workload node.
+an ordinary workload node. A dedicated host can import
+`examples/builder-node.nix`; the committed fragment wires both properties.
+
+`tests/integration/build-platform.sh` is the opt-in executable acceptance gate.
+Against a disposable configured cluster it builds the fixture repository at
+the committed full SHA, waits for Shipwright success, compares the observed
+source SHA, and verifies the pushed tag's digest with `crane`. It exits 2 when
+its cluster, builder node, credentials, `kubectl`, or `crane` prerequisites are
+unavailable; that is not a pass. Set `BUILD_TEST_TARGET_REPOSITORY`,
+`BUILD_TEST_SOURCE_SECRET`, and `BUILD_TEST_OUTPUT_SECRET` before running it.
 
 Every attempt carries a provenance finalizer. A bounded recorder verifies a
 successful attempt's observed source commit and output digest, writes its

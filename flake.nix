@@ -74,6 +74,19 @@
           ''
         );
 
+      accepts = name: overrides:
+        let
+          messages = refusalsOf overrides;
+        in
+        pkgs.runCommand "chuggy-accepts-${name}" { } (
+          if messages == [ ]
+          then "touch $out"
+          else ''
+            echo "unexpected refusal: ${lib.escapeShellArg (lib.concatStringsSep " || " messages)}" >&2
+            exit 1
+          ''
+        );
+
       # The same for what hosts/example says rather than refuses. An example has
       # to keep evaluating -- it is the host `nix flake check` builds -- so where
       # a real host would assert, it warns, and these are what hold the warning
@@ -160,6 +173,12 @@
           refuses "without-build-results-path"
             { chuggy.state.buildResults.path = lib.mkForce null; }
             "chuggy.state.buildResults.path is unset";
+
+        accepts-without-build-results-when-recorder-disabled =
+          accepts "without-build-results-when-recorder-disabled" {
+            chuggy.buildProvenance.enable = lib.mkForce false;
+            chuggy.state.buildResults.path = lib.mkForce null;
+          };
 
         refuses-without-api-allowed-sources =
           refuses "without-api-allowed-sources"
