@@ -1,0 +1,392 @@
+#!/usr/bin/env python3
+import argparse
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
+
+
+DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+COMMIT = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
+DNS_SUBDOMAIN = re.compile(r"[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?")
+DNS_LABEL = re.compile(r"[a-z0-9](?:[-a-z0-9]*[a-z0-9])?")
+API_VERSION = re.compile(r"(?:[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?/)?v[0-9]+(?:(?:alpha|beta)[0-9]+)?")
+KINDS = ("Deployment", "StatefulSet", "DaemonSet", "Job")
+INTERNAL_GIT_SUFFIXES = (".chuggy-git.svc", ".chuggy-git.svc.cluster.local")
+IDENTITY_NAME = "image-promotion"
+IDENTITY_EMAIL = "image-promotion@invalid"
+IDENTITY_DATE = "2000-01-01T00:00:00Z"
+
+
+def refuse(message):
+    raise SystemExit(message)
+
+
+def required_string(value, description, pattern=None, length_max=None):
+    valid = isinstance(value, str) and bool(value)
+    valid = valid and (pattern is None or pattern.fullmatch(value) is not None)
+    valid = valid and (length_max is None or len(value) <= length_max)
+    if not valid:
+        refuse(f"invalid {description}")
+    return value
+
+
+def executable(value, description):
+    path = Path(value)
+    if not path.is_absolute() or path.is_symlink() or not path.is_file() or not os.access(path, os.X_OK):
+        refuse(f"invalid {description}")
+    return str(path)
+
+
+def repository_url(value):
+    required_string(value, "repository URL")
+    parsed = urlsplit(value)
+    if parsed.username is not None or parsed.password is not None:
+        refuse("repository URL must not contain credentials")
+    if parsed.query or parsed.fragment:
+        refuse("repository URL must not contain query parameters or fragments")
+    public_https = parsed.scheme == "https" and parsed.port in (None, 443)
+    internal_http = parsed.scheme == "http" and parsed.port == 8080 and (parsed.hostname or "").endswith(INTERNAL_GIT_SUFFIXES)
+    local = parsed.scheme == "file" or value.startswith("/")
+    if not (public_https or internal_http or local):
+        refuse("repository URL must use public HTTPS on port 443, chuggy-git service HTTP on port 8080, file, or an absolute path")
+    return value
+
+
+def load_verified_result(path):
+    checksum_path = Path(f"{path}.sha256")
+    if path.is_symlink() or checksum_path.is_symlink() or not path.is_file() or not checksum_path.is_file():
+        refuse("regular build result and checksum files are required")
+    encoded = path.read_bytes()
+    expected_checksum = required_string(checksum_path.read_text().strip(), "build result checksum", DIGEST)
+    if f"sha256:{hashlib.sha256(encoded).hexdigest()}" != expected_checksum:
+        refuse("build result checksum mismatch")
+    try:
+        record = json.loads(encoded)
+    except json.JSONDecodeError as error:
+        refuse(f"invalid build result JSON: {error}")
+    result = record.get("result")
+    if not isinstance(result, dict):
+        refuse("build result has no result payload")
+    canonical = (json.dumps(result, sort_keys=True, indent=2, separators=(",", ": ")) + "\n").encode()
+    expected_provenance = f"sha256:{hashlib.sha256(canonical).hexdigest()}"
+    if record.get("provenanceRecordDigest") != expected_provenance:
+        refuse("build result provenance digest mismatch")
+    return record, result
+
+
+def validate_result(result, repository_id):
+    condition = result.get("terminalCondition", {})
+    if condition.get("type") != "Succeeded" or condition.get("status") != "True":
+        refuse("build result is not successful")
+    source = result.get("source", {})
+    recorded_repository_id = required_string(source.get("repositoryId"), "source repository id", DNS_SUBDOMAIN, 253)
+    if recorded_repository_id != repository_id:
+        refuse("build result source repository does not match configured repository id")
+    requested = required_string(source.get("requestedCommit"), "requested source commit", COMMIT)
+    observed = required_string(source.get("observedCommit"), "observed source commit", COMMIT)
+    if requested != observed:
+        refuse("build result source commits do not match")
+    output = result.get("output", {})
+    image_repository = required_string(output.get("repository"), "output repository")
+    digest = required_string(output.get("digest"), "output digest", DIGEST)
+    request_digest = required_string(result.get("requestDigest"), "request digest", DIGEST)
+    attempt = result.get("attempt", {})
+    attempt_name = required_string(attempt.get("name"), "attempt name", DNS_SUBDOMAIN, 253)
+    return requested, image_repository, digest, request_digest, attempt_name
+
+
+def relative_destination(value):
+    path = PurePosixPath(value)
+    if value != path.as_posix() or path.is_absolute() or not path.parts or ".." in path.parts or "." in path.parts or ".git" in path.parts:
+        refuse("environment path must be normalized, relative, and outside .git")
+    return path
+
+
+def quote(value):
+    return json.dumps(value)
+
+
+def render(arguments, record, result):
+    source_commit, image_repository, digest, request_digest, attempt_name = validate_result(result, arguments.repository_id)
+    annotations = {
+        "fabric.chuggy.dev/source-commit": source_commit,
+        "fabric.chuggy.dev/build-request-digest": request_digest,
+        "fabric.chuggy.dev/build-attempt": attempt_name,
+        "fabric.chuggy.dev/build-provenance-digest": record["provenanceRecordDigest"],
+        "fabric.chuggy.dev/selected-image-digest": digest,
+        "fabric.chuggy.dev/repository-id": arguments.repository_id,
+    }
+    annotation_lines = "\n".join(f"        {quote(key)}: {quote(value)}" for key, value in annotations.items())
+    content = f"""apiVersion: {arguments.api_version}
+kind: {arguments.kind}
+metadata:
+  name: {quote(arguments.resource_name)}
+  namespace: {quote(arguments.namespace)}
+spec:
+  template:
+    metadata:
+      annotations:
+{annotation_lines}
+    spec:
+      containers:
+        - name: {quote(arguments.container_name)}
+          image: {quote(f'{image_repository}@{digest}')}
+"""
+    return content.encode(), image_repository, digest
+
+
+def sanitized_environment(home, credential_command=None, credential_ref=None, commit=False, additions=None):
+    environment = {
+        "HOME": str(home),
+        "LANG": "C",
+        "LC_ALL": "C",
+        "PATH": os.environ.get("PATH", os.defpath),
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_TERMINAL_PROMPT": "0",
+    }
+    if credential_command:
+        environment["GIT_ASKPASS"] = credential_command
+        environment["SSH_ASKPASS"] = credential_command
+        environment["PROMOTION_CREDENTIAL_REF"] = credential_ref
+    if commit:
+        environment.update({
+            "GIT_AUTHOR_NAME": IDENTITY_NAME,
+            "GIT_AUTHOR_EMAIL": IDENTITY_EMAIL,
+            "GIT_AUTHOR_DATE": IDENTITY_DATE,
+            "GIT_COMMITTER_NAME": IDENTITY_NAME,
+            "GIT_COMMITTER_EMAIL": IDENTITY_EMAIL,
+            "GIT_COMMITTER_DATE": IDENTITY_DATE,
+        })
+    if additions:
+        environment.update(additions)
+    return environment
+
+
+def run(command, description, environment, input_bytes=None, accept_failure=False):
+    completed = subprocess.run(command, input=input_bytes, capture_output=True, env=environment, check=False)
+    stdout = completed.stdout.decode(errors="replace").strip()
+    stderr = completed.stderr.decode(errors="replace").strip()
+    if completed.returncode != 0 and not accept_failure:
+        refuse(f"{description}: {stderr or stdout or 'command failed'}")
+    return completed.returncode, stdout, stderr
+
+
+def git(arguments, repository, command, description, input_bytes=None, commit=False, accept_failure=False):
+    environment = sanitized_environment(repository.parent, arguments.credential_command, arguments.credential_ref, commit)
+    return run([arguments.git_command, "--git-dir", str(repository), *command], description, environment, input_bytes, accept_failure)
+
+
+def remote_target(arguments, repository):
+    _, answer, _ = git(arguments, repository, ["ls-remote", "--exit-code", "origin", arguments.target_ref], "target ref lookup failed")
+    fields = answer.split()
+    if len(fields) != 2 or fields[1] != arguments.target_ref or not COMMIT.fullmatch(fields[0]):
+        refuse("target ref resolved to an invalid Git object")
+    return fields[0]
+
+
+def verify_no_symlink_prefix(arguments, repository, base, path):
+    parts = path.parts
+    for length in range(1, len(parts)):
+        prefix = "/".join(parts[:length])
+        code, output, _ = git(arguments, repository, ["ls-tree", base, "--", prefix], "Git tree path lookup failed")
+        if code == 0 and output.startswith("120000 "):
+            refuse("environment path traverses a symbolic link in the target tree")
+
+
+def promotion_identity(arguments, record, content):
+    identity = {
+        "apiVersion": arguments.api_version,
+        "containerName": arguments.container_name,
+        "environmentPath": arguments.environment_path,
+        "kind": arguments.kind,
+        "namespace": arguments.namespace,
+        "provenanceRecordDigest": record["provenanceRecordDigest"],
+        "repositoryId": arguments.repository_id,
+        "repositoryUrl": arguments.repository_url,
+        "resourceName": arguments.resource_name,
+        "targetRef": arguments.target_ref,
+        "renderedDigest": f"sha256:{hashlib.sha256(content).hexdigest()}",
+    }
+    encoded = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def already_published(arguments, repository, target, path, content, identity):
+    _, expected_blob, _ = git(arguments, repository, ["hash-object", "--stdin"], "selected content hash failed", content)
+    code, current_blob, _ = git(arguments, repository, ["rev-parse", f"{target}:{path.as_posix()}"], "selected path lookup failed", accept_failure=True)
+    if code != 0 or current_blob != expected_blob:
+        return False
+    marker = f"Promotion-Identity: {identity}"
+    _, ancestor, _ = git(arguments, repository, ["log", "-1", "--fixed-strings", f"--grep={marker}", "--format=%H", target], "promotion ancestry lookup failed")
+    return bool(ancestor)
+
+
+def candidate_commit(arguments, repository, base, path, content, identity, digest):
+    index = repository.parent / "promotion.index"
+    environment = sanitized_environment(repository.parent, arguments.credential_command, arguments.credential_ref)
+    environment["GIT_INDEX_FILE"] = str(index)
+    run([arguments.git_command, "--git-dir", str(repository), "read-tree", base], "base tree read failed", environment)
+    _, blob, _ = run([arguments.git_command, "--git-dir", str(repository), "hash-object", "-w", "--stdin"], "promotion blob write failed", environment, content)
+    run([arguments.git_command, "--git-dir", str(repository), "update-index", "--add", "--cacheinfo", f"100644,{blob},{path.as_posix()}"], "promotion index update failed", environment)
+    _, tree, _ = run([arguments.git_command, "--git-dir", str(repository), "write-tree"], "promotion tree write failed", environment)
+    message = f"release: select {arguments.repository_id} {digest}\n\nPromotion-Identity: {identity}\n"
+    commit_environment = sanitized_environment(repository.parent, arguments.credential_command, arguments.credential_ref, True)
+    _, candidate, _ = run([arguments.git_command, "--git-dir", str(repository), "commit-tree", tree, "-p", base], "promotion commit creation failed", commit_environment, message.encode())
+    return candidate
+
+
+def push_candidate(arguments, repository, base, candidate):
+    refspec = f"{candidate}:{arguments.target_ref}"
+    lease = f"--force-with-lease={arguments.target_ref}:{base}"
+    return git(arguments, repository, ["push", lease, "origin", refspec], "conditional promotion push failed", accept_failure=True)
+
+
+def publish_in_act(arguments, record, content, digest, path, act):
+    repository = act / "repository.git"
+    environment = sanitized_environment(act, arguments.credential_command, arguments.credential_ref)
+    run([arguments.git_command, "init", "--bare", str(repository)], "private Git repository creation failed", environment)
+    git(arguments, repository, ["remote", "add", "origin", arguments.repository_url], "configured remote creation failed")
+    git(arguments, repository, ["fetch", "--no-tags", "origin", f"{arguments.target_ref}:{arguments.target_ref}"], "target ref fetch failed")
+    _, base, _ = git(arguments, repository, ["rev-parse", "--verify", arguments.target_ref], "fetched target ref lookup failed")
+    if not COMMIT.fullmatch(base):
+        refuse("fetched target ref resolved to an invalid Git object")
+    verify_no_symlink_prefix(arguments, repository, base, path)
+    identity = promotion_identity(arguments, record, content)
+    if already_published(arguments, repository, base, path, content, identity):
+        return base, identity, "reconciled"
+    candidate = candidate_commit(arguments, repository, base, path, content, identity, digest)
+    observed = remote_target(arguments, repository)
+    if observed != base:
+        git(arguments, repository, ["fetch", "--no-tags", "origin", f"{arguments.target_ref}:{arguments.target_ref}"], "racing target fetch failed")
+        if already_published(arguments, repository, observed, path, content, identity):
+            return observed, identity, "reconciled"
+        refuse(f"promotion blocked: target ref diverged from observed base {base} to {observed}")
+    for attempt in range(2):
+        code, _, error = push_candidate(arguments, repository, base, candidate)
+        observed = remote_target(arguments, repository)
+        if observed == candidate:
+            return candidate, identity, "published" if code == 0 else "reconciled"
+        if observed != base:
+            git(arguments, repository, ["fetch", "--no-tags", "origin", f"{arguments.target_ref}:{arguments.target_ref}"], "post-push target fetch failed")
+            if already_published(arguments, repository, observed, path, content, identity):
+                return observed, identity, "reconciled"
+            refuse(f"promotion blocked: concurrent target change {observed}")
+        if attempt == 1:
+            refuse(f"conditional promotion push was rejected with target unchanged: {error or 'no remote detail'}")
+    refuse("conditional promotion push exhausted its bounded attempts")
+
+
+def publish(arguments, record, content, digest, path):
+    if arguments.act_root.is_symlink():
+        refuse("act root must not be a symbolic link")
+    act_root = arguments.act_root.resolve(strict=True)
+    if not act_root.is_dir():
+        refuse("act root must be a regular directory")
+    act = Path(tempfile.mkdtemp(prefix="image-promotion.", dir=act_root))
+    os.chmod(act, 0o700)
+    try:
+        return publish_in_act(arguments, record, content, digest, path, act)
+    finally:
+        shutil.rmtree(act)
+
+
+def verify_available(arguments, image_repository, digest):
+    reference = f"{image_repository}@{digest}"
+    act_root = arguments.act_root.resolve(strict=True)
+    credential_root = Path(tempfile.mkdtemp(prefix="registry-credential.", dir=act_root))
+    os.chmod(credential_root, 0o700)
+    try:
+        credential_environment = sanitized_environment(
+            credential_root,
+            additions={"PROMOTION_REGISTRY_CREDENTIAL_REF": arguments.registry_credential_ref},
+        )
+        _, encoded, _ = run(
+            [arguments.registry_credential_command],
+            "registry credential resolution failed",
+            credential_environment,
+        )
+        try:
+            configuration = json.loads(encoded)
+        except json.JSONDecodeError as error:
+            refuse(f"registry credential command returned invalid Docker config JSON: {error}")
+        if not isinstance(configuration, dict) or not isinstance(configuration.get("auths"), dict):
+            refuse("registry credential command returned no Docker auths object")
+        config_path = credential_root / "config.json"
+        descriptor = os.open(config_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "w") as output:
+            json.dump(configuration, output, sort_keys=True, separators=(",", ":"))
+            output.write("\n")
+        registry_environment = sanitized_environment(
+            credential_root,
+            additions={"DOCKER_CONFIG": str(credential_root)},
+        )
+        _, observed, _ = run(
+            [arguments.registry_client, "digest", reference],
+            f"selected image is unavailable: {reference}",
+            registry_environment,
+        )
+        if observed != digest:
+            refuse(f"selected image digest mismatch: registry reported {observed or 'no digest'}")
+    finally:
+        shutil.rmtree(credential_root)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--build-result", type=Path, required=True)
+    parser.add_argument("--repository-id", required=True)
+    parser.add_argument("--repository-url", required=True)
+    parser.add_argument("--target-ref", required=True)
+    parser.add_argument("--environment-path", required=True)
+    parser.add_argument("--resource-name", required=True)
+    parser.add_argument("--container-name", required=True)
+    parser.add_argument("--namespace", required=True)
+    parser.add_argument("--api-version", default="apps/v1")
+    parser.add_argument("--kind", choices=KINDS, default="Deployment")
+    parser.add_argument("--act-root", type=Path, required=True)
+    parser.add_argument("--git-command", required=True)
+    parser.add_argument("--credential-command", required=True)
+    parser.add_argument("--credential-ref", required=True)
+    parser.add_argument("--registry-client", required=True)
+    parser.add_argument("--registry-credential-command", required=True)
+    parser.add_argument("--registry-credential-ref", required=True)
+    arguments = parser.parse_args()
+    required_string(arguments.repository_id, "repository id", DNS_SUBDOMAIN, 253)
+    arguments.repository_url = repository_url(arguments.repository_url)
+    executable(arguments.git_command, "Git command")
+    executable(arguments.credential_command, "credential command")
+    executable(arguments.registry_client, "registry client")
+    executable(arguments.registry_credential_command, "registry credential command")
+    required_string(arguments.credential_ref, "credential reference")
+    required_string(arguments.registry_credential_ref, "registry credential reference")
+    if arguments.act_root.is_symlink():
+        refuse("act root must not be a symbolic link")
+    act_root = arguments.act_root.resolve(strict=True)
+    if not act_root.is_dir():
+        refuse("act root must be a regular directory")
+    arguments.act_root = act_root
+    required_string(arguments.api_version, "Kubernetes apiVersion", API_VERSION, 253)
+    required_string(arguments.resource_name, "resource name", DNS_SUBDOMAIN, 253)
+    for value, description in ((arguments.namespace, "namespace"), (arguments.container_name, "container name")):
+        required_string(value, description, DNS_LABEL, 63)
+    run([arguments.git_command, "check-ref-format", arguments.target_ref], "invalid target ref", sanitized_environment(arguments.act_root))
+    if not arguments.target_ref.startswith("refs/heads/"):
+        refuse("target ref must be under refs/heads")
+    path = relative_destination(arguments.environment_path)
+    arguments.environment_path = path.as_posix()
+    record, result = load_verified_result(arguments.build_result)
+    _, image_repository, digest, _, _ = validate_result(result, arguments.repository_id)
+    content, _, _ = render(arguments, record, result)
+    verify_available(arguments, image_repository, digest)
+    commit, identity, outcome = publish(arguments, record, content, digest, path)
+    print(json.dumps({"commit": commit, "identity": identity, "outcome": outcome, "path": path.as_posix()}, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()

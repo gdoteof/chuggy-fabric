@@ -113,6 +113,7 @@
       fluxWiring = host: expectSecretRef:
         import ./tests/flux-wiring.nix { inherit pkgs host expectSecretRef; };
       buildPlatform = import ./tests/build-platform.nix { inherit pkgs; };
+      imagePromotion = import ./tests/image-promotion.nix { inherit pkgs; };
     in
     {
       nixosConfigurations = {
@@ -244,6 +245,7 @@
           })
           "fabric-source-auth";
         build-platform = buildPlatform;
+        image-promotion = imagePromotion;
       };
     };
 }
