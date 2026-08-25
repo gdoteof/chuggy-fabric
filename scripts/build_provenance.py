@@ -65,5 +65,7 @@ def verify(results_path, identities):
     command = [str(verifier), str(record)]
     for name, value in identities.items():
         command.extend((f"--{name.replace('_', '-')}", str(value)))
-    completed = subprocess.run(command, check=True, text=True, capture_output=True)
+    completed = subprocess.run(command, text=True, capture_output=True)
+    if completed.returncode != 0:
+        raise SystemExit(completed.stderr.strip() or "provenance verification failed")
     return json.loads(completed.stdout)
