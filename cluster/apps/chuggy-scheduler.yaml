@@ -210,7 +210,7 @@ spec:
             - name: CHUG_SCHEDULER_WORKER_LABELS
               value: '{"chuggy.dev/worker":"true"}'
             - name: CHUG_SCHEDULER_WORKER_POD_SECURITY
-              value: '{"runAsNonRoot":true,"runAsUser":1000,"runAsGroup":1000,"seccompProfile":{"type":"RuntimeDefault"}}'
+              value: '{"runAsNonRoot":true,"runAsUser":1000,"runAsGroup":1000,"fsGroup":1000,"fsGroupChangePolicy":"OnRootMismatch","seccompProfile":{"type":"RuntimeDefault"}}'
             - name: CHUG_SCHEDULER_WORKER_CONTAINER_SECURITY
               value: '{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}'
             # The identity a worker pod runs as. PR 5 creates it in
