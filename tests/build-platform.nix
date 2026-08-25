@@ -99,6 +99,40 @@ pkgs.runCommand "chuggy-build-platform" {
   grep -F 'invalid request digest' invalid-request.log >/dev/null
   test ! -e "$PWD/escape"
 
+  jq 'del(.items[0].metadata.annotations["fabric.chuggy.dev/source-repository-id"])' \
+    "$root/tests/fixtures/build-request/buildruns.json" > missing-repository-id.json
+  export RESULTS_PATH="$PWD/missing-repository-results"
+  export BUILD_RUN_FIXTURE="$PWD/missing-repository-id.json"
+  export BUILD_RUN_FIXTURE_CONTINUED="$PWD/missing-repository-id.json"
+  : > "$PATCH_LOG"
+  "$root/scripts/record-build-provenance" 2>missing-repository-id.log
+  test ! -s "$PATCH_LOG"
+  grep -F 'invalid source repository id' missing-repository-id.log >/dev/null
+
+  jq '.items[0].metadata.annotations["fabric.chuggy.dev/source-repository-id"] = ("a" * 64)' \
+    "$root/tests/fixtures/build-request/buildruns.json" > overlength-repository-id.json
+  export RESULTS_PATH="$PWD/overlength-repository-results"
+  export BUILD_RUN_FIXTURE="$PWD/overlength-repository-id.json"
+  export BUILD_RUN_FIXTURE_CONTINUED="$PWD/overlength-repository-id.json"
+  : > "$PATCH_LOG"
+  "$root/scripts/record-build-provenance" 2>overlength-repository-id.log
+  test ! -s "$PATCH_LOG"
+  grep -F 'invalid source repository id' overlength-repository-id.log >/dev/null
+
+  export RESULTS_PATH="$PWD/mismatched-repository-results"
+  export BUILD_RUN_FIXTURE="$root/tests/fixtures/build-request/buildruns.json"
+  export BUILD_RUN_FIXTURE_CONTINUED="$root/tests/fixtures/build-request/buildruns.json"
+  : > "$PATCH_LOG"
+  "$root/scripts/record-build-provenance"
+  jq '.items[0].metadata.annotations["fabric.chuggy.dev/source-repository-id"] = "other-service"' \
+    "$root/tests/fixtures/build-request/buildruns.json" > mismatched-repository-id.json
+  export BUILD_RUN_FIXTURE="$PWD/mismatched-repository-id.json"
+  export BUILD_RUN_FIXTURE_CONTINUED="$PWD/mismatched-repository-id.json"
+  : > "$PATCH_LOG"
+  "$root/scripts/record-build-provenance" 2>mismatched-repository-id.log
+  test ! -s "$PATCH_LOG"
+  grep -F 'does not match terminal BuildRun' mismatched-repository-id.log >/dev/null
+
   changed_path=$(render changed --cache disabled)
   test "$first_path" != "$changed_path"
   test ! -e "first/$changed_path"

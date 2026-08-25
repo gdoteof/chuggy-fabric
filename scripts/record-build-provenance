@@ -33,7 +33,7 @@ while :; do
     fi
 
     [[ $request =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "$name: invalid request digest" >&2; continue; }
-    [[ $repository_id =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]] || { echo "$name: invalid source repository id" >&2; continue; }
+    [[ $repository_id =~ ^[a-z0-9]([a-z0-9.-]{0,61}[a-z0-9])?$ ]] || { echo "$name: invalid source repository id" >&2; continue; }
     [[ $name =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]] || { echo "$name: invalid attempt name" >&2; continue; }
     [[ $expected =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] || { echo "$name: invalid requested commit" >&2; continue; }
     ordinal=$(printf '%s' "$buildrun" | jq -r '.metadata.annotations["fabric.chuggy.dev/attempt-ordinal"]')
