@@ -2,9 +2,9 @@
 # tickets through authoring, work, evaluation and completion.
 #
 # One responsibility, one pod, one command out of the shared image, one database
-# role. The four files beside this one -- selector, scheduler, finalizer, and
-# the API -- are the same arrangement with a different command and a different
-# role, and the parts they share are argued here rather than five times.
+# role. The five files beside this one -- selector, scheduler, finalizer,
+# worker plane, and the API -- are the same arrangement with a different command
+# and role, and the parts they share are argued here rather than six times.
 #
 # ------------------------------------------------------- the shared image ----
 #
@@ -16,15 +16,16 @@
 # else builds, so every workload here selects its command from the image under
 # the name it has.
 #
-# SIX `image:` LINES CARRY THE DIGEST AND THEY MOVE TOGETHER: this, the selector,
-# the scheduler, the finalizer, the migration Job and chuggy-api.yaml. A bump
+# SEVEN `image:` LINES CARRY THE DIGEST AND THEY MOVE TOGETHER: this, the selector,
+# the scheduler, the finalizer, the worker plane, the migration Job and
+# chuggy-api.yaml. A bump
 # that misses one runs a mixed control plane against one database. What catches
 # the shape of that which matters is the `schema-compatible` precondition -- a
 # process whose image declares a different ledger than the database carries
 # refuses to serve -- and what it does not catch is a bump that changed no
-# schema. There is no gate in this repository that checks the six agree.
+# schema. The release-images check requires all seven references to agree.
 #
-# RE-PINNING TOUCHES MORE THAN THOSE SIX. The migration Job's `metadata.name`
+# RE-PINNING TOUCHES MORE THAN THOSE SEVEN. The migration Job's `metadata.name`
 # repeats the tag, for the reason chuggy-migrate.yaml gives, and three comments
 # name it in prose -- one in chuggy-migrate.yaml, one in chuggy-api.yaml, one in
 # the README's prerequisite 1. Ten occurrences over seven files. The prose
@@ -122,6 +123,8 @@ metadata:
   # The namespace is declared in dev2-access.yaml, which owns it.
   name: chuggy-ticket-service
   namespace: chuggy
+  annotations:
+    fabric.chuggy.dev/source-commit: fb7c4ff
   labels: { app: chuggy-ticket-service }
 spec:
   replicas: 1
@@ -155,7 +158,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: ticket-service
-          image: registry.chuggy.internal/chuggy/api@sha256:61eeb59d18b410cb51b55daeafe852c4ea182168f7813caa95e9e50da7783830
+          image: registry.chuggy.internal/chuggy/api@sha256:d65ffc6537257c983391ecb7655d8dd4f7bbd497cc13c24e9986534b8d4988ef
           imagePullPolicy: IfNotPresent
           command:
             [
@@ -200,8 +203,33 @@ spec:
                     "finalizationPricing": "DeadlineOnly",
                     "maxStages": 4
                   },
-                  "owner": "$(CHUG_POD_NAME)"
+                  "owner": "$(CHUG_POD_NAME)",
+                  "source": {
+                    "scratchDirectory": "/var/lib/chuggy/git",
+                    "identity": {
+                      "name": "chuggy ticket service",
+                      "email": "ticket-service@chuggy.vteng.io"
+                    },
+                    "environment": {
+                      "HOME": "/var/lib/chuggy/git",
+                      "TMPDIR": "/var/lib/chuggy/git"
+                    },
+                    "sources": [
+                      {
+                        "repository": "http://git.chuggy-git.svc.cluster.local./chuggy.git",
+                        "credentialReference": "chuggy-git",
+                        "path": "/var/run/chuggy/repository-credentials/chuggy-git"
+                      }
+                    ],
+                    "credentialUsername": "chuggy"
+                  }
                 }
+          volumeMounts:
+            - name: git-scratch
+              mountPath: /var/lib/chuggy/git
+            - name: repository-credentials
+              mountPath: /var/run/chuggy/repository-credentials
+              readOnly: true
           resources:
             requests: { cpu: 50m, memory: 128Mi }
             limits: { memory: 384Mi }
@@ -217,3 +245,13 @@ spec:
       # kubelet from killing the process in the middle of one. A drain that
       # expires is reported as a failure by the command itself.
       terminationGracePeriodSeconds: 30
+      volumes:
+        - name: git-scratch
+          emptyDir: {}
+        - name: repository-credentials
+          secret:
+            secretName: chuggy-git-sync
+            defaultMode: 0444
+            items:
+              - key: password
+                path: chuggy-git

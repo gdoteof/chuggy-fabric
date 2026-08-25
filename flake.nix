@@ -32,6 +32,7 @@
         ./modules/chuggy-images.nix
         ./modules/chuggy-work.nix
         ./modules/build-provenance.nix
+        ./modules/mini-chuggy.nix
         ./modules/cloudflare-tunnel.nix
         ./modules/ddns.nix
         ./modules/flux.nix
@@ -134,6 +135,14 @@
         # configuration is a placeholder and will not boot on your machine until
         # you replace it.
         example = mkNode { hostPath = ./hosts/example; };
+
+        # The portable one-node role uses the same deliberately inert host
+        # inputs as example while proving that every Chuggy responsibility can
+        # coexist on one machine.
+        mini-example = mkNode {
+          hostPath = ./hosts/example;
+          extraModules = [ ./examples/mini-chuggy-node.nix ];
+        };
       };
 
       checks.${system} = {
@@ -141,6 +150,7 @@
         # nothing of gtr's has become load-bearing in modules/.
         gtr = self.nixosConfigurations.gtr.config.system.build.toplevel;
         example = self.nixosConfigurations.example.config.system.build.toplevel;
+        mini-example = self.nixosConfigurations.mini-example.config.system.build.toplevel;
 
         # D30 and D14 in a form a check can hold: an enabled host that has not
         # said what a task may cost, or who may reach its API, is refused rather

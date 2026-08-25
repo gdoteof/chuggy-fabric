@@ -99,6 +99,8 @@ kind: Deployment
 metadata:
   name: chuggy-web
   namespace: chuggy
+  annotations:
+    fabric.chuggy.dev/source-commit: fb7c4ff
   labels: { app: chuggy-web }
 spec:
   replicas: 1

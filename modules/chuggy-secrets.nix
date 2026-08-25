@@ -141,6 +141,7 @@ let
       "selector-service-password" = "password";
       "scheduler-password" = "password";
       "finalizer-password" = "password";
+      "worker-plane-password" = "password";
     };
     # Not a password: the versioned keyset a client idempotency key is HMAC'd
     # under. It is generated with one version because a rig that has never run

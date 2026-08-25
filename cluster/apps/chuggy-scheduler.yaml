@@ -3,7 +3,7 @@
 # a Kubernetes credential.
 #
 # One responsibility, one pod, one command, one database role. The shared image,
-# the six places its digest is written, the login-role-becomes-group connection,
+# the seven places its digest is written, the login-role-becomes-group connection,
 # the password's URL-reserved-character constraint and the absence of a health
 # listener are argued in chuggy-ticket-service.yaml. The recovery epoch and the
 # insert that establishes it are argued in chuggy-finalizer.yaml; both processes
@@ -114,6 +114,8 @@ kind: Deployment
 metadata:
   name: chuggy-scheduler
   namespace: chuggy
+  annotations:
+    fabric.chuggy.dev/source-commit: fb7c4ff
   labels: { app: chuggy-scheduler }
 spec:
   replicas: 1
@@ -141,7 +143,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: scheduler
-          image: registry.chuggy.internal/chuggy/api@sha256:61eeb59d18b410cb51b55daeafe852c4ea182168f7813caa95e9e50da7783830
+          image: registry.chuggy.internal/chuggy/api@sha256:d65ffc6537257c983391ecb7655d8dd4f7bbd497cc13c24e9986534b8d4988ef
           imagePullPolicy: IfNotPresent
           command:
             [
@@ -179,6 +181,16 @@ spec:
             # Projected, and re-read per act rather than held.
             - name: CHUG_SCHEDULER_CLUSTER_TOKEN_FILE
               value: /var/run/secrets/kubernetes.io/serviceaccount/token
+            - name: CHUG_SCHEDULER_WORKER_PLANE_URL
+              value: http://chuggy-worker-plane.chuggy.svc.cluster.local:3001
+            - name: CHUG_SCHEDULER_WORKER_CAPABILITY_FILE
+              value: /var/run/chuggy/worker-capability/bearer
+            - name: CHUG_SCHEDULER_WORKER_LABELS
+              value: '{"chuggy.dev/worker":"true"}'
+            - name: CHUG_SCHEDULER_WORKER_POD_SECURITY
+              value: '{"runAsNonRoot":true,"runAsUser":1000,"runAsGroup":1000,"seccompProfile":{"type":"RuntimeDefault"}}'
+            - name: CHUG_SCHEDULER_WORKER_CONTAINER_SECURITY
+              value: '{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}'
             # The identity a worker pod runs as. PR 5 creates it in
             # `chuggy-work`; naming it here does not.
             - name: CHUG_SCHEDULER_WORKER_SERVICE_ACCOUNT
@@ -195,7 +207,7 @@ spec:
             # name. A reserved-invalid host cannot be served by any registry and
             # no authored configuration will name it, so every real requirement
             # is refused by policy rather than by coincidence. The value is
-            # OUTSIDE the six `image:` lines carrying the control-plane digest,
+            # OUTSIDE the seven `image:` lines carrying the control-plane digest,
             # so re-pinning those leaves it alone; the slice that builds a
             # worker replaces it with what it built.
             - name: CHUG_SCHEDULER_ADMITTED_IMAGES

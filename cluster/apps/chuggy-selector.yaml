@@ -3,7 +3,7 @@
 # it.
 #
 # One responsibility, one pod, one command, one database role. What this file
-# shares with the other four -- the shared image, the digest that moves in six
+# shares with the other five -- the shared image, the digest that moves in seven
 # places, the login-role-becomes-group connection, the URL-reserved-character
 # constraint on the password, the absence of any health listener -- is argued in
 # chuggy-ticket-service.yaml and is not repeated.
@@ -96,6 +96,8 @@ kind: Deployment
 metadata:
   name: chuggy-selector
   namespace: chuggy
+  annotations:
+    fabric.chuggy.dev/source-commit: fb7c4ff
   labels: { app: chuggy-selector }
 spec:
   # ZERO, AND NOT BECAUSE THIS IS UNFINISHED. `selector-source` is what a run
@@ -140,7 +142,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: selector
-          image: registry.chuggy.internal/chuggy/api@sha256:61eeb59d18b410cb51b55daeafe852c4ea182168f7813caa95e9e50da7783830
+          image: registry.chuggy.internal/chuggy/api@sha256:d65ffc6537257c983391ecb7655d8dd4f7bbd497cc13c24e9986534b8d4988ef
           imagePullPolicy: IfNotPresent
           command:
             [

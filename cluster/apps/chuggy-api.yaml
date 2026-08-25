@@ -15,10 +15,10 @@
 # to the control-plane image is revised PR 2 of kasofsk/chuggy#197, in the
 # repository that builds it; nothing here can rename an image it does not build.
 #
-# The digest is written in six `image:` lines, one per file -- this, the four
+# The digest is written in seven `image:` lines, one per file -- this, the five
 # workloads and the migration Job -- and they move together.
 # chuggy-ticket-service.yaml argues what catches a bump that misses one, what
-# does not, and what else a re-pin has to touch beyond those six.
+# does not, and what else a re-pin has to touch beyond those seven.
 #
 # Every node maps `registry.chuggy.internal` to the retained private registry
 # through k3s. Promotion records a digest only after CRI has pulled it, so a
@@ -59,7 +59,7 @@
 # arrive part-way along the branch, so "from #242" is not the check. The
 # README's prerequisite 1 pre-filters the checkout in hand for both grants and
 # then reads `pg_auth_members` on the server, which is the only thing that
-# settles whether they landed. The shared digest built from `c80a4e2` carries both.
+# settles whether they landed. The selected release image carries both.
 #
 # It is on this rig: `pg_auth_members` carries
 # `chuggy_selector_review|chuggy_api_login` and this API is listening. A
@@ -202,6 +202,8 @@ metadata:
   # The namespace is declared in dev2-access.yaml, which owns it.
   name: chuggy-api
   namespace: chuggy
+  annotations:
+    fabric.chuggy.dev/source-commit: fb7c4ff
   labels: { app: chuggy-api }
 spec:
   # One. The journal makes concurrent writers safe, so this is not a
@@ -260,7 +262,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: api
-          image: registry.chuggy.internal/chuggy/api@sha256:61eeb59d18b410cb51b55daeafe852c4ea182168f7813caa95e9e50da7783830
+          image: registry.chuggy.internal/chuggy/api@sha256:d65ffc6537257c983391ecb7655d8dd4f7bbd497cc13c24e9986534b8d4988ef
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

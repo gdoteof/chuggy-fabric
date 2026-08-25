@@ -1,0 +1,41 @@
+{
+  "cache": {"mode": "registry", "scope": "profile-and-repository"},
+  "controller": {
+    "api": "shipwright.io/v1beta1",
+    "shipwrightVersion": "v0.18.4",
+    "tektonVersion": "v1.12.0"
+  },
+  "execution": {
+    "ephemeralStorage": {"limit": "40Gi", "request": "10Gi"},
+    "nodeSelector": {"chuggy.dev/node-role": "builder", "kubernetes.io/arch": "amd64", "kubernetes.io/os": "linux"},
+    "resources": {
+      "limits": {"cpu": "4", "memory": "8Gi"},
+      "requests": {"cpu": "1", "memory": "2Gi"}
+    },
+    "securityClass": "co-located-builder-rootlesskit",
+    "timeout": "1h",
+    "tolerations": []
+  },
+  "network": {
+    "sourceEndpoints": ["public-https:443", "*.chuggy-git.svc:8080"],
+    "targetEndpoints": ["public-https:443", "*.chuggy-registry.svc:5000"]
+  },
+  "name": "shipwright-buildkit-rootless-mini",
+  "output": {
+    "credentialRole": "registry-push",
+    "requiredStatus": ["observed-commit", "image-digest"]
+  },
+  "platforms": ["linux/amd64"],
+  "retention": {
+    "liveResourceCleanup": "disabled",
+    "requiredOrder": ["persist-provenance", "retire-git-declaration", "observe-flux-release", "delete-live-resource"]
+  },
+  "revision": "v1",
+  "source": {"cloneCredentialRole": "source-read", "revisionPolicy": "full-commit"},
+  "strategy": {
+    "builderImage": "moby/buildkit:v0.26.2-rootless@sha256:0ffa2fcf6b8757c47d569b3ef0f03f9d5eb3b9ff5ce68d858f994f89b749da0c",
+    "kind": "ClusterBuildStrategy",
+    "manifestDigest": "sha256:8422c2c6d5109779ec1ccb5d5c678213ef60dae4aff9922e17f1ee212ec39693",
+    "name": "buildkit-rootless-v1"
+  }
+}
