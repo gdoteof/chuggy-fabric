@@ -2,7 +2,7 @@
 # commit, and the only writer of the artifact store.
 #
 # One responsibility, one pod, one command, one database role. The shared image,
-# the six places its digest is written, the login-role-becomes-group connection,
+# the seven places its digest is written, the login-role-becomes-group connection,
 # the password's URL-reserved-character constraint and the absence of a health
 # listener are argued in chuggy-ticket-service.yaml.
 #

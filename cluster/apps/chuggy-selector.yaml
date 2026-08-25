@@ -3,7 +3,7 @@
 # it.
 #
 # One responsibility, one pod, one command, one database role. What this file
-# shares with the other four -- the shared image, the digest that moves in six
+# shares with the other five -- the shared image, the digest that moves in seven
 # places, the login-role-becomes-group connection, the URL-reserved-character
 # constraint on the password, the absence of any health listener -- is argued in
 # chuggy-ticket-service.yaml and is not repeated.

@@ -15,10 +15,10 @@
 # to the control-plane image is revised PR 2 of kasofsk/chuggy#197, in the
 # repository that builds it; nothing here can rename an image it does not build.
 #
-# The digest is written in six `image:` lines, one per file -- this, the four
+# The digest is written in seven `image:` lines, one per file -- this, the five
 # workloads and the migration Job -- and they move together.
 # chuggy-ticket-service.yaml argues what catches a bump that misses one, what
-# does not, and what else a re-pin has to touch beyond those six.
+# does not, and what else a re-pin has to touch beyond those seven.
 #
 # Every node maps `registry.chuggy.internal` to the retained private registry
 # through k3s. Promotion records a digest only after CRI has pulled it, so a

@@ -1180,7 +1180,7 @@ node. Thirty attempts and then a non-zero exit, so a database that is genuinely
 down ends as a failed Job rather than as a Job that hangs.
 
 The API image already contains every control-plane command: its Dockerfile
-copies the whole source tree and sets the API as its default. Six workload
+copies the whole source tree and sets the API as its default. Seven workload
 `image:` fields carry one immutable digest and move together. The migration
 Job's name also changes when its pod template changes because Kubernetes makes
 that template immutable.
@@ -1327,7 +1327,7 @@ not after it.
    in this database, not a membership that is absent.
 
 2. **Build and publish an image** from that same checkout, verify its digest
-   through CRI, and re-pin the six control-plane workloads together. The
+   through CRI, and re-pin the seven control-plane workloads together. The
    migration Job's `metadata.name` changes with its immutable pod template.
    A digest the registry does not hold leaves the new pod in
    `ImagePullBackOff`; at one replica the API's rolling update retains the old

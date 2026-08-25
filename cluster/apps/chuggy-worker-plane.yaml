@@ -1,0 +1,122 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chuggy-worker-plane
+  namespace: chuggy
+  labels: { app: chuggy-worker-plane }
+  annotations:
+    fabric.chuggy.dev/source-commit: c80a4e2
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: chuggy-worker-plane }
+  template:
+    metadata:
+      labels:
+        app: chuggy-worker-plane
+        chuggy.dev/postgres-client: "true"
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: worker-plane
+          image: registry.chuggy.internal/chuggy/api@sha256:61eeb59d18b410cb51b55daeafe852c4ea182168f7813caa95e9e50da7783830
+          imagePullPolicy: IfNotPresent
+          command: [node, --experimental-strip-types, src/roots/workerPlane.ts]
+          env:
+            - name: CHUG_WORKER_PLANE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chuggy-postgres-credentials
+                  key: worker-plane-password
+            - name: CHUG_WORKER_PLANE_DATABASE_URL
+              value: postgres://chuggy_worker_plane_login:$(CHUG_WORKER_PLANE_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy?options=-c%20role%3Dchuggy_worker_plane
+            - name: CHUG_WORKER_PLANE_ARTIFACT_ROOT
+              value: /var/lib/chuggy/artifacts
+            - name: CHUG_WORKER_PLANE_HOST
+              value: 0.0.0.0
+            - name: CHUG_WORKER_PLANE_PORT
+              value: "3001"
+          ports:
+            - name: http
+              containerPort: 3001
+          volumeMounts:
+            - name: artifacts
+              mountPath: /var/lib/chuggy/artifacts
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+            seccompProfile: { type: RuntimeDefault }
+          livenessProbe:
+            httpGet: { path: /health/live, port: http }
+          readinessProbe:
+            httpGet: { path: /health/ready, port: http }
+      volumes:
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: chuggy-artifacts
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chuggy-worker-plane
+  namespace: chuggy
+spec:
+  selector: { app: chuggy-worker-plane }
+  ports:
+    - name: http
+      port: 3001
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-worker-plane-ingress
+  namespace: chuggy
+spec:
+  podSelector:
+    matchLabels: { app: chuggy-worker-plane }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy-work
+          podSelector:
+            matchLabels:
+              chuggy.dev/worker: "true"
+      ports:
+        - { protocol: TCP, port: 3001 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-worker-plane-egress
+  namespace: chuggy
+spec:
+  podSelector:
+    matchLabels: { app: chuggy-worker-plane }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - podSelector:
+            matchLabels: { app: postgres }
+      ports:
+        - { protocol: TCP, port: 5432 }

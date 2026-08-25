@@ -162,6 +162,16 @@ spec:
       ports:
         - protocol: TCP
           port: 5432
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy-git
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: git
+      ports:
+        - protocol: TCP
+          port: 8080
 ---
 # The selector adds the API to the same two destinations, because its project
 # view comes through `/api/v1` rather than out of the database.
@@ -335,6 +345,13 @@ spec:
       ports:
         - protocol: TCP
           port: 5432
+    - to:
+        - podSelector:
+            matchLabels:
+              app: chuggy-worker-plane
+      ports:
+        - protocol: TCP
+          port: 3001
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

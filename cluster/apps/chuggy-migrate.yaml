@@ -182,7 +182,7 @@
 # grant itself. A database rolled out before the file carried it is the silent
 # failure argued above -- the one that reports success.
 #
-# The database is `chuggy`, which all six objects in this namespace that hold a
+# The database is `chuggy`, which all seven objects in this namespace that hold a
 # chuggy role name. The one it must never be is `chuggy_suite_fixtures`, which
 # chuggy-api.yaml describes: its ledger stops at 2, and 2 is a valid prefix of
 # this Job's, so nothing here would refuse it -- the Job would apply 3 upward to
@@ -254,7 +254,7 @@ spec:
         # `postgres:18.3-trixie` because the control-plane image is node and
         # carries nothing that can ask -- no `pg_isready`, no `psql`, no `nc`.
         # It is the tag postgres.yaml already runs, so the node holds it for the
-        # same reason it holds the server, and it is NOT one of the six release
+        # same reason it holds the server, and it is NOT one of the seven release
         # lines a re-pin moves.
         #
         # DNS and 5432 are the whole of what this needs, which is what

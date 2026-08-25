@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: chuggy-work
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chuggy-worker
+  namespace: chuggy-work
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: chuggy-scheduler-worker-launcher
+  namespace: chuggy-work
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [create, get, delete]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create, get, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: chuggy-scheduler-worker-launcher
+  namespace: chuggy-work
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: chuggy-scheduler-worker-launcher
+subjects:
+  - kind: ServiceAccount
+    name: chuggy-scheduler
+    namespace: chuggy
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-workers
+  namespace: chuggy-work
+spec:
+  podSelector:
+    matchLabels:
+      chuggy.dev/worker: "true"
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy
+          podSelector:
+            matchLabels: { app: chuggy-worker-plane }
+      ports:
+        - { protocol: TCP, port: 3001 }

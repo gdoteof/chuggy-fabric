@@ -13,6 +13,7 @@ API_MANIFESTS = (
     "chuggy-scheduler.yaml",
     "chuggy-selector.yaml",
     "chuggy-ticket-service.yaml",
+    "chuggy-worker-plane.yaml",
 )
 WEB_MANIFEST = "chuggy-web.yaml"
 DIGEST = r"sha256:[0-9a-f]{64}"
