@@ -59,7 +59,7 @@
 # arrive part-way along the branch, so "from #242" is not the check. The
 # README's prerequisite 1 pre-filters the checkout in hand for both grants and
 # then reads `pg_auth_members` on the server, which is the only thing that
-# settles whether they landed. The shared digest built from `c80a4e2` carries both.
+# settles whether they landed. The selected release image carries both.
 #
 # It is on this rig: `pg_auth_members` carries
 # `chuggy_selector_review|chuggy_api_login` and this API is listening. A
@@ -203,7 +203,7 @@ metadata:
   name: chuggy-api
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: c80a4e2
+    fabric.chuggy.dev/source-commit: 075d06a
   labels: { app: chuggy-api }
 spec:
   # One. The journal makes concurrent writers safe, so this is not a
@@ -262,7 +262,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: api
-          image: registry.chuggy.internal/chuggy/api@sha256:61eeb59d18b410cb51b55daeafe852c4ea182168f7813caa95e9e50da7783830
+          image: registry.chuggy.internal/chuggy/api@sha256:18448681ba1989cb84b27eac7dd0e39c6ded137a61a06d35e53658d5a97f9a17
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
