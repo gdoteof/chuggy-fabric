@@ -236,7 +236,8 @@ spec:
                   "cpuRequest": "250m",
                   "cpuLimit": "1",
                   "memoryRequest": "512Mi",
-                  "memoryLimit": "2Gi"
+                  "memoryLimit": "2Gi",
+                  "ephemeralStorageLimit": "20Gi"
                 }
             - name: CHUG_SCHEDULER_EXECUTION_POLICY
               value: |
