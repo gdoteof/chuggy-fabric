@@ -8,12 +8,15 @@ metadata:
 spec:
   parameters:
     - name: cache
+      description: Whether BuildKit may use the request's registry-backed cache.
       type: string
       default: registry
     - name: dockerfile
+      description: Repository-context path to the Dockerfile for this request.
       type: string
       default: Dockerfile
     - name: target
+      description: Optional named Dockerfile stage to build.
       type: string
       default: ""
   steps:
