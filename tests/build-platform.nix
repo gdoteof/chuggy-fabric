@@ -64,6 +64,8 @@ pkgs.runCommand "chuggy-build-platform" {
   test "$(jq -r '.provenanceRecordDigest' "$record")" = "$(jq -S '.result' "$record" | sha256sum | awk '{print "sha256:" $1}')"
   grep -F 'fabric.chuggy.dev/provenance-record-digest' "$PATCH_LOG" >/dev/null
   test "$(jq -r '.result.source.repositoryId' "$record")" = example-service
+  test "$(jq -r '.result.renderer' "$record")" = shipwright-build-request/v1
+  test "$(jq -r '.result.controller' "$record")" = v0.18.4
   grep -F '"finalizers":[]' "$PATCH_LOG" >/dev/null
 
   export BUILD_RUN_FIXTURE="$root/tests/fixtures/build-request/buildruns-page-1.json"
@@ -121,6 +123,20 @@ pkgs.runCommand "chuggy-build-platform" {
   grep -F 'durable provenance checksum failed' outer-checksum.log >/dev/null
   cp verified-record "$retry_record"
 
+  jq -S '.result | .controller = "v0.18.3"' "$retry_record" > mismatched-controller-payload
+  mismatched_controller_digest=$(sha256sum mismatched-controller-payload | awk '{print "sha256:" $1}')
+  jq -nS --arg digest "$mismatched_controller_digest" --slurpfile result mismatched-controller-payload \
+    '{provenanceRecordDigest:$digest,result:$result[0]}' > "$retry_record"
+  sha256sum "$retry_record" | awk '{print "sha256:" $1}' > "$retry_record.sha256"
+  if "$root/scripts/retry-build-request" "$retry_manifest" --results-path "$RESULTS_PATH" 2>controller-mismatch.log; then
+    echo "retry accepted mismatched controller provenance" >&2
+    exit 1
+  fi
+  cmp retry-pristine.yaml "$retry_manifest"
+  grep -F 'provenance identities do not match' controller-mismatch.log >/dev/null
+  cp verified-record "$retry_record"
+  sha256sum "$retry_record" | awk '{print "sha256:" $1}' > "$retry_record.sha256"
+
   cp "$retry_manifest" mismatched-manifest.yaml
   sed -i 's#image: "registry.example.internal/team/example-service:#image: "registry.example.internal/team/wrong:#' mismatched-manifest.yaml
   if "$root/scripts/retry-build-request" mismatched-manifest.yaml --results-path "$RESULTS_PATH" 2>manifest-mismatch.log; then
@@ -154,6 +170,21 @@ pkgs.runCommand "chuggy-build-platform" {
   cp retirement.yaml retirement-repository/request.yaml
   git -C retirement-repository add request.yaml
   git -C retirement-repository -c user.name=test -c user.email=test@invalid commit -qm fixture
+  jq -S '.result | .renderer = "shipwright-build-request/v0"' "$retry_record" > mismatched-renderer-payload
+  mismatched_renderer_digest=$(sha256sum mismatched-renderer-payload | awk '{print "sha256:" $1}')
+  jq -nS --arg digest "$mismatched_renderer_digest" --slurpfile result mismatched-renderer-payload \
+    '{provenanceRecordDigest:$digest,result:$result[0]}' > "$retry_record"
+  sha256sum "$retry_record" | awk '{print "sha256:" $1}' > "$retry_record.sha256"
+  if "$root/scripts/retire-build-request" retirement-repository/request.yaml --results-path "$RESULTS_PATH" 2>renderer-mismatch.log; then
+    echo "retirement accepted mismatched renderer provenance" >&2
+    exit 1
+  fi
+  test -f retirement-repository/request.yaml
+  test -z "$(git -C retirement-repository diff --cached --diff-filter=D --name-only)"
+  grep -F 'provenance identities do not match' renderer-mismatch.log >/dev/null
+  cp verified-record "$retry_record"
+  sha256sum "$retry_record" | awk '{print "sha256:" $1}' > "$retry_record.sha256"
+
   jq -S '.result | .source.repositoryId = "wrong-repository"' "$retry_record" > mismatched-payload
   mismatched_digest=$(sha256sum mismatched-payload | awk '{print "sha256:" $1}')
   jq -nS --arg digest "$mismatched_digest" --slurpfile result mismatched-payload \

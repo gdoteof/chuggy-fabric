@@ -12,6 +12,7 @@
         "fabric.chuggy.dev/profile": "shipwright-buildkit-rootless/v1",
           "fabric.chuggy.dev/profile-digest": "sha256:935d9e286a60255ae22e5c07447d3d71fd228169cfeb05d97710b0cf894245b4",
         "fabric.chuggy.dev/request-digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "fabric.chuggy.dev/renderer": "shipwright-build-request/v1",
         "fabric.chuggy.dev/shipwright-version": "v0.18.4",
         "fabric.chuggy.dev/source-commit": "0123456789abcdef0123456789abcdef01234567",
         "fabric.chuggy.dev/target-image-repository": "registry.example.internal/team/example-service"

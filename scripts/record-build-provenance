@@ -44,8 +44,12 @@ while :; do
     [[ -z $digest || $digest =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "$name: invalid output digest" >&2; continue; }
     target=$(printf '%s' "$buildrun" | jq -r '.metadata.annotations["fabric.chuggy.dev/target-image-repository"] // empty')
     profile_digest=$(printf '%s' "$buildrun" | jq -r '.metadata.annotations["fabric.chuggy.dev/profile-digest"] // empty')
+    renderer=$(printf '%s' "$buildrun" | jq -r '.metadata.annotations["fabric.chuggy.dev/renderer"] // empty')
+    controller=$(printf '%s' "$buildrun" | jq -r '.metadata.annotations["fabric.chuggy.dev/shipwright-version"] // empty')
     [[ -n $target ]] || { echo "$name: missing target image repository" >&2; continue; }
     [[ $profile_digest =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "$name: invalid profile digest" >&2; continue; }
+    [[ -n $renderer ]] || { echo "$name: missing renderer identity" >&2; continue; }
+    [[ -n $controller ]] || { echo "$name: missing controller identity" >&2; continue; }
 
     directory="$RESULTS_PATH/$request"
     record="$directory/$name.json"
@@ -59,6 +63,7 @@ while :; do
         output: {repository: .metadata.annotations["fabric.chuggy.dev/target-image-repository"], digest: (.status.output.digest // null)},
         terminalCondition: ([.status.conditions[] | select(.type == "Succeeded")] | last),
         timestamps: {started: .status.startTime, completed: .status.completionTime},
+        renderer: .metadata.annotations["fabric.chuggy.dev/renderer"],
         controller: .metadata.annotations["fabric.chuggy.dev/shipwright-version"],
         profile: {name: .metadata.annotations["fabric.chuggy.dev/profile"], digest: .metadata.annotations["fabric.chuggy.dev/profile-digest"]}
       }' > "$work/payload"
