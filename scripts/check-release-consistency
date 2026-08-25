@@ -33,12 +33,12 @@ def one_match(pattern, content, description):
 def manifest_values(path, repository):
     content = path.read_text()
     digest = one_match(
-        rf"^\s*image: registry\.chuggy\.internal/chuggy/{repository}@({DIGEST})\s*$",
+        rf"^[ \t]*image: registry\.chuggy\.internal/chuggy/{repository}@({DIGEST})[ \t]*$",
         content,
         f"{path.name} image",
     )
     source_commit = one_match(
-        rf'^\s*fabric\.chuggy\.dev/source-commit: "?({SOURCE_COMMIT})"?\s*$',
+        rf'^[ \t]*fabric\.chuggy\.dev/source-commit: "?({SOURCE_COMMIT})"?[ \t]*$',
         content,
         f"{path.name} source commit",
     )
@@ -63,7 +63,7 @@ def main():
     source_commit = source_commits.pop()
     migration = (directory / "chuggy-migrate.yaml").read_text()
     migration_name = one_match(
-        r"^\s*name: (chuggy-migrate-[a-z0-9-]+)\s*$",
+        r"^[ \t]*name: (chuggy-migrate-[a-z0-9-]+)[ \t]*$",
         migration,
         "chuggy-migrate.yaml Job name",
     )
