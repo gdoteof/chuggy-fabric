@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+import argparse
+import hashlib
+import json
+import os
+import re
+import subprocess
+import tempfile
+from pathlib import Path, PurePosixPath
+
+
+DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+COMMIT = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
+DNS_LABEL = re.compile(r"[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?")
+
+
+def refuse(message):
+    raise SystemExit(message)
+
+
+def required_string(value, description, pattern=None):
+    if not isinstance(value, str) or not value or (pattern and not pattern.fullmatch(value)):
+        refuse(f"invalid {description}")
+    return value
+
+
+def load_verified_result(path):
+    checksum_path = Path(f"{path}.sha256")
+    if not path.is_file() or not checksum_path.is_file():
+        refuse("build result and its checksum are required")
+    encoded = path.read_bytes()
+    expected_checksum = required_string(checksum_path.read_text().strip(), "build result checksum", DIGEST)
+    actual_checksum = f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+    if actual_checksum != expected_checksum:
+        refuse("build result checksum mismatch")
+    try:
+        record = json.loads(encoded)
+    except json.JSONDecodeError as error:
+        refuse(f"invalid build result JSON: {error}")
+    result = record.get("result")
+    if not isinstance(result, dict):
+        refuse("build result has no result payload")
+    canonical = (json.dumps(result, sort_keys=True, indent=2, separators=(",", ": ")) + "\n").encode()
+    expected_provenance = f"sha256:{hashlib.sha256(canonical).hexdigest()}"
+    if record.get("provenanceRecordDigest") != expected_provenance:
+        refuse("build result provenance digest mismatch")
+    return record, result
+
+
+def validate_result(result):
+    condition = result.get("terminalCondition", {})
+    if condition.get("type") != "Succeeded" or condition.get("status") != "True":
+        refuse("build result is not successful")
+    source = result.get("source", {})
+    requested = required_string(source.get("requestedCommit"), "requested source commit", COMMIT)
+    observed = required_string(source.get("observedCommit"), "observed source commit", COMMIT)
+    if requested != observed:
+        refuse("build result source commits do not match")
+    output = result.get("output", {})
+    repository = required_string(output.get("repository"), "output repository")
+    digest = required_string(output.get("digest"), "output digest", DIGEST)
+    request_digest = required_string(result.get("requestDigest"), "request digest", DIGEST)
+    attempt = result.get("attempt", {})
+    attempt_name = required_string(attempt.get("name"), "attempt name", DNS_LABEL)
+    return requested, repository, digest, request_digest, attempt_name
+
+
+def relative_destination(value):
+    path = PurePosixPath(value)
+    if path.is_absolute() or not path.parts or ".." in path.parts or "." in path.parts:
+        refuse("environment path must be a normalized relative path")
+    return Path(*path.parts)
+
+
+def quote(value):
+    return json.dumps(value)
+
+
+def render(arguments, record, result):
+    source_commit, repository, digest, request_digest, attempt_name = validate_result(result)
+    provenance_digest = record["provenanceRecordDigest"]
+    annotations = {
+        "fabric.chuggy.dev/source-commit": source_commit,
+        "fabric.chuggy.dev/build-request-digest": request_digest,
+        "fabric.chuggy.dev/build-attempt": attempt_name,
+        "fabric.chuggy.dev/build-provenance-digest": provenance_digest,
+        "fabric.chuggy.dev/selected-image-digest": digest,
+        "fabric.chuggy.dev/repository-id": arguments.repository_id,
+        "fabric.chuggy.dev/target-ref": arguments.target_ref,
+    }
+    annotation_lines = "\n".join(f"        {quote(key)}: {quote(value)}" for key, value in annotations.items())
+    return f"""apiVersion: {arguments.api_version}
+kind: {arguments.kind}
+metadata:
+  name: {quote(arguments.resource_name)}
+  namespace: {quote(arguments.namespace)}
+spec:
+  template:
+    metadata:
+      annotations:
+{annotation_lines}
+    spec:
+      containers:
+        - name: {quote(arguments.container_name)}
+          image: {quote(f'{repository}@{digest}')}
+"""
+
+
+def verify_available(command, repository, digest):
+    reference = f"{repository}@{digest}"
+    completed = subprocess.run([command, "digest", reference], text=True, capture_output=True, check=False)
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip() or "registry lookup failed"
+        refuse(f"selected image is unavailable: {reference}: {detail}")
+    observed = completed.stdout.strip()
+    if observed != digest:
+        refuse(f"selected image digest mismatch: registry reported {observed or 'no digest'}")
+
+
+def write_if_changed(destination, content):
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists() and destination.read_text() == content:
+        return
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{destination.name}.", dir=destination.parent, text=True)
+    try:
+        with os.fdopen(descriptor, "w") as output:
+            output.write(content)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, destination)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--build-result", type=Path, required=True)
+    parser.add_argument("--repository-id", required=True)
+    parser.add_argument("--target-ref", required=True)
+    parser.add_argument("--environment-path", required=True)
+    parser.add_argument("--resource-name", required=True)
+    parser.add_argument("--container-name", required=True)
+    parser.add_argument("--namespace", required=True)
+    parser.add_argument("--api-version", default="apps/v1")
+    parser.add_argument("--kind", choices=("Deployment", "StatefulSet", "DaemonSet", "Job"), default="Deployment")
+    parser.add_argument("--output-root", type=Path, default=Path("."))
+    parser.add_argument("--registry-client", default="crane")
+    arguments = parser.parse_args()
+    destination = arguments.output_root / relative_destination(arguments.environment_path)
+    record, result = load_verified_result(arguments.build_result)
+    _, repository, digest, _, _ = validate_result(result)
+    verify_available(arguments.registry_client, repository, digest)
+    write_if_changed(destination, render(arguments, record, result))
+    print(arguments.environment_path)
+
+
+if __name__ == "__main__":
+    main()

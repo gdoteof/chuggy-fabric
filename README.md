@@ -614,6 +614,32 @@ ownership, and only then delete the resource. The result directory is
 installation state and needs the same backup treatment as the registry and
 journal.
 
+Image selection is a separate Git change. `scripts/render-image-promotion`
+consumes one checksummed successful result, verifies that the registry still
+serves its exact digest, and writes a configured workload patch. The repository
+binding, target ref, environment path, workload identity and container are all
+inputs; the renderer assumes no project or environment name:
+
+    scripts/render-image-promotion \
+      --build-result /var/lib/chuggy/build-results/<request>/<attempt>.json \
+      --repository-id example-service \
+      --target-ref refs/heads/staging \
+      --environment-path environments/staging/example-service.yaml \
+      --resource-name example-service \
+      --container-name server \
+      --namespace staging
+
+The selected repository's kustomization includes that patch. A caller then
+publishes the change by its configured direct-commit or pull-request handoff.
+The patch records the source commit, build request, attempt, provenance record,
+repository binding, target ref and selected digest. Re-selecting a retained
+older result is the rollback operation and follows the same reviewable path.
+
+The renderer writes nothing until both provenance and registry availability
+are proven. A build result alone never changes an environment, and accepting
+the Git change means only that Flux may attempt the rollout; it is not evidence
+of deployment success.
+
 ## Ingress
 
 Public traffic arrives through a **Cloudflare Tunnel**, not a port-forward. The
