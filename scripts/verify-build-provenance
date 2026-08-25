@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -o errexit -o nounset -o pipefail
+
+record=${1:?record path is required}
+shift
+request= attempt= ordinal= repository= source_commit= target= profile= profile_digest=
+while (( $# )); do
+  case "$1" in
+    --request) request=$2 ;;
+    --attempt) attempt=$2 ;;
+    --ordinal) ordinal=$2 ;;
+    --repository) repository=$2 ;;
+    --source-commit) source_commit=$2 ;;
+    --target) target=$2 ;;
+    --profile) profile=$2 ;;
+    --profile-digest) profile_digest=$2 ;;
+    *) echo "unknown argument: $1" >&2; exit 64 ;;
+  esac
+  shift 2
+done
+for value in request attempt ordinal repository source_commit target profile profile_digest; do
+  [[ -n ${!value} ]] || { echo "missing --${value//_/-}" >&2; exit 64; }
+done
+
+checksum="$record.sha256"
+[[ -f $record && -f $checksum ]] || { echo "durable provenance is incomplete for $attempt" >&2; exit 1; }
+stored=$(sha256sum "$record" | awk '{print "sha256:" $1}')
+[[ $stored == "$(<"$checksum")" ]] || { echo "durable provenance checksum failed for $attempt" >&2; exit 1; }
+payload=$(mktemp)
+trap 'rm -f "$payload"' EXIT
+jq -S '.result' "$record" > "$payload"
+canonical=$(sha256sum "$payload" | awk '{print "sha256:" $1}')
+[[ $(jq -r '.provenanceRecordDigest // empty' "$record") == "$canonical" ]] || {
+  echo "canonical provenance digest failed for $attempt" >&2
+  exit 1
+}
+
+jq -e --arg request "$request" --arg attempt "$attempt" --argjson ordinal "$ordinal" \
+  --arg repository "$repository" --arg source "$source_commit" --arg target "$target" \
+  --arg profileName "$profile" --arg profileDigest "$profile_digest" '
+    .result as $r |
+    $r.requestDigest == $request and
+    $r.attempt.name == $attempt and $r.attempt.ordinal == $ordinal and
+    $r.source.repositoryId == $repository and
+    $r.source.requestedCommit == $source and
+    $r.output.repository == $target and
+    $r.profile.name == $profileName and $r.profile.digest == $profileDigest and
+    ($r.terminalCondition.status == "True" or $r.terminalCondition.status == "False") and
+    ($r.source.observedCommit == null or ($r.source.observedCommit | test("^[0-9a-f]{40}([0-9a-f]{24})?$"))) and
+    ($r.output.digest == null or ($r.output.digest | test("^sha256:[0-9a-f]{64}$"))) and
+    (if $r.terminalCondition.status == "True" then
+      $r.source.observedCommit == $source and
+      (($r.output.digest | type) == "string" and ($r.output.digest | test("^sha256:[0-9a-f]{64}$")))
+    else true end)
+  ' "$record" >/dev/null || { echo "provenance identities do not match $attempt" >&2; exit 1; }
+
+expected="build-${request#sha256:}"
+expected="${expected:0:46}-a${ordinal}"
+[[ $attempt == "$expected" ]] || { echo "attempt identity does not match request digest and ordinal" >&2; exit 1; }
+jq -c '.result' "$record"
