@@ -113,6 +113,12 @@
 # finalizer mounts the same claim writable, and that asymmetry is the whole
 # division of labour between the two.
 #
+# Repository configuration imports use a separate empty Git scratch and the
+# read-only `chuggy-git-sync` Secret. That Secret is host-local and copies the
+# password from `chuggy-git/git-sync`; the Git service also admits the adapter's
+# fixed `chuggy` username as a reader. No repository credential belongs in this
+# public tree.
+#
 # THE PV PINS THIS POD. Its node affinity is `chuggy.dev/durable=true`, so this
 # Deployment is now schedulable on the durable node alone -- which it already
 # Deployment is schedulable on the durable node alone.
@@ -289,6 +295,16 @@ spec:
               value: RS256
             - name: CHUG_API_ARTIFACT_ROOT
               value: /var/lib/chuggy/artifacts
+            - name: CHUG_API_GIT_SCRATCH_ROOT
+              value: /var/lib/chuggy/git
+            - name: CHUG_API_REPOSITORY_CREDENTIAL_SOURCES
+              value: |
+                [
+                  {
+                    "repository": "http://git.chuggy-git.svc.cluster.local./chuggy.git",
+                    "path": "/var/run/chuggy/repository-credentials/chuggy-git"
+                  }
+                ]
             # The image already sets this. Repeated because the source default
             # is loopback and a container's loopback is its own namespace's --
             # an inherited value that no manifest states is one an image rebuild
@@ -299,6 +315,11 @@ spec:
           volumeMounts:
             - name: artifacts
               mountPath: /var/lib/chuggy/artifacts
+              readOnly: true
+            - name: git-scratch
+              mountPath: /var/lib/chuggy/git
+            - name: repository-credentials
+              mountPath: /var/run/chuggy/repository-credentials
               readOnly: true
           resources:
             requests: { cpu: 100m, memory: 128Mi }
@@ -354,6 +375,15 @@ spec:
             # read-only claim cannot be made writable by a mount that forgot to
             # say so.
             readOnly: true
+        - name: git-scratch
+          emptyDir: {}
+        - name: repository-credentials
+          secret:
+            secretName: chuggy-git-sync
+            defaultMode: 0444
+            items:
+              - key: password
+                path: chuggy-git
 ---
 apiVersion: v1
 kind: Service

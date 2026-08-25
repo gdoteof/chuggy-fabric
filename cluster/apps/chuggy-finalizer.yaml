@@ -98,11 +98,11 @@
 # below refuses writes. Without it git fails on a home directory it cannot use,
 # with a message about configuration rather than about permissions.
 #
-# THE REMOTE IS THIS CLUSTER'S OWN GIT AND NOT A HOST ON THE INTERNET. The
-# repository below is `rig.git` on the rig's git service, which is the tree Flux
-# reconciles this cluster from -- so the ref a promotion advances is the deployed
-# revision itself, which is what D34 is about. Nothing here can reach
-# kasofsk/chuggy, and nothing here holds a credential that could write to it.
+# THE REMOTES ARE THIS CLUSTER'S OWN GIT AND NOT HOSTS ON THE INTERNET. `rig.git`
+# is the tree Flux reconciles this cluster from, and `chuggy.git` is the
+# authoritative development repository for the `vteng/chuggy` project. Nothing
+# here can reach kasofsk/chuggy, and nothing here holds a credential that could
+# write to it.
 #
 # WHY THAT IS THE TARGET RATHER THAN A CONVENIENCE. D34 says only the finalizer
 # may advance the deployed revision, and what enforces it is that no other
@@ -118,13 +118,13 @@
 # operator credential the rig's git service already validates, so it is copied
 # rather than minted:
 #
+#   password="$(kubectl -n chuggy-git get secret git-operator \
+#     -o jsonpath='{.data.password}' | base64 -d)"
 #   kubectl -n chuggy create secret generic chuggy-finalizer-credentials \
-#     --from-literal=rig-git="$(kubectl -n chuggy-git get secret git-operator \
-#       -o jsonpath='{.data.password}' | base64 -d)"
+#     --from-literal=rig-git="$password" --from-literal=chuggy-git="$password"
 #
-# D39 is why there is one entry: one repository is served here and nothing else.
-# Adding a repository is another key, another entry in the sources below, and
-# nothing structural.
+# Each served repository is another key and another entry in the sources below,
+# and nothing structural.
 #
 # THE USERNAME IS PART OF THE CREDENTIAL AND IS NOT A SECRET.
 # `CHUG_FINALIZER_GIT_CREDENTIAL_USERNAME` is `operator`, which is the name the
@@ -227,6 +227,10 @@ spec:
                   {
                     "repository": "http://git.chuggy-git.svc.cluster.local./rig.git",
                     "path": "/var/run/chuggy/credentials/rig-git"
+                  },
+                  {
+                    "repository": "http://git.chuggy-git.svc.cluster.local./chuggy.git",
+                    "path": "/var/run/chuggy/credentials/chuggy-git"
                   }
                 ]
             # git writes into HOME, and the root filesystem below refuses
