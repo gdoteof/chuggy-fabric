@@ -5,6 +5,12 @@ pkgs.runCommand "chuggy-image-promotion" {
 } ''
   set -eu
   root=${../.}
+  cp -R "$root/scripts" scripts-under-test
+  chmod -R u+w scripts-under-test
+  set +u
+  patchShebangs scripts-under-test
+  set -u
+  scripts=$PWD/scripts-under-test
   real_git=${pkgs.git}/bin/git
   mkdir bin results seed symlink-seed acts ambient-home
   export HOME="$PWD/ambient-home"
@@ -12,15 +18,15 @@ pkgs.runCommand "chuggy-image-promotion" {
 
   cat > bin/credential <<'EOF'
 #!/usr/bin/env bash
-test -z "${LEAK_ME:-}"
-test -n "${PROMOTION_CREDENTIAL_REF:-}"
+test -z "''${LEAK_ME:-}"
+test -n "''${PROMOTION_CREDENTIAL_REF:-}"
 case "$HOME" in */acts|*/image-promotion.*) ;; *) exit 1 ;; esac
 case "$1" in *Username*) printf '%s\n' unused ;; *) printf '%s\n' unused ;; esac
 EOF
   cat > bin/crane <<'EOF'
 #!/usr/bin/env bash
-test -z "${LEAK_ME:-}"
-test -z "${PROMOTION_REGISTRY_CREDENTIAL_REF:-}"
+test -z "''${LEAK_ME:-}"
+test -z "''${PROMOTION_REGISTRY_CREDENTIAL_REF:-}"
 case "$HOME" in */registry-credential.*) ;; *) exit 1 ;; esac
 test -f "$DOCKER_CONFIG/config.json"
 test "$(python3 -c 'import os,sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777))' "$DOCKER_CONFIG/config.json")" = 0o600
@@ -36,26 +42,26 @@ esac
 EOF
   cat > bin/registry-credential <<'EOF'
 #!/usr/bin/env bash
-test -z "${LEAK_ME:-}"
+test -z "''${LEAK_ME:-}"
 test "$PROMOTION_REGISTRY_CREDENTIAL_REF" = registry-reader
 case "$HOME" in */registry-credential.*) ;; *) exit 1 ;; esac
 printf '%s\n' '{"auths":{"registry.example.internal":{"auth":"private-registry-auth"}}}'
 EOF
   cat > bin/crane-missing <<'EOF'
 #!/usr/bin/env bash
-test -z "${LEAK_ME:-}"
+test -z "''${LEAK_ME:-}"
 echo 'manifest unknown' >&2
 exit 1
 EOF
 cat > bin/git-clean <<'EOF'
 #!/usr/bin/env bash
-test -z "${LEAK_ME:-}"
+test -z "''${LEAK_ME:-}"
 case "$HOME" in */acts|*/image-promotion.*) ;; *) exit 1 ;; esac
 exec @GIT@ "$@"
 EOF
   cat > bin/git-lost-response <<'EOF'
 #!/usr/bin/env bash
-test -z "${LEAK_ME:-}"
+test -z "''${LEAK_ME:-}"
 case " $* " in
   *' push '*) @GIT@ "$@"; echo 'simulated lost response' >&2; exit 1 ;;
   *) exec @GIT@ "$@" ;;
@@ -63,7 +69,7 @@ esac
 EOF
   cat > bin/git-reject <<'EOF'
 #!/usr/bin/env bash
-test -z "${LEAK_ME:-}"
+test -z "''${LEAK_ME:-}"
 case " $* " in
   *' push '*) echo 'simulated rejection' >&2; exit 1 ;;
   *) exec @GIT@ "$@" ;;
@@ -71,7 +77,7 @@ esac
 EOF
   cat > bin/git-race <<'EOF'
 #!/usr/bin/env bash
-test -z "${LEAK_ME:-}"
+test -z "''${LEAK_ME:-}"
 case " $* " in
   *' push '*)
     remote="$(dirname "$0")/../remote.git"
@@ -89,6 +95,9 @@ esac
 EOF
   sed -i "s#@GIT@#$real_git#g" bin/git-clean bin/git-lost-response bin/git-reject bin/git-race
   chmod +x bin/*
+  set +u
+  patchShebangs bin
+  set -u
 
   jq -S '{
     requestDigest: .items[0].metadata.annotations["fabric.chuggy.dev/request-digest"],
@@ -125,7 +134,7 @@ EOF
   "$real_git" -C seed push origin staging >/dev/null
 
   promotion() {
-    "$root/scripts/render-image-promotion" \
+    "$scripts/render-image-promotion" \
       --build-result "$PWD/results/success.json" \
       --repository-id example-service \
       --repository-url "$PWD/remote.git" \
@@ -191,7 +200,7 @@ EOF
   promotion "$PWD/bin/git-clean" >/dev/null
 
   before_unavailable=$("$real_git" --git-dir=remote.git rev-parse staging)
-  if "$root/scripts/render-image-promotion" \
+  if "$scripts/render-image-promotion" \
       --build-result results/success.json --repository-id example-service \
       --repository-url "$PWD/remote.git" --target-ref refs/heads/staging \
       --environment-path environments/staging/unavailable.yaml --resource-name example \
@@ -215,7 +224,7 @@ EOF
     results/rollback.json > rollback-record
   mv rollback-record results/rollback.json
   sha256sum results/rollback.json | awk '{print "sha256:" $1}' > results/rollback.json.sha256
-  "$root/scripts/render-image-promotion" \
+  "$scripts/render-image-promotion" \
     --build-result results/rollback.json --repository-id example-service \
     --repository-url "$PWD/remote.git" --target-ref refs/heads/staging \
     --environment-path environments/staging/example-service.yaml --resource-name example-service \
@@ -230,7 +239,7 @@ EOF
   refuse() {
     expected=$1
     shift
-    if "$root/scripts/render-image-promotion" "$@" 2>refusal.log; then
+    if "$scripts/render-image-promotion" "$@" 2>refusal.log; then
       echo "promotion accepted invalid configuration: $expected" >&2
       exit 1
     fi

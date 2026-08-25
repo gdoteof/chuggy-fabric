@@ -5,6 +5,13 @@ pkgs.runCommand "chuggy-build-platform" {
 } ''
   set -eu
   root=${../.}
+  cp -R "$root/scripts" scripts-under-test
+  chmod -R u+w scripts-under-test
+  cp "$root/tests/fixtures/build-request/kubectl" scripts-under-test/kubectl-fixture
+  set +u
+  patchShebangs scripts-under-test
+  set -u
+  scripts=$PWD/scripts-under-test
   test "$(sha256sum "$root/cluster/build-system/vendor/shipwright-v0.18.4/release.yaml" | cut -d' ' -f1)" = 451ad62b1f667103679c6f27c7fcbdf61fadfdd82216e3a90f0d78b0a7f4fe76
   test "$(sha256sum "$root/cluster/build-system/vendor/tekton-v1.12.0/release.yaml" | cut -d' ' -f1)" = e2765b483924b1c4e3ac15810c996e5cb06f3d1aa10bee4ce0113c8b5b0a078a
   test "$(sha256sum "$root/cluster/build-prerequisites/vendor/cert-manager-v1.18.2/release.yaml" | cut -d' ' -f1)" = e200b8fa1de6999989486fdce2c53f5d215916cc54e64ac6db109e64b88dcea7
@@ -29,7 +36,7 @@ pkgs.runCommand "chuggy-build-platform" {
   render() {
     output_root="$1"
     shift
-    "$root/scripts/render-build-request" \
+    "$scripts/render-build-request" \
       --repository-id example-service \
       --source-url https://git.example.com/team/example-service.git \
       --source-commit 0123456789abcdef0123456789abcdef01234567 \
@@ -56,8 +63,8 @@ pkgs.runCommand "chuggy-build-platform" {
   export BUILD_RUN_FIXTURE="$root/tests/fixtures/build-request/buildruns.json"
   export BUILD_RUN_FIXTURE_CONTINUED="$root/tests/fixtures/build-request/buildruns.json"
   export PATCH_LOG="$PWD/patch.log"
-  export KUBECTL="$root/tests/fixtures/build-request/kubectl"
-  "$root/scripts/record-build-provenance"
+  export KUBECTL="$scripts/kubectl-fixture"
+  "$scripts/record-build-provenance"
   record="$RESULTS_PATH/sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/build-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-a1.json"
   test -f "$record"
   test "$(sha256sum "$record" | awk '{print "sha256:" $1}')" = "$(cat "$record.sha256")"
@@ -70,13 +77,13 @@ pkgs.runCommand "chuggy-build-platform" {
 
   export BUILD_RUN_FIXTURE="$root/tests/fixtures/build-request/buildruns-page-1.json"
   : > "$PATCH_LOG"
-  "$root/scripts/record-build-provenance"
+  "$scripts/record-build-provenance"
   grep -F 'build-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-a1' "$PATCH_LOG" >/dev/null
 
   export BUILD_RUN_FIXTURE="$root/tests/fixtures/build-request/buildruns-page-1.json"
   export BUILD_RUN_FIXTURE_CONTINUED="$root/tests/fixtures/build-request/buildruns-operational.json"
   export NOW_EPOCH=1787605200
-  if "$root/scripts/check-build-attempts" 2>attempt-alerts.log; then
+  if "$scripts/check-build-attempts" 2>attempt-alerts.log; then
     echo "failed and stalled fixture produced no actionable signal" >&2
     exit 1
   fi
@@ -103,7 +110,7 @@ pkgs.runCommand "chuggy-build-platform" {
     '{provenanceRecordDigest:$digest,result:$result[0]}' > "$retry_record"
   sha256sum "$retry_record" | awk '{print "sha256:" $1}' > "$retry_record.sha256"
   cp "$retry_manifest" retry-pristine.yaml
-  if "$root/scripts/retry-build-request" "$retry_manifest" --results-path "$RESULTS_PATH" 2>fabricated-digest.log; then
+  if "$scripts/retry-build-request" "$retry_manifest" --results-path "$RESULTS_PATH" 2>fabricated-digest.log; then
     echo "retry accepted a fabricated canonical provenance digest" >&2
     exit 1
   fi
@@ -115,7 +122,7 @@ pkgs.runCommand "chuggy-build-platform" {
   sha256sum "$retry_record" | awk '{print "sha256:" $1}' > "$retry_record.sha256"
   cp "$retry_record" verified-record
   printf ' ' >> "$retry_record"
-  if "$root/scripts/retry-build-request" "$retry_manifest" --results-path "$RESULTS_PATH" 2>outer-checksum.log; then
+  if "$scripts/retry-build-request" "$retry_manifest" --results-path "$RESULTS_PATH" 2>outer-checksum.log; then
     echo "retry accepted a record whose outer checksum failed" >&2
     exit 1
   fi
@@ -128,7 +135,7 @@ pkgs.runCommand "chuggy-build-platform" {
   jq -nS --arg digest "$mismatched_controller_digest" --slurpfile result mismatched-controller-payload \
     '{provenanceRecordDigest:$digest,result:$result[0]}' > "$retry_record"
   sha256sum "$retry_record" | awk '{print "sha256:" $1}' > "$retry_record.sha256"
-  if "$root/scripts/retry-build-request" "$retry_manifest" --results-path "$RESULTS_PATH" 2>controller-mismatch.log; then
+  if "$scripts/retry-build-request" "$retry_manifest" --results-path "$RESULTS_PATH" 2>controller-mismatch.log; then
     echo "retry accepted mismatched controller provenance" >&2
     exit 1
   fi
@@ -139,26 +146,26 @@ pkgs.runCommand "chuggy-build-platform" {
 
   cp "$retry_manifest" mismatched-manifest.yaml
   sed -i 's#image: "registry.example.internal/team/example-service:#image: "registry.example.internal/team/wrong:#' mismatched-manifest.yaml
-  if "$root/scripts/retry-build-request" mismatched-manifest.yaml --results-path "$RESULTS_PATH" 2>manifest-mismatch.log; then
+  if "$scripts/retry-build-request" mismatched-manifest.yaml --results-path "$RESULTS_PATH" 2>manifest-mismatch.log; then
     echo "retry accepted a Build output that disagreed with its target identity" >&2
     exit 1
   fi
   grep -F 'Build output does not match the request target' manifest-mismatch.log >/dev/null
 
-  "$root/scripts/retry-build-request" "$retry_manifest" --results-path "$RESULTS_PATH" >retry-name
-  test "$(cat retry-name)" = "${retry_attempt%-a1}-a2"
+  "$scripts/retry-build-request" "$retry_manifest" --results-path "$RESULTS_PATH" >retry-name
+  test "$(cat retry-name)" = "''${retry_attempt%-a1}-a2"
   grep -F 'kind: Build' "$retry_manifest" >/dev/null
-  grep -F "name: ${retry_attempt%-a1}-a2" "$retry_manifest" >/dev/null
+  grep -F "name: ''${retry_attempt%-a1}-a2" "$retry_manifest" >/dev/null
   grep -F 'fabric.chuggy.dev/attempt-ordinal: "2"' "$retry_manifest" >/dev/null
   test "$(grep -c 'revision: 0123456789abcdef0123456789abcdef01234567' "$retry_manifest")" = 1
-  if "$root/scripts/retry-build-request" "$retry_manifest" --results-path "$RESULTS_PATH" 2>retry-without-provenance.log; then
+  if "$scripts/retry-build-request" "$retry_manifest" --results-path "$RESULTS_PATH" 2>retry-without-provenance.log; then
     echo "retry advanced without durable provenance for the live attempt" >&2
     exit 1
   fi
   grep -F 'durable provenance is incomplete' retry-without-provenance.log >/dev/null
 
   cp "$retry_manifest" retirement.yaml
-  if "$root/scripts/retire-build-request" retirement.yaml --results-path "$RESULTS_PATH" 2>retire-without-provenance.log; then
+  if "$scripts/retire-build-request" retirement.yaml --results-path "$RESULTS_PATH" 2>retire-without-provenance.log; then
     echo "retirement removed a declaration without durable provenance" >&2
     exit 1
   fi
@@ -175,7 +182,7 @@ pkgs.runCommand "chuggy-build-platform" {
   jq -nS --arg digest "$mismatched_renderer_digest" --slurpfile result mismatched-renderer-payload \
     '{provenanceRecordDigest:$digest,result:$result[0]}' > "$retry_record"
   sha256sum "$retry_record" | awk '{print "sha256:" $1}' > "$retry_record.sha256"
-  if "$root/scripts/retire-build-request" retirement-repository/request.yaml --results-path "$RESULTS_PATH" 2>renderer-mismatch.log; then
+  if "$scripts/retire-build-request" retirement-repository/request.yaml --results-path "$RESULTS_PATH" 2>renderer-mismatch.log; then
     echo "retirement accepted mismatched renderer provenance" >&2
     exit 1
   fi
@@ -190,7 +197,7 @@ pkgs.runCommand "chuggy-build-platform" {
   jq -nS --arg digest "$mismatched_digest" --slurpfile result mismatched-payload \
     '{provenanceRecordDigest:$digest,result:$result[0]}' > "$retry_record"
   sha256sum "$retry_record" | awk '{print "sha256:" $1}' > "$retry_record.sha256"
-  if "$root/scripts/retire-build-request" retirement-repository/request.yaml --results-path "$RESULTS_PATH" 2>identity-mismatch.log; then
+  if "$scripts/retire-build-request" retirement-repository/request.yaml --results-path "$RESULTS_PATH" 2>identity-mismatch.log; then
     echo "retirement accepted mismatched repository provenance" >&2
     exit 1
   fi
@@ -199,7 +206,7 @@ pkgs.runCommand "chuggy-build-platform" {
   jq -nS --arg digest "$retry_digest" --slurpfile result retry-payload \
     '{provenanceRecordDigest:$digest,result:$result[0]}' > "$retry_record"
   sha256sum "$retry_record" | awk '{print "sha256:" $1}' > "$retry_record.sha256"
-  "$root/scripts/retire-build-request" retirement-repository/request.yaml --results-path "$RESULTS_PATH" >retire.log
+  "$scripts/retire-build-request" retirement-repository/request.yaml --results-path "$RESULTS_PATH" >retire.log
   test ! -e retirement-repository/request.yaml
   git -C retirement-repository diff --cached --diff-filter=D --name-only | grep -Fx request.yaml >/dev/null
 
@@ -207,7 +214,7 @@ pkgs.runCommand "chuggy-build-platform" {
   cp "$record.sha256" pristine-checksum
   rm "$record.sha256"
   : > "$PATCH_LOG"
-  "$root/scripts/record-build-provenance" 2>missing-checksum.log
+  "$scripts/record-build-provenance" 2>missing-checksum.log
   test ! -s "$PATCH_LOG"
   grep -F 'incomplete durable record' missing-checksum.log >/dev/null
 
@@ -217,7 +224,7 @@ pkgs.runCommand "chuggy-build-platform" {
   mv tampered "$record"
   sha256sum "$record" | awk '{print "sha256:" $1}' > "$record.sha256"
   : > "$PATCH_LOG"
-  "$root/scripts/record-build-provenance" 2>semantic-mismatch.log
+  "$scripts/record-build-provenance" 2>semantic-mismatch.log
   test ! -s "$PATCH_LOG"
   grep -F 'does not match terminal BuildRun' semantic-mismatch.log >/dev/null
 
@@ -226,7 +233,7 @@ pkgs.runCommand "chuggy-build-platform" {
   export RESULTS_PATH="$PWD/invalid-results"
   export BUILD_RUN_FIXTURE="$PWD/invalid-request.json"
   : > "$PATCH_LOG"
-  "$root/scripts/record-build-provenance" 2>invalid-request.log
+  "$scripts/record-build-provenance" 2>invalid-request.log
   test ! -s "$PATCH_LOG"
   grep -F 'invalid request digest' invalid-request.log >/dev/null
   test ! -e "$PWD/escape"
@@ -237,7 +244,7 @@ pkgs.runCommand "chuggy-build-platform" {
   export BUILD_RUN_FIXTURE="$PWD/missing-repository-id.json"
   export BUILD_RUN_FIXTURE_CONTINUED="$PWD/missing-repository-id.json"
   : > "$PATCH_LOG"
-  "$root/scripts/record-build-provenance" 2>missing-repository-id.log
+  "$scripts/record-build-provenance" 2>missing-repository-id.log
   test ! -s "$PATCH_LOG"
   grep -F 'invalid source repository id' missing-repository-id.log >/dev/null
 
@@ -247,7 +254,7 @@ pkgs.runCommand "chuggy-build-platform" {
   export BUILD_RUN_FIXTURE="$PWD/overlength-repository-id.json"
   export BUILD_RUN_FIXTURE_CONTINUED="$PWD/overlength-repository-id.json"
   : > "$PATCH_LOG"
-  "$root/scripts/record-build-provenance" 2>overlength-repository-id.log
+  "$scripts/record-build-provenance" 2>overlength-repository-id.log
   test ! -s "$PATCH_LOG"
   grep -F 'invalid source repository id' overlength-repository-id.log >/dev/null
 
@@ -255,20 +262,20 @@ pkgs.runCommand "chuggy-build-platform" {
   export BUILD_RUN_FIXTURE="$root/tests/fixtures/build-request/buildruns.json"
   export BUILD_RUN_FIXTURE_CONTINUED="$root/tests/fixtures/build-request/buildruns.json"
   : > "$PATCH_LOG"
-  "$root/scripts/record-build-provenance"
+  "$scripts/record-build-provenance"
   jq '.items[0].metadata.annotations["fabric.chuggy.dev/source-repository-id"] = "other-service"' \
     "$root/tests/fixtures/build-request/buildruns.json" > mismatched-repository-id.json
   export BUILD_RUN_FIXTURE="$PWD/mismatched-repository-id.json"
   export BUILD_RUN_FIXTURE_CONTINUED="$PWD/mismatched-repository-id.json"
   : > "$PATCH_LOG"
-  "$root/scripts/record-build-provenance" 2>mismatched-repository-id.log
+  "$scripts/record-build-provenance" 2>mismatched-repository-id.log
   test ! -s "$PATCH_LOG"
   grep -F 'does not match terminal BuildRun' mismatched-repository-id.log >/dev/null
 
   changed_path=$(render changed --cache disabled)
   test "$first_path" != "$changed_path"
   test ! -e "first/$changed_path"
-  if "$root/scripts/render-build-request" \
+  if "$scripts/render-build-request" \
     --repository-id example-service \
     --source-url ssh://git.example.invalid/repository.git \
     --source-commit main \
@@ -279,7 +286,7 @@ pkgs.runCommand "chuggy-build-platform" {
     echo "renderer accepted a moving source revision" >&2
     exit 1
   fi
-  if "$root/scripts/render-build-request" \
+  if "$scripts/render-build-request" \
     --repository-id example-service \
     --source-url ssh://git.example.invalid/repository.git \
     --source-commit 0123456789abcdef0123456789abcdef01234567 \
@@ -290,7 +297,7 @@ pkgs.runCommand "chuggy-build-platform" {
     echo "renderer accepted an endpoint blocked by the network profile" >&2
     exit 1
   fi
-  "$root/scripts/render-build-request" \
+  "$scripts/render-build-request" \
     --repository-id internal-service \
     --source-url http://git.chuggy-git.svc.cluster.local:8080/team/repository.git \
     --source-commit 0123456789abcdef0123456789abcdef01234567 \
@@ -298,7 +305,7 @@ pkgs.runCommand "chuggy-build-platform" {
     --target-image-repository registry.chuggy-registry.svc.cluster.local:5000/team/repository \
     --output-secret registry-push \
     --output-root internal-network >/dev/null
-  if "$root/scripts/render-build-request" \
+  if "$scripts/render-build-request" \
     --repository-id example-service \
     --source-url ssh://git.example.invalid/repository.git \
     --source-commit 0123456789abcdef0123456789abcdef01234567 \
