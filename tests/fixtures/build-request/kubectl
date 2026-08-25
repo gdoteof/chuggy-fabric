@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -eu
+while [[ $1 == --* ]]; do
+  case "$1" in
+    --kubeconfig) shift 2 ;;
+    *) break ;;
+  esac
+done
+case "$1" in
+  get)
+    if [[ $* == *continue=page-2* ]]; then
+      cat "$BUILD_RUN_FIXTURE_CONTINUED"
+    else
+      cat "$BUILD_RUN_FIXTURE"
+    fi
+    ;;
+  patch) printf '%s\n' "$*" >> "$PATCH_LOG" ;;
+  *) exit 64 ;;
+esac

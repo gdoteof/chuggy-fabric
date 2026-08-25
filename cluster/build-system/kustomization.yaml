@@ -1,0 +1,45 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - vendor/tekton-v1.12.0/release.yaml
+  - vendor/shipwright-v0.18.4/release.yaml
+  - webhook-certificate.yaml
+  - platform.yaml
+  - buildkit-rootless-v1.yaml
+patches:
+  - target:
+      group: apiextensions.k8s.io
+      version: v1
+      kind: CustomResourceDefinition
+      name: clusterbuildstrategies.shipwright.io
+    patch: |-
+      - op: add
+        path: /metadata/annotations/cert-manager.io~1inject-ca-from
+        value: shipwright-build/shipwright-build-webhook
+  - target:
+      group: apiextensions.k8s.io
+      version: v1
+      kind: CustomResourceDefinition
+      name: buildstrategies.shipwright.io
+    patch: |-
+      - op: add
+        path: /metadata/annotations/cert-manager.io~1inject-ca-from
+        value: shipwright-build/shipwright-build-webhook
+  - target:
+      group: apiextensions.k8s.io
+      version: v1
+      kind: CustomResourceDefinition
+      name: builds.shipwright.io
+    patch: |-
+      - op: add
+        path: /metadata/annotations/cert-manager.io~1inject-ca-from
+        value: shipwright-build/shipwright-build-webhook
+  - target:
+      group: apiextensions.k8s.io
+      version: v1
+      kind: CustomResourceDefinition
+      name: buildruns.shipwright.io
+    patch: |-
+      - op: add
+        path: /metadata/annotations/cert-manager.io~1inject-ca-from
+        value: shipwright-build/shipwright-build-webhook

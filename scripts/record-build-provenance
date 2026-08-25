@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+set -o errexit -o nounset -o pipefail
+
+: "${RESULTS_PATH:?RESULTS_PATH is required}"
+namespace=${BUILD_NAMESPACE:-chuggy-build}
+batch_size=${BATCH_SIZE:-100}
+kubeconfig=${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}
+kubectl_command=("${KUBECTL:-kubectl}" --kubeconfig "$kubeconfig")
+
+mkdir -p "$RESULTS_PATH"
+continue_token=
+while :; do
+  endpoint="/apis/shipwright.io/v1beta1/namespaces/$namespace/buildruns?labelSelector=fabric.chuggy.dev%2Fprovenance%3Drequired&limit=$batch_size"
+  if [[ -n $continue_token ]]; then
+    encoded_continue=$(jq -rn --arg value "$continue_token" '$value | @uri')
+    endpoint="$endpoint&continue=$encoded_continue"
+  fi
+  page=$("${kubectl_command[@]}" get --raw "$endpoint")
+  while IFS= read -r buildrun; do
+    condition=$(printf '%s' "$buildrun" | jq -c '.status.conditions[]? | select(.type == "Succeeded")' | tail -1)
+    terminal=$(printf '%s' "$condition" | jq -r '.status // empty')
+    case "$terminal" in True|False) ;; *) continue ;; esac
+
+    name=$(printf '%s' "$buildrun" | jq -r '.metadata.name')
+    request=$(printf '%s' "$buildrun" | jq -r '.metadata.annotations["fabric.chuggy.dev/request-digest"]')
+    repository_id=$(printf '%s' "$buildrun" | jq -r '.metadata.annotations["fabric.chuggy.dev/source-repository-id"] // empty')
+    expected=$(printf '%s' "$buildrun" | jq -r '.metadata.annotations["fabric.chuggy.dev/source-commit"]')
+    observed=$(printf '%s' "$buildrun" | jq -r '.status.sources[]? | select(.name == "default") | .git.commitSha' | tail -1)
+    digest=$(printf '%s' "$buildrun" | jq -r '.status.output.digest // empty')
+    if [[ $terminal == True ]]; then
+      [[ $observed == "$expected" ]] || { echo "$name: observed commit mismatch" >&2; continue; }
+      [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "$name: missing output digest" >&2; continue; }
+    fi
+
+    [[ $request =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "$name: invalid request digest" >&2; continue; }
+    [[ $repository_id =~ ^[a-z0-9]([a-z0-9.-]{0,61}[a-z0-9])?$ ]] || { echo "$name: invalid source repository id" >&2; continue; }
+    [[ $name =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]] || { echo "$name: invalid attempt name" >&2; continue; }
+    [[ $expected =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] || { echo "$name: invalid requested commit" >&2; continue; }
+    ordinal=$(printf '%s' "$buildrun" | jq -r '.metadata.annotations["fabric.chuggy.dev/attempt-ordinal"]')
+    [[ $ordinal =~ ^[1-9][0-9]*$ ]] || { echo "$name: invalid attempt ordinal" >&2; continue; }
+    expected_name="build-${request#sha256:}"
+    expected_name="${expected_name:0:46}-a${ordinal}"
+    [[ $name == "$expected_name" ]] || { echo "$name: attempt identity does not match request digest and ordinal" >&2; continue; }
+    [[ -z $digest || $digest =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "$name: invalid output digest" >&2; continue; }
+    target=$(printf '%s' "$buildrun" | jq -r '.metadata.annotations["fabric.chuggy.dev/target-image-repository"] // empty')
+    profile_digest=$(printf '%s' "$buildrun" | jq -r '.metadata.annotations["fabric.chuggy.dev/profile-digest"] // empty')
+    [[ -n $target ]] || { echo "$name: missing target image repository" >&2; continue; }
+    [[ $profile_digest =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "$name: invalid profile digest" >&2; continue; }
+
+    directory="$RESULTS_PATH/$request"
+    record="$directory/$name.json"
+    checksum="$record.sha256"
+    mkdir -p "$directory"
+    work=$(mktemp -d "$directory/.${name}.XXXXXX")
+    printf '%s' "$buildrun" | jq -S '{
+        requestDigest: .metadata.annotations["fabric.chuggy.dev/request-digest"],
+        attempt: {name: .metadata.name, ordinal: (.metadata.annotations["fabric.chuggy.dev/attempt-ordinal"] | tonumber)},
+        source: {repositoryId: .metadata.annotations["fabric.chuggy.dev/source-repository-id"], requestedCommit: .metadata.annotations["fabric.chuggy.dev/source-commit"], observedCommit: ([.status.sources[]? | select(.name == "default") | .git.commitSha] | last // null)},
+        output: {repository: .metadata.annotations["fabric.chuggy.dev/target-image-repository"], digest: (.status.output.digest // null)},
+        terminalCondition: ([.status.conditions[] | select(.type == "Succeeded")] | last),
+        timestamps: {started: .status.startTime, completed: .status.completionTime},
+        controller: .metadata.annotations["fabric.chuggy.dev/shipwright-version"],
+        profile: {name: .metadata.annotations["fabric.chuggy.dev/profile"], digest: .metadata.annotations["fabric.chuggy.dev/profile-digest"]}
+      }' > "$work/payload"
+    provenance_digest=$(sha256sum "$work/payload" | awk '{print "sha256:" $1}')
+    jq -nS --arg digest "$provenance_digest" --slurpfile result "$work/payload" \
+      '{provenanceRecordDigest:$digest,result:$result[0]}' > "$work/record"
+    sha256sum "$work/record" | awk '{print "sha256:" $1}' > "$work/checksum"
+
+    if [[ -e $record || -e $checksum ]]; then
+      [[ -f $record && -f $checksum ]] || { echo "$name: incomplete durable record" >&2; rm -r "$work"; continue; }
+      stored=$(sha256sum "$record" | awk '{print "sha256:" $1}')
+      [[ $stored == "$(<"$checksum")" ]] || { echo "$name: durable record checksum mismatch" >&2; rm -r "$work"; continue; }
+      cmp -s "$record" "$work/record" || { echo "$name: durable record does not match terminal BuildRun" >&2; rm -r "$work"; continue; }
+      [[ "$(<"$checksum")" == "$(<"$work/checksum")" ]] || { echo "$name: durable checksum does not match terminal BuildRun" >&2; rm -r "$work"; continue; }
+    else
+      umask 077
+      mv "$work/record" "$record"
+      mv "$work/checksum" "$checksum"
+    fi
+    rm -r "$work"
+    sync "$record" "$checksum"
+    stored=$(sha256sum "$record" | awk '{print "sha256:" $1}')
+    [[ $stored == "$(<"$checksum")" ]] || { echo "$name: durable record checksum mismatch" >&2; continue; }
+    [[ $(jq -r '.provenanceRecordDigest' "$record") == "$provenance_digest" ]] || { echo "$name: provenance payload digest mismatch" >&2; continue; }
+
+    resource_version=$(printf '%s' "$buildrun" | jq -r '.metadata.resourceVersion')
+    finalizers=$(printf '%s' "$buildrun" | jq -c '[.metadata.finalizers[]? | select(. != "fabric.chuggy.dev/provenance-required")]')
+    patch=$(jq -cn --arg rv "$resource_version" --argjson finalizers "$finalizers" --arg digest "$provenance_digest" \
+      '{metadata:{resourceVersion:$rv,finalizers:$finalizers,labels:{"fabric.chuggy.dev/provenance":"recorded"},annotations:{"fabric.chuggy.dev/provenance-record-digest":$digest}}}')
+    "${kubectl_command[@]}" patch buildrun.shipwright.io "$name" -n "$namespace" --type=merge -p "$patch"
+  done < <(printf '%s' "$page" | jq -c '.items[]')
+  continue_token=$(printf '%s' "$page" | jq -r '.metadata.continue // empty')
+  [[ -n $continue_token ]] || break
+done

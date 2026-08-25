@@ -31,6 +31,7 @@
         ./modules/chuggy-secrets.nix
         ./modules/chuggy-images.nix
         ./modules/chuggy-work.nix
+        ./modules/build-provenance.nix
         ./modules/cloudflare-tunnel.nix
         ./modules/ddns.nix
         ./modules/flux.nix
@@ -73,6 +74,19 @@
           ''
         );
 
+      accepts = name: overrides:
+        let
+          messages = refusalsOf overrides;
+        in
+        pkgs.runCommand "chuggy-accepts-${name}" { } (
+          if messages == [ ]
+          then "touch $out"
+          else ''
+            echo "unexpected refusal: ${lib.escapeShellArg (lib.concatStringsSep " || " messages)}" >&2
+            exit 1
+          ''
+        );
+
       # The same for what hosts/example says rather than refuses. An example has
       # to keep evaluating -- it is the host `nix flake check` builds -- so where
       # a real host would assert, it warns, and these are what hold the warning
@@ -98,6 +112,7 @@
       releaseImages = import ./tests/release-images.nix { inherit pkgs; };
       fluxWiring = host: expectSecretRef:
         import ./tests/flux-wiring.nix { inherit pkgs host expectSecretRef; };
+      buildPlatform = import ./tests/build-platform.nix { inherit pkgs; };
     in
     {
       nixosConfigurations = {
@@ -153,6 +168,17 @@
           refuses "without-registry-path"
             { chuggy.state.registry.path = lib.mkForce null; }
             "chuggy.state.registry.path is unset";
+
+        refuses-without-build-results-path =
+          refuses "without-build-results-path"
+            { chuggy.state.buildResults.path = lib.mkForce null; }
+            "chuggy.state.buildResults.path is unset";
+
+        accepts-without-build-results-when-recorder-disabled =
+          accepts "without-build-results-when-recorder-disabled" {
+            chuggy.buildProvenance.enable = lib.mkForce false;
+            chuggy.state.buildResults.path = lib.mkForce null;
+          };
 
         refuses-without-api-allowed-sources =
           refuses "without-api-allowed-sources"
@@ -217,6 +243,7 @@
             }];
           })
           "fabric-source-auth";
+        build-platform = buildPlatform;
       };
     };
 }

@@ -536,6 +536,84 @@ stable even when another disk backs it. A machine that needs a different path
 needs a cluster overlay that changes the PersistentVolume with the host option;
 changing only the option creates a healthy registry over the wrong directory.
 
+### Immutable image builds
+
+Flux reconciles three independent paths from the host-selected fabric source:
+`cluster/build-prerequisites/` installs pinned certificate management,
+`cluster/build-system/` installs pinned Tekton and Shipwright controllers plus
+the fabric-owned BuildKit strategy, and `builds/` contains immutable requests.
+The dependency chain makes the request CRDs available before Flux applies a
+request. Flux reports `BuildRun` failure through its `Succeeded` condition; it
+does not run BuildKit itself.
+
+Render a request by supplying repository bindings rather than editing a
+project-specific template:
+
+    scripts/render-build-request \
+      --repository-id example-service \
+      --source-url https://git.example.com/team/example-service.git \
+      --source-commit 0123456789abcdef0123456789abcdef01234567 \
+      --source-secret example-source-read \
+      --target-image-repository registry.example.internal/team/example-service \
+      --output-secret example-registry-push
+
+The renderer prints the resulting
+`builds/<repository-id>/<commit>/<request-digest>.yaml` path. The digest covers
+the source binding and full commit, target repository, credential references,
+renderer, profile, platform, cache and Dockerfile. Rendering
+unchanged input is idempotent; changing an input creates another path. The
+initial attempt is `-a1`; later retry automation must add the next
+`-a<ordinal>` beside the unchanged `Build` and never replace an attempt.
+
+Create the two named Secrets in `chuggy-build`. Shipwright mounts the source
+credential only for cloning and the output credential only for pushing; the
+Flux service accounts receive neither. The v1 network profile accepts only
+public HTTPS Git/registry endpoints on port 443, the internal
+`*.chuggy-git.svc` Git service on port 8080, and the internal
+`*.chuggy-registry.svc` registry on port 5000. SSH, arbitrary private services,
+and custom ports are rejected because the matching default-deny NetworkPolicy
+cannot reach them.
+
+Requests are fixed to `linux/amd64` and schedule only where both of these node
+properties exist:
+
+    chuggy.k3s.nodeLabels = [ "chuggy.dev/node-role=builder" ];
+    chuggy.k3s.nodeTaints = [ "chuggy.dev/node-role=builder:NoSchedule" ];
+
+That node is a dedicated security boundary. Rootless BuildKit remains
+daemonless, but rootlesskit requires unconfined seccomp/AppArmor and permits
+privilege escalation for user-namespace setup. Do not put the builder label on
+an ordinary workload node. A dedicated host can import
+`examples/builder-node.nix`; the committed fragment wires both properties.
+
+`tests/integration/build-platform.sh` is the opt-in executable acceptance gate.
+Its topology is an isolated Git branch and worktree watched at `./builds` by a
+dedicated Flux `GitRepository` and `Kustomization`; that Kustomization must carry
+the production BuildRun CEL health expression. The gate commits and pushes the
+rendered request, waits for Flux to report that exact Git revision Ready, then
+checks the materialized BuildRun's source SHA and verifies the pushed digest
+with `crane`. It never applies a Build or BuildRun directly. Set
+`BUILD_TEST_FLUX_WORKTREE`, `BUILD_TEST_FLUX_BRANCH`,
+`BUILD_TEST_TARGET_REPOSITORY`, `BUILD_TEST_SOURCE_SECRET`, and
+`BUILD_TEST_OUTPUT_SECRET`; optionally select the dedicated Kustomization with
+`BUILD_TEST_FLUX_NAMESPACE` and `BUILD_TEST_FLUX_KUSTOMIZATION`.
+
+Every unavailable prerequisite exits 2 and is not a pass, including the lack of
+a schedulable amd64 builder carrying both the builder label and matching
+`NoSchedule` taint. Issue 28 remains open until an operator supplies this
+disposable topology and the gate completes successfully against a real cluster.
+
+Every attempt carries a provenance finalizer. A bounded recorder verifies a
+successful attempt's observed source commit and output digest, writes its
+result under `/var/lib/chuggy/build-results/<request-digest>/`, syncs the record
+and checksum, and only then releases the finalizer. Live TTL cleanup is disabled:
+deleting a `BuildRun` while its declaration remains under `builds/` would make
+Flux recreate the same attempt and execute it again. Cleanup work must persist
+provenance, retire the declaration from the live tree, observe Flux release its
+ownership, and only then delete the resource. The result directory is
+installation state and needs the same backup treatment as the registry and
+journal.
+
 ## Ingress
 
 Public traffic arrives through a **Cloudflare Tunnel**, not a port-forward. The
