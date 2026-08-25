@@ -20,6 +20,8 @@ pkgs.runCommand "chuggy-build-platform" {
   test "$(sha256sum "$root/cluster/build-system/profiles/shipwright-buildkit-rootless-mini-v1.json" | cut -d' ' -f1)" = 60002b363a806d55fea2d487d3d15249a4006369a64eb861ec5116303c290122
   kubectl kustomize "$root/cluster/build-prerequisites" > build-prerequisites.yaml
   kubectl kustomize "$root/cluster/build-system" > build-system.yaml
+  grep -F '    group: cert-manager.io' "$root/cluster/build-system/webhook-certificate.yaml" >/dev/null
+  test "$(grep -c 'apiGroup:' "$root/cluster/build-system/webhook-certificate.yaml" || true)" = 0
   grep -F 'name: buildkit-rootless-v1' build-system.yaml >/dev/null
   grep -F 'moby/buildkit:v0.26.2-rootless@sha256:0ffa2fcf6b8757c47d569b3ef0f03f9d5eb3b9ff5ce68d858f994f89b749da0c' build-system.yaml >/dev/null
   grep -F 'type: Unconfined' build-system.yaml >/dev/null
