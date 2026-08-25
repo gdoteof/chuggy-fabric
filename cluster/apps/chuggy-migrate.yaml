@@ -194,6 +194,8 @@ metadata:
   # The suffix changes whenever the immutable pod template's release transport does.
   name: chuggy-migrate-c80a4e2-registry
   namespace: chuggy
+  annotations:
+    fabric.chuggy.dev/source-commit: c80a4e2
   labels: { app: chuggy-migrate }
 spec:
   # ONE ATTEMPT, because retrying this JOB was never what could survive the race

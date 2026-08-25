@@ -122,6 +122,8 @@ metadata:
   # The namespace is declared in dev2-access.yaml, which owns it.
   name: chuggy-ticket-service
   namespace: chuggy
+  annotations:
+    fabric.chuggy.dev/source-commit: c80a4e2
   labels: { app: chuggy-ticket-service }
 spec:
   replicas: 1

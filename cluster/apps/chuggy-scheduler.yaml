@@ -114,6 +114,8 @@ kind: Deployment
 metadata:
   name: chuggy-scheduler
   namespace: chuggy
+  annotations:
+    fabric.chuggy.dev/source-commit: c80a4e2
   labels: { app: chuggy-scheduler }
 spec:
   replicas: 1

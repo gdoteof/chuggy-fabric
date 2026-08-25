@@ -137,6 +137,8 @@ kind: Deployment
 metadata:
   name: chuggy-finalizer
   namespace: chuggy
+  annotations:
+    fabric.chuggy.dev/source-commit: c80a4e2
   labels: { app: chuggy-finalizer }
 spec:
   replicas: 1
