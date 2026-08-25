@@ -116,6 +116,7 @@
       buildPlatform = import ./tests/build-platform.nix { inherit pkgs; };
       imagePromotion = import ./tests/image-promotion.nix { inherit pkgs; };
       configurationImporter = import ./tests/configuration-importer.nix { inherit pkgs; };
+      developmentWorker = import ./tests/development-worker.nix { inherit pkgs; };
     in
     {
       nixosConfigurations = {
@@ -152,6 +153,7 @@
         gtr = self.nixosConfigurations.gtr.config.system.build.toplevel;
         example = self.nixosConfigurations.example.config.system.build.toplevel;
         mini-example = self.nixosConfigurations.mini-example.config.system.build.toplevel;
+        development-worker = developmentWorker;
 
         # D30 and D14 in a form a check can hold: an enabled host that has not
         # said what a task may cost, or who may reach its API, is refused rather
