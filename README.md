@@ -1223,25 +1223,56 @@ in front of the one thing that has to work before anything else does.
 ### Before any of it runs
 
 Six things, none of which a manifest can do, and each argued in the file that
-needs it. **Steps 1, 2 and 4 are ordered — 1 before 2, and 4 in the same breath
-as 1 — and the order is not enforceable from here**: Flux applies
+needs it. **Steps 1, 2 and 4 are ordered — 1 and 4 must both finish before 2 —
+and the order is not enforceable from here**: Flux applies
 `cluster/apps/` as one set on the reconcile after the merge, so anything a human
 must do to the database or the image store has to be done *before* that merge,
 not after it.
 
-1. **Re-run `postgres-roles.sql`** against `chuggy`, from a chuggy
-   checkout carrying **both** of the grants below — not merely from
-   [kasofsk/chuggy#242](https://github.com/kasofsk/chuggy/pull/242), because
-   part of that branch has neither. Pre-filter the checkout in hand rather than
-   trusting a commit id:
+1. **Generate and synchronize the importer password, then apply it to the
+   database from exactly Chuggy `e92cce9`.** The order inside this step is
+   load-bearing. First rebuild the host with the Fabric revision that declares
+   `configuration-importer-password`, then require generation and Secret sync
+   to succeed:
 
    ```sh
+   sudo systemctl restart chuggy-secrets-generate
+   sudo systemctl restart chuggy-secrets-sync
+   systemctl is-active chuggy-secrets-sync       # must print active
+   sudo test -s /var/lib/chuggy/secrets/chuggy-postgres-credentials/configuration-importer-password
+   kubectl -n chuggy get secret chuggy-postgres-credentials \
+     -o jsonpath='{.data.configuration-importer-password}' | grep -q .
+   ```
+
+   A generated value in host state does not authenticate until
+   `postgres-roles.sql` applies the same value to its login role. Check out the
+   exact roles contract, not merely a branch that once contained it, and
+   pre-filter the file before executing it:
+
+   ```sh
+   test "$(git rev-parse --short=7 HEAD)" = e92cce9
    sql=$(sed 's/--.*//' deploy/rig/postgres/postgres-roles.sql | tr '\n' ' ')
    # each must print 1
+   printf '%s' "$sql" | grep -oi \
+     'ALTER ROLE chuggy_configuration_importer WITH NOLOGIN[^;]*;' | wc -l
+   printf '%s' "$sql" | grep -oi \
+     'ALTER ROLE chuggy_configuration_importer_login WITH LOGIN INHERIT[^;]*;' | wc -l
    printf '%s' "$sql" | grep -oi \
      'GRANT [^;]*chuggy_selector_review[^;]* TO chuggy_api_login;' | wc -l
    printf '%s' "$sql" | grep -oi \
      'GRANT [^;]*chuggy_boundary_owner[^;]* TO chuggy_owner;' | wc -l
+   printf '%s' "$sql" | grep -oi \
+     'GRANT [^;]*chuggy_configuration_importer[^;]* TO chuggy_configuration_importer_login;' | wc -l
+   grep -q '^\\getenv configuration_importer_password CHUG_PG_CONFIGURATION_IMPORTER_PASSWORD$' \
+     deploy/rig/postgres/postgres-roles.sql
+
+   kubectl -n chuggy port-forward svc/postgres 55440:5432 &
+   forward=$!
+   export PGPASSWORD="$(kubectl -n chuggy get secret postgres-superuser \
+     -o jsonpath='{.data.password}' | base64 -d)"
+   sudo -E chuggy-pg-role-env psql -h 127.0.0.1 -p 55440 -U postgres \
+     -d chuggy -v ON_ERROR_STOP=1 -f deploy/rig/postgres/postgres-roles.sql
+   kill "$forward"
    ```
 
    Comments are stripped and the lines joined first, because a plain line-wise
@@ -1257,7 +1288,8 @@ not after it.
    is all this is: it reads a file, not the server. What settles the question is
    the `pg_auth_members` query below.
 
-   Those two grants are the whole of what this step is still for on this rig.
+   The two existing grants and the importer role binding are what this step is
+   for on this rig.
    `chuggy_selector_review` to `chuggy_api_login` is what lets the API's second
    pool become that role, without which **the API refuses to listen**;
    `chuggy_boundary_owner` to `chuggy_owner` is what makes migration 17's
@@ -1267,8 +1299,8 @@ not after it.
    not there.
 
    **It is not a read-only file, and three of its side effects matter.** It
-   names six of the seven login roles — `chuggy_dispatcher_login` is not in it —
-   and for those six it restates every role attribute and re-issues the password
+   names the eight active login roles and for those eight it restates every
+   role attribute and re-issues the password
    unconditionally, so it must be run with exactly the values in
    `chuggy-postgres-credentials` or step 4 must follow it with the new ones — an
    unset variable *clears* a password rather than leaving it. And it re-grants
@@ -1307,27 +1339,30 @@ not after it.
      psql -U postgres -d chuggy -Atc \
      "SELECT r.rolname, count(am.member) FROM pg_roles r
         LEFT JOIN pg_auth_members am ON am.roleid = r.oid
-       WHERE r.rolname IN ('chuggy_boundary_owner', 'chuggy_selector_review')
+       WHERE r.rolname IN ('chuggy_boundary_owner', 'chuggy_selector_review',
+                           'chuggy_configuration_importer')
        GROUP BY 1 ORDER BY 1;"
    kubectl -n chuggy exec postgres-0 -- \
      psql -U postgres -d chuggy -Atc \
      "SELECT r.rolname, m.rolname FROM pg_auth_members am
         JOIN pg_roles r ON r.oid = am.roleid
         JOIN pg_roles m ON m.oid = am.member
-       WHERE r.rolname IN ('chuggy_boundary_owner', 'chuggy_selector_review');"
+       WHERE r.rolname IN ('chuggy_boundary_owner', 'chuggy_selector_review',
+                           'chuggy_configuration_importer');"
    ```
 
-   The second must list `chuggy_boundary_owner|chuggy_owner` and
-   `chuggy_selector_review|chuggy_api_login`. Both rows are on this rig today.
-   They were not when this step was written, which is the state a fresh database
-   is still in and what the step is for. **The first is what tells those two
+   The second must list `chuggy_boundary_owner|chuggy_owner`,
+   `chuggy_selector_review|chuggy_api_login`, and
+   `chuggy_configuration_importer|chuggy_configuration_importer_login`.
+   A fresh database has none until the roles file runs, which is what this step
+   is for. **The first is what tells those two
    answers apart**, because `-Atc` prints nothing and exits 0 for an empty
    result, so a mistyped role name, the wrong `-d` and "granted nothing" all
-   look identical. It must print two rows; a missing row is a name that is not
+   look identical. It must print three rows; a missing row is a name that is not
    in this database, not a membership that is absent.
 
 2. **Build and publish an image** from that same checkout, verify its digest
-   through CRI, and re-pin the seven control-plane workloads together. The
+   through CRI, and re-pin the eight control-plane workloads together. The
    migration Job's `metadata.name` changes with its immutable pod template.
    A digest the registry does not hold leaves the new pod in
    `ImagePullBackOff`; at one replica the API's rolling update retains the old
@@ -1349,13 +1384,27 @@ not after it.
    tmpfiles rule lands. Do not read the PV going `Bound` as evidence either way:
    the claim names its volume, so binding is two API objects agreeing and never
    touches the node.
-4. **Synchronize `chuggy-postgres-credentials`** with one key per login role.
-   All seven keys and all seven login roles are already there — six `*_login`
-   roles and `chuggy_owner`, which is a login role in its own right. This step
-   exists because step 1 rewrites six of those seven passwords, so it is step
-   1's companion rather than a gap to fill. The seventh,
-   `chuggy_dispatcher_login`, is legacy: nothing in `cluster/apps/` presents it
-   and step 1 does not touch it, so its key stays whatever it is.
+4. **Verify `chuggy-postgres-credentials` and the database agree before the
+   merge.** The generated inventory now has eight keys: owner, API, ticket
+   service, selector, scheduler, finalizer, worker plane, and configuration
+   importer. The database has the corresponding eight active login roles:
+   `chuggy_owner` and seven `*_login` roles. `chuggy_dispatcher_login` is legacy
+   and is not part of this Secret or any workload. Step 1 must have synchronized
+   all eight Secret values and applied those same values through
+   `chuggy-pg-role-env`; a green Secret sync alone proves only host/cluster
+   agreement, not that PostgreSQL accepts the value. Authenticate as every
+   login over the cluster network before merging. In particular, verify
+   `chuggy_configuration_importer_login` authenticates with
+   `configuration-importer-password` and that its inherited membership exists:
+
+   ```sh
+   kubectl -n chuggy exec postgres-0 -- psql -U postgres -d chuggy -Atc \
+     "SELECT pg_has_role('chuggy_configuration_importer_login',
+                         'chuggy_configuration_importer', 'MEMBER');"
+   ```
+
+   It must print `t`. The importer connects as the login role; it does not use
+   `SET ROLE`, so this inherited membership is the capability boundary.
 5. **Create `chuggy-selector` and `chuggy-finalizer-credentials`** by hand — the
    selector's two bearer tokens and the finalizer's git credential. Values never
    go in this repository; it is public. A pod whose Secret is missing is never

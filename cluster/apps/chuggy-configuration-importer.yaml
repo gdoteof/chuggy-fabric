@@ -97,7 +97,7 @@ spec:
                       name: chuggy-postgres-credentials
                       key: configuration-importer-password
                 - name: CHUG_CONFIGURATION_IMPORT_DATABASE_URL
-                  value: postgres://chuggy_configuration_importer_login:$(CHUG_CONFIGURATION_IMPORTER_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy?options=-c%20role%3Dchuggy_configuration_importer
+                  value: postgres://chuggy_configuration_importer_login:$(CHUG_CONFIGURATION_IMPORTER_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy
                 - name: CHUG_CONFIGURATION_IMPORT_REPOSITORY
                   value: http://git.chuggy-git.svc.cluster.local./chuggy.git
               volumeMounts:
