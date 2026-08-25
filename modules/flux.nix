@@ -143,10 +143,10 @@ let
         - apiVersion: shipwright.io/v1beta1
           kind: BuildRun
           inProgress: >-
-            !has(status) || !has(status.conditions) ||
+            !has(status.conditions) ||
             status.conditions.filter(e, e.type == 'Succeeded').all(e, e.status == 'Unknown')
           failed: >-
-            has(status) && has(status.conditions) &&
+            has(status.conditions) &&
             (status.conditions.filter(e, e.type == 'Succeeded').exists(e, e.status == 'False') ||
             (status.conditions.filter(e, e.type == 'Succeeded').exists(e, e.status == 'True') &&
             (!has(status.sources) ||
@@ -155,7 +155,7 @@ let
             !has(status.output) || !has(status.output.digest) ||
             !status.output.digest.matches('^sha256:[0-9a-f]{64}$'))))
           current: >-
-            has(status) && has(status.conditions) &&
+            has(status.conditions) &&
             status.conditions.filter(e, e.type == 'Succeeded').exists(e, e.status == 'True') &&
             has(status.sources) &&
             status.sources.exists(s, s.name == 'default' && has(s.git) &&

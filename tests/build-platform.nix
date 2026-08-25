@@ -331,6 +331,11 @@ pkgs.runCommand "chuggy-build-platform" {
   fi
 
   grep -F 'kind: BuildRun' "$root/modules/flux.nix" >/dev/null
+  if grep -F 'has(status)' "$root/modules/flux.nix" >/dev/null; then
+    echo "Flux CEL cannot use has() for the top-level status property" >&2
+    exit 1
+  fi
+  grep -F 'has(status.conditions)' "$root/modules/flux.nix" >/dev/null
   grep -F "e.status == 'False'" "$root/modules/flux.nix" >/dev/null
   grep -F "e.status == 'True'" "$root/modules/flux.nix" >/dev/null
   grep -F "s.git.commitSha == metadata.annotations" "$root/modules/flux.nix" >/dev/null
