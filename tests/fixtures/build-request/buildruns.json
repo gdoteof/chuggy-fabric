@@ -7,6 +7,7 @@
       "resourceVersion": "17",
       "finalizers": ["fabric.chuggy.dev/provenance-required"],
       "annotations": {
+        "fabric.chuggy.dev/source-repository-id": "example-service",
         "fabric.chuggy.dev/attempt-ordinal": "1",
         "fabric.chuggy.dev/profile": "shipwright-buildkit-rootless/v1",
           "fabric.chuggy.dev/profile-digest": "sha256:935d9e286a60255ae22e5c07447d3d71fd228169cfeb05d97710b0cf894245b4",

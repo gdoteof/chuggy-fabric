@@ -18,6 +18,7 @@ mkdir -p "$RESULTS_PATH"
 
     name=$(printf '%s' "$buildrun" | jq -r '.metadata.name')
     request=$(printf '%s' "$buildrun" | jq -r '.metadata.annotations["fabric.chuggy.dev/request-digest"]')
+    repository_id=$(printf '%s' "$buildrun" | jq -r '.metadata.annotations["fabric.chuggy.dev/source-repository-id"] // empty')
     expected=$(printf '%s' "$buildrun" | jq -r '.metadata.annotations["fabric.chuggy.dev/source-commit"]')
     observed=$(printf '%s' "$buildrun" | jq -r '.status.sources[]? | select(.name == "default") | .git.commitSha' | tail -1)
     digest=$(printf '%s' "$buildrun" | jq -r '.status.output.digest // empty')
@@ -27,6 +28,7 @@ mkdir -p "$RESULTS_PATH"
     fi
 
     [[ $request =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "$name: invalid request digest" >&2; continue; }
+    [[ $repository_id =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]] || { echo "$name: invalid source repository id" >&2; continue; }
     [[ $name =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]] || { echo "$name: invalid attempt name" >&2; continue; }
     [[ $expected =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] || { echo "$name: invalid requested commit" >&2; continue; }
     ordinal=$(printf '%s' "$buildrun" | jq -r '.metadata.annotations["fabric.chuggy.dev/attempt-ordinal"]')
@@ -48,7 +50,7 @@ mkdir -p "$RESULTS_PATH"
     printf '%s' "$buildrun" | jq -S '{
         requestDigest: .metadata.annotations["fabric.chuggy.dev/request-digest"],
         attempt: {name: .metadata.name, ordinal: (.metadata.annotations["fabric.chuggy.dev/attempt-ordinal"] | tonumber)},
-        source: {requestedCommit: .metadata.annotations["fabric.chuggy.dev/source-commit"], observedCommit: ([.status.sources[]? | select(.name == "default") | .git.commitSha] | last // null)},
+        source: {repositoryId: .metadata.annotations["fabric.chuggy.dev/source-repository-id"], requestedCommit: .metadata.annotations["fabric.chuggy.dev/source-commit"], observedCommit: ([.status.sources[]? | select(.name == "default") | .git.commitSha] | last // null)},
         output: {repository: .metadata.annotations["fabric.chuggy.dev/target-image-repository"], digest: (.status.output.digest // null)},
         terminalCondition: ([.status.conditions[] | select(.type == "Succeeded")] | last),
         timestamps: {started: .status.startTime, completed: .status.completionTime},
