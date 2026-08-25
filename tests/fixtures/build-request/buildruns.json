@@ -10,7 +10,7 @@
         "fabric.chuggy.dev/source-repository-id": "example-service",
         "fabric.chuggy.dev/attempt-ordinal": "1",
         "fabric.chuggy.dev/profile": "shipwright-buildkit-rootless/v1",
-          "fabric.chuggy.dev/profile-digest": "sha256:935d9e286a60255ae22e5c07447d3d71fd228169cfeb05d97710b0cf894245b4",
+          "fabric.chuggy.dev/profile-digest": "sha256:e03ae3de7e2703d6b5cd8ed73836079af76377471eb6cb45ab9eaf51bae27acf",
         "fabric.chuggy.dev/request-digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "fabric.chuggy.dev/renderer": "shipwright-build-request/v1",
         "fabric.chuggy.dev/shipwright-version": "v0.18.4",
