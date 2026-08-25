@@ -115,7 +115,7 @@ metadata:
   name: chuggy-scheduler
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: 772d6eb
+    fabric.chuggy.dev/source-commit: 5ac47c8
   labels: { app: chuggy-scheduler }
 spec:
   replicas: 1
@@ -143,7 +143,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: scheduler
-          image: registry.chuggy.internal/chuggy/api@sha256:b6329445a9718ec772cda04dbdc829137de93a2a8e8ec36218481beec7341e3f
+          image: registry.chuggy.internal/chuggy/api@sha256:56151be2cc0a328379df149c8a89117cbcc25b0284b3ae0f5b96fa91819aed45
           imagePullPolicy: IfNotPresent
           command:
             [
@@ -185,6 +185,28 @@ spec:
               value: http://chuggy-worker-plane.chuggy.svc.cluster.local:3001
             - name: CHUG_SCHEDULER_WORKER_CAPABILITY_FILE
               value: /var/run/chuggy/worker-capability/bearer
+            - name: CHUG_SCHEDULER_WORKER_WORKSPACE_PATH
+              value: /workspace
+            - name: CHUG_SCHEDULER_WORKER_CREDENTIAL_MOUNTS
+              value: |
+                {
+                  "chuggy-git-worker": {
+                    "secretName": "chuggy-git-worker",
+                    "key": "password",
+                    "mountPath": "/var/run/chuggy/credentials/chuggy-git-worker"
+                  },
+                  "claude-code": {
+                    "secretName": "claude-code",
+                    "key": "oauth-token",
+                    "mountPath": "/var/run/chuggy/credentials/claude-code"
+                  }
+                }
+            - name: CHUG_SCHEDULER_WORKER_ENVIRONMENT
+              value: |
+                {
+                  "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\"}",
+                  "CHUG_WORKER_WORKSPACE": "/workspace"
+                }
             - name: CHUG_SCHEDULER_WORKER_LABELS
               value: '{"chuggy.dev/worker":"true"}'
             - name: CHUG_SCHEDULER_WORKER_POD_SECURITY
@@ -201,18 +223,9 @@ spec:
             # checks that requirement against, and an image absent from it is
             # `ExecutionPolicyDenied` before a pod is asked for.
             #
-            # `registry.invalid` IS THE DENIAL AND IS MEANT TO BE. This rig runs
-            # no worker, and a list naming the worker image this rig has not
-            # built would admit whatever a configuration later pointed at that
-            # name. A reserved-invalid host cannot be served by any registry and
-            # no authored configuration will name it, so every real requirement
-            # is refused by policy rather than by coincidence. The value is
-            # OUTSIDE the seven `image:` lines carrying the control-plane digest,
-            # so re-pinning those leaves it alone; the slice that builds a
-            # worker replaces it with what it built.
             - name: CHUG_SCHEDULER_ADMITTED_IMAGES
               value: |
-                ["registry.invalid/denied:no-worker-is-built"]
+                ["registry.chuggy.internal/chuggy/worker@sha256:de1409a2a51b82bc18f6517bc62603956ad5698b26e36ed64b7f84c793e62cae"]
             # PR 5's, provisional. D30 says the adopting machine must supply
             # these and that the shared module provides no guessed defaults;
             # these are a guess, and they are here because the command will not
@@ -225,43 +238,28 @@ spec:
                   "memoryRequest": "512Mi",
                   "memoryLimit": "2Gi"
                 }
-            # PR 5's. `{}` is what this said, and the command would not start on
-            # it: `checkedSuppliedExecutionPolicyConfig` refuses a policy that
-            # grants no task kind, so a deployment cannot write "deny
-            # everything" as the empty policy. The pod wrote `execution
-            # scheduler: supplied execution policy grants no task kind` and
-            # exited. What stands instead grants both kinds a profile named
-            # `denied` whose grant is empty.
-            #
-            # THE REFUSAL IS THE IMAGE LIST'S NOW, NOT THIS PROFILE'S. Before
-            # kasofsk/chuggy#250 a placement resolved
-            # `ExecutionProfileUnavailable` because no admitted image was keyed
-            # to a profile named `denied`. Profiles no longer select images, so
-            # what refuses a placement is CHUG_SCHEDULER_ADMITTED_IMAGES above
-            # and the reason is `ExecutionPolicyDenied`. These empty grants are
-            # the second wall rather than the first.
             - name: CHUG_SCHEDULER_EXECUTION_POLICY
               value: |
                 {
                   "Work": {
-                    "profile": "denied",
-                    "runtimeVersion": "denied",
+                    "profile": "chuggy-development",
+                    "runtimeVersion": "claude-code-latest",
                     "grant": {
-                      "tools": [],
-                      "credentials": [],
-                      "network": false,
-                      "filesystem": "None",
+                      "tools": ["claude-code", "shell"],
+                      "credentials": ["chuggy-git-worker", "claude-code"],
+                      "network": true,
+                      "filesystem": "WriteWorkspace",
                       "mayCompleteTask": false
                     }
                   },
                   "Evaluation": {
-                    "profile": "denied",
-                    "runtimeVersion": "denied",
+                    "profile": "chuggy-development",
+                    "runtimeVersion": "claude-code-latest",
                     "grant": {
-                      "tools": [],
-                      "credentials": [],
-                      "network": false,
-                      "filesystem": "None",
+                      "tools": ["claude-code", "shell"],
+                      "credentials": ["chuggy-git-worker", "claude-code"],
+                      "network": true,
+                      "filesystem": "WriteWorkspace",
                       "mayCompleteTask": false
                     }
                   }
