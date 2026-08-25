@@ -141,7 +141,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: scheduler
-          image: registry.chuggy.internal/chuggy/api@sha256:b230434593a7a90a3afd425596a2a67aafa9d552bbd75c0c36c5594b8d19b991
+          image: registry.chuggy.internal/chuggy/api@sha256:61eeb59d18b410cb51b55daeafe852c4ea182168f7813caa95e9e50da7783830
           imagePullPolicy: IfNotPresent
           command:
             [
@@ -183,22 +183,24 @@ spec:
             # `chuggy-work`; naming it here does not.
             - name: CHUG_SCHEDULER_WORKER_SERVICE_ACCOUNT
               value: chuggy-worker
-            # PR 5's, provisional. The tag is deliberately not a commit id:
-            # `images/api/Dockerfile` is the only image kasofsk/chuggy builds,
-            # so no commit names a worker image and a commit id here would
-            # claim one that has never existed. That also puts this string
-            # OUTSIDE the six `image:` lines that carry the control-plane digest
-            # -- re-pinning those six leaves this alone, and PR 5 replaces the
-            # whole value when it builds the thing.
-            - name: CHUG_SCHEDULER_WORKER_IMAGES
+            # Which images this site will run at all. kasofsk/chuggy#250 moved
+            # image selection onto the task's own pinned requirement, so this is
+            # no longer a profile-to-image table: it is the allowlist policy
+            # checks that requirement against, and an image absent from it is
+            # `ExecutionPolicyDenied` before a pod is asked for.
+            #
+            # `registry.invalid` IS THE DENIAL AND IS MEANT TO BE. This rig runs
+            # no worker, and a list naming the worker image this rig has not
+            # built would admit whatever a configuration later pointed at that
+            # name. A reserved-invalid host cannot be served by any registry and
+            # no authored configuration will name it, so every real requirement
+            # is refused by policy rather than by coincidence. The value is
+            # OUTSIDE the six `image:` lines carrying the control-plane digest,
+            # so re-pinning those leaves it alone; the slice that builds a
+            # worker replaces it with what it built.
+            - name: CHUG_SCHEDULER_ADMITTED_IMAGES
               value: |
-                [
-                  {
-                    "profile": "default",
-                    "runtimeVersion": "0",
-                    "image": "registry.chuggy.internal/chuggy/worker:unbuilt"
-                  }
-                ]
+                ["registry.invalid/denied:no-worker-is-built"]
             # PR 5's, provisional. D30 says the adopting machine must supply
             # these and that the shared module provides no guessed defaults;
             # these are a guess, and they are here because the command will not
@@ -217,9 +219,15 @@ spec:
             # everything" as the empty policy. The pod wrote `execution
             # scheduler: supplied execution policy grants no task kind` and
             # exited. What stands instead grants both kinds a profile named
-            # `denied`, which CHUG_SCHEDULER_WORKER_IMAGES above does not admit
-            # -- so a placement resolves `ExecutionProfileUnavailable`, the same
-            # refusal an absent task kind gives, and the grant is empty besides.
+            # `denied` whose grant is empty.
+            #
+            # THE REFUSAL IS THE IMAGE LIST'S NOW, NOT THIS PROFILE'S. Before
+            # kasofsk/chuggy#250 a placement resolved
+            # `ExecutionProfileUnavailable` because no admitted image was keyed
+            # to a profile named `denied`. Profiles no longer select images, so
+            # what refuses a placement is CHUG_SCHEDULER_ADMITTED_IMAGES above
+            # and the reason is `ExecutionPolicyDenied`. These empty grants are
+            # the second wall rather than the first.
             - name: CHUG_SCHEDULER_EXECUTION_POLICY
               value: |
                 {
