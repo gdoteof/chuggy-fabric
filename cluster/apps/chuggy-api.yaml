@@ -59,7 +59,7 @@
 # arrive part-way along the branch, so "from #242" is not the check. The
 # README's prerequisite 1 pre-filters the checkout in hand for both grants and
 # then reads `pg_auth_members` on the server, which is the only thing that
-# settles whether they landed. The shared digest built from `02f2963` carries both.
+# settles whether they landed. The shared digest built from `c80a4e2` carries both.
 #
 # It is on this rig: `pg_auth_members` carries
 # `chuggy_selector_review|chuggy_api_login` and this API is listening. A
@@ -260,7 +260,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: api
-          image: registry.chuggy.internal/chuggy/api@sha256:70c38e2d21ef8a1d695d565adbf769ebafa6f7f87f983b8465b87753ebebd485
+          image: registry.chuggy.internal/chuggy/api@sha256:61eeb59d18b410cb51b55daeafe852c4ea182168f7813caa95e9e50da7783830
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

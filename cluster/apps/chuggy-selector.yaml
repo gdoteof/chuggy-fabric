@@ -140,7 +140,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: selector
-          image: registry.chuggy.internal/chuggy/api@sha256:70c38e2d21ef8a1d695d565adbf769ebafa6f7f87f983b8465b87753ebebd485
+          image: registry.chuggy.internal/chuggy/api@sha256:61eeb59d18b410cb51b55daeafe852c4ea182168f7813caa95e9e50da7783830
           imagePullPolicy: IfNotPresent
           command:
             [
