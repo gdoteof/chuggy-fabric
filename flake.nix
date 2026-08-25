@@ -96,6 +96,8 @@
       firewallRules = host: import ./tests/firewall-rules.nix { inherit pkgs lib host; };
       registryWiring = host: import ./tests/registry-wiring.nix { inherit pkgs host; };
       releaseImages = import ./tests/release-images.nix { inherit pkgs; };
+      fluxWiring = host: expectSecretRef:
+        import ./tests/flux-wiring.nix { inherit pkgs host expectSecretRef; };
     in
     {
       nixosConfigurations = {
@@ -200,6 +202,21 @@
         registry-wiring-gtr = registryWiring self.nixosConfigurations.gtr;
         registry-wiring-example = registryWiring self.nixosConfigurations.example;
         release-images = releaseImages;
+
+        # The bootstrap check proves no in-cluster credential is required before
+        # Kubernetes exists. The cutover check changes URL, branch, and Secret
+        # reference together, which is the two-stage transition in the runbook.
+        flux-wiring-bootstrap = fluxWiring self.nixosConfigurations.gtr null;
+        flux-wiring-private-cutover = fluxWiring
+          (mkNode {
+            hostPath = ./hosts/example;
+            extraModules = [{
+              chuggy.flux.repositoryUrl = lib.mkForce "ssh://git@git.internal/fabric.git";
+              chuggy.flux.secretRef = "fabric-source-auth";
+              chuggy.flux.branch = "mini-release";
+            }];
+          })
+          "fabric-source-auth";
       };
     };
 }
