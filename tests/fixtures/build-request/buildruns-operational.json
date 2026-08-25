@@ -1,6 +1,7 @@
 {
   "apiVersion": "shipwright.io/v1beta1",
   "kind": "BuildRunList",
+  "metadata": {},
   "items": [
     {
       "metadata": {
