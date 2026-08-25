@@ -7,7 +7,7 @@ pkgs.runCommand "chuggy-build-platform" {
   root=${../.}
   test "$(sha256sum "$root/cluster/build-system/vendor/shipwright-v0.18.4/release.yaml" | cut -d' ' -f1)" = 451ad62b1f667103679c6f27c7fcbdf61fadfdd82216e3a90f0d78b0a7f4fe76
   test "$(sha256sum "$root/cluster/build-system/vendor/tekton-v1.12.0/release.yaml" | cut -d' ' -f1)" = e2765b483924b1c4e3ac15810c996e5cb06f3d1aa10bee4ce0113c8b5b0a078a
-  test "$(sha256sum "$root/cluster/build-prerequisites/vendor/cert-manager-v1.18.2/release.yaml" | cut -d' ' -f1)" = 76829ab6c9750e2e7949a1cdcacf76b77eb8c2234338845ecf5131939cb154b6
+  test "$(sha256sum "$root/cluster/build-prerequisites/vendor/cert-manager-v1.18.2/release.yaml" | cut -d' ' -f1)" = e200b8fa1de6999989486fdce2c53f5d215916cc54e64ac6db109e64b88dcea7
   test "$(sha256sum "$root/cluster/build-system/buildkit-rootless-v1.yaml" | cut -d' ' -f1)" = 8422c2c6d5109779ec1ccb5d5c678213ef60dae4aff9922e17f1ee212ec39693
   test "$(sha256sum "$root/cluster/build-system/profiles/shipwright-buildkit-rootless-v1.json" | cut -d' ' -f1)" = 935d9e286a60255ae22e5c07447d3d71fd228169cfeb05d97710b0cf894245b4
   kubectl kustomize "$root/cluster/build-prerequisites" > build-prerequisites.yaml
@@ -20,6 +20,10 @@ pkgs.runCommand "chuggy-build-platform" {
   grep -F 'chuggy.dev/node-role=builder' "$root/examples/builder-node.nix" >/dev/null
   grep -F 'chuggy.dev/node-role=builder:NoSchedule' "$root/examples/builder-node.nix" >/dev/null
   bash -n "$root/tests/integration/build-platform.sh"
+  grep -F 'git -C "$BUILD_TEST_FLUX_WORKTREE" push' "$root/tests/integration/build-platform.sh" >/dev/null
+  grep -F '.status.lastAppliedRevision' "$root/tests/integration/build-platform.sh" >/dev/null
+  grep -F 'NoSchedule' "$root/tests/integration/build-platform.sh" >/dev/null
+  test "$(grep -c 'kubectl apply' "$root/tests/integration/build-platform.sh" || true)" = 0
 
   mkdir first second changed
   render() {

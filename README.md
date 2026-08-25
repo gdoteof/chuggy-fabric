@@ -587,12 +587,21 @@ an ordinary workload node. A dedicated host can import
 `examples/builder-node.nix`; the committed fragment wires both properties.
 
 `tests/integration/build-platform.sh` is the opt-in executable acceptance gate.
-Against a disposable configured cluster it builds the fixture repository at
-the committed full SHA, waits for Shipwright success, compares the observed
-source SHA, and verifies the pushed tag's digest with `crane`. It exits 2 when
-its cluster, builder node, credentials, `kubectl`, or `crane` prerequisites are
-unavailable; that is not a pass. Set `BUILD_TEST_TARGET_REPOSITORY`,
-`BUILD_TEST_SOURCE_SECRET`, and `BUILD_TEST_OUTPUT_SECRET` before running it.
+Its topology is an isolated Git branch and worktree watched at `./builds` by a
+dedicated Flux `GitRepository` and `Kustomization`; that Kustomization must carry
+the production BuildRun CEL health expression. The gate commits and pushes the
+rendered request, waits for Flux to report that exact Git revision Ready, then
+checks the materialized BuildRun's source SHA and verifies the pushed digest
+with `crane`. It never applies a Build or BuildRun directly. Set
+`BUILD_TEST_FLUX_WORKTREE`, `BUILD_TEST_FLUX_BRANCH`,
+`BUILD_TEST_TARGET_REPOSITORY`, `BUILD_TEST_SOURCE_SECRET`, and
+`BUILD_TEST_OUTPUT_SECRET`; optionally select the dedicated Kustomization with
+`BUILD_TEST_FLUX_NAMESPACE` and `BUILD_TEST_FLUX_KUSTOMIZATION`.
+
+Every unavailable prerequisite exits 2 and is not a pass, including the lack of
+a schedulable amd64 builder carrying both the builder label and matching
+`NoSchedule` taint. Issue 28 remains open until an operator supplies this
+disposable topology and the gate completes successfully against a real cluster.
 
 Every attempt carries a provenance finalizer. A bounded recorder verifies a
 successful attempt's observed source commit and output digest, writes its
