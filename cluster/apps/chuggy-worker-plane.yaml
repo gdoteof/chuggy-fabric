@@ -24,7 +24,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: worker-plane
-          image: registry.chuggy.internal/chuggy/api@sha256:5863064ea65d525be1da623f77a3aaf5ee7fb87c0db84e1bd20da0ec19b1185f
+          image: registry.chuggy.internal/chuggy/api@sha256:1e3fee35facef025f44a39cdd7090596d3229c717642bd193f48729fa7810c06
           imagePullPolicy: IfNotPresent
           command: [node, --experimental-strip-types, src/roots/workerPlane.ts]
           env:
