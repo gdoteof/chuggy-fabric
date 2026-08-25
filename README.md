@@ -671,6 +671,11 @@ are proven. A build result alone never changes an environment, and accepting
 the Git change means only that Flux may attempt the rollout; it is not evidence
 of deployment success.
 
+Failed and stalled attempts are reported by the host timer, and retry and
+retirement preserve the immutable request and durable provenance. The
+[build operations runbook](docs/build-operations-runbook.md) gives the ordered
+commands, retention boundary, and failure ownership.
+
 ## Ingress
 
 Public traffic arrives through a **Cloudflare Tunnel**, not a port-forward. The

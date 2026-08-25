@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+import argparse
+import subprocess
+from pathlib import Path
+from build_provenance import manifest_identities, verify
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("manifest", type=Path)
+    parser.add_argument("--results-path", required=True, type=Path)
+    arguments = parser.parse_args()
+    content = arguments.manifest.read_text()
+    _, identities = manifest_identities(content)
+    verify(arguments.results_path, identities)
+    subprocess.run(["git", "rm", "--", arguments.manifest.name], cwd=arguments.manifest.parent, check=True)
+    print(f'retired {identities["request"]}; commit and push, then verify Flux pruning')
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+import argparse
+from pathlib import Path
+from build_provenance import manifest_identities, verify
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("manifest", type=Path)
+    parser.add_argument("--results-path", required=True, type=Path)
+    arguments = parser.parse_args()
+    content = arguments.manifest.read_text()
+    documents, identities = manifest_identities(content)
+    attempt = documents[1]
+    result = verify(arguments.results_path, identities)
+    if result["terminalCondition"]["status"] != "False":
+        raise SystemExit("only a failed terminal attempt can be retried")
+
+    next_ordinal = identities["ordinal"] + 1
+    next_name = f'{identities["attempt"].rsplit("-a", 1)[0]}-a{next_ordinal}'
+    next_attempt = attempt.replace(f'  name: {identities["attempt"]}\n', f"  name: {next_name}\n", 1)
+    next_attempt = next_attempt.replace(
+        f'    fabric.chuggy.dev/attempt-ordinal: "{identities["ordinal"]}"\n',
+        f'    fabric.chuggy.dev/attempt-ordinal: "{next_ordinal}"\n',
+        1,
+    )
+    arguments.manifest.write_text(f"{documents[0]}---\n{next_attempt}")
+    print(next_name)
+
+
+if __name__ == "__main__":
+    main()

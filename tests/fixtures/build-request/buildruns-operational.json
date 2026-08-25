@@ -1,0 +1,35 @@
+{
+  "apiVersion": "shipwright.io/v1beta1",
+  "kind": "BuildRunList",
+  "metadata": {},
+  "items": [
+    {
+      "metadata": {
+        "name": "build-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-a1",
+        "creationTimestamp": "2026-08-24T18:00:00Z",
+        "annotations": {
+          "fabric.chuggy.dev/attempt-ordinal": "1",
+          "fabric.chuggy.dev/request-digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "status": {
+        "startTime": "2026-08-24T18:00:00Z",
+        "conditions": [{"type": "Succeeded", "status": "False", "reason": "BuildRunTimeout", "message": "build exceeded its deadline"}]
+      }
+    },
+    {
+      "metadata": {
+        "name": "build-dddddddddddddddddddddddddddddddddddddddd-a3",
+        "creationTimestamp": "2026-08-24T18:30:00Z",
+        "annotations": {
+          "fabric.chuggy.dev/attempt-ordinal": "3",
+          "fabric.chuggy.dev/request-digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "status": {
+        "startTime": "2026-08-24T18:30:00Z",
+        "conditions": [{"type": "Succeeded", "status": "Unknown", "reason": "Running"}]
+      }
+    }
+  ]
+}

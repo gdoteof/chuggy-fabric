@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -o errexit -o nounset -o pipefail
+
+namespace=${BUILD_NAMESPACE:-chuggy-build}
+batch_size=${BATCH_SIZE:-100}
+stalled_after_seconds=${STALLED_AFTER_SECONDS:-4500}
+now_epoch=${NOW_EPOCH:-$(date +%s)}
+kubeconfig=${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}
+kubectl_command=("${KUBECTL:-kubectl}" --kubeconfig "$kubeconfig")
+findings=0
+
+continue_token=
+while :; do
+  endpoint="/apis/shipwright.io/v1beta1/namespaces/$namespace/buildruns?labelSelector=fabric.chuggy.dev%2Fprovenance&limit=$batch_size"
+  if [[ -n $continue_token ]]; then
+    encoded_continue=$(jq -rn --arg value "$continue_token" '$value | @uri')
+    endpoint="$endpoint&continue=$encoded_continue"
+  fi
+  page=$("${kubectl_command[@]}" get --raw "$endpoint")
+  while IFS= read -r buildrun; do
+  condition=$(printf '%s' "$buildrun" | jq -c '[.status.conditions[]? | select(.type == "Succeeded")] | last // {}')
+  terminal=$(printf '%s' "$condition" | jq -r '.status // empty')
+  [[ $terminal == True ]] && continue
+
+  name=$(printf '%s' "$buildrun" | jq -r '.metadata.name')
+  request=$(printf '%s' "$buildrun" | jq -r '.metadata.annotations["fabric.chuggy.dev/request-digest"] // "unknown"')
+  ordinal=$(printf '%s' "$buildrun" | jq -r '.metadata.annotations["fabric.chuggy.dev/attempt-ordinal"] // "unknown"')
+  if [[ $terminal == False ]]; then
+    printf '%s' "$condition" | jq -c --arg attempt "$name" --arg request "$request" --arg ordinal "$ordinal" \
+      '{alert:"BuildAttemptFailed",owner:"build-controller/operator",requestDigest:$request,attempt:$attempt,attemptOrdinal:$ordinal,reason:(.reason // "Unknown"),message:(.message // "Shipwright reported failure")}' >&2
+    findings=1
+    continue
+  fi
+
+  started=$(printf '%s' "$buildrun" | jq -r '.status.startTime // .metadata.creationTimestamp // empty')
+  [[ -n $started ]] || continue
+  started_epoch=$(date -d "$started" +%s)
+  age_seconds=$((now_epoch - started_epoch))
+  if (( age_seconds >= stalled_after_seconds )); then
+    jq -cn --arg attempt "$name" --arg request "$request" --arg ordinal "$ordinal" \
+      --argjson ageSeconds "$age_seconds" \
+      '{alert:"BuildAttemptStalled",owner:"build-controller/operator",requestDigest:$request,attempt:$attempt,attemptOrdinal:$ordinal,ageSeconds:$ageSeconds}' >&2
+    findings=1
+  fi
+  done < <(printf '%s' "$page" | jq -c '.items[]')
+  continue_token=$(printf '%s' "$page" | jq -r '.metadata.continue // empty')
+  [[ -n $continue_token ]] || break
+done
+
+exit "$findings"

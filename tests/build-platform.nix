@@ -1,7 +1,7 @@
 { pkgs }:
 
 pkgs.runCommand "chuggy-build-platform" {
-  nativeBuildInputs = [ pkgs.kubectl pkgs.python3 pkgs.gawk pkgs.gnugrep pkgs.jq pkgs.coreutils ];
+  nativeBuildInputs = [ pkgs.kubectl pkgs.python3 pkgs.gawk pkgs.gnugrep pkgs.jq pkgs.coreutils pkgs.git ];
 } ''
   set -eu
   root=${../.}
@@ -64,12 +64,144 @@ pkgs.runCommand "chuggy-build-platform" {
   test "$(jq -r '.provenanceRecordDigest' "$record")" = "$(jq -S '.result' "$record" | sha256sum | awk '{print "sha256:" $1}')"
   grep -F 'fabric.chuggy.dev/provenance-record-digest' "$PATCH_LOG" >/dev/null
   test "$(jq -r '.result.source.repositoryId' "$record")" = example-service
+  test "$(jq -r '.result.renderer' "$record")" = shipwright-build-request/v1
+  test "$(jq -r '.result.controller' "$record")" = v0.18.4
   grep -F '"finalizers":[]' "$PATCH_LOG" >/dev/null
 
   export BUILD_RUN_FIXTURE="$root/tests/fixtures/build-request/buildruns-page-1.json"
   : > "$PATCH_LOG"
   "$root/scripts/record-build-provenance"
   grep -F 'build-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-a1' "$PATCH_LOG" >/dev/null
+
+  export BUILD_RUN_FIXTURE="$root/tests/fixtures/build-request/buildruns-page-1.json"
+  export BUILD_RUN_FIXTURE_CONTINUED="$root/tests/fixtures/build-request/buildruns-operational.json"
+  export NOW_EPOCH=1787605200
+  if "$root/scripts/check-build-attempts" 2>attempt-alerts.log; then
+    echo "failed and stalled fixture produced no actionable signal" >&2
+    exit 1
+  fi
+  grep -F '"alert":"BuildAttemptFailed"' attempt-alerts.log >/dev/null
+  grep -F '"attempt":"build-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-a1"' attempt-alerts.log >/dev/null
+  grep -F '"alert":"BuildAttemptStalled"' attempt-alerts.log >/dev/null
+  grep -F '"attempt":"build-dddddddddddddddddddddddddddddddddddddddd-a3"' attempt-alerts.log >/dev/null
+
+  export BUILD_RUN_FIXTURE="$root/tests/fixtures/build-request/buildruns.json"
+  retry_manifest="first/$first_path"
+  retry_request=$(awk '/fabric.chuggy.dev\/request-digest:/{print $2; exit}' "$retry_manifest")
+  retry_attempt=$(awk '/^kind: BuildRun$/{run=1} run && /^  name:/{print $2; exit}' "$retry_manifest")
+  retry_directory="$RESULTS_PATH/$retry_request"
+  retry_record="$retry_directory/$retry_attempt.json"
+  mkdir -p "$retry_directory"
+  jq -S --arg request "$retry_request" --arg attempt "$retry_attempt" '.result |
+    .requestDigest = $request |
+    .attempt.name = $attempt |
+    .terminalCondition.status = "False" |
+    .terminalCondition.reason = "Failed"
+  ' "$record" > retry-payload
+  retry_digest=$(sha256sum retry-payload | awk '{print "sha256:" $1}')
+  jq -nS --arg digest "sha256:fabricated" --slurpfile result retry-payload \
+    '{provenanceRecordDigest:$digest,result:$result[0]}' > "$retry_record"
+  sha256sum "$retry_record" | awk '{print "sha256:" $1}' > "$retry_record.sha256"
+  cp "$retry_manifest" retry-pristine.yaml
+  if "$root/scripts/retry-build-request" "$retry_manifest" --results-path "$RESULTS_PATH" 2>fabricated-digest.log; then
+    echo "retry accepted a fabricated canonical provenance digest" >&2
+    exit 1
+  fi
+  cmp retry-pristine.yaml "$retry_manifest"
+  grep -F 'canonical provenance digest failed' fabricated-digest.log >/dev/null
+
+  jq -nS --arg digest "$retry_digest" --slurpfile result retry-payload \
+    '{provenanceRecordDigest:$digest,result:$result[0]}' > "$retry_record"
+  sha256sum "$retry_record" | awk '{print "sha256:" $1}' > "$retry_record.sha256"
+  cp "$retry_record" verified-record
+  printf ' ' >> "$retry_record"
+  if "$root/scripts/retry-build-request" "$retry_manifest" --results-path "$RESULTS_PATH" 2>outer-checksum.log; then
+    echo "retry accepted a record whose outer checksum failed" >&2
+    exit 1
+  fi
+  cmp retry-pristine.yaml "$retry_manifest"
+  grep -F 'durable provenance checksum failed' outer-checksum.log >/dev/null
+  cp verified-record "$retry_record"
+
+  jq -S '.result | .controller = "v0.18.3"' "$retry_record" > mismatched-controller-payload
+  mismatched_controller_digest=$(sha256sum mismatched-controller-payload | awk '{print "sha256:" $1}')
+  jq -nS --arg digest "$mismatched_controller_digest" --slurpfile result mismatched-controller-payload \
+    '{provenanceRecordDigest:$digest,result:$result[0]}' > "$retry_record"
+  sha256sum "$retry_record" | awk '{print "sha256:" $1}' > "$retry_record.sha256"
+  if "$root/scripts/retry-build-request" "$retry_manifest" --results-path "$RESULTS_PATH" 2>controller-mismatch.log; then
+    echo "retry accepted mismatched controller provenance" >&2
+    exit 1
+  fi
+  cmp retry-pristine.yaml "$retry_manifest"
+  grep -F 'provenance identities do not match' controller-mismatch.log >/dev/null
+  cp verified-record "$retry_record"
+  sha256sum "$retry_record" | awk '{print "sha256:" $1}' > "$retry_record.sha256"
+
+  cp "$retry_manifest" mismatched-manifest.yaml
+  sed -i 's#image: "registry.example.internal/team/example-service:#image: "registry.example.internal/team/wrong:#' mismatched-manifest.yaml
+  if "$root/scripts/retry-build-request" mismatched-manifest.yaml --results-path "$RESULTS_PATH" 2>manifest-mismatch.log; then
+    echo "retry accepted a Build output that disagreed with its target identity" >&2
+    exit 1
+  fi
+  grep -F 'Build output does not match the request target' manifest-mismatch.log >/dev/null
+
+  "$root/scripts/retry-build-request" "$retry_manifest" --results-path "$RESULTS_PATH" >retry-name
+  test "$(cat retry-name)" = "${retry_attempt%-a1}-a2"
+  grep -F 'kind: Build' "$retry_manifest" >/dev/null
+  grep -F "name: ${retry_attempt%-a1}-a2" "$retry_manifest" >/dev/null
+  grep -F 'fabric.chuggy.dev/attempt-ordinal: "2"' "$retry_manifest" >/dev/null
+  test "$(grep -c 'revision: 0123456789abcdef0123456789abcdef01234567' "$retry_manifest")" = 1
+  if "$root/scripts/retry-build-request" "$retry_manifest" --results-path "$RESULTS_PATH" 2>retry-without-provenance.log; then
+    echo "retry advanced without durable provenance for the live attempt" >&2
+    exit 1
+  fi
+  grep -F 'durable provenance is incomplete' retry-without-provenance.log >/dev/null
+
+  cp "$retry_manifest" retirement.yaml
+  if "$root/scripts/retire-build-request" retirement.yaml --results-path "$RESULTS_PATH" 2>retire-without-provenance.log; then
+    echo "retirement removed a declaration without durable provenance" >&2
+    exit 1
+  fi
+  test -f retirement.yaml
+  grep -F 'durable provenance is incomplete' retire-without-provenance.log >/dev/null
+
+  cp "second/$second_path" retirement.yaml
+  git init -q retirement-repository
+  cp retirement.yaml retirement-repository/request.yaml
+  git -C retirement-repository add request.yaml
+  git -C retirement-repository -c user.name=test -c user.email=test@invalid commit -qm fixture
+  jq -S '.result | .renderer = "shipwright-build-request/v0"' "$retry_record" > mismatched-renderer-payload
+  mismatched_renderer_digest=$(sha256sum mismatched-renderer-payload | awk '{print "sha256:" $1}')
+  jq -nS --arg digest "$mismatched_renderer_digest" --slurpfile result mismatched-renderer-payload \
+    '{provenanceRecordDigest:$digest,result:$result[0]}' > "$retry_record"
+  sha256sum "$retry_record" | awk '{print "sha256:" $1}' > "$retry_record.sha256"
+  if "$root/scripts/retire-build-request" retirement-repository/request.yaml --results-path "$RESULTS_PATH" 2>renderer-mismatch.log; then
+    echo "retirement accepted mismatched renderer provenance" >&2
+    exit 1
+  fi
+  test -f retirement-repository/request.yaml
+  test -z "$(git -C retirement-repository diff --cached --diff-filter=D --name-only)"
+  grep -F 'provenance identities do not match' renderer-mismatch.log >/dev/null
+  cp verified-record "$retry_record"
+  sha256sum "$retry_record" | awk '{print "sha256:" $1}' > "$retry_record.sha256"
+
+  jq -S '.result | .source.repositoryId = "wrong-repository"' "$retry_record" > mismatched-payload
+  mismatched_digest=$(sha256sum mismatched-payload | awk '{print "sha256:" $1}')
+  jq -nS --arg digest "$mismatched_digest" --slurpfile result mismatched-payload \
+    '{provenanceRecordDigest:$digest,result:$result[0]}' > "$retry_record"
+  sha256sum "$retry_record" | awk '{print "sha256:" $1}' > "$retry_record.sha256"
+  if "$root/scripts/retire-build-request" retirement-repository/request.yaml --results-path "$RESULTS_PATH" 2>identity-mismatch.log; then
+    echo "retirement accepted mismatched repository provenance" >&2
+    exit 1
+  fi
+  test -f retirement-repository/request.yaml
+  grep -F 'provenance identities do not match' identity-mismatch.log >/dev/null
+  jq -nS --arg digest "$retry_digest" --slurpfile result retry-payload \
+    '{provenanceRecordDigest:$digest,result:$result[0]}' > "$retry_record"
+  sha256sum "$retry_record" | awk '{print "sha256:" $1}' > "$retry_record.sha256"
+  "$root/scripts/retire-build-request" retirement-repository/request.yaml --results-path "$RESULTS_PATH" >retire.log
+  test ! -e retirement-repository/request.yaml
+  git -C retirement-repository diff --cached --diff-filter=D --name-only | grep -Fx request.yaml >/dev/null
 
   cp "$record" pristine-record
   cp "$record.sha256" pristine-checksum
@@ -186,5 +318,7 @@ pkgs.runCommand "chuggy-build-platform" {
   grep -F "status.output.digest.matches" "$root/modules/flux.nix" >/dev/null
   grep -F 'healthCheckExprs:' "$root/cluster/flux-system/gotk-components.yaml" >/dev/null
   grep -F 'kustomize-controller:v1.5.1@sha256:b89935f9428764c389c5192fdb8f6c53b66e365fa09ac8cec597e82273e9f518' "$root/cluster/flux-system/gotk-components.yaml" >/dev/null
+  grep -F 'chuggy-build-attempt-alerts' "$root/modules/build-provenance.nix" >/dev/null
+  grep -F 'No command in this flow deletes registry content' "$root/docs/build-operations-runbook.md" >/dev/null
   touch "$out"
 ''
