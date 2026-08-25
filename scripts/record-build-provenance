@@ -8,9 +8,14 @@ kubeconfig=${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}
 kubectl_command=("${KUBECTL:-kubectl}" --kubeconfig "$kubeconfig")
 
 mkdir -p "$RESULTS_PATH"
-"${kubectl_command[@]}" get --raw \
-  "/apis/shipwright.io/v1beta1/namespaces/$namespace/buildruns?labelSelector=fabric.chuggy.dev%2Fprovenance%3Drequired&limit=$batch_size" |
-  jq -c '.items[]' |
+continue_token=
+while :; do
+  endpoint="/apis/shipwright.io/v1beta1/namespaces/$namespace/buildruns?labelSelector=fabric.chuggy.dev%2Fprovenance%3Drequired&limit=$batch_size"
+  if [[ -n $continue_token ]]; then
+    encoded_continue=$(jq -rn --arg value "$continue_token" '$value | @uri')
+    endpoint="$endpoint&continue=$encoded_continue"
+  fi
+  page=$("${kubectl_command[@]}" get --raw "$endpoint")
   while IFS= read -r buildrun; do
     condition=$(printf '%s' "$buildrun" | jq -c '.status.conditions[]? | select(.type == "Succeeded")' | tail -1)
     terminal=$(printf '%s' "$condition" | jq -r '.status // empty')
@@ -84,4 +89,7 @@ mkdir -p "$RESULTS_PATH"
     patch=$(jq -cn --arg rv "$resource_version" --argjson finalizers "$finalizers" --arg digest "$provenance_digest" \
       '{metadata:{resourceVersion:$rv,finalizers:$finalizers,labels:{"fabric.chuggy.dev/provenance":"recorded"},annotations:{"fabric.chuggy.dev/provenance-record-digest":$digest}}}')
     "${kubectl_command[@]}" patch buildrun.shipwright.io "$name" -n "$namespace" --type=merge -p "$patch"
-  done
+  done < <(printf '%s' "$page" | jq -c '.items[]')
+  continue_token=$(printf '%s' "$page" | jq -r '.metadata.continue // empty')
+  [[ -n $continue_token ]] || break
+done

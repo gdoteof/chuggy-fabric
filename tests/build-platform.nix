@@ -53,6 +53,7 @@ pkgs.runCommand "chuggy-build-platform" {
   mkdir results
   export RESULTS_PATH="$PWD/results"
   export BUILD_RUN_FIXTURE="$root/tests/fixtures/build-request/buildruns.json"
+  export BUILD_RUN_FIXTURE_CONTINUED="$root/tests/fixtures/build-request/buildruns.json"
   export PATCH_LOG="$PWD/patch.log"
   export KUBECTL="$root/tests/fixtures/build-request/kubectl"
   "$root/scripts/record-build-provenance"
@@ -63,6 +64,11 @@ pkgs.runCommand "chuggy-build-platform" {
   grep -F 'fabric.chuggy.dev/provenance-record-digest' "$PATCH_LOG" >/dev/null
   test "$(jq -r '.result.source.repositoryId' "$record")" = example-service
   grep -F '"finalizers":[]' "$PATCH_LOG" >/dev/null
+
+  export BUILD_RUN_FIXTURE="$root/tests/fixtures/build-request/buildruns-page-1.json"
+  : > "$PATCH_LOG"
+  "$root/scripts/record-build-provenance"
+  grep -F 'build-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-a1' "$PATCH_LOG" >/dev/null
 
   cp "$record" pristine-record
   cp "$record.sha256" pristine-checksum

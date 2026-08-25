@@ -7,7 +7,13 @@ while [[ $1 == --* ]]; do
   esac
 done
 case "$1" in
-  get) cat "$BUILD_RUN_FIXTURE" ;;
+  get)
+    if [[ $* == *continue=page-2* ]]; then
+      cat "$BUILD_RUN_FIXTURE_CONTINUED"
+    else
+      cat "$BUILD_RUN_FIXTURE"
+    fi
+    ;;
   patch) printf '%s\n' "$*" >> "$PATCH_LOG" ;;
   *) exit 64 ;;
 esac
