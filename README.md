@@ -623,17 +623,48 @@ inputs; the renderer assumes no project or environment name:
     scripts/render-image-promotion \
       --build-result /var/lib/chuggy/build-results/<request>/<attempt>.json \
       --repository-id example-service \
+      --repository-url https://git.example.com/platform/environments.git \
       --target-ref refs/heads/staging \
       --environment-path environments/staging/example-service.yaml \
       --resource-name example-service \
       --container-name server \
-      --namespace staging
+      --namespace staging \
+      --act-root /var/lib/chuggy/promotion-acts \
+      --git-command /run/current-system/sw/bin/git \
+      --credential-command /run/credentials/git-askpass \
+      --credential-ref environment-writer \
+      --registry-client /run/current-system/sw/bin/crane \
+      --registry-credential-command /run/credentials/registry-docker-config \
+      --registry-credential-ref registry-reader
 
-The selected repository's kustomization includes that patch. A caller then
-publishes the change by its configured direct-commit or pull-request handoff.
+The selected repository's kustomization includes that patch. The renderer
+creates a private disposable bare repository for each act, fetches the configured
+target ref, constructs a deterministic commit without checking repository
+content out, and conditionally advances that ref. The credential command is an
+explicit askpass port and receives only its configured credential reference;
+every child process receives an allowlisted environment.
+Registry reads use a separate credential port. Its command receives only the
+registry credential reference and emits Docker config JSON; the renderer writes
+that into a mode-`0600` file under another disposable private directory and
+points only the registry client at it. Neither Git nor registry access inherits
+the caller's home directory or ambient secret-bearing environment.
+
+This version accepts Git over public HTTPS on port 443, the existing
+`*.chuggy-git.svc` HTTP profile on port 8080, `file:`, or an absolute local
+path. SSH is refused because the direct-publication contract does not yet
+define forced noninteractive authentication and pinned host-key material.
+Repository URLs may carry neither user information nor query-string credentials.
 The patch records the source commit, build request, attempt, provenance record,
-repository binding, target ref and selected digest. Re-selecting a retained
-older result is the rollback operation and follows the same reviewable path.
+repository binding and selected digest. Re-selecting a retained older result is
+the rollback operation and follows the same reviewable path.
+
+Publication reconciles the target before and after each bounded conditional
+push. The exact candidate or a descendant retaining the same promotion identity
+and selected path is success, including after a successful push response was
+lost. An unchanged base permits another conditional attempt. Any unrelated
+target advance is an operator-visible hold rather than an overwrite. Proposal
+handoffs remain outside this command until a provider-neutral proposal contract
+exists.
 
 The renderer writes nothing until both provenance and registry availability
 are proven. A build result alone never changes an environment, and accepting
