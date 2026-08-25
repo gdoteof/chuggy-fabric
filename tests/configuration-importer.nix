@@ -18,6 +18,7 @@ pkgs.runCommand "chuggy-configuration-importer" {
 
   # The pod has only reader Git material and its own database login.
   grep -F 'secretName: chuggy-git-sync' "$manifest" >/dev/null
+  test "$(grep -Fc 'credentialReference:' "$manifest" || true)" -eq 0
   grep -F 'key: configuration-importer-password' "$manifest" >/dev/null
   grep -F 'postgres://chuggy_configuration_importer_login:$(CHUG_CONFIGURATION_IMPORTER_PASSWORD)' "$manifest" >/dev/null
   test "$(grep -c 'role%3Dchuggy_configuration_importer' "$manifest" || true)" -eq 0
