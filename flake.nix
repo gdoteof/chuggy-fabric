@@ -111,6 +111,7 @@
       registryWiring = host: import ./tests/registry-wiring.nix { inherit pkgs host; };
       releaseImages = import ./tests/release-images.nix { inherit pkgs; };
       buildPlatform = import ./tests/build-platform.nix { inherit pkgs; };
+      imagePromotion = import ./tests/image-promotion.nix { inherit pkgs; };
     in
     {
       nixosConfigurations = {
@@ -227,6 +228,7 @@
         registry-wiring-example = registryWiring self.nixosConfigurations.example;
         release-images = releaseImages;
         build-platform = buildPlatform;
+        image-promotion = imagePromotion;
       };
     };
 }
