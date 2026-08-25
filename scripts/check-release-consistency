@@ -8,6 +8,7 @@ from pathlib import Path
 
 API_MANIFESTS = (
     "chuggy-api.yaml",
+    "chuggy-configuration-importer.yaml",
     "chuggy-finalizer.yaml",
     "chuggy-migrate.yaml",
     "chuggy-scheduler.yaml",
