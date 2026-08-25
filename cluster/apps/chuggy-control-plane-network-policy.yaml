@@ -78,6 +78,7 @@ spec:
           - chuggy-scheduler
           - chuggy-ticket-service
           - chuggy-finalizer
+          - chuggy-configuration-importer
           - chuggy-migrate
   # THE ABSENT `ingress:` KEY IS THE RULE. `ingress: [{}]` admits everything and
   # looks almost identical -- do not "complete" this object.
@@ -409,3 +410,47 @@ spec:
       ports:
         - protocol: TCP
           port: 5432
+---
+# The importer resolves and reads the internal repository, then appends through
+# its own database role. Those are its only two application destinations.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-configuration-importer-egress
+  namespace: chuggy
+spec:
+  podSelector:
+    matchLabels:
+      app: chuggy-configuration-importer
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy-git
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: git
+      ports:
+        - protocol: TCP
+          port: 8080

@@ -142,6 +142,7 @@ let
       "scheduler-password" = "password";
       "finalizer-password" = "password";
       "worker-plane-password" = "password";
+      "configuration-importer-password" = "password";
     };
     # Not a password: the versioned keyset a client idempotency key is HMAC'd
     # under. It is generated with one version because a rig that has never run

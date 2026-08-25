@@ -1,0 +1,134 @@
+# Repository declarations become available without a browser action. This is
+# deliberately separate from the host-local Git mirror writer: the importer
+# can read one repository and write configuration history, but it cannot move
+# a ref in either the internal repository or GitHub.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chuggy-configuration-importer
+  namespace: chuggy
+data:
+  askpass.sh: |
+    #!/bin/sh
+    case "$1" in
+      *Username*) printf '%s\n' chuggy ;;
+      *Password*) cat /var/run/chuggy/repository-credentials/chuggy-git ;;
+      *) exit 1 ;;
+    esac
+  import.sh: |
+    #!/bin/sh
+    set -eu
+
+    repository=http://git.chuggy-git.svc.cluster.local./chuggy.git
+    export GIT_CONFIG_GLOBAL=/dev/null
+    export GIT_CONFIG_NOSYSTEM=1
+    export GIT_TERMINAL_PROMPT=0
+    export GIT_ASKPASS=/opt/chuggy-configuration-importer/askpass.sh
+
+    commit="$(git ls-remote --exit-code "$repository" refs/heads/main | awk 'NR == 1 { print $1 }')"
+    case "$commit" in
+      [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+      *) echo "configuration importer: internal main did not resolve to one full SHA-1" >&2; exit 2 ;;
+    esac
+
+    export CHUG_CONFIGURATION_IMPORT_COMMIT="$commit"
+    CHUG_CONFIGURATION_IMPORT_CONFIG="$(node -e '
+      const repository = process.env.CHUG_CONFIGURATION_IMPORT_REPOSITORY;
+      process.stdout.write(JSON.stringify({
+        database: { url: process.env.CHUG_CONFIGURATION_IMPORT_DATABASE_URL },
+        git: {
+          scratchDirectory: "/var/lib/chuggy/git",
+          credentialSources: [{
+            repository,
+            credentialReference: "chuggy-git",
+            path: "/var/run/chuggy/repository-credentials/chuggy-git",
+          }],
+          credentialUsername: "chuggy",
+          localTimeoutSecsMax: 120,
+          remoteTimeoutSecsMax: 120,
+        },
+        commit: process.env.CHUG_CONFIGURATION_IMPORT_COMMIT,
+        partitions: [{ tenant: "vteng", project: "chuggy" }],
+      }));
+    ')"
+    export CHUG_CONFIGURATION_IMPORT_CONFIG
+    exec node --experimental-strip-types src/roots/configurationImporter.ts
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: chuggy-configuration-importer
+  namespace: chuggy
+  annotations:
+    fabric.chuggy.dev/source-commit: e92cce9
+  labels: { app: chuggy-configuration-importer }
+spec:
+  schedule: "*/2 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 300
+      template:
+        metadata:
+          labels:
+            app: chuggy-configuration-importer
+            chuggy.dev/postgres-client: "true"
+        spec:
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+          containers:
+            - name: importer
+              image: registry.chuggy.internal/chuggy/api@sha256:2488a03a64a6eb75b91bcf665c675e7ae59c50842b78cc0c55dd9e79c4eeac4f
+              imagePullPolicy: IfNotPresent
+              command: [/opt/chuggy-configuration-importer/import.sh]
+              env:
+                - name: CHUG_CONFIGURATION_IMPORTER_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: chuggy-postgres-credentials
+                      key: configuration-importer-password
+                - name: CHUG_CONFIGURATION_IMPORT_DATABASE_URL
+                  value: postgres://chuggy_configuration_importer_login:$(CHUG_CONFIGURATION_IMPORTER_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy
+                - name: CHUG_CONFIGURATION_IMPORT_REPOSITORY
+                  value: http://git.chuggy-git.svc.cluster.local./chuggy.git
+              volumeMounts:
+                - name: scripts
+                  mountPath: /opt/chuggy-configuration-importer
+                  readOnly: true
+                - name: scratch
+                  mountPath: /var/lib/chuggy/git
+                - name: repository-credentials
+                  mountPath: /var/run/chuggy/repository-credentials
+                  readOnly: true
+              resources:
+                requests: { cpu: 25m, memory: 64Mi }
+                limits: { memory: 256Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+                seccompProfile: { type: RuntimeDefault }
+          volumes:
+            - name: scripts
+              configMap:
+                name: chuggy-configuration-importer
+                defaultMode: 0555
+            - name: scratch
+              emptyDir: {}
+            - name: repository-credentials
+              secret:
+                secretName: chuggy-git-sync
+                defaultMode: 0444
+                items:
+                  - key: password
+                    path: chuggy-git
