@@ -52,6 +52,7 @@ pkgs.runCommand "chuggy-build-platform" {
 
   mkdir results
   export RESULTS_PATH="$PWD/results"
+  export BATCH_SIZE=1
   export BUILD_RUN_FIXTURE="$root/tests/fixtures/build-request/buildruns.json"
   export BUILD_RUN_FIXTURE_CONTINUED="$root/tests/fixtures/build-request/buildruns.json"
   export PATCH_LOG="$PWD/patch.log"
