@@ -10,11 +10,11 @@ RENDERER = "shipwright-build-request/v1"
 PROFILES = {
     "dedicated": {
         "name": "shipwright-buildkit-rootless/v1",
-        "digest": "sha256:935d9e286a60255ae22e5c07447d3d71fd228169cfeb05d97710b0cf894245b4",
+        "digest": "sha256:e03ae3de7e2703d6b5cd8ed73836079af76377471eb6cb45ab9eaf51bae27acf",
     },
     "mini": {
         "name": "shipwright-buildkit-rootless-mini/v1",
-        "digest": "sha256:60002b363a806d55fea2d487d3d15249a4006369a64eb861ec5116303c290122",
+        "digest": "sha256:b4d3bb9e36544a6bb1b51bdda3021fd628cb343960d2f0139a3cf1bb5fe5f0c5",
     },
 }
 SHIPWRIGHT_VERSION = "v0.18.4"
