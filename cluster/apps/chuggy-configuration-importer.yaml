@@ -47,7 +47,6 @@ data:
           scratchDirectory: "/var/lib/chuggy/git",
           credentialSources: [{
             repository,
-            credentialReference: "chuggy-git",
             path: "/var/run/chuggy/repository-credentials/chuggy-git",
           }],
           credentialUsername: "chuggy",
