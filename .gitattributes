@@ -1,0 +1,2 @@
+cluster/build-prerequisites/vendor/** -whitespace
+cluster/build-system/vendor/** -whitespace
