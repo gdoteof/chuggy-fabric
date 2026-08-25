@@ -26,6 +26,12 @@ data:
     export GIT_TERMINAL_PROMPT=0
     export GIT_ASKPASS=/opt/chuggy-configuration-importer/askpass.sh
 
+    for i in $(seq 1 15); do
+      timeout 3s git ls-remote --exit-code "$repository" refs/heads/main >/dev/null 2>&1 && break
+      [ "$i" -lt 15 ] || exit 1
+      sleep 2
+    done
+
     commit="$(git ls-remote --exit-code "$repository" refs/heads/main | awk 'NR == 1 { print $1 }')"
     case "$commit" in
       [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
@@ -72,7 +78,7 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 0
-      activeDeadlineSeconds: 300
+      activeDeadlineSeconds: 420
       template:
         metadata:
           labels:
@@ -96,7 +102,7 @@ spec:
                 - sh
                 - -c
                 - |
-                  for i in $(seq 1 30); do
+                  for i in $(seq 1 15); do
                     pg_isready -h postgres.chuggy.svc.cluster.local -U chuggy_configuration_importer_login -t 2 && exit 0
                     sleep 2
                   done
