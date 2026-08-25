@@ -5,6 +5,10 @@
 # modules/.
 
 {
+  # GTR is the reference self-contained installation: control plane, durable
+  # workloads, worker execution, registry, and image builds share this node.
+  chuggy.mini.enable = true;
+
   networking.hostName = "gtr";
 
   # ---------------------------------------------------------------- radios ----
@@ -64,7 +68,6 @@
   # ------------------------------------------------------------------ k3s ----
 
   chuggy.k3s = {
-    enable = true;
     # The mesh address must be on the API certificate before any remote agent
     # dials in, or its TLS verification fails. Cheap to include now; a rebuild
     # and restart to add later.
@@ -89,7 +92,6 @@
   # a registry. All three are host state: each outlives every Kubernetes object
   # that mounts, reads or references it.
   chuggy.state = {
-    enable = true;
     # Under the state root, so one directory is the whole of what this box keeps
     # for chuggy. That root is 0700 root, which does not obstruct the kubelet --
     # it bind-mounts this directory into the pod rather than walking to it --
@@ -99,16 +101,11 @@
     buildResults.path = "/var/lib/chuggy/build-results";
   };
 
-  chuggy.secrets.enable = true;
-  chuggy.images.enable = true;
-  chuggy.buildProvenance.enable = true;
-
   # One task at a time, sized against the box in the header above and against
   # what already runs on it: the control plane, PostgreSQL, Ory and the
   # monitoring stack. These say what a single work pod may take, not what the
   # machine has.
   chuggy.work = {
-    enable = true;
     worker = {
       cpu = "2";
       memory = "4Gi";
@@ -167,7 +164,6 @@
   # source interval. That is the whole reason the branch is stated per host
   # rather than compiled in.
   chuggy.flux = {
-    enable = true;
     repositoryUrl = "https://github.com/gdoteof/chuggy-fabric.git";
     branch = "main";
   };
