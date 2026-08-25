@@ -13,6 +13,7 @@ pkgs.runCommand "chuggy-development-worker" {
   grep -F '"secretName": "chuggy-git-worker"' "$scheduler" >/dev/null
   grep -F '"secretName": "claude-code"' "$scheduler" >/dev/null
   grep -F '"CHUG_WORKER_WORKSPACE": "/workspace"' "$scheduler" >/dev/null
+  grep -F '"ephemeralStorageLimit": "20Gi"' "$scheduler" >/dev/null
   grep -F '"mayCompleteTask": false' "$scheduler" >/dev/null
   grep -F 'kubernetes.io/metadata.name: chuggy-git' "$network" >/dev/null
   grep -F '{ protocol: TCP, port: 443 }' "$network" >/dev/null
