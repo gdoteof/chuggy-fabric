@@ -17,6 +17,7 @@ pkgs.runCommand "chuggy-build-platform" {
   test "$(sha256sum "$root/cluster/build-prerequisites/vendor/cert-manager-v1.18.2/release.yaml" | cut -d' ' -f1)" = e200b8fa1de6999989486fdce2c53f5d215916cc54e64ac6db109e64b88dcea7
   test "$(sha256sum "$root/cluster/build-system/buildkit-rootless-v1.yaml" | cut -d' ' -f1)" = 8422c2c6d5109779ec1ccb5d5c678213ef60dae4aff9922e17f1ee212ec39693
   test "$(sha256sum "$root/cluster/build-system/profiles/shipwright-buildkit-rootless-v1.json" | cut -d' ' -f1)" = 935d9e286a60255ae22e5c07447d3d71fd228169cfeb05d97710b0cf894245b4
+  test "$(sha256sum "$root/cluster/build-system/profiles/shipwright-buildkit-rootless-mini-v1.json" | cut -d' ' -f1)" = 60002b363a806d55fea2d487d3d15249a4006369a64eb861ec5116303c290122
   kubectl kustomize "$root/cluster/build-prerequisites" > build-prerequisites.yaml
   kubectl kustomize "$root/cluster/build-system" > build-system.yaml
   grep -F 'name: buildkit-rootless-v1' build-system.yaml >/dev/null
@@ -26,6 +27,7 @@ pkgs.runCommand "chuggy-build-platform" {
   grep -F 'chuggy.dev/node-role=builder:NoSchedule' "$root/cluster/build-system/profiles/shipwright-buildkit-rootless-v1.json" >/dev/null
   grep -F 'chuggy.dev/node-role=builder' "$root/examples/builder-node.nix" >/dev/null
   grep -F 'chuggy.dev/node-role=builder:NoSchedule' "$root/examples/builder-node.nix" >/dev/null
+  grep -F 'chuggy.mini.enable = true' "$root/examples/mini-chuggy-node.nix" >/dev/null
   bash -n "$root/tests/integration/build-platform.sh"
   grep -F 'git -C "$BUILD_TEST_FLUX_WORKTREE" push' "$root/tests/integration/build-platform.sh" >/dev/null
   grep -F '.status.lastAppliedRevision' "$root/tests/integration/build-platform.sh" >/dev/null
@@ -56,6 +58,14 @@ pkgs.runCommand "chuggy-build-platform" {
   grep -F 'kubernetes.io/arch: amd64' "first/$first_path" >/dev/null
   grep -F 'effect: NoSchedule' "first/$first_path" >/dev/null
   test "$(grep -c 'ttlAfter' "first/$first_path" || true)" = 0
+
+  mkdir mini
+  mini_path=$(render mini --profile mini)
+  grep -F 'fabric.chuggy.dev/profile: shipwright-buildkit-rootless-mini/v1' "mini/$mini_path" >/dev/null
+  grep -F 'fabric.chuggy.dev/profile-digest: sha256:60002b363a806d55fea2d487d3d15249a4006369a64eb861ec5116303c290122' "mini/$mini_path" >/dev/null
+  grep -F 'chuggy.dev/node-role: builder' "mini/$mini_path" >/dev/null
+  test "$(grep -c 'tolerations:' "mini/$mini_path" || true)" = 0
+  test "$mini_path" != "$first_path"
 
   mkdir results
   export RESULTS_PATH="$PWD/results"

@@ -26,6 +26,7 @@ only by their own directory.
     modules/chuggy-secrets.nix      generated credentials, chuggy.secrets.*
     modules/chuggy-images.nix       bootstrap image delivery, chuggy.images.*
     modules/chuggy-work.nix         what one task may cost, chuggy.work.*
+    modules/mini-chuggy.nix         complete co-located single-node role
 
     modules/cloudflare-tunnel.nix   public ingress, with chuggy.tunnel.* options
     modules/ddns.nix                the mesh endpoint's A record, chuggy.ddns.*
@@ -41,6 +42,7 @@ only by their own directory.
     hosts/gtr/default.nix           geoff's Beelink GTR: hostname, radios, mesh, k3s, tunnel
     hosts/gtr/hardware-configuration.nix
     hosts/example/                  a second host that holds nothing of gtr's
+    examples/mini-chuggy-node.nix   opt-in self-contained host role
 
     tests/state-and-secrets.nix     boots the four chuggy-* modules and checks
                                     what they kept and what they synchronised
@@ -580,11 +582,21 @@ properties exist:
     chuggy.k3s.nodeLabels = [ "chuggy.dev/node-role=builder" ];
     chuggy.k3s.nodeTaints = [ "chuggy.dev/node-role=builder:NoSchedule" ];
 
-That node is a dedicated security boundary. Rootless BuildKit remains
+By default that node is a dedicated security boundary. Rootless BuildKit remains
 daemonless, but rootlesskit requires unconfined seccomp/AppArmor and permits
-privilege escalation for user-namespace setup. Do not put the builder label on
-an ordinary workload node. A dedicated host can import
+privilege escalation for user-namespace setup. A dedicated host can import
 `examples/builder-node.nix`; the committed fragment wires both properties.
+
+A self-contained host instead imports `examples/mini-chuggy-node.nix` and
+renders requests with `--profile mini`. The `chuggy.mini` role enables k3s,
+durable state, secrets, images, work, provenance, Flux, and the builder label,
+but deliberately adds no builder taint: tainting the only node would exclude
+the ordinary workloads that make the deployment self-contained. Its distinct
+profile records that weaker, co-located security boundary and emits no
+dedicated-builder toleration. The host must still state its own storage paths,
+API source ranges, worker budget, and Flux repository; start with
+`hosts/example/`, replace its inert values, and add the mini example module to
+that host's `extraModules` in `flake.nix`.
 
 `tests/integration/build-platform.sh` is the opt-in executable acceptance gate.
 Its topology is an isolated Git branch and worktree watched at `./builds` by a
