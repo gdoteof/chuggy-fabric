@@ -240,7 +240,7 @@
             extraModules = [{
               chuggy.flux.repositoryUrl = lib.mkForce "ssh://git@git.internal/fabric.git";
               chuggy.flux.secretRef = "fabric-source-auth";
-              chuggy.flux.branch = "mini-release";
+              chuggy.flux.branch = lib.mkForce "mini-release";
             }];
           })
           "fabric-source-auth";
