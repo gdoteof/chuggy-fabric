@@ -4,11 +4,14 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from urllib.parse import urlparse
 
 RENDERER = "shipwright-build-request/v1"
 PROFILE = "shipwright-buildkit-rootless/v1"
-PROFILE_DIGEST = "sha256:008a003eaea08b2bbacb0f54c5daad4f1cd9d6d4a9de778d581e5babaf5b6e76"
+PROFILE_DIGEST = "sha256:935d9e286a60255ae22e5c07447d3d71fd228169cfeb05d97710b0cf894245b4"
 SHIPWRIGHT_VERSION = "v0.18.4"
+INTERNAL_GIT_SUFFIXES = (".chuggy-git.svc", ".chuggy-git.svc.cluster.local")
+INTERNAL_REGISTRY_SUFFIXES = (".chuggy-registry.svc", ".chuggy-registry.svc.cluster.local")
 
 
 def quoted(value):
@@ -20,11 +23,35 @@ def require(value, pattern, name):
         raise SystemExit(f"invalid {name}: {value!r}")
 
 
+def require_source_endpoint(value):
+    endpoint = urlparse(value)
+    if endpoint.username or endpoint.password or endpoint.query or endpoint.fragment:
+        raise SystemExit("source URL must not contain credentials, query, or fragment")
+    host = endpoint.hostname or ""
+    public_https = endpoint.scheme == "https" and endpoint.port in (None, 443)
+    internal_http = endpoint.scheme == "http" and endpoint.port == 8080 and host.endswith(INTERNAL_GIT_SUFFIXES)
+    if not (public_https or internal_http):
+        raise SystemExit("source URL must use public HTTPS on port 443 or chuggy-git service HTTP on port 8080")
+
+
+def require_output_endpoint(value):
+    endpoint = urlparse(f"//{value}")
+    host = endpoint.hostname or ""
+    if endpoint.username or endpoint.password or not host or not endpoint.path.strip("/"):
+        raise SystemExit("target image repository must be a credential-free registry host and path")
+    public_https = endpoint.port in (None, 443)
+    internal_http = endpoint.port == 5000 and host.endswith(INTERNAL_REGISTRY_SUFFIXES)
+    if not (public_https or internal_http):
+        raise SystemExit("target registry must use public HTTPS on port 443 or chuggy-registry service port 5000")
+
+
 def request_from(arguments):
     require(arguments.repository_id, r"[a-z0-9](?:[a-z0-9.-]{0,61}[a-z0-9])?", "repository id")
     require(arguments.source_commit, r"(?:[0-9a-f]{40}|[0-9a-f]{64})", "source commit")
     require(arguments.source_secret, r"[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?", "source secret")
     require(arguments.output_secret, r"[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?", "output secret")
+    require_source_endpoint(arguments.source_url)
+    require_output_endpoint(arguments.target_image_repository)
     return {
         "renderer": RENDERER,
         "source": {

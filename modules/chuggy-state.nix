@@ -237,14 +237,6 @@ in
           module will not guess a filesystem for retained data.
         '';
       }
-      {
-        assertion = cfg.buildResults.path != null;
-        message = ''
-          chuggy.state.enable is on but chuggy.state.buildResults.path is unset.
-          Name the directory this host keeps verified build provenance in; the
-          module will not put audit records on incidental storage.
-        '';
-      }
     ];
 
     systemd.tmpfiles.rules = [

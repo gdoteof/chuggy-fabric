@@ -16,6 +16,10 @@
     "timeout": "1h",
     "tolerations": ["chuggy.dev/node-role=builder:NoSchedule"]
   },
+  "network": {
+    "sourceEndpoints": ["public-https:443", "*.chuggy-git.svc:8080"],
+    "targetEndpoints": ["public-https:443", "*.chuggy-registry.svc:5000"]
+  },
   "name": "shipwright-buildkit-rootless",
   "output": {
     "credentialRole": "registry-push",

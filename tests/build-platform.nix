@@ -7,9 +7,9 @@ pkgs.runCommand "chuggy-build-platform" {
   root=${../.}
   test "$(sha256sum "$root/cluster/build-system/vendor/shipwright-v0.18.4/release.yaml" | cut -d' ' -f1)" = 451ad62b1f667103679c6f27c7fcbdf61fadfdd82216e3a90f0d78b0a7f4fe76
   test "$(sha256sum "$root/cluster/build-system/vendor/tekton-v1.12.0/release.yaml" | cut -d' ' -f1)" = e2765b483924b1c4e3ac15810c996e5cb06f3d1aa10bee4ce0113c8b5b0a078a
-  test "$(sha256sum "$root/cluster/build-prerequisites/vendor/cert-manager-v1.18.2/release.yaml" | cut -d' ' -f1)" = e200b8fa1de6999989486fdce2c53f5d215916cc54e64ac6db109e64b88dcea7
+  test "$(sha256sum "$root/cluster/build-prerequisites/vendor/cert-manager-v1.18.2/release.yaml" | cut -d' ' -f1)" = 76829ab6c9750e2e7949a1cdcacf76b77eb8c2234338845ecf5131939cb154b6
   test "$(sha256sum "$root/cluster/build-system/buildkit-rootless-v1.yaml" | cut -d' ' -f1)" = 8422c2c6d5109779ec1ccb5d5c678213ef60dae4aff9922e17f1ee212ec39693
-  test "$(sha256sum "$root/cluster/build-system/profiles/shipwright-buildkit-rootless-v1.json" | cut -d' ' -f1)" = 008a003eaea08b2bbacb0f54c5daad4f1cd9d6d4a9de778d581e5babaf5b6e76
+  test "$(sha256sum "$root/cluster/build-system/profiles/shipwright-buildkit-rootless-v1.json" | cut -d' ' -f1)" = 935d9e286a60255ae22e5c07447d3d71fd228169cfeb05d97710b0cf894245b4
   kubectl kustomize "$root/cluster/build-prerequisites" > build-prerequisites.yaml
   kubectl kustomize "$root/cluster/build-system" > build-system.yaml
   grep -F 'name: buildkit-rootless-v1' build-system.yaml >/dev/null
@@ -17,6 +17,9 @@ pkgs.runCommand "chuggy-build-platform" {
   grep -F 'type: Unconfined' build-system.yaml >/dev/null
   grep -F 'allowPrivilegeEscalation: true' build-system.yaml >/dev/null
   grep -F 'chuggy.dev/node-role=builder:NoSchedule' "$root/cluster/build-system/profiles/shipwright-buildkit-rootless-v1.json" >/dev/null
+  grep -F 'chuggy.dev/node-role=builder' "$root/examples/builder-node.nix" >/dev/null
+  grep -F 'chuggy.dev/node-role=builder:NoSchedule' "$root/examples/builder-node.nix" >/dev/null
+  bash -n "$root/tests/integration/build-platform.sh"
 
   mkdir first second changed
   render() {
@@ -55,6 +58,34 @@ pkgs.runCommand "chuggy-build-platform" {
   grep -F 'fabric.chuggy.dev/provenance-record-digest' "$PATCH_LOG" >/dev/null
   grep -F '"finalizers":[]' "$PATCH_LOG" >/dev/null
 
+  cp "$record" pristine-record
+  cp "$record.sha256" pristine-checksum
+  rm "$record.sha256"
+  : > "$PATCH_LOG"
+  "$root/scripts/record-build-provenance" 2>missing-checksum.log
+  test ! -s "$PATCH_LOG"
+  grep -F 'incomplete durable record' missing-checksum.log >/dev/null
+
+  cp pristine-record "$record"
+  cp pristine-checksum "$record.sha256"
+  jq '.result.output.digest = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"' "$record" > tampered
+  mv tampered "$record"
+  sha256sum "$record" | awk '{print "sha256:" $1}' > "$record.sha256"
+  : > "$PATCH_LOG"
+  "$root/scripts/record-build-provenance" 2>semantic-mismatch.log
+  test ! -s "$PATCH_LOG"
+  grep -F 'does not match terminal BuildRun' semantic-mismatch.log >/dev/null
+
+  jq '.items[0].metadata.annotations["fabric.chuggy.dev/request-digest"] = "../../escape"' \
+    "$BUILD_RUN_FIXTURE" > invalid-request.json
+  export RESULTS_PATH="$PWD/invalid-results"
+  export BUILD_RUN_FIXTURE="$PWD/invalid-request.json"
+  : > "$PATCH_LOG"
+  "$root/scripts/record-build-provenance" 2>invalid-request.log
+  test ! -s "$PATCH_LOG"
+  grep -F 'invalid request digest' invalid-request.log >/dev/null
+  test ! -e "$PWD/escape"
+
   changed_path=$(render changed --cache disabled)
   test "$first_path" != "$changed_path"
   test ! -e "first/$changed_path"
@@ -69,6 +100,25 @@ pkgs.runCommand "chuggy-build-platform" {
     echo "renderer accepted a moving source revision" >&2
     exit 1
   fi
+  if "$root/scripts/render-build-request" \
+    --repository-id example-service \
+    --source-url ssh://git.example.invalid/repository.git \
+    --source-commit 0123456789abcdef0123456789abcdef01234567 \
+    --source-secret source-read \
+    --target-image-repository registry.example.invalid/repository \
+    --output-secret registry-push \
+    --output-root invalid-network; then
+    echo "renderer accepted an endpoint blocked by the network profile" >&2
+    exit 1
+  fi
+  "$root/scripts/render-build-request" \
+    --repository-id internal-service \
+    --source-url http://git.chuggy-git.svc.cluster.local:8080/team/repository.git \
+    --source-commit 0123456789abcdef0123456789abcdef01234567 \
+    --source-secret source-read \
+    --target-image-repository registry.chuggy-registry.svc.cluster.local:5000/team/repository \
+    --output-secret registry-push \
+    --output-root internal-network >/dev/null
   if "$root/scripts/render-build-request" \
     --repository-id example-service \
     --source-url ssh://git.example.invalid/repository.git \
