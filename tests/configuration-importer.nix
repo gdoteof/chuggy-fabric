@@ -24,6 +24,9 @@ pkgs.runCommand "chuggy-configuration-importer" {
   test "$(grep -c 'HOME=' "$manifest" || true)" -eq 0
   grep -F 'GIT_CONFIG_GLOBAL=/dev/null' "$manifest" >/dev/null
   grep -F 'automountServiceAccountToken: false' "$manifest" >/dev/null
+  grep -F 'name: wait-for-postgres' "$manifest" >/dev/null
+  grep -F 'pg_isready -h postgres.chuggy.svc.cluster.local -U chuggy_configuration_importer_login -t 2' "$manifest" >/dev/null
+  grep -F 'for i in $(seq 1 30)' "$manifest" >/dev/null
 
   # Overlap is refused and failed runs remain visible for inspection.
   grep -F 'concurrencyPolicy: Forbid' "$manifest" >/dev/null

@@ -1304,32 +1304,12 @@ not after it.
    unconditionally, so it must be run with exactly the values in
    `chuggy-postgres-credentials` or step 4 must follow it with the new ones — an
    unset variable *clears* a password rather than leaving it. And it re-grants
-   `CREATE ON SCHEMA public` to `chuggy_boundary_owner`, which the migrations
-   deliberately revoke — a migration that needs the privilege grants it to
-   itself and revokes it at its own end, so once the Job is `Complete` the roles
-   file is the only thing that can have left it standing. Re-issue that revoke
-   then, and check it, because nothing else will notice a role left wider than
-   the schema intends:
-
-   ```sh
-   kubectl -n chuggy exec postgres-0 -- \
-     psql -U postgres -d chuggy -c \
-     "REVOKE CREATE ON SCHEMA public FROM chuggy_boundary_owner;"
-   kubectl -n chuggy exec postgres-0 -- \
-     psql -U postgres -d chuggy -Atc \
-     "SELECT has_schema_privilege('chuggy_boundary_owner', 'public', 'CREATE');"
-   ```
-
-   The second must answer `f`. **On this rig it answers `t`**, so the revoke
-   above is not a precaution here — the privilege is standing and that statement
-   is what removes it. The work the ledger still has does not need it back:
-   `schema_migration` is at 18 and `f8c6d7b` defines 19, and that migration
-   creates a function it hands to `chuggy_boundary_owner` without the
-   schema-level CREATE this step removes — run against `postgres:18-alpine` with
-   the privilege already revoked, which is the state this leaves. What it does
-   need is the **membership** above, and that is why this step is ordered before
-   the Job rather than after it: `ALTER FUNCTION … OWNER TO` requires the
-   migrating role to be able to become that role.
+   `CREATE ON SCHEMA public` to `chuggy_boundary_owner`. Leave that privilege
+   standing until the new migration Job is `Complete`: migration 29 replaces a
+   function owned by the boundary role and needs to create its replacement.
+   Step 2 revokes and verifies the privilege immediately after the ledger
+   reaches 29. Revoking it here makes the immutable Job fail before the release
+   can become healthy.
 
    Then check the grants **landed**. This is the check the step rests on; the
    greps above only decide whether the file is worth running:
@@ -1367,6 +1347,22 @@ not after it.
    A digest the registry does not hold leaves the new pod in
    `ImagePullBackOff`; at one replica the API's rolling update retains the old
    ready pod while that is repaired.
+
+   After `chuggy-migrate-e92cce9-registry` is `Complete` and reports migration
+   29, remove the role-file bootstrap privilege and prove it is gone:
+
+   ```sh
+   kubectl -n chuggy exec postgres-0 -- \
+     psql -U postgres -d chuggy -c \
+     "REVOKE CREATE ON SCHEMA public FROM chuggy_boundary_owner;"
+   kubectl -n chuggy exec postgres-0 -- \
+     psql -U postgres -d chuggy -Atc \
+     "SELECT max(version), has_schema_privilege(
+        'chuggy_boundary_owner', 'public', 'CREATE')
+        FROM schema_migration;"
+   ```
+
+   The second command must answer `29|f`.
    `images/api/Dockerfile` copies `package.json`, the resolved `node_modules`
    and `src/` into the shipped stage and nothing else — `deploy/` is never
    copied at all — so **the roles file is not in the image** and no inspection
