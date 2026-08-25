@@ -43,6 +43,7 @@ pkgs.runCommand "chuggy-build-platform" {
   test "$first_path" = "$second_path"
   cmp "first/$first_path" "second/$second_path"
   grep -F 'revision: 0123456789abcdef0123456789abcdef01234567' "first/$first_path" >/dev/null
+  grep -F 'fabric.chuggy.dev/source-repository-id: example-service' "first/$first_path" >/dev/null
   grep -F 'fabric.chuggy.dev/provenance-required' "first/$first_path" >/dev/null
   grep -F 'chuggy.dev/node-role: builder' "first/$first_path" >/dev/null
   grep -F 'kubernetes.io/arch: amd64' "first/$first_path" >/dev/null
@@ -60,6 +61,7 @@ pkgs.runCommand "chuggy-build-platform" {
   test "$(sha256sum "$record" | awk '{print "sha256:" $1}')" = "$(cat "$record.sha256")"
   test "$(jq -r '.provenanceRecordDigest' "$record")" = "$(jq -S '.result' "$record" | sha256sum | awk '{print "sha256:" $1}')"
   grep -F 'fabric.chuggy.dev/provenance-record-digest' "$PATCH_LOG" >/dev/null
+  test "$(jq -r '.result.source.repositoryId' "$record")" = example-service
   grep -F '"finalizers":[]' "$PATCH_LOG" >/dev/null
 
   cp "$record" pristine-record

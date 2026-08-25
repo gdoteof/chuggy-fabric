@@ -89,6 +89,7 @@ metadata:
   name: {name}
   namespace: chuggy-build
   annotations:
+    fabric.chuggy.dev/source-repository-id: {source['repositoryId']}
     fabric.chuggy.dev/request-digest: {digest}
     fabric.chuggy.dev/source-commit: {source['commit']}
     fabric.chuggy.dev/target-image-repository: {quoted(output['repository'])}
@@ -127,6 +128,7 @@ metadata:
   labels:
     fabric.chuggy.dev/provenance: required
   annotations:
+    fabric.chuggy.dev/source-repository-id: {source['repositoryId']}
     fabric.chuggy.dev/request-digest: {digest}
     fabric.chuggy.dev/source-commit: {source['commit']}
     fabric.chuggy.dev/target-image-repository: {quoted(output['repository'])}
