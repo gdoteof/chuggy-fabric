@@ -115,7 +115,7 @@ metadata:
   name: chuggy-scheduler
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: 5ac47c8
+    fabric.chuggy.dev/source-commit: 49dbfbf
   labels: { app: chuggy-scheduler }
 spec:
   replicas: 1
@@ -225,7 +225,7 @@ spec:
             #
             - name: CHUG_SCHEDULER_ADMITTED_IMAGES
               value: |
-                ["registry.chuggy.internal/chuggy/worker@sha256:de1409a2a51b82bc18f6517bc62603956ad5698b26e36ed64b7f84c793e62cae"]
+                ["registry.chuggy.internal/chuggy/worker@sha256:cfe57dd168347730f91aec689be4adaf53750f237af54bb9effedf53319d34a6"]
             # PR 5's, provisional. D30 says the adopting machine must supply
             # these and that the shared module provides no guessed defaults;
             # these are a guess, and they are here because the command will not
