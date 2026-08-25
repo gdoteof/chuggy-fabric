@@ -298,7 +298,7 @@ spec:
             seccompProfile: { type: RuntimeDefault }
       containers:
         - name: migrate
-          image: registry.chuggy.internal/chuggy/api@sha256:b230434593a7a90a3afd425596a2a67aafa9d552bbd75c0c36c5594b8d19b991
+          image: registry.chuggy.internal/chuggy/api@sha256:61eeb59d18b410cb51b55daeafe852c4ea182168f7813caa95e9e50da7783830
           imagePullPolicy: IfNotPresent
           # Exec form with node as PID 1, for the reason the image's Dockerfile
           # gives: the process is handed SIGTERM itself rather than through a
