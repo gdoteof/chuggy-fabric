@@ -217,7 +217,6 @@ spec:
                     "sources": [
                       {
                         "repository": "http://git.chuggy-git.svc.cluster.local./chuggy.git",
-                        "credentialReference": "chuggy-git",
                         "path": "/var/run/chuggy/repository-credentials/chuggy-git"
                       }
                     ],

@@ -12,6 +12,7 @@ pkgs.runCommand "chuggy-release-images" {
   }
 
   run_check manifests
+  test "$(grep -Fc 'credentialReference:' manifests/chuggy-ticket-service.yaml || true)" -eq 0
 
   cp -R manifests mixed-digest
   sed -i '0,/sha256:/s/sha256:[0-9a-f]*/sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/' \
