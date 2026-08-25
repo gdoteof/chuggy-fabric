@@ -97,7 +97,7 @@ metadata:
   name: chuggy-selector
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: 5ac47c8
+    fabric.chuggy.dev/source-commit: 49dbfbf
   labels: { app: chuggy-selector }
 spec:
   # ZERO, AND NOT BECAUSE THIS IS UNFINISHED. `selector-source` is what a run
