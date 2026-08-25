@@ -71,7 +71,8 @@ pkgs.runCommand "chuggy-build-platform" {
   "$root/scripts/record-build-provenance"
   grep -F 'build-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-a1' "$PATCH_LOG" >/dev/null
 
-  export BUILD_RUN_FIXTURE="$root/tests/fixtures/build-request/buildruns-operational.json"
+  export BUILD_RUN_FIXTURE="$root/tests/fixtures/build-request/buildruns-page-1.json"
+  export BUILD_RUN_FIXTURE_CONTINUED="$root/tests/fixtures/build-request/buildruns-operational.json"
   export NOW_EPOCH=1787605200
   if "$root/scripts/check-build-attempts" 2>attempt-alerts.log; then
     echo "failed and stalled fixture produced no actionable signal" >&2

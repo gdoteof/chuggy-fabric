@@ -9,9 +9,15 @@ kubeconfig=${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}
 kubectl_command=("${KUBECTL:-kubectl}" --kubeconfig "$kubeconfig")
 findings=0
 
-buildruns=$("${kubectl_command[@]}" get --raw \
-  "/apis/shipwright.io/v1beta1/namespaces/$namespace/buildruns?limit=$batch_size")
-while IFS= read -r buildrun; do
+continue_token=
+while :; do
+  endpoint="/apis/shipwright.io/v1beta1/namespaces/$namespace/buildruns?labelSelector=fabric.chuggy.dev%2Fprovenance&limit=$batch_size"
+  if [[ -n $continue_token ]]; then
+    encoded_continue=$(jq -rn --arg value "$continue_token" '$value | @uri')
+    endpoint="$endpoint&continue=$encoded_continue"
+  fi
+  page=$("${kubectl_command[@]}" get --raw "$endpoint")
+  while IFS= read -r buildrun; do
   condition=$(printf '%s' "$buildrun" | jq -c '[.status.conditions[]? | select(.type == "Succeeded")] | last // {}')
   terminal=$(printf '%s' "$condition" | jq -r '.status // empty')
   [[ $terminal == True ]] && continue
@@ -36,6 +42,9 @@ while IFS= read -r buildrun; do
       '{alert:"BuildAttemptStalled",owner:"build-controller/operator",requestDigest:$request,attempt:$attempt,attemptOrdinal:$ordinal,ageSeconds:$ageSeconds}' >&2
     findings=1
   fi
-done < <(printf '%s' "$buildruns" | jq -c '.items[]')
+  done < <(printf '%s' "$page" | jq -c '.items[]')
+  continue_token=$(printf '%s' "$page" | jq -r '.metadata.continue // empty')
+  [[ -n $continue_token ]] || break
+done
 
 exit "$findings"
