@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+import argparse
+import hashlib
+import json
+import re
+from pathlib import Path
+
+
+def annotation(document, name):
+    match = re.search(rf"^    {re.escape(name)}: (?:\"([^\"]+)\"|([^\n]+))$", document, re.MULTILINE)
+    if match is None:
+        raise SystemExit(f"attempt is missing {name}")
+    return match.group(1) or match.group(2)
+
+
+def verified_record(results_path, request_digest, attempt_name):
+    record = results_path / request_digest / f"{attempt_name}.json"
+    checksum = Path(f"{record}.sha256")
+    if not record.is_file() or not checksum.is_file():
+        raise SystemExit(f"durable provenance is incomplete for {attempt_name}")
+    actual = f"sha256:{hashlib.sha256(record.read_bytes()).hexdigest()}"
+    if checksum.read_text().strip() != actual:
+        raise SystemExit(f"durable provenance checksum failed for {attempt_name}")
+    value = json.loads(record.read_text())
+    result = value["result"]
+    if result["requestDigest"] != request_digest or result["attempt"]["name"] != attempt_name:
+        raise SystemExit("durable provenance does not identify the live attempt")
+    if result["terminalCondition"]["status"] != "False":
+        raise SystemExit("only a failed terminal attempt can be retried")
+    return result
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("manifest", type=Path)
+    parser.add_argument("--results-path", required=True, type=Path)
+    arguments = parser.parse_args()
+    content = arguments.manifest.read_text()
+    documents = content.split("---\n")
+    if len(documents) != 2 or "kind: Build\n" not in documents[0] or "kind: BuildRun\n" not in documents[1]:
+        raise SystemExit("request manifest must contain one Build and one live BuildRun")
+    attempt = documents[1]
+    request_digest = annotation(attempt, "fabric.chuggy.dev/request-digest")
+    ordinal = int(annotation(attempt, "fabric.chuggy.dev/attempt-ordinal"))
+    name_match = re.search(r"^  name: ([a-z0-9.-]+)$", attempt, re.MULTILINE)
+    if name_match is None:
+        raise SystemExit("attempt is missing its name")
+    attempt_name = name_match.group(1)
+    expected = f"build-{request_digest.removeprefix('sha256:')[:40]}-a{ordinal}"
+    if attempt_name != expected:
+        raise SystemExit("attempt name, request digest, and ordinal disagree")
+    result = verified_record(arguments.results_path, request_digest, attempt_name)
+    source_commit = annotation(attempt, "fabric.chuggy.dev/source-commit")
+    if result["source"]["requestedCommit"] != source_commit:
+        raise SystemExit("durable provenance and live attempt name different source commits")
+    if f"    revision: {source_commit}\n" not in documents[0]:
+        raise SystemExit("immutable Build no longer names the provenance source commit")
+    for field in (
+        "fabric.chuggy.dev/request-digest",
+        "fabric.chuggy.dev/source-commit",
+        "fabric.chuggy.dev/target-image-repository",
+        "fabric.chuggy.dev/profile-digest",
+    ):
+        if annotation(documents[0], field) != annotation(attempt, field):
+            raise SystemExit(f"Build and attempt disagree on {field}")
+
+    next_ordinal = ordinal + 1
+    next_name = f"build-{request_digest.removeprefix('sha256:')[:40]}-a{next_ordinal}"
+    next_attempt = attempt.replace(f"  name: {attempt_name}\n", f"  name: {next_name}\n", 1)
+    next_attempt = next_attempt.replace(
+        f'    fabric.chuggy.dev/attempt-ordinal: "{ordinal}"\n',
+        f'    fabric.chuggy.dev/attempt-ordinal: "{next_ordinal}"\n',
+        1,
+    )
+    arguments.manifest.write_text(f"{documents[0]}---\n{next_attempt}")
+    print(next_name)
+
+
+if __name__ == "__main__":
+    main()
