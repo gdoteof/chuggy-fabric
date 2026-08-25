@@ -3,7 +3,7 @@ set -o errexit -o nounset -o pipefail
 
 record=${1:?record path is required}
 shift
-request= attempt= ordinal= repository= source_commit= target= profile= profile_digest=
+request= attempt= ordinal= repository= source_commit= target= renderer= controller= profile= profile_digest=
 while (( $# )); do
   case "$1" in
     --request) request=$2 ;;
@@ -12,13 +12,15 @@ while (( $# )); do
     --repository) repository=$2 ;;
     --source-commit) source_commit=$2 ;;
     --target) target=$2 ;;
+    --renderer) renderer=$2 ;;
+    --controller) controller=$2 ;;
     --profile) profile=$2 ;;
     --profile-digest) profile_digest=$2 ;;
     *) echo "unknown argument: $1" >&2; exit 64 ;;
   esac
   shift 2
 done
-for value in request attempt ordinal repository source_commit target profile profile_digest; do
+for value in request attempt ordinal repository source_commit target renderer controller profile profile_digest; do
   [[ -n ${!value} ]] || { echo "missing --${value//_/-}" >&2; exit 64; }
 done
 
@@ -37,6 +39,7 @@ canonical=$(sha256sum "$payload" | awk '{print "sha256:" $1}')
 
 jq -e --arg request "$request" --arg attempt "$attempt" --argjson ordinal "$ordinal" \
   --arg repository "$repository" --arg source "$source_commit" --arg target "$target" \
+  --arg renderer "$renderer" --arg controller "$controller" \
   --arg profileName "$profile" --arg profileDigest "$profile_digest" '
     .result as $r |
     $r.requestDigest == $request and
@@ -44,6 +47,7 @@ jq -e --arg request "$request" --arg attempt "$attempt" --argjson ordinal "$ordi
     $r.source.repositoryId == $repository and
     $r.source.requestedCommit == $source and
     $r.output.repository == $target and
+    $r.renderer == $renderer and $r.controller == $controller and
     $r.profile.name == $profileName and $r.profile.digest == $profileDigest and
     ($r.terminalCondition.status == "True" or $r.terminalCondition.status == "False") and
     ($r.source.observedCommit == null or ($r.source.observedCommit | test("^[0-9a-f]{40}([0-9a-f]{24})?$"))) and

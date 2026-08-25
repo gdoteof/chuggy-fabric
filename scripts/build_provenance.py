@@ -9,6 +9,8 @@ FIELDS = (
     "fabric.chuggy.dev/source-repository-id",
     "fabric.chuggy.dev/source-commit",
     "fabric.chuggy.dev/target-image-repository",
+    "fabric.chuggy.dev/renderer",
+    "fabric.chuggy.dev/shipwright-version",
     "fabric.chuggy.dev/profile",
     "fabric.chuggy.dev/profile-digest",
 )
@@ -54,6 +56,8 @@ def manifest_identities(content):
         "repository": annotation(run, "fabric.chuggy.dev/source-repository-id"),
         "source_commit": source,
         "target": target,
+        "renderer": annotation(run, "fabric.chuggy.dev/renderer"),
+        "controller": annotation(run, "fabric.chuggy.dev/shipwright-version"),
         "profile": annotation(run, "fabric.chuggy.dev/profile"),
         "profile_digest": annotation(run, "fabric.chuggy.dev/profile-digest"),
     }
