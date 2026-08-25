@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 import argparse
-import hashlib
-import json
-import re
 import subprocess
 from pathlib import Path
+from build_provenance import manifest_identities, verify
 
 
 def main():
@@ -13,24 +11,10 @@ def main():
     parser.add_argument("--results-path", required=True, type=Path)
     arguments = parser.parse_args()
     content = arguments.manifest.read_text()
-    request = re.search(r"fabric\.chuggy\.dev/request-digest: (sha256:[0-9a-f]{64})", content)
-    attempt = re.search(r"kind: BuildRun\nmetadata:\n  name: ([a-z0-9.-]+)", content)
-    if request is None or attempt is None:
-        raise SystemExit("request manifest does not contain an identified live attempt")
-    record = arguments.results_path / request.group(1) / f"{attempt.group(1)}.json"
-    checksum = Path(f"{record}.sha256")
-    if not record.is_file() or not checksum.is_file():
-        raise SystemExit("persist terminal provenance before retiring the Git declaration")
-    actual = f"sha256:{hashlib.sha256(record.read_bytes()).hexdigest()}"
-    if checksum.read_text().strip() != actual:
-        raise SystemExit("durable provenance checksum failed")
-    result = json.loads(record.read_text())["result"]
-    if result["requestDigest"] != request.group(1) or result["attempt"]["name"] != attempt.group(1):
-        raise SystemExit("durable provenance does not identify the live attempt")
-    if result["terminalCondition"]["status"] not in ("True", "False"):
-        raise SystemExit("attempt provenance is not terminal")
+    _, identities = manifest_identities(content)
+    verify(arguments.results_path, identities)
     subprocess.run(["git", "rm", "--", arguments.manifest.name], cwd=arguments.manifest.parent, check=True)
-    print(f"retired {request.group(1)}; commit and push, then verify Flux pruning")
+    print(f'retired {identities["request"]}; commit and push, then verify Flux pruning')
 
 
 if __name__ == "__main__":
