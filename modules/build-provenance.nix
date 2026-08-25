@@ -11,6 +11,11 @@ let
     runtimeInputs = [ pkgs.coreutils pkgs.gawk pkgs.gnugrep pkgs.jq pkgs.kubectl ];
     text = builtins.readFile ../scripts/record-build-provenance;
   };
+  observer = pkgs.writeShellApplication {
+    name = "chuggy-build-attempt-alerts";
+    runtimeInputs = [ pkgs.coreutils pkgs.jq pkgs.kubectl ];
+    text = builtins.readFile ../scripts/check-build-attempts;
+  };
 in
 {
   options.chuggy.buildProvenance = {
@@ -19,6 +24,11 @@ in
       type = lib.types.ints.positive;
       default = 100;
       description = "Maximum number of terminal BuildRuns recorded per timer activation.";
+    };
+    stalledAfterSeconds = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 4500;
+      description = "Age at which a non-terminal BuildRun is reported as stalled.";
     };
   };
 
@@ -52,6 +62,28 @@ in
         OnBootSec = "5m";
         OnUnitActiveSec = "5m";
         RandomizedDelaySec = "30s";
+      };
+    };
+    systemd.services.chuggy-build-attempt-alerts = {
+      description = "Report failed and stalled Shipwright build attempts";
+      after = [ "k3s.service" ];
+      wants = [ "k3s.service" ];
+      environment = {
+        BATCH_SIZE = toString cfg.batchSize;
+        STALLED_AFTER_SECONDS = toString cfg.stalledAfterSeconds;
+      };
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = lib.getExe observer;
+        User = "root";
+      };
+    };
+    systemd.timers.chuggy-build-attempt-alerts = {
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "2m";
+        OnUnitActiveSec = "2m";
+        RandomizedDelaySec = "15s";
       };
     };
   };

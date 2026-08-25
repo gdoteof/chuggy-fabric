@@ -1,7 +1,7 @@
 { pkgs }:
 
 pkgs.runCommand "chuggy-build-platform" {
-  nativeBuildInputs = [ pkgs.kubectl pkgs.python3 pkgs.gawk pkgs.gnugrep pkgs.jq pkgs.coreutils ];
+  nativeBuildInputs = [ pkgs.kubectl pkgs.python3 pkgs.gawk pkgs.gnugrep pkgs.jq pkgs.coreutils pkgs.git ];
 } ''
   set -eu
   root=${../.}
@@ -70,6 +70,61 @@ pkgs.runCommand "chuggy-build-platform" {
   : > "$PATCH_LOG"
   "$root/scripts/record-build-provenance"
   grep -F 'build-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-a1' "$PATCH_LOG" >/dev/null
+
+  export BUILD_RUN_FIXTURE="$root/tests/fixtures/build-request/buildruns-operational.json"
+  export NOW_EPOCH=1787605200
+  if "$root/scripts/check-build-attempts" 2>attempt-alerts.log; then
+    echo "failed and stalled fixture produced no actionable signal" >&2
+    exit 1
+  fi
+  grep -F '"alert":"BuildAttemptFailed"' attempt-alerts.log >/dev/null
+  grep -F '"attempt":"build-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-a1"' attempt-alerts.log >/dev/null
+  grep -F '"alert":"BuildAttemptStalled"' attempt-alerts.log >/dev/null
+  grep -F '"attempt":"build-dddddddddddddddddddddddddddddddddddddddd-a3"' attempt-alerts.log >/dev/null
+
+  export BUILD_RUN_FIXTURE="$root/tests/fixtures/build-request/buildruns.json"
+  retry_manifest="first/$first_path"
+  retry_request=$(awk '/fabric.chuggy.dev\/request-digest:/{print $2; exit}' "$retry_manifest")
+  retry_attempt=$(awk '/^kind: BuildRun$/{run=1} run && /^  name:/{print $2; exit}' "$retry_manifest")
+  retry_directory="$RESULTS_PATH/$retry_request"
+  retry_record="$retry_directory/$retry_attempt.json"
+  mkdir -p "$retry_directory"
+  jq -S --arg request "$retry_request" --arg attempt "$retry_attempt" '
+    .result.requestDigest = $request |
+    .result.attempt.name = $attempt |
+    .result.terminalCondition.status = "False" |
+    .result.terminalCondition.reason = "Failed" |
+    .provenanceRecordDigest = ("sha256:" + (.result | tojson | @base64))
+  ' "$record" > "$retry_record"
+  sha256sum "$retry_record" | awk '{print "sha256:" $1}' > "$retry_record.sha256"
+  "$root/scripts/retry-build-request" "$retry_manifest" --results-path "$RESULTS_PATH" >retry-name
+  test "$(cat retry-name)" = "${retry_attempt%-a1}-a2"
+  grep -F 'kind: Build' "$retry_manifest" >/dev/null
+  grep -F "name: ${retry_attempt%-a1}-a2" "$retry_manifest" >/dev/null
+  grep -F 'fabric.chuggy.dev/attempt-ordinal: "2"' "$retry_manifest" >/dev/null
+  test "$(grep -c 'revision: 0123456789abcdef0123456789abcdef01234567' "$retry_manifest")" = 1
+  if "$root/scripts/retry-build-request" "$retry_manifest" --results-path "$RESULTS_PATH" 2>retry-without-provenance.log; then
+    echo "retry advanced without durable provenance for the live attempt" >&2
+    exit 1
+  fi
+  grep -F 'durable provenance is incomplete' retry-without-provenance.log >/dev/null
+
+  cp "$retry_manifest" retirement.yaml
+  if "$root/scripts/retire-build-request" retirement.yaml --results-path "$RESULTS_PATH" 2>retire-without-provenance.log; then
+    echo "retirement removed a declaration without durable provenance" >&2
+    exit 1
+  fi
+  test -f retirement.yaml
+  grep -F 'persist terminal provenance' retire-without-provenance.log >/dev/null
+
+  cp "second/$second_path" retirement.yaml
+  git init -q retirement-repository
+  cp retirement.yaml retirement-repository/request.yaml
+  git -C retirement-repository add request.yaml
+  git -C retirement-repository -c user.name=test -c user.email=test@invalid commit -qm fixture
+  "$root/scripts/retire-build-request" retirement-repository/request.yaml --results-path "$RESULTS_PATH" >retire.log
+  test ! -e retirement-repository/request.yaml
+  git -C retirement-repository diff --cached --diff-filter=D --name-only | grep -Fx request.yaml >/dev/null
 
   cp "$record" pristine-record
   cp "$record.sha256" pristine-checksum
@@ -186,5 +241,7 @@ pkgs.runCommand "chuggy-build-platform" {
   grep -F "status.output.digest.matches" "$root/modules/flux.nix" >/dev/null
   grep -F 'healthCheckExprs:' "$root/cluster/flux-system/gotk-components.yaml" >/dev/null
   grep -F 'kustomize-controller:v1.5.1@sha256:b89935f9428764c389c5192fdb8f6c53b66e365fa09ac8cec597e82273e9f518' "$root/cluster/flux-system/gotk-components.yaml" >/dev/null
+  grep -F 'chuggy-build-attempt-alerts' "$root/modules/build-provenance.nix" >/dev/null
+  grep -F 'No command in this flow deletes registry content' "$root/docs/build-operations-runbook.md" >/dev/null
   touch "$out"
 ''

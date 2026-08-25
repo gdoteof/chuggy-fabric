@@ -611,6 +611,11 @@ ownership, and only then delete the resource. The result directory is
 installation state and needs the same backup treatment as the registry and
 journal.
 
+Failed and stalled attempts are reported by the host timer, and retry and
+retirement preserve the immutable request and durable provenance. The
+[build operations runbook](docs/build-operations-runbook.md) gives the ordered
+commands, retention boundary, and failure ownership.
+
 ## Ingress
 
 Public traffic arrives through a **Cloudflare Tunnel**, not a port-forward. The
