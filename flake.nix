@@ -147,7 +147,19 @@
         };
       };
 
+      # Images this repository is the source of. Building one is `nix build
+      # .#<name>`; publishing it is the port-forward flow the derivation's
+      # header describes, and the digest that push returns is what the
+      # cluster manifest names.
+      packages.${system} = {
+        galene-image = import ./images/galene.nix { inherit pkgs; };
+      };
+
       checks.${system} = {
+        # The image builds from the pin. A push that fails to build is found
+        # here, not at the registry.
+        galene-image = self.packages.${system}.galene-image;
+
         # Both hosts build. gtr is the running box; example is the claim that
         # nothing of gtr's has become load-bearing in modules/.
         gtr = self.nixosConfigurations.gtr.config.system.build.toplevel;
