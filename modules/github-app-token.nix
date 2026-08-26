@@ -53,7 +53,8 @@ let
       chmod 0600 "$run/token"
       base64 -w0 < "$run/token" > "$run/token.b64"
 
-      for namespace in ${lib.escapeShellArgs token.namespaces}; do
+      sync_secret() {
+        namespace="$1"
         if kubectl --kubeconfig ${lib.escapeShellArg cfg.kubeconfig} \
           --namespace "$namespace" get secret ${lib.escapeShellArg token.secretName} \
           -o json > "$run/live.json" 2>/dev/null; then
@@ -74,7 +75,10 @@ let
             | jq '.metadata.labels = {"chuggy.dev/managed-by":"github-app-token"}' \
             | kubectl --kubeconfig ${lib.escapeShellArg cfg.kubeconfig} create -f - >/dev/null
         fi
-      done
+      }
+
+      ${lib.concatMapStringsSep "\n" (namespace:
+        "sync_secret ${lib.escapeShellArg namespace}") token.namespaces}
     '';
   };
   services = lib.mapAttrs' (name: token:
