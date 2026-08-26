@@ -9,7 +9,7 @@ pkgs.runCommand "chuggy-development-worker" {
   network="$root/cluster/apps/chuggy-work.yaml"
 
   kubectl kustomize "$root/cluster/apps" > rendered.yaml
-  grep -F 'registry.chuggy.internal/chuggy/worker@sha256:cfe57dd168347730f91aec689be4adaf53750f237af54bb9effedf53319d34a6' "$scheduler" >/dev/null
+  grep -F 'registry.chuggy.internal/chuggy/worker@sha256:49cc3c3d713e4b40341f68dfb83e1bf1acabb6d5986e1f1786ea5706afe0690f' "$scheduler" >/dev/null
   grep -F '"secretName": "chuggy-git-worker"' "$scheduler" >/dev/null
   grep -F '"secretName": "claude-code"' "$scheduler" >/dev/null
   grep -F '"CHUG_WORKER_WORKSPACE": "/workspace"' "$scheduler" >/dev/null
