@@ -24,7 +24,7 @@ only by their own directory.
 
     modules/chuggy-state.nix        retained host directories, chuggy.state.*
     modules/chuggy-secrets.nix      generated credentials, chuggy.secrets.*
-    modules/github-app-token.nix    rotating repository credential, chuggy.githubAppToken.*
+    modules/github-app-token.nix    rotating repository credentials, chuggy.githubAppTokens.*
     modules/chuggy-images.nix       bootstrap image delivery, chuggy.images.*
     modules/chuggy-work.nix         what one task may cost, chuggy.work.*
     modules/mini-chuggy.nix         complete co-located single-node role
@@ -393,10 +393,11 @@ whole map in one place.
 
 ### GitHub App repository credential
 
-The Chuggy source repository is GitHub, not the host-local Git service. App
-`4708055`, installation `156333284`, supplies a repository-scoped installation
-token with `contents: write`; `chuggy-github-app-token-refresh` replaces that
-token in the `chuggy` and `chuggy-work` namespaces every thirty minutes.
+The Chuggy source repository is GitHub, not the host-local Git service. Three
+repository-scoped installation tokens keep its authorities separate: a
+read-only token for source readers, a Portal write token for the finalizer, and
+a Worker write token for ticket branches. Each token is replaced every thirty
+minutes in only the namespace that consumes it.
 
 The App private key is host state and never enters this repository or the Nix
 store. Install it before switching the host configuration:
@@ -404,17 +405,29 @@ store. Install it before switching the host configuration:
     sudo install -d -m 0700 -o root -g root /var/lib/chuggy/secrets/github-app
     sudo install -m 0600 -o root -g root <private-key.pem> \
       /var/lib/chuggy/secrets/github-app/chuggy-portal.pem
+    sudo install -m 0600 -o root -g root <worker-private-key.pem> \
+      /var/lib/chuggy/secrets/github-app/chuggy-worker.pem
 
 Then start one refresh and verify both destinations before workloads use it:
 
-    sudo systemctl start chuggy-github-app-token-refresh
-    systemctl is-active chuggy-github-app-token-refresh
-    kubectl -n chuggy get secret chuggy-github-app-token
-    kubectl -n chuggy-work get secret chuggy-github-app-token
+    sudo systemctl start chuggy-github-app-token-reader-refresh
+    sudo systemctl start chuggy-github-app-token-finalizer-refresh
+    sudo systemctl start chuggy-github-app-token-worker-refresh
+    kubectl -n chuggy get secret chuggy-github-reader-token
+    kubectl -n chuggy get secret chuggy-github-finalizer-token
+    kubectl -n chuggy-work get secret chuggy-github-worker-token
 
-The timer is disabled unless `chuggy.githubAppToken.enable` is set. There is no
+The timers are disabled unless `chuggy.githubAppTokens.enable` is set. There is no
 internal-to-GitHub repository synchronization job: workers push ticket refs and
 the finalizer advances the authoritative GitHub ref directly.
+
+Do not switch the application manifests while `project_repository` still names
+the internal URL. Quiesce ticket admission and worker placement, wait for open
+work and finalizations to drain, use Chuggy's repository-rebind administration
+operation to bind `vteng/chuggy` to `https://github.com/kasofsk/chuggy.git`, and
+verify the API reports that URL before applying these manifests. If any check
+fails, leave the manifests on the internal URL and resume the old deployment;
+do not edit the durable binding directly.
 
 **`chuggy-pg-role-env` is on `PATH` only after a `nixos-rebuild switch` carrying
 this module.** Before that switch it is in the built system and not on the box's

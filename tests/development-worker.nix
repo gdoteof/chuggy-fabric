@@ -18,7 +18,7 @@ pkgs.runCommand "chuggy-development-worker" {
   grep -F 'CHUG_SCHEDULER_WORKER_DEADLINE_SECS' "$scheduler" >/dev/null
   grep -F '"attemptLeaseSecs":300' "$scheduler" >/dev/null
   grep -F 'CHUG_WORKER_PLANE_HEARTBEAT_LEASE_SECS' "$worker_plane" >/dev/null
-  grep -F '"secretName": "chuggy-github-app-token"' "$scheduler" >/dev/null
+  grep -F '"secretName": "chuggy-github-worker-token"' "$scheduler" >/dev/null
   grep -F '"secretName": "claude-code"' "$scheduler" >/dev/null
   grep -F '"CHUG_WORKER_WORKSPACE": "/workspace"' "$scheduler" >/dev/null
   grep -F '"ephemeralStorageLimit": "20Gi"' "$scheduler" >/dev/null

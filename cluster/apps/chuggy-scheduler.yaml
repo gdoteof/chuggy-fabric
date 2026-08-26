@@ -195,7 +195,7 @@ spec:
               value: |
                 {
                   "chuggy-git-worker": {
-                    "secretName": "chuggy-github-app-token",
+                    "secretName": "chuggy-github-worker-token",
                     "key": "token",
                     "mountPath": "/var/run/chuggy/credentials/chuggy-git-worker"
                   },

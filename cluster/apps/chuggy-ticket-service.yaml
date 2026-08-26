@@ -249,7 +249,7 @@ spec:
           emptyDir: {}
         - name: repository-credentials
           secret:
-            secretName: chuggy-github-app-token
+            secretName: chuggy-github-reader-token
             defaultMode: 0444
             items:
               - key: token

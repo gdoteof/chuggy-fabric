@@ -17,7 +17,7 @@ pkgs.runCommand "chuggy-configuration-importer" {
   test "$(grep -Fc 'commit="$(git ls-remote' "$manifest")" -eq 1
 
   # The pod has only reader Git material and its own database login.
-  grep -F 'secretName: chuggy-github-app-token' "$manifest" >/dev/null
+  grep -F 'secretName: chuggy-github-reader-token' "$manifest" >/dev/null
   grep -F 'https://github.com/kasofsk/chuggy.git' "$manifest" >/dev/null
   test "$(grep -Fc 'credentialReference:' "$manifest" || true)" -eq 0
   grep -F 'key: configuration-importer-password' "$manifest" >/dev/null

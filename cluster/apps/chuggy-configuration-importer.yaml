@@ -34,7 +34,7 @@ data:
     commit="$(git ls-remote --exit-code "$repository" refs/heads/main | awk 'NR == 1 { print $1 }')"
     case "$commit" in
       [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
-      *) echo "configuration importer: internal main did not resolve to one full SHA-1" >&2; exit 2 ;;
+      *) echo "configuration importer: GitHub main did not resolve to one full SHA-1" >&2; exit 2 ;;
     esac
 
     export CHUG_CONFIGURATION_IMPORT_COMMIT="$commit"
@@ -156,7 +156,7 @@ spec:
               emptyDir: {}
             - name: repository-credentials
               secret:
-                secretName: chuggy-github-app-token
+                secretName: chuggy-github-reader-token
                 defaultMode: 0444
                 items:
                   - key: token

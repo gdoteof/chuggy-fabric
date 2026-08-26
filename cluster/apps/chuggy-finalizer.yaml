@@ -291,5 +291,5 @@ spec:
             defaultMode: 0444
         - name: github-app-token
           secret:
-            secretName: chuggy-github-app-token
+            secretName: chuggy-github-finalizer-token
             defaultMode: 0444
