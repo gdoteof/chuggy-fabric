@@ -21,44 +21,25 @@
 # A second name is the cheaper of the two, and it keeps the old console's
 # origin -- and therefore its registered client -- untouched.
 #
-# ------------------------------------------------- this runs no replica yet ----
-#
-# THE IMAGE BELOW DOES NOT EXIST. kasofsk/chuggy#320 is what builds
-# `ui/chuggy-ui/`, and until it lands there is no `dist` to put in a web image
-# and nothing to serve. A replica would be a pod in ImagePullBackOff restating
-# that every backoff interval, and one more red pod for a real one to hide
-# behind. `replicas: 0` says the same thing once, where the number is.
-#
-# Everything else here stays declared, because none of it is wrong: the host,
-# the split, the config and the client registration are true of the console the
-# moment its image is on the node, and landing them now is what lets the image
-# be the only thing missing.
-#
-# A Deployment asked for no replicas also passes the `wait: true` health check
-# over this directory, for the reason chuggy-selector.yaml states in full.
-#
 # ----------------------------------------------------------- the reference ----
 #
-# A TAG, WHERE EVERY OTHER WORKLOAD HERE CARRIES A DIGEST, and that is not a
-# relaxation of the release identity -- it is the absence of one. There is no
-# digest to name until the first build exists, and a digest invented now would
-# be a release this repository claims and nobody can pull.
+# A DIGEST AND A SOURCE COMMIT, which `scripts/check-release-consistency` reads
+# here as it reads them in chuggy-web.yaml: two consoles, one source, and no
+# release that moves one without the other.
 #
-# IT IS NOT WHAT THE DOCUMENTED BUILD ARRIVES AT ON ITS OWN, either.
+# WHAT NO CHECK CAN DECIDE IS WHICH CONSOLE A `chuggy/web` DIGEST HOLDS. Both
+# are that repository at that commit built from a different document root, and
+# `CHUG_WEB_SITE` -- the whole of the difference -- is nowhere in the image. So
+# the script refuses the two digests being equal, which is the one form of the
+# mistake it can see, and the build's own record is what says which is which.
+#
+# THE BUILD IS GIVEN ITS REFERENCE RATHER THAN PRODUCING IT.
 # `deploy/rig/images/build-and-import.sh` defaults `CHUG_IMAGE_PREFIX` to
-# `chuggy.invalid` and `CHUG_IMAGE_TAG` to the short commit of a clean tree, so
-# this is the reference this manifest expects that build to be GIVEN -- through
-# both of those variables -- and not one it produces from its defaults.
-#
-# THE EDIT THAT RAISES `replicas` IS THREE EDITS, and the third is the one a
-# reader will not think of. It replaces this tag with the digest that build
-# produced; it adds the `fabric.chuggy.dev/source-commit` annotation the other
-# manifests carry; and it teaches `scripts/check-release-consistency` to read
-# this file. Without the third the first two are exactly the release identity
-# nothing checks that this section is otherwise avoiding -- that script reads an
-# enumerated tuple of manifest names plus one `WEB_MANIFEST`, and
-# `tests/release-images.nix` drives only that, so taking this file in is a
-# change to the script rather than a name appended to a list.
+# `chuggy.invalid` and `CHUG_IMAGE_TAG` to the short commit of a clean tree --
+# and that short commit is the OTHER console's tag on the same release, because
+# one repository at one commit builds both. So this image is built with both
+# variables set: the prefix this cluster resolves, and `chuggy-ui`, a tag that
+# names the document root where the default names the commit.
 #
 # --------------------------------------------------------- the runtime config ----
 #
@@ -131,13 +112,11 @@ kind: Deployment
 metadata:
   name: chuggy-ui
   namespace: chuggy
+  annotations:
+    fabric.chuggy.dev/source-commit: 6911fe1
   labels: { app: chuggy-ui }
 spec:
-  # ZERO BECAUSE THE IMAGE IS NOT BUILT. kasofsk/chuggy#320 is what puts
-  # `ui/chuggy-ui/dist` in the tree; a `web` image built from it and imported
-  # under the tag below is what this number waits for. Raising it to 1 is one
-  # edit with three parts, and the header states them where it argues the tag.
-  replicas: 0
+  replicas: 1
   selector:
     matchLabels: { app: chuggy-ui }
   template:
@@ -158,7 +137,7 @@ spec:
         runAsGroup: 101
       containers:
         - name: web
-          image: registry.chuggy.internal/chuggy/web:chuggy-ui
+          image: registry.chuggy.internal/chuggy/web@sha256:3c5706b3184e690d2d77e60b405ae09c43e394e3cf0c16c9caa1ee630ad1eb6d
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -239,10 +218,6 @@ spec:
               service:
                 name: chuggy-api
                 port: { number: 3000 }
-          # WITH `replicas: 0` ABOVE THIS SERVICE HAS NO ENDPOINT, so Traefik
-          # answers this rule 503 until the image exists. That is the intended
-          # reading of a console that has not been built: the host resolves, the
-          # API answers under it, and `/` says there is nothing to serve.
           - path: /
             pathType: Prefix
             backend:

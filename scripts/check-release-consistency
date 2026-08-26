@@ -16,7 +16,7 @@ API_MANIFESTS = (
     "chuggy-ticket-service.yaml",
     "chuggy-worker-plane.yaml",
 )
-WEB_MANIFEST = "chuggy-web.yaml"
+WEB_MANIFESTS = ("chuggy-web.yaml", "chuggy-ui.yaml")
 DIGEST = r"sha256:[0-9a-f]{64}"
 SOURCE_COMMIT = r"[0-9a-f]{7,40}"
 
@@ -56,9 +56,16 @@ def main():
     if len(api_digests) != 1:
         refuse("control-plane manifests do not select one API image digest")
 
-    _, web_source_commit = manifest_values(directory / WEB_MANIFEST, "web")
+    web_values = [manifest_values(directory / name, "web") for name in WEB_MANIFESTS]
+    # One repository at one commit builds both consoles, and what separates them
+    # -- the document root the build was pointed at -- is nowhere in the image.
+    # Equal digests are the one form of that mistake a manifest can be read for.
+    web_digests = {digest for digest, _ in web_values}
+    if len(web_digests) != len(WEB_MANIFESTS):
+        refuse("console manifests select one web image digest for both consoles")
+
     source_commits = {source_commit for _, source_commit in api_values}
-    source_commits.add(web_source_commit)
+    source_commits.update(source_commit for _, source_commit in web_values)
     if len(source_commits) != 1:
         refuse("release manifests do not identify one source commit")
 
