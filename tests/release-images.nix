@@ -32,6 +32,28 @@ pkgs.runCommand "chuggy-release-images" {
   fi
   grep -F 'release manifests do not identify one source commit' mixed-source-error
 
+  cp -R manifests mixed-console-source
+  sed -i '0,/source-commit:/s/source-commit: .*/source-commit: abcdef0/' \
+    mixed-console-source/chuggy-ui.yaml
+  if run_check mixed-console-source 2>mixed-console-source-error; then
+    echo "accepted a second console at another source commit" >&2
+    exit 1
+  fi
+  grep -F 'release manifests do not identify one source commit' mixed-console-source-error
+
+  cp -R manifests shared-console-digest
+  shared=sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  for console in chuggy-web chuggy-ui; do
+    sed -i "0,/chuggy\/web@sha256:/s|chuggy/web@sha256:[0-9a-f]*|chuggy/web@$shared|" \
+      "shared-console-digest/$console.yaml"
+  done
+  if run_check shared-console-digest 2>shared-console-digest-error; then
+    echo "accepted one web image digest serving both consoles" >&2
+    exit 1
+  fi
+  grep -F 'console manifests select one web image digest for both consoles' \
+    shared-console-digest-error
+
   cp -R manifests stale-migration
   sed -i '0,/name: chuggy-migrate-/s/name: chuggy-migrate-[a-z0-9-]*/name: chuggy-migrate-abcdef0-registry/' \
     stale-migration/chuggy-migrate.yaml
