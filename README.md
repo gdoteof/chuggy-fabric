@@ -24,6 +24,7 @@ only by their own directory.
 
     modules/chuggy-state.nix        retained host directories, chuggy.state.*
     modules/chuggy-secrets.nix      generated credentials, chuggy.secrets.*
+    modules/github-app-token.nix    rotating repository credentials, chuggy.githubAppTokens.*
     modules/chuggy-images.nix       bootstrap image delivery, chuggy.images.*
     modules/chuggy-work.nix         what one task may cost, chuggy.work.*
     modules/mini-chuggy.nix         complete co-located single-node role
@@ -389,6 +390,26 @@ is the only status the unit refuses to restart after, so a transient error on
 first boot is retried rather than left as a permanently failed unit with a
 Secret the cluster never received. `modules/chuggy-secrets.nix` carries the
 whole map in one place.
+
+### Staged GitHub App credentials
+
+`chuggy.githubAppTokens` mints repository-scoped installation tokens into
+managed Kubernetes Secrets. Gtr stages three independent authorities: a
+read-only source credential, a Worker App credential for ticket branches, and
+a Portal App credential reserved for finalization. Their private keys remain
+root-only host state outside this repository and the Nix store.
+
+The module is preparation only. No workload consumes these Secrets and the
+internal repository remains authoritative until a later cutover changes the
+manifests. After switching the host configuration, verify all refreshers and
+Secrets without changing a running workload:
+
+    systemctl is-active chuggy-github-app-token-reader-refresh
+    systemctl is-active chuggy-github-app-token-finalizer-refresh
+    systemctl is-active chuggy-github-app-token-worker-refresh
+    kubectl -n chuggy get secret chuggy-github-reader-token
+    kubectl -n chuggy get secret chuggy-github-finalizer-token
+    kubectl -n chuggy-work get secret chuggy-github-worker-token
 
 **`chuggy-pg-role-env` is on `PATH` only after a `nixos-rebuild switch` carrying
 this module.** Before that switch it is in the built system and not on the box's

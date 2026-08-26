@@ -173,4 +173,37 @@
     repositoryUrl = "https://github.com/gdoteof/chuggy-fabric.git";
     branch = "main";
   };
+
+  chuggy.githubAppTokens = {
+    enable = true;
+    tokens = {
+      finalizer = {
+        appId = "4708055";
+        installationId = "156333284";
+        repository = "chuggy";
+        permission = "write";
+        privateKeyFile = "/var/lib/chuggy/secrets/github-app/chuggy-portal.pem";
+        secretName = "chuggy-github-finalizer-token";
+        namespaces = [ "chuggy" ];
+      };
+      reader = {
+        appId = "4708055";
+        installationId = "156333284";
+        repository = "chuggy";
+        permission = "read";
+        privateKeyFile = "/var/lib/chuggy/secrets/github-app/chuggy-portal.pem";
+        secretName = "chuggy-github-reader-token";
+        namespaces = [ "chuggy" ];
+      };
+      worker = {
+        appId = "4728465";
+        installationId = "156786211";
+        repository = "chuggy";
+        permission = "write";
+        privateKeyFile = "/var/lib/chuggy/secrets/github-app/chuggy-worker.pem";
+        secretName = "chuggy-github-worker-token";
+        namespaces = [ "chuggy-work" ];
+      };
+    };
+  };
 }
