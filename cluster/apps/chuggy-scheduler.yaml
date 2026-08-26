@@ -115,7 +115,7 @@ metadata:
   name: chuggy-scheduler
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: 6176cef
+    fabric.chuggy.dev/source-commit: 699ce5d
   labels: { app: chuggy-scheduler }
 spec:
   replicas: 1
