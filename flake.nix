@@ -118,6 +118,7 @@
       imagePromotion = import ./tests/image-promotion.nix { inherit pkgs; };
       configurationImporter = import ./tests/configuration-importer.nix { inherit pkgs; };
       developmentWorker = import ./tests/development-worker.nix { inherit pkgs; };
+      githubRepositoryTransition = import ./tests/github-repository-transition.nix { inherit pkgs; };
       githubAppToken = import ./tests/github-app-token.nix { inherit pkgs; };
     in
     {
@@ -156,6 +157,7 @@
         example = self.nixosConfigurations.example.config.system.build.toplevel;
         mini-example = self.nixosConfigurations.mini-example.config.system.build.toplevel;
         development-worker = developmentWorker;
+        github-repository-transition = githubRepositoryTransition;
         github-app-token = githubAppToken;
 
         # D30 and D14 in a form a check can hold: an enabled host that has not
