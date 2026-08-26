@@ -142,6 +142,10 @@
       "auth.vteng.io"
       "id.vteng.io"
       "chuggy.vteng.io"
+      # Galène's page and WebSocket only. The call itself is UDP to this box's
+      # LAN and mesh addresses, which the tunnel cannot carry and does not
+      # need to -- cluster/apps/meet.yaml has the two paths.
+      "meet.vteng.io"
     ];
   };
 
