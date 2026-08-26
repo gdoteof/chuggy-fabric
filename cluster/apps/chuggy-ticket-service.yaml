@@ -124,7 +124,7 @@ metadata:
   name: chuggy-ticket-service
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: 6e9f89e
+    fabric.chuggy.dev/source-commit: 295c9e2
   labels: { app: chuggy-ticket-service }
 spec:
   replicas: 1
@@ -158,7 +158,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: ticket-service
-          image: registry.chuggy.internal/chuggy/api@sha256:e6fff9eca81979523f1deecfd4f1fdc7b1be4a30c22b13114c6c22185c93ceb3
+          image: registry.chuggy.internal/chuggy/api@sha256:44183e6da4a4c1ce7c93df39783b758a80496262e5de1f407a9de36f56778e64
           imagePullPolicy: IfNotPresent
           command:
             [
