@@ -22,7 +22,7 @@ pkgs.runCommand "chuggy-development-worker" {
   grep -F '"secretName": "chuggy-github-worker-token"' "$scheduler" >/dev/null
   grep -F '\"credential\":\"chuggy-github-worker\"' "$scheduler" >/dev/null
   grep -F '\"username\":\"x-access-token\"' "$scheduler" >/dev/null
-  grep -F 'chuggy.invalid/worker:db9fac13' "$scheduler" >/dev/null
+  grep -F 'registry.chuggy.internal/chuggy/worker@sha256:9949c44297be92b3a49d11c3982b897730e4e283031f1b8b21b285e0ca04dbbe' "$scheduler" >/dev/null
   grep -F '"credentials": ["chuggy-git-worker", "chuggy-github-worker", "claude-code"]' "$scheduler" >/dev/null
   grep -F '"secretName": "claude-code"' "$scheduler" >/dev/null
   grep -F '"CHUG_WORKER_WORKSPACE": "/workspace"' "$scheduler" >/dev/null

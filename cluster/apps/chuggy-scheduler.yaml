@@ -241,7 +241,7 @@ spec:
                   "registry.chuggy.internal/chuggy/worker@sha256:49cc3c3d713e4b40341f68dfb83e1bf1acabb6d5986e1f1786ea5706afe0690f",
                   "registry.chuggy.internal/chuggy/worker@sha256:beb6ed311a398723fc33c47269077a3c55fcac51627f65db5d82932f6183fc38",
                   "registry.chuggy.internal/chuggy/worker@sha256:c50b3333142063e90c6d7d6143119bcf1dd9b138e8aa740b831dc48699896e1f",
-                  "chuggy.invalid/worker:db9fac13"
+                  "registry.chuggy.internal/chuggy/worker@sha256:9949c44297be92b3a49d11c3982b897730e4e283031f1b8b21b285e0ca04dbbe"
                 ]
             # PR 5's, provisional. D30 says the adopting machine must supply
             # these and that the shared module provides no guessed defaults;
