@@ -105,6 +105,15 @@ pkgs.testers.runNixOSTest {
         secretName = "chuggy-github-worker-token";
         namespaces = [ "chuggy" "chuggy-work" ];
       };
+      tokens.reader = {
+        appId = "4708055";
+        installationId = "156333284";
+        repository = "chuggy";
+        permission = "read";
+        privateKeyFile = "${testKey}";
+        secretName = "chuggy-github-reader-token";
+        namespaces = [ "chuggy" ];
+      };
     };
     environment.etc."rancher/k3s/k3s.yaml".text = "stub kubeconfig\n";
     systemd.tmpfiles.rules = [
@@ -119,6 +128,7 @@ pkgs.testers.runNixOSTest {
 
     service = "chuggy-github-app-token-worker-refresh.service"
     timer = "chuggy-github-app-token-worker-refresh.timer"
+    reader_service = "chuggy-github-app-token-reader-refresh.service"
     secret = "chuggy-github-worker-token.json"
 
     def object_in(namespace):
@@ -136,6 +146,7 @@ pkgs.testers.runNixOSTest {
         assert machine.succeed("systemctl show -p RestartUSec --value " + service).strip() == "1s"
         assert machine.succeed("systemctl show -p StartLimitBurst --value " + service).strip() == "6"
         assert machine.succeed("systemctl show -p Persistent --value " + timer).strip() == "yes"
+        assert machine.succeed("systemctl show -p LoadState --value " + reader_service).strip() == "loaded"
 
     with subtest("a first refresh creates labelled Secrets in every namespace"):
         machine.succeed("systemctl start " + service)
