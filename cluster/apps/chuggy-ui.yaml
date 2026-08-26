@@ -1,0 +1,251 @@
+# The realtime console, and the Ingress for the host it owns.
+#
+# The same image as chuggy-web -- nginx over a directory of static files, no
+# build step in the container, no server side -- built from a different document
+# root. `deploy/rig/images/build-and-import.sh` in kasofsk/chuggy builds
+# `images/web` with `CHUG_WEB_SITE=ui/chuggy-ui/dist`, so what separates the two
+# consoles is the directory that went into the image and the `/config.json`
+# mounted beside it. Everything chuggy-web.yaml argues about that image -- the
+# `alias` that serves `/config.json` from outside the document root, the
+# security headers travelling with the document rather than with the Ingress,
+# `/tmp` as the only writable path -- is true here and is not repeated.
+#
+# --------------------------------------------------- why a host of its own ----
+#
+# chuggy-web.yaml's one-origin argument is about a console and the API it reads,
+# not about two consoles. It says each console must reach `/api/v1` on the
+# hostname the browser loaded it from, and this Ingress does exactly that. What
+# it does not say is that the two consoles share a name: they both want `/`, and
+# putting the second under `chuggy.vteng.io/ui/` would mean an image serving
+# from a sub-path, a router doing the same, and a redirect URI underneath it.
+# A second name is the cheaper of the two, and it keeps the old console's
+# origin -- and therefore its registered client -- untouched.
+#
+# ------------------------------------------------- this runs no replica yet ----
+#
+# THE IMAGE BELOW DOES NOT EXIST. kasofsk/chuggy#320 is what builds
+# `ui/chuggy-ui/`, and until it lands there is no `dist` to put in a web image
+# and nothing to serve. A replica would be a pod in ImagePullBackOff restating
+# that every backoff interval, and one more red pod for a real one to hide
+# behind. `replicas: 0` says the same thing once, where the number is.
+#
+# Everything else here stays declared, because none of it is wrong: the host,
+# the split, the config and the client registration are true of the console the
+# moment its image is on the node, and landing them now is what lets the image
+# be the only thing missing.
+#
+# A Deployment asked for no replicas also passes the `wait: true` health check
+# over this directory, for the reason chuggy-selector.yaml states in full.
+#
+# ----------------------------------------------------------- the reference ----
+#
+# A TAG, WHERE EVERY OTHER WORKLOAD HERE CARRIES A DIGEST, and that is not a
+# relaxation of the release identity -- it is the absence of one. There is no
+# digest to name until the first build exists, and a digest invented now would
+# be a release this repository claims and nobody can pull.
+#
+# IT IS NOT WHAT THE DOCUMENTED BUILD ARRIVES AT ON ITS OWN, either.
+# `deploy/rig/images/build-and-import.sh` defaults `CHUG_IMAGE_PREFIX` to
+# `chuggy.invalid` and `CHUG_IMAGE_TAG` to the short commit of a clean tree, so
+# this is the reference this manifest expects that build to be GIVEN -- through
+# both of those variables -- and not one it produces from its defaults.
+#
+# THE EDIT THAT RAISES `replicas` IS THREE EDITS, and the third is the one a
+# reader will not think of. It replaces this tag with the digest that build
+# produced; it adds the `fabric.chuggy.dev/source-commit` annotation the other
+# manifests carry; and it teaches `scripts/check-release-consistency` to read
+# this file. Without the third the first two are exactly the release identity
+# nothing checks that this section is otherwise avoiding -- that script reads an
+# enumerated tuple of manifest names plus one `WEB_MANIFEST`, and
+# `tests/release-images.nix` drives only that, so taking this file in is a
+# change to the script rather than a name appended to a list.
+#
+# --------------------------------------------------------- the runtime config ----
+#
+# The console reads `/config.json` at start-up; the ConfigMap below is what
+# tells this image which installation it is. Every value in it is public by
+# construction and `chuggy-ui` is a public client, exactly as chuggy-web is.
+#
+# `audience` NAMES THE API AND NOT THIS HOST, which is why it is
+# `https://chuggy.vteng.io/api` on a console served from chuggy-ui.vteng.io.
+# The API takes `CHUG_API_OIDC_AUDIENCE` as one required string -- see
+# `oidcAudienceVariable` in kasofsk/chuggy's `src/roots/nativeHttp.ts` -- so
+# there is one audience for one API, and a console that asked for its own
+# hostname would be issued a token that verifies perfectly and is refused by
+# every read. Changing the API's value to this host's name would do the same to
+# chuggy-web.
+#
+# `offline_access` is what makes the session survive a reload: without it Hydra
+# issues no refresh token and the console is signed out fifteen minutes later,
+# which is `ttl.access_token` in ory/hydra.yaml.
+#
+# The Hydra client this names is registered on the admin port and not by
+# anything in this directory. ory-hydra.yaml's header is where that mechanism
+# is; `skip_consent` on this client is what removes the consent step, and it is
+# set because the console and the API are one first party.
+#
+# ----------------------------------------------------------- the host, three ways ----
+#
+# `chuggy-ui.vteng.io` reaches this cluster only when all three of these are
+# true, and each is in a different place:
+#
+#   1. this Ingress, so Traefik has a router for the Host header;
+#   2. `chuggy.tunnel.hostnames` in hosts/gtr/default.nix, so cloudflared
+#      forwards it rather than answering the 404 its `default` rule gives every
+#      name it does not know -- and that one needs a `nixos-rebuild switch` on
+#      the node before it is true of the running system;
+#   3. a CNAME to the tunnel, which `cloudflared tunnel route dns` creates.
+#
+# Single-label, for the reason ory-hydra.yaml's Ingress gives: Cloudflare's
+# Universal SSL covers `vteng.io` and one level of `*.vteng.io`, so
+# `ui.chuggy.vteng.io` would be a certificate this zone does not have. No `tls:`
+# block, because TLS terminates at Cloudflare and Traefik is reached over plain
+# HTTP.
+#
+# ------------------------------------------------- the network policy posture ----
+#
+# NONE, AND THAT MATCHES chuggy-web. No policy in this directory selects either
+# console in either direction, so nothing restricts what may reach this pod or
+# where it may go. That is the state chuggy-control-plane-network-policy.yaml
+# leaves the first console in and the state this one starts in; bounding both is
+# one change and it is not this one. A policy written for this console alone
+# would be the same posture described two different ways.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chuggy-ui-config
+  namespace: chuggy
+data:
+  config.json: |
+    {
+      "issuer": "https://auth.vteng.io",
+      "clientId": "chuggy-ui",
+      "audience": "https://chuggy.vteng.io/api",
+      "redirectUri": "https://chuggy-ui.vteng.io/auth/callback",
+      "scopes": ["openid", "offline_access"]
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chuggy-ui
+  namespace: chuggy
+  labels: { app: chuggy-ui }
+spec:
+  # ZERO BECAUSE THE IMAGE IS NOT BUILT. kasofsk/chuggy#320 is what puts
+  # `ui/chuggy-ui/dist` in the tree; a `web` image built from it and imported
+  # under the tag below is what this number waits for. Raising it to 1 is one
+  # edit with three parts, and the header states them where it argues the tag.
+  replicas: 0
+  selector:
+    matchLabels: { app: chuggy-ui }
+  template:
+    metadata:
+      # No postgres-client label, for chuggy-web.yaml's reason: this holds no
+      # database role and reaches PostgreSQL through nothing.
+      labels: { app: chuggy-ui }
+    spec:
+      # An nginx over a directory of files calls no Kubernetes API, so the token
+      # the kubelet would mount here is a cluster credential on the disk of a
+      # pod the internet can reach. Nothing reads it; refusing it costs nothing.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # Numeric for the reason chuggy-api.yaml gives. 101 is this image's
+        # `nginx` user.
+        runAsUser: 101
+        runAsGroup: 101
+      containers:
+        - name: web
+          image: registry.chuggy.internal/chuggy/web:chuggy-ui
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            # nginx writes its pid and every temporary path under /tmp, and the
+            # root filesystem below refuses writes. Without this the master
+            # process cannot start and the container never listens.
+            - name: tmp
+              mountPath: /tmp
+            - name: config
+              mountPath: /etc/chuggy/web
+              readOnly: true
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          # /healthz belongs to the image and reports the server rather than the
+          # site, so liveness and readiness are the same path: this server has no
+          # upstream, no database and no warm-up.
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile: { type: RuntimeDefault }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: config
+          configMap: { name: chuggy-ui-config }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chuggy-ui
+  namespace: chuggy
+  labels: { app: chuggy-ui }
+spec:
+  selector: { app: chuggy-ui }
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chuggy-ui
+  namespace: chuggy
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: chuggy-ui.vteng.io
+      http:
+        paths:
+          # Unrewritten, and the same backend `chuggy` names on the other host:
+          # one API, reached on whichever origin the browser loaded a console
+          # from. Traefik orders rules by the length of the matcher it builds,
+          # so this wins over `/` without anything here saying so.
+          #
+          # `/api/v1/tenants/:tenant/projects/:project/events` is under this
+          # prefix, so the stream needs no rule of its own. What it does need is
+          # a heartbeat, and chuggy-api.yaml carries the measured timeout that
+          # bounds it.
+          - path: /api/v1
+            pathType: Prefix
+            backend:
+              service:
+                name: chuggy-api
+                port: { number: 3000 }
+          # WITH `replicas: 0` ABOVE THIS SERVICE HAS NO ENDPOINT, so Traefik
+          # answers this rule 503 until the image exists. That is the intended
+          # reading of a console that has not been built: the host resolves, the
+          # API answers under it, and `/` says there is nothing to serve.
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: chuggy-ui
+                port: { number: 8080 }

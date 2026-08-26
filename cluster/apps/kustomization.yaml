@@ -31,7 +31,8 @@
 # NOT EVERY ConfigMap IS GENERATED. `chuggy-web-config` stays a plain object in
 # chuggy-web.yaml, because that file argues that nginx re-reads it per request
 # and the console picks up a change on the next page load. Hashing it would roll
-# the console for a change it does not need a rollout for.
+# the console for a change it does not need a rollout for. `chuggy-ui-config` in
+# chuggy-ui.yaml is the same image and the same argument.
 #
 # `loki-datasource` in logging.yaml stays plain for a different reason: nothing
 # mounts it. Grafana's sidecar watches it by LABEL, so a hashed name would be a
@@ -55,6 +56,7 @@ resources:
   - chuggy-selector.yaml
   - chuggy-storage.yaml
   - chuggy-ticket-service.yaml
+  - chuggy-ui.yaml
   - chuggy-worker-plane.yaml
   - chuggy-work.yaml
   - chuggy-web.yaml

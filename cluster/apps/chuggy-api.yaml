@@ -314,6 +314,50 @@ spec:
             # connect.
             - name: CHUG_API_HOST
               value: 0.0.0.0
+            # ------------------------------------------- the /events stream ----
+            #
+            # THE PUBLIC PATH CLOSES AN IDLE RESPONSE AFTER 125 SECONDS, AND THE
+            # HOP THAT CLOSES IT IS CLOUDFLARE'S EDGE. Measured 2026-08-26 with
+            # an SSE responder behind this cluster's Traefik and this node's
+            # tunnel, sending one event and then nothing: five runs -- four from
+            # the node, one from a LAN client -- were each closed with an HTTP/2
+            # INTERNAL_ERROR, all five within a fifth of a second of each other.
+            # The same responder read directly on its pod address, and through
+            # Traefik with the Host header, was still open when the client gave
+            # up at 400 seconds. So the bound is not Traefik's
+            # `respondingTimeouts` and not cloudflared's forwarding timeouts:
+            # neither is configured on this node, both were measured past the
+            # number that matters, and no middleware, IngressRoute or
+            # ServersTransport is what keeps a stream alive here. There are none
+            # of any of those three on this cluster.
+            #
+            # NOTHING ON THE PATH BUFFERS `text/event-stream`. The same
+            # responder emitting every 20 seconds was read at the far end within
+            # milliseconds of each write, through the edge and through Traefik.
+            #
+            # RE-MEASURE RATHER THAN TRUST THE NUMBER: it is Cloudflare's, this
+            # repository does not set it, and it can therefore change without a
+            # commit here. What establishes it is an SSE responder on a
+            # tunnelled host that sends one event and then goes silent, timed
+            # until the client sees the close.
+            #
+            # THE HEARTBEAT AND THE TWO STREAM LIMITS BELONG HERE AND ARE NOT
+            # SET YET. kasofsk/chuggy#318 fixes `CHUG_API_STREAM_CONNECTIONS_MAX`
+            # and `CHUG_API_STREAM_MAX_AGE_MS`; it has not fixed the name of the
+            # heartbeat interval, so this is the place the three of them go
+            # rather than a guess at what the third is called. The image above
+            # does not read any of them. Whatever the heartbeat is called, its
+            # value has to sit under 125 seconds by enough that one missed
+            # interval does not reach it -- intervals of 20 and of 60 seconds
+            # were both measured holding a stream open well past the close, and
+            # a value at or near the bound would make every hiccup an outage.
+            #
+            # ONE REPLICA IS WHY NOTHING PROVES ANYTHING ACROSS REPLICAS. Every
+            # stream is served by the process holding the one change-log
+            # listener, so a browser's events and the sequence they carry come
+            # from one cursor. At two replicas that stops being true and no
+            # proof anywhere says what happens instead; the gap is named here so
+            # that raising `replicas` above is not how it gets discovered.
           volumeMounts:
             - name: artifacts
               mountPath: /var/lib/chuggy/artifacts
