@@ -167,4 +167,13 @@
     repositoryUrl = "https://github.com/gdoteof/chuggy-fabric.git";
     branch = "main";
   };
+
+  chuggy.githubAppToken = {
+    enable = true;
+    appId = "4708055";
+    installationId = "156333284";
+    repository = "chuggy";
+    privateKeyFile = "/var/lib/chuggy/secrets/github-app/chuggy-portal.pem";
+    namespaces = [ "chuggy" "chuggy-work" ];
+  };
 }

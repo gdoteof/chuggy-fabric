@@ -24,6 +24,7 @@ only by their own directory.
 
     modules/chuggy-state.nix        retained host directories, chuggy.state.*
     modules/chuggy-secrets.nix      generated credentials, chuggy.secrets.*
+    modules/github-app-token.nix    rotating repository credential, chuggy.githubAppToken.*
     modules/chuggy-images.nix       bootstrap image delivery, chuggy.images.*
     modules/chuggy-work.nix         what one task may cost, chuggy.work.*
     modules/mini-chuggy.nix         complete co-located single-node role
@@ -389,6 +390,31 @@ is the only status the unit refuses to restart after, so a transient error on
 first boot is retried rather than left as a permanently failed unit with a
 Secret the cluster never received. `modules/chuggy-secrets.nix` carries the
 whole map in one place.
+
+### GitHub App repository credential
+
+The Chuggy source repository is GitHub, not the host-local Git service. App
+`4708055`, installation `156333284`, supplies a repository-scoped installation
+token with `contents: write`; `chuggy-github-app-token-refresh` replaces that
+token in the `chuggy` and `chuggy-work` namespaces every thirty minutes.
+
+The App private key is host state and never enters this repository or the Nix
+store. Install it before switching the host configuration:
+
+    sudo install -d -m 0700 -o root -g root /var/lib/chuggy/secrets/github-app
+    sudo install -m 0600 -o root -g root <private-key.pem> \
+      /var/lib/chuggy/secrets/github-app/chuggy-portal.pem
+
+Then start one refresh and verify both destinations before workloads use it:
+
+    sudo systemctl start chuggy-github-app-token-refresh
+    systemctl is-active chuggy-github-app-token-refresh
+    kubectl -n chuggy get secret chuggy-github-app-token
+    kubectl -n chuggy-work get secret chuggy-github-app-token
+
+The timer is disabled unless `chuggy.githubAppToken.enable` is set. There is no
+internal-to-GitHub repository synchronization job: workers push ticket refs and
+the finalizer advances the authoritative GitHub ref directly.
 
 **`chuggy-pg-role-env` is on `PATH` only after a `nixos-rebuild switch` carrying
 this module.** Before that switch it is in the built system and not on the box's
@@ -1408,9 +1434,8 @@ not after it.
    `CreateContainerConfigError`, a mounted secret gives `ContainerCreating` on a
    `FailedMount`.
 
-   The finalizer's is **not a credential for anywhere outside this cluster**. Its
-   remote is `rig.git` on the rig's own git service, so the value is the operator
-   credential that service already validates, copied rather than minted:
+   This Secret carries only the `rig.git` deployment-handoff credential. The
+   GitHub App token is refreshed separately as described above:
 
    ```sh
    kubectl -n chuggy create secret generic chuggy-finalizer-credentials \
@@ -1418,11 +1443,8 @@ not after it.
        -o jsonpath='{.data.password}' | base64 -d)"
    ```
 
-   That is the one credential the git service's htpasswd admits on
-   `/git-receive-pack`, which is what makes D34 — only the finalizer advances the
-   deployed revision — true here rather than aspirational. An external
-   repository is a later thing and wants D31's short-lived minting, not a static
-   token on a rig.
+   That is the one credential the internal service's htpasswd admits on
+   `/git-receive-pack`. It has no authority over the Chuggy source repository.
 6. **Establish the first recovery epoch**, as a Secret and a row that carry the
    same value. `chuggy-recovery-epoch` is read by both the scheduler and the
    finalizer, and the row is what they fence against; no migration writes it,
@@ -1441,21 +1463,10 @@ not after it.
   answering `/health/ready` 200 and refusing the hand-written token 401 — and
   that one has a seam for a fix. `chuggy-selector.yaml` argues both beside the
   number, and PR 5 is what restores it to one.
-- **The finalizer promotes onto this cluster's own git and nothing external.**
-  Its remote is `rig.git` in `chuggy-git`, and `chuggy-finalizer-egress` admits
-  that one pod on its own 8080 and no longer admits the public internet at all --
-  the URL names the Service's 80, but a `NetworkPolicy` port is the destination
-  pod's. All
-  four of its preconditions are answerable here: `git-available` runs `git
-  --version` and the tag above carries git 2.47.3, checked by running it in a pod
-  rather than read off the Dockerfile; a writable scratch and a writable artifact
-  root are the volumes `chuggy-finalizer.yaml` declares over prerequisite 3's
-  host directory; and `repository-credentials-available` reads prerequisite 5's
-  Secret, which only has to be readable — it is never validated against a remote.
-- **Nothing binds a repository yet, so a healthy finalizer idles.**
-  `finalization_request` is empty, so the credential makes the process ready
-  without making it do anything. Loading an external repository is later work and
-  wants D31's short-lived minting.
+- **The finalizer uses two independent remotes.** Chuggy source changes advance
+  `kasofsk/chuggy` with a short-lived GitHub App token; deployment handoffs still
+  advance `rig.git` with the internal operator credential. The local bare
+  scratch is working state for both and is authoritative for neither.
 - **The scheduler places nothing, and until the tag above it could not start at
   all.** Migrations 12 and 15 were edited after this rig applied them, so
   `execution` here carries none of the five requirement columns the code reads

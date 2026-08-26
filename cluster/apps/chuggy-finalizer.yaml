@@ -14,20 +14,10 @@
 # verified by running `git --version` in a pod on this rig at that tag, not read
 # off the Dockerfile.
 #
-# WHAT IS LEFT IS ONE SECRET, AND IT IS NOT THIS FILE'S TO ANSWER. The fourth
-# precondition is `repository-credentials-available`;
-# `chuggy-finalizer-credentials` is created by hand and is not on this rig, so
-# the kubelet cannot mount the volume, the container is never built, and no
-# precondition is reached at all. `ContainerCreating` on a `FailedMount` is the
-# state `kubectl get pods` shows today.
-#
-# IT IS DEPLOYED AT ONE REPLICA BECAUSE THAT BLOCKER IS REACHABLE, which is also
-# why this is the one object holding `apps` red rather than a zero like the
-# selector's. `composeFinalizerRuntime` orders `git-scratch-writable` and
-# `artifact-root-writable` between the two, and the volumes below answer both --
-# the scratch is an emptyDir, and the artifact root is the host directory the
-# README's prerequisite 3 creates, owned by the uid this pod runs as. So the
-# Secret is the whole of the remaining gap.
+# The fourth precondition is `repository-credentials-available`. The internal
+# handoff credential is provisioned once, while the GitHub credential is a
+# rotating installation token supplied by the host. Both are mounted as files
+# and read for each remote act.
 #
 # THE MODE ON THE CREDENTIAL VOLUME BELOW IS NOW OBSERVABLE, and it was not
 # before: `git-available` used to fail ahead of it, so getting that mode wrong
@@ -98,39 +88,22 @@
 # below refuses writes. Without it git fails on a home directory it cannot use,
 # with a message about configuration rather than about permissions.
 #
-# THE REMOTES ARE THIS CLUSTER'S OWN GIT AND NOT HOSTS ON THE INTERNET. `rig.git`
-# is the tree Flux reconciles this cluster from, and `chuggy.git` is the
-# authoritative development repository for the `vteng/chuggy` project. Nothing
-# here can reach kasofsk/chuggy, and nothing here holds a credential that could
-# write to it.
+# `kasofsk/chuggy` is the authoritative development repository. Its credential
+# is a short-lived installation token refreshed by the host; the full Secret
+# mount lets kubelet replace that token without restarting this process.
+# `rig.git` remains the destination for deployment handoffs and retains its
+# separate internal operator credential.
 #
-# WHY THAT IS THE TARGET RATHER THAN A CONVENIENCE. D34 says only the finalizer
-# may advance the deployed revision, and what enforces it is that no other
-# workload holds a credential which may push. `deploy/rig/git/README.md` in
-# kasofsk/chuggy divides the rig's git credentials into a reader the Flux
-# `GitRepository` uses and an operator break-glass that may push, and nginx
-# validates a push against the writers file on `/git-receive-pack` alone. The
-# finalizer is given the pushing one. Loading an EXTERNAL repository is a later
-# thing and wants the short-lived minting D31 asks for, not a static token in a
-# Secret on a rig.
-#
-# The Secret, out of band, because this repository is public. The value is the
-# operator credential the rig's git service already validates, so it is copied
-# rather than minted:
+# The internal credential is provisioned out of band because this repository is
+# public:
 #
 #   password="$(kubectl -n chuggy-git get secret git-operator \
 #     -o jsonpath='{.data.password}' | base64 -d)"
 #   kubectl -n chuggy create secret generic chuggy-finalizer-credentials \
-#     --from-literal=rig-git="$password" --from-literal=chuggy-git="$password"
+#     --from-literal=rig-git="$password"
 #
-# Each served repository is another key and another entry in the sources below,
-# and nothing structural.
-#
-# THE USERNAME IS PART OF THE CREDENTIAL AND IS NOT A SECRET.
-# `CHUG_FINALIZER_GIT_CREDENTIAL_USERNAME` is `operator`, which is the name the
-# htpasswd writers file carries; the command's default is `chuggy`, which that
-# file does not, so leaving it unset fails authentication rather than falling
-# back to anything.
+# `operator` is required by the internal service and is also accepted by GitHub,
+# which authenticates the installation token supplied as the password.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -231,8 +204,8 @@ spec:
                     "path": "/var/run/chuggy/credentials/rig-git"
                   },
                   {
-                    "repository": "http://git.chuggy-git.svc.cluster.local./chuggy.git",
-                    "path": "/var/run/chuggy/credentials/chuggy-git"
+                    "repository": "https://github.com/kasofsk/chuggy.git",
+                    "path": "/var/run/chuggy/github-app/token"
                   }
                 ]
             # git writes into HOME, and the root filesystem below refuses
@@ -262,6 +235,9 @@ spec:
               mountPath: /var/lib/chuggy/git
             - name: credentials
               mountPath: /var/run/chuggy/credentials
+              readOnly: true
+            - name: github-app-token
+              mountPath: /var/run/chuggy/github-app
               readOnly: true
           resources:
             # More than the other loops: a promotion forks git, which clones a
@@ -312,4 +288,8 @@ spec:
             # performance one. It is that an fsGroup restates the ownership the
             # machine layer declares -- see the pod securityContext above -- to
             # remove a world bit from one file in a pod with one uid in it.
+            defaultMode: 0444
+        - name: github-app-token
+          secret:
+            secretName: chuggy-github-app-token
             defaultMode: 0444

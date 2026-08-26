@@ -18,13 +18,14 @@ pkgs.runCommand "chuggy-development-worker" {
   grep -F 'CHUG_SCHEDULER_WORKER_DEADLINE_SECS' "$scheduler" >/dev/null
   grep -F '"attemptLeaseSecs":300' "$scheduler" >/dev/null
   grep -F 'CHUG_WORKER_PLANE_HEARTBEAT_LEASE_SECS' "$worker_plane" >/dev/null
-  grep -F '"secretName": "chuggy-git-worker"' "$scheduler" >/dev/null
+  grep -F '"secretName": "chuggy-github-app-token"' "$scheduler" >/dev/null
   grep -F '"secretName": "claude-code"' "$scheduler" >/dev/null
   grep -F '"CHUG_WORKER_WORKSPACE": "/workspace"' "$scheduler" >/dev/null
   grep -F '"ephemeralStorageLimit": "20Gi"' "$scheduler" >/dev/null
   grep -F '"fsGroup":1000' "$scheduler" >/dev/null
   grep -F '"mayCompleteTask": false' "$scheduler" >/dev/null
-  grep -F 'kubernetes.io/metadata.name: chuggy-git' "$network" >/dev/null
+  grep -F 'https://github.com/kasofsk/chuggy.git' "$scheduler" >/dev/null
+  test "$(grep -Fc 'kubernetes.io/metadata.name: chuggy-git' "$network" || true)" -eq 0
   grep -F '{ protocol: TCP, port: 443 }' "$network" >/dev/null
   touch "$out"
 ''

@@ -29,6 +29,7 @@
         ./modules/k3s-server.nix
         ./modules/chuggy-state.nix
         ./modules/chuggy-secrets.nix
+        ./modules/github-app-token.nix
         ./modules/chuggy-images.nix
         ./modules/chuggy-work.nix
         ./modules/build-provenance.nix
@@ -117,6 +118,7 @@
       imagePromotion = import ./tests/image-promotion.nix { inherit pkgs; };
       configurationImporter = import ./tests/configuration-importer.nix { inherit pkgs; };
       developmentWorker = import ./tests/development-worker.nix { inherit pkgs; };
+      githubAppToken = import ./tests/github-app-token.nix { inherit pkgs; };
     in
     {
       nixosConfigurations = {
@@ -154,6 +156,7 @@
         example = self.nixosConfigurations.example.config.system.build.toplevel;
         mini-example = self.nixosConfigurations.mini-example.config.system.build.toplevel;
         development-worker = developmentWorker;
+        github-app-token = githubAppToken;
 
         # D30 and D14 in a form a check can hold: an enabled host that has not
         # said what a task may cost, or who may reach its API, is refused rather

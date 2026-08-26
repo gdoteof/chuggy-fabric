@@ -195,8 +195,8 @@ spec:
               value: |
                 {
                   "chuggy-git-worker": {
-                    "secretName": "chuggy-git-worker",
-                    "key": "password",
+                    "secretName": "chuggy-github-app-token",
+                    "key": "token",
                     "mountPath": "/var/run/chuggy/credentials/chuggy-git-worker"
                   },
                   "claude-code": {
@@ -208,7 +208,7 @@ spec:
             - name: CHUG_SCHEDULER_WORKER_ENVIRONMENT
               value: |
                 {
-                  "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\"}",
+                  "CHUG_WORKER_REPOSITORIES": "{\"https://github.com/kasofsk/chuggy.git\":\"https://github.com/kasofsk/chuggy.git\"}",
                   "CHUG_WORKER_WORKSPACE": "/workspace"
                 }
             - name: CHUG_SCHEDULER_WORKER_LABELS

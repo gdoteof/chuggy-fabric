@@ -113,11 +113,9 @@
 # finalizer mounts the same claim writable, and that asymmetry is the whole
 # division of labour between the two.
 #
-# Repository configuration imports use a separate empty Git scratch and the
-# read-only `chuggy-git-sync` Secret. That Secret is host-local and copies the
-# password from `chuggy-git/git-sync`; the Git service also admits the adapter's
-# fixed `chuggy` username as a reader. No repository credential belongs in this
-# public tree.
+# Repository configuration imports use a separate empty Git scratch and a
+# read-only GitHub App installation token refreshed by the host. No repository
+# credential belongs in this public tree.
 #
 # THE PV PINS THIS POD. Its node affinity is `chuggy.dev/durable=true`, so this
 # Deployment is now schedulable on the durable node alone -- which it already
@@ -303,8 +301,8 @@ spec:
               value: |
                 [
                   {
-                    "repository": "http://git.chuggy-git.svc.cluster.local./chuggy.git",
-                    "path": "/var/run/chuggy/repository-credentials/chuggy-git"
+                    "repository": "https://github.com/kasofsk/chuggy.git",
+                    "path": "/var/run/chuggy/repository-credentials/github-app-token"
                   }
                 ]
             # The image already sets this. Repeated because the source default
@@ -381,11 +379,11 @@ spec:
           emptyDir: {}
         - name: repository-credentials
           secret:
-            secretName: chuggy-git-sync
+            secretName: chuggy-github-app-token
             defaultMode: 0444
             items:
-              - key: password
-                path: chuggy-git
+              - key: token
+                path: github-app-token
 ---
 apiVersion: v1
 kind: Service
