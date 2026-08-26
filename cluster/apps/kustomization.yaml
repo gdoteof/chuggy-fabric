@@ -60,6 +60,7 @@ resources:
   - chuggy-web.yaml
   - dev2-access.yaml
   - logging.yaml
+  - meet.yaml
   - monitoring.yaml
   - ory-hydra.yaml
   - ory-kratos.yaml

@@ -1,0 +1,366 @@
+# Voice, video and screen sharing for the people who run this cluster, without
+# a third party in the call: Galène, a small SFU, at https://meet.vteng.io.
+#
+# THE SIGNALLING AND THE MEDIA TAKE DIFFERENT PATHS, and that is the whole
+# shape of this file.
+#
+# The web page and its WebSocket go the way every other app here does:
+#
+#   browser -> Cloudflare edge -> tunnel -> Traefik -> Service meet -> pod:8443
+#
+# The media cannot. WebRTC is UDP, and the tunnel carries HTTP only. Nor can
+# the pod be reached directly: a browser is handed the addresses the SFU
+# gathered, and a pod's address is 10.42.x.x, which nothing outside the box
+# routes to. The usual fix -- tell the SFU its public address -- does not fit
+# either, because there are two of them. geoff reaches this box at
+# 192.168.0.114 over the house LAN; dev2 reaches it at 10.100.0.1 over the
+# WireGuard mesh; and Galène's built-in TURN advertises exactly one address.
+#
+# So a TURN relay (coturn) sits beside Galène in the same pod, and a
+# LoadBalancer Service puts its port on the node. k3s's ServiceLB implements
+# that as a hostPort, and a hostPort is a DNAT rule that matches ANY local
+# destination address -- the same rule already carries Traefik's :80 for the
+# tunnel. That one rule is what makes 192.168.0.114:3478 and 10.100.0.1:3478
+# both land on coturn, and the browser is given both; ICE tries each and keeps
+# the one that answers.
+#
+#   browser -> <a node address>:3478 -> svclb -> coturn -> relay -> Galène
+#
+# Relay and SFU share a network namespace, so the leg from coturn to Galène is
+# a local delivery that never touches the CNI. Everything a call carries is
+# relayed, which on one box costs nothing measurable.
+#
+# WHAT THIS DOES NOT OPEN. No router port-forward and no host firewall rule:
+# hostPort traffic is DNAT'd before the INPUT chain and forwarded to the pod,
+# which is how :80 has always reached Traefik, and the box's public address has
+# no 3478 forwarded to it. The relay is reachable from the LAN and the mesh
+# and from nowhere else -- the same reach as the Kubernetes API, and for the
+# same reason. The tunnel's HTTPS is what the internet sees.
+#
+# A relay is an open proxy unless told otherwise, so coturn is told: every
+# peer address is denied except the pod's own, which is where Galène is.
+# The NetworkPolicy at the bottom says the same thing from outside the pod,
+# and adds that nothing in this pod initiates a connection to anything.
+#
+# THE NAMESPACE IS `restricted`, which this pod meets: two non-root
+# containers, no capabilities, read-only roots, RuntimeDefault seccomp. It is
+# deliberately not the hostNetwork shape, which would have let Galène gather
+# every host address itself and skipped the relay -- at the price of a pod
+# whose traffic carries the node address ahead of every NetworkPolicy in this
+# tree. dev2-access.yaml and ory-namespace.yaml argue why that is the one
+# thing a workload here may not have.
+#
+# CREDENTIALS ARE NOT HERE. The Secret is created out of band, the same rule
+# as grafana-admin and the tunnel credential; the manifest names it and the
+# pod stays Pending until it exists. Three keys, two random values:
+#
+#   turn=$(openssl rand -hex 32)
+#   room=$(openssl rand -base64 18 | tr -d '/+=')
+#   kubectl -n meet create secret generic meet \
+#     --from-literal=chuggy.json="{\"wildcard-user\":{\"password\":\"$room\",\"permissions\":\"op\"}}" \
+#     --from-literal=ice-servers.json="[{\"urls\":[\"turn:192.168.0.114:3478\",\"turn:192.168.0.114:3478?transport=tcp\",\"turn:10.100.0.1:3478\",\"turn:10.100.0.1:3478?transport=tcp\"],\"username\":\"galene\",\"credential\":\"$turn\",\"credentialType\":\"hmac-sha1\"}]" \
+#     --from-literal=turnserver.conf="static-auth-secret=$turn"
+#
+# `chuggy.json` is the whole definition of the one group, at
+# https://meet.vteng.io/group/chuggy/ -- any username, one password, and
+# everyone who has it is an operator who may present, share a screen and mute
+# others. The room password is what to hand a person; read it back with
+#
+#   kubectl -n meet get secret meet -o jsonpath='{.data.chuggy\.json}' | base64 -d
+#
+# `ice-servers.json` is the relay's two addresses and the shared TURN secret,
+# from which Galène mints a time-limited credential per client
+# (`hmac-sha1`). `turnserver.conf` is that same secret as coturn reads it,
+# `use-auth-secret` style. Rotate the TURN secret by recreating the Secret:
+# Galène re-reads the file within minutes, coturn on its next restart.
+#
+# THE TWO RELAY ADDRESSES IN THAT SECRET ARE HOST FACTS -- the LAN address and
+# the mesh address in hosts/gtr/default.nix. They are in the Secret only
+# because Galène reads them from the same file as the credential. Another host
+# writes its own.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: meet
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+---
+# Not generated with a hashed name: Galène re-reads this file when its mtime
+# changes, and the projected volume below updates in place, so an edit reaches
+# the running server without a rollout. proxyURL is what it puts in front of a
+# group path when it builds a URL, since it only ever sees plain HTTP from
+# Traefik.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: meet-config
+  namespace: meet
+data:
+  config.json: |
+    {
+      "proxyURL": "https://meet.vteng.io/"
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: meet
+  namespace: meet
+  labels: { app: meet }
+spec:
+  replicas: 1
+  # Two containers that must share a network namespace cannot overlap during
+  # a rollout: the relay's address is the pod's, and a second pod is a second
+  # address nobody was told.
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: meet }
+  template:
+    metadata:
+      labels: { app: meet }
+    spec:
+      nodeSelector:
+        chuggy.dev/durable: "true"
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: galene
+          image: registry.chuggy.internal/meet/galene@sha256:969810690f42b172f1a1e8ab448ae4fedd93c7335dac64b1248f65ca290385ee
+          imagePullPolicy: IfNotPresent
+          # -turn "" turns the built-in TURN server off: with two reachable
+          # addresses it could only advertise the wrong one. The relay it
+          # would have been is the container below, named in ice-servers.json.
+          args:
+            - -insecure
+            - -http
+            - ":8443"
+            - -turn
+            - ""
+            - -data
+            - /etc/galene/data
+            - -groups
+            - /etc/galene/groups
+            - -recordings
+            - /var/lib/galene/recordings
+          ports:
+            - name: http
+              containerPort: 8443
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 1Gi }
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: { path: /, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 4
+          securityContext:
+            runAsUser: 10000
+            runAsGroup: 10000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: data
+              mountPath: /etc/galene/data
+              readOnly: true
+            - name: groups
+              mountPath: /etc/galene/groups
+              readOnly: true
+            - name: recordings
+              mountPath: /var/lib/galene/recordings
+        - name: coturn
+          image: coturn/coturn:4.17.2-r0-alpine@sha256:771a95d04cb97bbc5bfc672e5fdf455591c7d2b2a15f02bb9ceda3e27561695f
+          imagePullPolicy: IfNotPresent
+          # The image's default command asks a public service for the box's
+          # external address and advertises that; here the address is the
+          # pod's, on purpose, and there is no external one to advertise.
+          #
+          # $(POD_IP) is expanded by the kubelet, not the shell, so the relay
+          # binds and allocates on the one address Galène can deliver to. The
+          # denied/allowed pair is what stops the relay forwarding anywhere
+          # else. No TLS: the credential is per-session and the transport is
+          # a LAN or a WireGuard tunnel, and DTLS-SRTP protects the media
+          # itself regardless.
+          args:
+            - -c
+            - /etc/coturn/turnserver.conf
+            - --log-file=stdout
+            - --no-cli
+            - --no-tls
+            - --no-dtls
+            - --fingerprint
+            - --use-auth-secret
+            - --realm=meet.vteng.io
+            - --listening-port=3478
+            - --listening-ip=$(POD_IP)
+            - --relay-ip=$(POD_IP)
+            - --min-port=49152
+            - --max-port=49407
+            - --denied-peer-ip=0.0.0.0-255.255.255.255
+            - --allowed-peer-ip=$(POD_IP)
+            - --no-multicast-peers
+            - --no-tcp-relay
+            - --no-software-attribute
+            - --userdb=/tmp/turndb
+            - --pidfile=/tmp/turnserver.pid
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef: { fieldPath: status.podIP }
+          ports:
+            - name: turn-udp
+              containerPort: 3478
+              protocol: UDP
+            - name: turn-tcp
+              containerPort: 3478
+              protocol: TCP
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            runAsUser: 65534
+            runAsGroup: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: turn-config
+              mountPath: /etc/coturn
+              readOnly: true
+            - name: turn-tmp
+              mountPath: /tmp
+      volumes:
+        # One directory from two objects: the credential file from the Secret
+        # and the plain config beside it, because Galène takes a data
+        # directory and not a list of files.
+        - name: data
+          projected:
+            defaultMode: 0440
+            sources:
+              - secret:
+                  name: meet
+                  items:
+                    - key: ice-servers.json
+                      path: ice-servers.json
+              - configMap:
+                  name: meet-config
+                  items:
+                    - key: config.json
+                      path: config.json
+        - name: groups
+          secret:
+            secretName: meet
+            defaultMode: 0440
+            items:
+              - key: chuggy.json
+                path: chuggy.json
+        - name: turn-config
+          secret:
+            secretName: meet
+            defaultMode: 0440
+            items:
+              - key: turnserver.conf
+                path: turnserver.conf
+        # Recording is off in the group definition; this is where Galène would
+        # write if it were on, and it exists so a read-only root is not what
+        # says no.
+        - name: recordings
+          emptyDir: {}
+        - name: turn-tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: meet
+  namespace: meet
+spec:
+  selector: { app: meet }
+  ports:
+    - name: http
+      port: 8443
+      targetPort: http
+---
+# The relay's port on the node, on every local address -- see the header for
+# why that plural is the point. ServiceLB runs a pod in kube-system with this
+# hostPort and DNATs to the ClusterIP; coturn therefore sees that pod as every
+# client's source, which TURN does not mind.
+apiVersion: v1
+kind: Service
+metadata:
+  name: meet-turn
+  namespace: meet
+spec:
+  type: LoadBalancer
+  selector: { app: meet }
+  ports:
+    - name: turn-udp
+      port: 3478
+      targetPort: turn-udp
+      protocol: UDP
+    - name: turn-tcp
+      port: 3478
+      targetPort: turn-tcp
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: meet
+  namespace: meet
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: meet.vteng.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: meet
+                port: { number: 8443 }
+---
+# What may reach this pod, and that the pod reaches nothing. Traefik and the
+# ServiceLB pods both live in kube-system, and they are the only sources the
+# two paths in the header have. Egress is denied outright: Galène and coturn
+# answer connections and originate none, and a relay that could originate
+# would be one misconfiguration from forwarding into the cluster. Replies ride
+# conntrack and are not egress. The relay leg from coturn to Galène is inside
+# the pod and never crosses this policy.
+#
+# Galène will also try the two relay addresses itself when it gathers
+# candidates, and be refused by this rule; that costs a log line, not a
+# connection, because the pod's own address is the one the relay delivers to.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: meet-admits-ingress-only
+  namespace: meet
+spec:
+  podSelector:
+    matchLabels: { app: meet }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: TCP
+          port: 8443
+        - protocol: UDP
+          port: 3478
+        - protocol: TCP
+          port: 3478
