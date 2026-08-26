@@ -341,16 +341,27 @@ spec:
             # tunnelled host that sends one event and then goes silent, timed
             # until the client sees the close.
             #
-            # THE HEARTBEAT AND THE TWO STREAM LIMITS BELONG HERE AND ARE NOT
-            # SET YET. kasofsk/chuggy#318 fixes `CHUG_API_STREAM_CONNECTIONS_MAX`
-            # and `CHUG_API_STREAM_MAX_AGE_MS`; it has not fixed the name of the
-            # heartbeat interval, so this is the place the three of them go
-            # rather than a guess at what the third is called. The image above
-            # does not read any of them. Whatever the heartbeat is called, its
-            # value has to sit under 125 seconds by enough that one missed
-            # interval does not reach it -- intervals of 20 and of 60 seconds
-            # were both measured holding a stream open well past the close, and
-            # a value at or near the bound would make every hiccup an outage.
+            # THE HEARTBEAT IS STATED HERE BECAUSE THE BOUND IT CLEARS IS THIS
+            # CLUSTER'S AND NOT THE IMAGE'S. kasofsk/chuggy#318 named all five
+            # `CHUG_API_STREAM_*` variables and the image above reads them; its
+            # own default interval clears the close measured above with room for
+            # a missed one, and that is two repositories agreeing by accident
+            # rather than by anything either of them checks. Written down here,
+            # a rebuild cannot move it past a number measured on the path in
+            # front of this pod -- the same reason `CHUG_API_HOST` is repeated.
+            #
+            # THE TWO BESIDE IT ARE THE RIG'S NUMBERS RATHER THAN A REPLICA'S.
+            # The connection cap bounds one process and this Deployment is one
+            # process, so it is what the installation will hold open; the
+            # maximum age is how long a connection lives before the client is
+            # made to reconnect, which is also how a client that fell behind the
+            # retained log is reset. Both are the image's defaults today.
+            #
+            # THE SWEEP PAIR IS DELIBERATELY LEFT TO THE IMAGE.
+            # `CHUG_API_STREAM_SWEEP_MS` and `CHUG_API_STREAM_SWEEP_ROWS_MAX`
+            # are the whole of the change log's retention, and what makes a pair
+            # of them right is that their quotient outpaces the appends -- a
+            # claim about chuggy's own defaults, made and revised where they are.
             #
             # ONE REPLICA IS WHY NOTHING PROVES ANYTHING ACROSS REPLICAS. Every
             # stream is served by the process holding the one change-log
@@ -358,6 +369,12 @@ spec:
             # from one cursor. At two replicas that stops being true and no
             # proof anywhere says what happens instead; the gap is named here so
             # that raising `replicas` above is not how it gets discovered.
+            - name: CHUG_API_STREAM_CONNECTIONS_MAX
+              value: "256"
+            - name: CHUG_API_STREAM_MAX_AGE_MS
+              value: "300000"
+            - name: CHUG_API_STREAM_HEARTBEAT_MS
+              value: "20000"
           volumeMounts:
             - name: artifacts
               mountPath: /var/lib/chuggy/artifacts
