@@ -305,6 +305,10 @@ spec:
                   {
                     "repository": "http://git.chuggy-git.svc.cluster.local./chuggy.git",
                     "path": "/var/run/chuggy/repository-credentials/chuggy-git"
+                  },
+                  {
+                    "repository": "https://github.com/kasofsk/chuggy.git",
+                    "path": "/var/run/chuggy/repository-credentials/chuggy-github"
                   }
                 ]
             # The image already sets this. Repeated because the source default
@@ -441,12 +445,19 @@ spec:
         - name: git-scratch
           emptyDir: {}
         - name: repository-credentials
-          secret:
-            secretName: chuggy-git-sync
+          projected:
             defaultMode: 0444
-            items:
-              - key: password
-                path: chuggy-git
+            sources:
+              - secret:
+                  name: chuggy-git-sync
+                  items:
+                    - key: password
+                      path: chuggy-git
+              - secret:
+                  name: chuggy-github-reader-token
+                  items:
+                    - key: token
+                      path: chuggy-github
 ---
 apiVersion: v1
 kind: Service

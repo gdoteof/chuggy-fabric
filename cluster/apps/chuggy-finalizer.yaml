@@ -233,6 +233,10 @@ spec:
                   {
                     "repository": "http://git.chuggy-git.svc.cluster.local./chuggy.git",
                     "path": "/var/run/chuggy/credentials/chuggy-git"
+                  },
+                  {
+                    "repository": "https://github.com/kasofsk/chuggy.git",
+                    "path": "/var/run/chuggy/credentials/chuggy-github"
                   }
                 ]
             # git writes into HOME, and the root filesystem below refuses
@@ -287,8 +291,7 @@ spec:
         - name: git-scratch
           emptyDir: {}
         - name: credentials
-          secret:
-            secretName: chuggy-finalizer-credentials
+          projected:
             # WORLD-READABLE INSIDE THIS CONTAINER, AND THAT IS THE ONLY MODE
             # THAT WORKS HERE. The kubelet writes a Secret volume's files owned
             # by uid 0 whatever `runAsUser` says, and applies `fsGroup` to the
@@ -313,3 +316,11 @@ spec:
             # machine layer declares -- see the pod securityContext above -- to
             # remove a world bit from one file in a pod with one uid in it.
             defaultMode: 0444
+            sources:
+              - secret:
+                  name: chuggy-finalizer-credentials
+              - secret:
+                  name: chuggy-github-finalizer-token
+                  items:
+                    - key: token
+                      path: chuggy-github

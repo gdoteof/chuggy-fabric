@@ -199,6 +199,11 @@ spec:
                     "key": "password",
                     "mountPath": "/var/run/chuggy/credentials/chuggy-git-worker"
                   },
+                  "chuggy-github-worker": {
+                    "secretName": "chuggy-github-worker-token",
+                    "key": "token",
+                    "mountPath": "/var/run/chuggy/credentials/chuggy-github-worker"
+                  },
                   "claude-code": {
                     "secretName": "claude-code",
                     "key": "oauth-token",
@@ -208,7 +213,7 @@ spec:
             - name: CHUG_SCHEDULER_WORKER_ENVIRONMENT
               value: |
                 {
-                  "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\"}",
+                  "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\",\"credential\":\"chuggy-git-worker\",\"username\":\"worker\"},\"https://github.com/kasofsk/chuggy.git\":{\"url\":\"https://github.com/kasofsk/chuggy.git\",\"credential\":\"chuggy-github-worker\",\"username\":\"x-access-token\"}}",
                   "CHUG_WORKER_WORKSPACE": "/workspace"
                 }
             - name: CHUG_SCHEDULER_WORKER_LABELS
@@ -235,7 +240,8 @@ spec:
                   "registry.chuggy.internal/chuggy/worker@sha256:cfe57dd168347730f91aec689be4adaf53750f237af54bb9effedf53319d34a6",
                   "registry.chuggy.internal/chuggy/worker@sha256:49cc3c3d713e4b40341f68dfb83e1bf1acabb6d5986e1f1786ea5706afe0690f",
                   "registry.chuggy.internal/chuggy/worker@sha256:beb6ed311a398723fc33c47269077a3c55fcac51627f65db5d82932f6183fc38",
-                  "registry.chuggy.internal/chuggy/worker@sha256:c50b3333142063e90c6d7d6143119bcf1dd9b138e8aa740b831dc48699896e1f"
+                  "registry.chuggy.internal/chuggy/worker@sha256:c50b3333142063e90c6d7d6143119bcf1dd9b138e8aa740b831dc48699896e1f",
+                  "chuggy.invalid/worker:db9fac13"
                 ]
             # PR 5's, provisional. D30 says the adopting machine must supply
             # these and that the shared module provides no guessed defaults;
@@ -258,7 +264,7 @@ spec:
                     "runtimeVersion": "claude-code-latest",
                     "grant": {
                       "tools": ["claude-code", "shell"],
-                      "credentials": ["chuggy-git-worker", "claude-code"],
+                      "credentials": ["chuggy-git-worker", "chuggy-github-worker", "claude-code"],
                       "network": true,
                       "filesystem": "WriteWorkspace",
                       "mayCompleteTask": false
@@ -269,7 +275,7 @@ spec:
                     "runtimeVersion": "claude-code-latest",
                     "grant": {
                       "tools": ["claude-code", "shell"],
-                      "credentials": ["chuggy-git-worker", "claude-code"],
+                      "credentials": ["chuggy-git-worker", "chuggy-github-worker", "claude-code"],
                       "network": true,
                       "filesystem": "WriteWorkspace",
                       "mayCompleteTask": false
