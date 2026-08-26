@@ -39,6 +39,9 @@ only by their own directory.
     cluster/apps/ory/               config documents those ConfigMaps carry --
                                     not manifests, and not in `resources`
 
+    images/galene.nix               the one image this repo is the source of;
+                                    `nix build .#galene-image`, then push
+
     hosts/gtr/default.nix           geoff's Beelink GTR: hostname, radios, mesh, k3s, tunnel
     hosts/gtr/hardware-configuration.nix
     hosts/example/                  a second host that holds nothing of gtr's
@@ -862,6 +865,44 @@ for this; the list and `ls` have to agree, and a reviewer is what makes them.
 `flux` needs a kubeconfig, and `sudo` drops the `KUBECONFIG` environment
 variable, so `sudo flux ...` silently talks to `localhost:8080` and fails. Run it
 as your own user — the kubeconfig is world-readable.
+
+## Meet
+
+Voice, video and screen sharing between the people who run this cluster, with
+no third party in the call: [Galène](https://galene.org) at
+`https://meet.vteng.io/group/chuggy/`. Any username; the one password is in
+the `meet` Secret:
+
+    kubectl -n meet get secret meet -o jsonpath='{.data.chuggy\.json}' | base64 -d
+
+Everyone who has it is an operator — present, share a screen, mute others.
+
+**The page comes through the tunnel and the call does not.** WebRTC is UDP,
+and the tunnel carries HTTP only, so the media has to reach the box some other
+way — and there are two of them: the house LAN at `192.168.0.114` and the mesh
+at `10.100.0.1`. A pod cannot advertise either address, and Galène's own TURN
+server can advertise only one. So a coturn relay runs beside Galène and a
+`LoadBalancer` Service puts its port 3478 on the node; k3s implements that as a
+hostPort, whose DNAT rule matches every local address, so the browser is
+handed both and ICE keeps the one that answers. `cluster/apps/meet.yaml`
+carries the full argument, and what it deliberately does not do: no router
+port-forward, no host firewall rule, no `hostNetwork`. The relay is reachable
+from the LAN and the mesh and from nowhere else.
+
+A person on neither network sees the page and hears nothing. That is the
+boundary, stated: joining a call means joining the mesh, which is the same
+door as `kubectl`.
+
+**The image is this repository's own.** Docker Hub has only community builds
+of Galène, the common one pinned to 2023, and no digest with a source this
+repo can name. `images/galene.nix` wraps nixpkgs's `galene` — the pin in
+`flake.lock` — as an OCI image; `nix build .#galene-image` produces it and
+`nix flake check` proves it still builds. It is published through the registry
+port-forward like any release image, and the manifest names the digest that
+push returned. coturn is the upstream image, pinned by digest.
+
+The Secret is out of band, like `grafana-admin`; the command that creates it
+is in the manifest header, and the pod stays Pending until it exists.
 
 ## Monitoring
 
