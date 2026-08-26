@@ -129,8 +129,9 @@ spec:
         - protocol: TCP
           port: 3000
 ---
-# The ticket service reaches the database, the resolver and the public Git
-# remote whose target it observes before work begins.
+# The ticket service reaches the database and the resolver, and nothing else.
+# It is the tightest of the five because it is the only one whose whole world is
+# the journal.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -163,18 +164,15 @@ spec:
         - protocol: TCP
           port: 5432
     - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except:
-              - 10.0.0.0/8
-              - 100.64.0.0/10
-              - 127.0.0.0/8
-              - 169.254.0.0/16
-              - 172.16.0.0/12
-              - 192.168.0.0/16
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy-git
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: git
       ports:
         - protocol: TCP
-          port: 443
+          port: 8080
 ---
 # The selector adds the API to the same two destinations, because its project
 # view comes through `/api/v1` rather than out of the database.
@@ -223,8 +221,9 @@ spec:
         - protocol: TCP
           port: 3000
 ---
-# The finalizer reaches two remotes: `rig.git` for deployment handoffs and
-# public HTTPS for the authoritative Chuggy repository.
+# The finalizer adds the rig's own git service, and nothing else. A promotion
+# pushes to `rig.git` in `chuggy-git`, so the remote is one pod in one namespace
+# on one port and this rule names exactly that.
 #
 # THE PORT IS THE POD'S AND NOT THE SERVICE'S, and getting that wrong looks
 # exactly like getting the selectors wrong. The URL names port 80 because that is
@@ -235,10 +234,26 @@ spec:
 # endpoints, not the Service, when changing this: `kubectl -n chuggy-git get
 # endpointslice` prints the port that belongs in this field.
 #
-# NetworkPolicy cannot name GitHub by hostname, so public HTTPS is admitted
-# while private, carrier-grade NAT, loopback and link-local destinations remain
-# excluded. The finalizer's credential map is the application-level repository
-# allowlist; this rule does not replace it.
+# THERE IS NO PUBLIC-INTERNET RULE HERE, AND THAT IS A CHANGE. This policy used
+# to admit 443 to `0.0.0.0/0` with the pod network, the service network, every
+# RFC1918 range and link-local in an `except` list -- the shape of the defence
+# D25 asks for, on the argument that a promotion pushes to a remote that is not
+# on this cluster. That argument is no longer true: the remote is on this
+# cluster, so the rule it justified is gone rather than left standing beside a
+# reason that has stopped applying.
+#
+# WHAT THAT COSTS IS THE ABILITY TO PUSH ANYWHERE EXTERNAL, deliberately. An
+# external repository wants the short-lived minting D31 asks for and the egress
+# proxy with an allow list that PR 5 carries -- a `NetworkPolicy` could never
+# have bounded WHICH public host anyway, because an `ipBlock` cannot express a
+# hostname and a rule written against today's GitHub addresses would be wrong
+# within the month. Re-adding blanket 443 is not the way back to that.
+#
+# A NAMED POD IS A STRONGER STATEMENT THAN THE `except` LIST WAS. The one
+# internal destination admitted is selected by namespace and pod label, so every
+# other address inside this site -- including the cloud metadata address the
+# `except` list was there for -- is refused by this rule having nothing that
+# matches it.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -280,19 +295,6 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
-    - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except:
-              - 10.0.0.0/8
-              - 100.64.0.0/10
-              - 127.0.0.0/8
-              - 169.254.0.0/16
-              - 172.16.0.0/12
-              - 192.168.0.0/16
-      ports:
-        - protocol: TCP
-          port: 443
 ---
 # The scheduler reaches the Kubernetes API server, and that is why its rule is
 # the loosest of the four.
@@ -409,8 +411,8 @@ spec:
         - protocol: TCP
           port: 5432
 ---
-# The importer resolves and reads the authoritative public repository, then
-# appends through its own database role.
+# The importer resolves and reads the internal repository, then appends through
+# its own database role. Those are its only two application destinations.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -443,15 +445,12 @@ spec:
         - protocol: TCP
           port: 5432
     - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except:
-              - 10.0.0.0/8
-              - 100.64.0.0/10
-              - 127.0.0.0/8
-              - 169.254.0.0/16
-              - 172.16.0.0/12
-              - 192.168.0.0/16
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy-git
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: git
       ports:
         - protocol: TCP
-          port: 443
+          port: 8080

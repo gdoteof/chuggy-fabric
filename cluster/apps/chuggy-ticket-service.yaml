@@ -216,11 +216,11 @@ spec:
                     },
                     "sources": [
                       {
-                        "repository": "https://github.com/kasofsk/chuggy.git",
-                        "path": "/var/run/chuggy/repository-credentials/github-app-token"
+                        "repository": "http://git.chuggy-git.svc.cluster.local./chuggy.git",
+                        "path": "/var/run/chuggy/repository-credentials/chuggy-git"
                       }
                     ],
-                    "credentialUsername": "x-access-token"
+                    "credentialUsername": "chuggy"
                   }
                 }
           volumeMounts:
@@ -249,8 +249,8 @@ spec:
           emptyDir: {}
         - name: repository-credentials
           secret:
-            secretName: chuggy-github-reader-token
+            secretName: chuggy-git-sync
             defaultMode: 0444
             items:
-              - key: token
-                path: github-app-token
+              - key: password
+                path: chuggy-git

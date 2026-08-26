@@ -70,6 +70,14 @@ spec:
       ports:
         - { protocol: TCP, port: 3001 }
     - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy-git
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: git }
+      ports:
+        - { protocol: TCP, port: 8080 }
+    - to:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
