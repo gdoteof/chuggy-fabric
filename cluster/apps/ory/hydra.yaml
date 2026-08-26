@@ -4,12 +4,25 @@ serve:
   public:
     port: 4444
     host: 0.0.0.0
-    # WITHOUT THIS BLOCK SIGN-IN CANNOT COMPLETE. The SPA on
-    # chuggy.vteng.io finishes PKCE with a cross-origin POST to
-    # /oauth2/token here; unset, Hydra answers the preflight 200 with no
-    # Access-Control-Allow-Origin and the browser drops the exchange. A
-    # client's `allowed_cors_origins` is not a substitute -- Hydra consults
-    # it only once CORS is enabled on this port.
+    # WITHOUT THIS BLOCK SIGN-IN CANNOT COMPLETE. An SPA finishes PKCE with
+    # a cross-origin POST to /oauth2/token here; with CORS off Hydra answers
+    # with no Access-Control-Allow-Origin whatever any client is registered
+    # with, and the browser drops the exchange. A client's
+    # `allowed_cors_origins` is not a substitute -- Hydra consults it only
+    # once CORS is enabled on this port.
+    #
+    # AN ORIGIN IN THE LIST IS FOR THE REQUESTS THAT NAME NO CLIENT, AND NOT
+    # FOR THE EXCHANGE. Measured against this Hydra with chuggy.vteng.io as
+    # the only entry: /oauth2/token answers a chuggy-ui.vteng.io origin
+    # already, out of that client's own `allowed_cors_origins`, while
+    # /.well-known/openid-configuration and /.well-known/jwks.json answer it
+    # with no header at all -- neither request carries a client id, so no
+    # client-aware lookup can reach one, and this list is the only thing
+    # that covers them. A console reads discovery from the browser before
+    # anything else (`discoveryPath` in kasofsk/chuggy's
+    # `ui/app/authorization.js`), so a host missing from here fails there
+    # and never reaches the exchange. THAT IS WHY AN ENTRY CANNOT BE DROPPED
+    # ON THE GROUND THAT ITS CLIENT CARRIES THE SAME ORIGIN.
     #
     # THIS LIST IS A FLOOR AND NOT THE ALLOW-LIST. Enabling CORS here turns
     # on Hydra's client-aware checking, which answers a request with the
@@ -28,6 +41,7 @@ serve:
       enabled: true
       allowed_origins:
         - https://chuggy.vteng.io
+        - https://chuggy-ui.vteng.io
       # The exchange, plus the discovery and JWKS documents a client reads
       # before it. Nothing else here is called from a browser.
       allowed_methods: [GET, POST, OPTIONS]

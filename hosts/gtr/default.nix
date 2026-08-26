@@ -135,6 +135,11 @@
     # preflight, so a console on a second name could not read it -- the split is
     # Traefik's, in cluster/apps/chuggy-web.yaml, and this list cannot express it
     # either way.
+    #
+    # chuggy-ui is the second console and the same split again, in
+    # cluster/apps/chuggy-ui.yaml. It is a separate name rather than a path
+    # under chuggy because both consoles want /, and it is a single label
+    # rather than ui.chuggy for the certificate reason above.
     hostnames = [
       "whoami.vteng.io"
       "grafana.vteng.io"
@@ -142,6 +147,7 @@
       "auth.vteng.io"
       "id.vteng.io"
       "chuggy.vteng.io"
+      "chuggy-ui.vteng.io"
     ];
   };
 

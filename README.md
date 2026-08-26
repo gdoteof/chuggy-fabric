@@ -1211,7 +1211,9 @@ is the state this PR leaves it in rather than a decision it argues. It is the
 console: nginx serving static files, reached from Traefik, with no `proxy_pass`
 in it — the browser reaches the API through Traefik and this pod opens no
 connection to it. Nothing here restricts what may reach it or where it may go.
-Bounding it is worth doing and is not this change.
+Bounding it is worth doing and is not this change. `chuggy-ui`, the second
+console, is the same image in the same posture and is selected by none of them
+either; bounding both is one change.
 
 **No probe has been run through any of these.** They were built against the API
 server and their selectors checked against the labels the cluster carries, but
