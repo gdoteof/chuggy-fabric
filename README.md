@@ -458,8 +458,11 @@ Ingress or NodePort. Operators reach it through a port-forward:
 
     kubectl -n chuggy-registry port-forward service/registry 5000:5000
 
-Publish through that forward; the port-forward hostname is transport, while
-the repository and digest are what the registry stores:
+Publishing through that forward needs a client that speaks the registry API
+over plain HTTP. `Registry operations` below is the route that runs on the
+node, needing no forward and no client configuration. From a host carrying
+skopeo or oras, the forward is transport while the repository and digest are
+what the registry stores:
 
     skopeo copy --dest-tls-verify=false \
       docker-archive:api.tar docker://localhost:5000/chuggy/api:<tag>
@@ -512,13 +515,54 @@ Garbage collection and root disk usage are operator responsibilities.
 
 #### Registry operations
 
-Use a conflict-free local port; macOS may already reserve `5000`:
+`deploy/rig/images/build-and-import.sh` in kasofsk/chuggy imports an image
+into the node's own containerd and stops -- its header says it deploys nothing
+-- while every release manifest names a registry digest. Publishing is the step
+between the two, and this is what runs it here.
+
+The client is containerd's own and the work runs on the node, which is what
+recommends it: no forward, no daemon configuration, and the image is already
+there. The destination is the registry's Service address:
+
+    kubectl -n chuggy-registry get service registry
+
+`registry.chuggy.internal` cannot be that destination. Its generated
+`hosts.toml` gives the mirror `pull` and `resolve` alone, so a push under that
+name falls through to the `server =` line no resolver answers. Tag the imported
+image with the address above and push that:
+
+    sudo k3s ctr -n k8s.io images tag --force \
+      registry.chuggy.internal/chuggy/<name>:<tag> \
+      <cluster-ip>:5000/chuggy/<name>:<tag>
+    sudo k3s ctr -n k8s.io images push --plain-http \
+      <cluster-ip>:5000/chuggy/<name>:<tag>
+
+The address is transport and the second reference a local alias: what the
+registry stores is the repository and the digest, and what a manifest names is
+`registry.chuggy.internal/chuggy/<name>@<digest>`. That address is a ClusterIP
+and does not survive a recreation of the Service, which is why the command that
+prints it is written here and no number is.
+
+Read the digest back from the registry, and not from the push or from
+`ctr images ls`:
+
+    curl -sI -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+      http://<cluster-ip>:5000/v2/chuggy/<name>/manifests/<tag> \
+      | grep -i docker-content-digest
+
+**The push is not what lets this node run the image.** The import already did
+that, and `imagePullPolicy: IfNotPresent` never fetches. It is what makes the
+digest recoverable: a second node, or this one after its image store is reset,
+has only the declaration and the registry to work from.
+
+The same publish and read-back run through a port-forward from a host that
+carries skopeo, which no host here does. Use a conflict-free local port; macOS
+may already reserve `5000`:
 
     kubectl -n chuggy-registry port-forward service/registry 5050:5000
 
-The endpoint is intentionally plain HTTP inside the cluster. A client used
-through the port-forward must opt out of TLS explicitly. Record the digest a
-push returns, then read the same reference back before changing a workload:
+The endpoint is intentionally plain HTTP inside the cluster, so a client used
+through the port-forward must opt out of TLS explicitly:
 
     skopeo copy --dest-tls-verify=false \
       docker-archive:web.tar \
@@ -527,7 +571,8 @@ push returns, then read the same reference back before changing a workload:
       docker://localhost:5050/chuggy/web:<tag> --format '{{.Digest}}'
 
 An ordinary pod replacement is the persistence check. Restart the Deployment,
-wait for it, create a fresh port-forward, and require the inspected digest to
+wait for it, read the same reference again -- through a fresh port-forward if
+that was the route -- and require the digest the registry answers for it to
 remain unchanged:
 
     kubectl -n chuggy-registry rollout restart deployment/registry
