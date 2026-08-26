@@ -15,7 +15,7 @@ let
   };
   refresh = name: token: pkgs.writeShellApplication {
     name = "chuggy-github-app-token-${name}-refresh";
-    runtimeInputs = [ pkgs.coreutils pkgs.curl pkgs.jq pkgs.kubectl pkgs.openssl ];
+    runtimeInputs = [ pkgs.coreutils cfg.curlPackage pkgs.jq cfg.kubectlPackage pkgs.openssl ];
     text = ''
       umask 077
       run="''${RUNTIME_DIRECTORY:-$(mktemp -d)}"
@@ -57,8 +57,11 @@ let
         if kubectl --kubeconfig ${lib.escapeShellArg cfg.kubeconfig} \
           --namespace "$namespace" get secret ${lib.escapeShellArg token.secretName} \
           -o json > "$run/live.json" 2>/dev/null; then
-          jq -e '.metadata.labels["chuggy.dev/managed-by"] == "github-app-token"' \
-            "$run/live.json" >/dev/null
+          if ! jq -e '.metadata.labels["chuggy.dev/managed-by"] == "github-app-token"' \
+            "$run/live.json" >/dev/null; then
+            echo "refusing to replace unmanaged Secret $namespace/${lib.escapeShellArg token.secretName}" >&2
+            exit 3
+          fi
           jq -n --rawfile token "$run/token.b64" \
             '{data:{token:($token | rtrimstr("\n"))}}' > "$run/patch.json"
           kubectl --kubeconfig ${lib.escapeShellArg cfg.kubeconfig} \
@@ -84,6 +87,13 @@ let
         ExecStart = lib.getExe (refresh name token);
         RuntimeDirectory = "chuggy-github-app-token-${name}-refresh";
         RuntimeDirectoryMode = "0700";
+        Restart = "on-failure";
+        RestartPreventExitStatus = 3;
+        RestartSec = cfg.retrySeconds;
+      };
+      unitConfig = {
+        StartLimitIntervalSec = cfg.retryWindowSeconds;
+        StartLimitBurst = cfg.retryBurst;
       };
     }) cfg.tokens;
   timers = lib.mapAttrs' (name: _:
@@ -108,6 +118,28 @@ in
     kubeconfig = lib.mkOption {
       type = lib.types.str;
       default = "/etc/rancher/k3s/k3s.yaml";
+    };
+    retrySeconds = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 120;
+    };
+    retryWindowSeconds = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 1200;
+    };
+    retryBurst = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 6;
+    };
+    curlPackage = lib.mkOption {
+      type = lib.types.package;
+      default = pkgs.curl;
+      internal = true;
+    };
+    kubectlPackage = lib.mkOption {
+      type = lib.types.package;
+      default = pkgs.kubectl;
+      internal = true;
     };
   };
 
