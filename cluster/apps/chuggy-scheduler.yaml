@@ -293,6 +293,11 @@ spec:
                     "image": "registry.chuggy.internal/chuggy/worker@sha256:9949c44297be92b3a49d11c3982b897730e4e283031f1b8b21b285e0ca04dbbe",
                     "name": "chuggy-worker",
                     "version": "0.6"
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:dfcc2b3ec6c4d371157379d132ed24783564ab115d4b5978101bc691e21aae6f",
+                    "name": "chuggy-worker",
+                    "version": "0.7"
                   }
                 ]
             # PR 5's, provisional. D30 says the adopting machine must supply
