@@ -8,6 +8,7 @@ pkgs.runCommand "chuggy-development-worker" {
   scheduler="$root/cluster/apps/chuggy-scheduler.yaml"
   worker_plane="$root/cluster/apps/chuggy-worker-plane.yaml"
   network="$root/cluster/apps/chuggy-work.yaml"
+  policy="$root/cluster/apps/postgres-network-policy.yaml"
 
   kubectl kustomize "$root/cluster/apps" > rendered.yaml
   grep -F 'registry.chuggy.internal/chuggy/worker@sha256:de1409a2a51b82bc18f6517bc62603956ad5698b26e36ed64b7f84c793e62cae' "$scheduler" >/dev/null
@@ -31,5 +32,15 @@ pkgs.runCommand "chuggy-development-worker" {
   grep -F '"mayCompleteTask": false' "$scheduler" >/dev/null
   grep -F 'kubernetes.io/metadata.name: chuggy-git' "$network" >/dev/null
   grep -F '{ protocol: TCP, port: 443 }' "$network" >/dev/null
+
+  # The shared database an attempt scopes itself on: the Secret the scheduler
+  # names, the label both halves of the path key on, the egress that admits the
+  # server and the ingress that admits this namespace. Each is half of a reach
+  # that fails closed without the other, and a worker that cannot reach
+  # PostgreSQL fails every gate that needs one rather than skipping it.
+  grep -F '{"secretName":"chuggy-worker-database","key":"url"}' "$scheduler" >/dev/null
+  grep -F '"chuggy.dev/postgres-client":"true"' "$scheduler" >/dev/null
+  grep -F '{ protocol: TCP, port: 5432 }' "$network" >/dev/null
+  grep -F 'kubernetes.io/metadata.name: chuggy-work' "$policy" >/dev/null
   touch "$out"
 ''
