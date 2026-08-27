@@ -105,7 +105,7 @@ EOF
     source: {
       repositoryId: .items[0].metadata.annotations["fabric.chuggy.dev/source-repository-id"],
       requestedCommit: .items[0].metadata.annotations["fabric.chuggy.dev/source-commit"],
-      observedCommit: .items[0].status.sources[0].git.commitSha
+      observedCommit: .items[0].status.source.git.commitSha
     },
     output: {
       repository: .items[0].metadata.annotations["fabric.chuggy.dev/target-image-repository"],

@@ -23,10 +23,9 @@
       "completionTime": "2026-08-24T20:00:00Z",
       "conditions": [{"type": "Succeeded", "status": "True", "reason": "Succeeded"}],
       "output": {"digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
-      "sources": [{
-        "name": "default",
+      "source": {
         "git": {"commitSha": "0123456789abcdef0123456789abcdef01234567"}
-      }]
+      }
     }
   }]
 }
