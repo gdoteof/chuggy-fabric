@@ -125,9 +125,20 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: registry-denies-pod-traffic
+  name: registry-admits-build-pushes
   namespace: chuggy-registry
 spec:
   podSelector:
     matchLabels: { app: registry }
   policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy-build
+          podSelector:
+            matchExpressions:
+              - key: tekton.dev/taskRun
+                operator: Exists
+      ports:
+        - { protocol: TCP, port: 5000 }
