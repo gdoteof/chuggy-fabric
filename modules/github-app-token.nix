@@ -11,6 +11,10 @@ let
       privateKeyFile = lib.mkOption { type = lib.types.str; };
       secretName = lib.mkOption { type = lib.types.str; };
       namespaces = lib.mkOption { type = lib.types.listOf lib.types.str; };
+      secretFormat = lib.mkOption {
+        type = lib.types.enum [ "token" "git-basic-auth" ];
+        default = "token";
+      };
     };
   };
   refresh = name: token: pkgs.writeShellApplication {
@@ -52,6 +56,7 @@ let
       jq -er '.token' "$run/response.json" > "$run/token"
       chmod 0600 "$run/token"
       base64 -w0 < "$run/token" > "$run/token.b64"
+      printf '%s' 'x-access-token' | base64 -w0 > "$run/username.b64"
 
       sync_secret() {
         namespace="$1"
@@ -63,17 +68,30 @@ let
             echo "refusing to replace unmanaged Secret $namespace/${lib.escapeShellArg token.secretName}" >&2
             exit 3
           fi
-          jq -n --rawfile token "$run/token.b64" \
-            '{data:{token:($token | rtrimstr("\n"))}}' > "$run/patch.json"
+          ${if token.secretFormat == "git-basic-auth" then ''
+            jq -n --rawfile username "$run/username.b64" --rawfile password "$run/token.b64" \
+              '{type:"kubernetes.io/basic-auth",data:{username:($username | rtrimstr("\n")),password:($password | rtrimstr("\n")),token:null}}' \
+              > "$run/patch.json"
+          '' else ''
+            jq -n --rawfile token "$run/token.b64" \
+              '{data:{token:($token | rtrimstr("\n"))}}' > "$run/patch.json"
+          ''}
           kubectl --kubeconfig ${lib.escapeShellArg cfg.kubeconfig} \
             --namespace "$namespace" patch secret ${lib.escapeShellArg token.secretName} \
             --type=merge --patch-file "$run/patch.json" >/dev/null
         else
-          kubectl --kubeconfig ${lib.escapeShellArg cfg.kubeconfig} \
-            --namespace "$namespace" create secret generic ${lib.escapeShellArg token.secretName} \
-            --from-file=token="$run/token" --dry-run=client -o json \
-            | jq '.metadata.labels = {"chuggy.dev/managed-by":"github-app-token"}' \
-            | kubectl --kubeconfig ${lib.escapeShellArg cfg.kubeconfig} create -f - >/dev/null
+          ${if token.secretFormat == "git-basic-auth" then ''
+            jq -n --arg name ${lib.escapeShellArg token.secretName} --arg namespace "$namespace" \
+              --rawfile username "$run/username.b64" --rawfile password "$run/token.b64" \
+              '{apiVersion:"v1",kind:"Secret",type:"kubernetes.io/basic-auth",metadata:{name:$name,namespace:$namespace,labels:{"chuggy.dev/managed-by":"github-app-token"}},data:{username:($username | rtrimstr("\n")),password:($password | rtrimstr("\n"))}}' \
+              | kubectl --kubeconfig ${lib.escapeShellArg cfg.kubeconfig} create -f - >/dev/null
+          '' else ''
+            kubectl --kubeconfig ${lib.escapeShellArg cfg.kubeconfig} \
+              --namespace "$namespace" create secret generic ${lib.escapeShellArg token.secretName} \
+              --from-file=token="$run/token" --dry-run=client -o json \
+              | jq '.metadata.labels = {"chuggy.dev/managed-by":"github-app-token"}' \
+              | kubectl --kubeconfig ${lib.escapeShellArg cfg.kubeconfig} create -f - >/dev/null
+          ''}
         fi
       }
 

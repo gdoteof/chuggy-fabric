@@ -55,6 +55,10 @@ pkgs.runCommand "chuggy-build-platform" {
   test "$first_path" = "$second_path"
   cmp "first/$first_path" "second/$second_path"
   grep -F 'revision: 0123456789abcdef0123456789abcdef01234567' "first/$first_path" >/dev/null
+  grep -F 'cloneSecret: example-source-read' "first/$first_path" >/dev/null
+  grep -F 'pushSecret: example-registry-push' "first/$first_path" >/dev/null
+  grep -F 'insecure: false' "first/$first_path" >/dev/null
+  grep -F 'serviceAccount: builder' "first/$first_path" >/dev/null
   grep -F 'fabric.chuggy.dev/source-repository-id: example-service' "first/$first_path" >/dev/null
   grep -F 'fabric.chuggy.dev/provenance-required' "first/$first_path" >/dev/null
   grep -F 'chuggy.dev/node-role: builder' "first/$first_path" >/dev/null
@@ -318,6 +322,7 @@ pkgs.runCommand "chuggy-build-platform" {
     --target-image-repository registry.chuggy-registry.svc.cluster.local:5000/team/repository \
     --output-secret registry-push \
     --output-root internal-network >/dev/null
+  grep -F 'insecure: true' internal-network/builds/internal-service/*/*.yaml >/dev/null
   if "$scripts/render-build-request" \
     --repository-id example-service \
     --source-url ssh://git.example.invalid/repository.git \

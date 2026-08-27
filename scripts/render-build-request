@@ -119,9 +119,8 @@ spec:
     git:
       url: {quoted(source['url'])}
       revision: {source['commit']}
+      cloneSecret: {source['credentialRef']}
     contextDir: {quoted(source['contextDir'])}
-    credentials:
-      name: {source['credentialRef']}
   strategy:
     kind: ClusterBuildStrategy
     name: buildkit-rootless-v1
@@ -132,8 +131,8 @@ spec:
       value: {request['cache']}
   output:
     image: {quoted(image)}
-    credentials:
-      name: {output['credentialRef']}
+    pushSecret: {output['credentialRef']}
+    insecure: {str(urlparse(f"//{output['repository']}").port == 5000).lower()}
   timeout: 1h
 ---
 apiVersion: shipwright.io/v1beta1
@@ -158,8 +157,7 @@ metadata:
 spec:
   build:
     name: {name}
-  serviceAccount:
-    name: builder
+  serviceAccount: builder
   nodeSelector:
     chuggy.dev/node-role: builder
     kubernetes.io/os: linux

@@ -394,20 +394,22 @@ whole map in one place.
 ### Staged GitHub App credentials
 
 `chuggy.githubAppTokens` mints repository-scoped installation tokens into
-managed Kubernetes Secrets. Gtr stages three independent authorities: a
-read-only source credential, a Worker App credential for ticket branches, and
-a Portal App credential reserved for finalization. Their private keys remain
-root-only host state outside this repository and the Nix store.
+managed Kubernetes Secrets. Gtr stages a read-only token for Chuggy, a separate
+read-only Git basic-auth credential for Shipwright, a Worker App credential for
+ticket branches, and a Portal App credential reserved for finalization. Their
+private keys remain root-only host state outside this repository and the Nix
+store.
 
-The module is preparation only. No workload consumes these Secrets and the
-internal repository remains authoritative until a later cutover changes the
-manifests. After switching the host configuration, verify all refreshers and
-Secrets without changing a running workload:
+The Chuggy service credentials remain staged until their consumers switch to
+them; Shipwright consumes only the dedicated build-reader projection. After
+switching the host configuration, verify all refreshers and Secrets:
 
     systemctl is-active chuggy-github-app-token-reader-refresh
+    systemctl is-active chuggy-github-app-token-build-reader-refresh
     systemctl is-active chuggy-github-app-token-finalizer-refresh
     systemctl is-active chuggy-github-app-token-worker-refresh
     kubectl -n chuggy get secret chuggy-github-reader-token
+    kubectl -n chuggy-build get secret chuggy-build-source-read
     kubectl -n chuggy get secret chuggy-github-finalizer-token
     kubectl -n chuggy-work get secret chuggy-github-worker-token
 
@@ -633,7 +635,10 @@ unchanged input is idempotent; changing an input creates another path. The
 initial attempt is `-a1`; later retry automation must add the next
 `-a<ordinal>` beside the unchanged `Build` and never replace an attempt.
 
-Create the two named Secrets in `chuggy-build`. Shipwright mounts the source
+Provision the two named Secrets in `chuggy-build`. The Gtr GitHub App refresher
+maintains `chuggy-build-source-read` as a read-only Git basic-auth Secret, and
+the build-system manifests maintain the anonymous internal-registry Docker
+configuration in `chuggy-registry-build-push`. Shipwright mounts the source
 credential only for cloning and the output credential only for pushing; the
 Flux service accounts receive neither. The v1 network profile accepts only
 public HTTPS Git/registry endpoints on port 443, the internal
