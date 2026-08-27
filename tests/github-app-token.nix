@@ -114,6 +114,16 @@ pkgs.testers.runNixOSTest {
         secretName = "chuggy-github-reader-token";
         namespaces = [ "chuggy" ];
       };
+      tokens.build-reader = {
+        appId = "4708055";
+        installationId = "156333284";
+        repository = "chuggy";
+        permission = "read";
+        privateKeyFile = "${testKey}";
+        secretName = "chuggy-build-source-read";
+        namespaces = [ "chuggy-build" ];
+        secretFormat = "git-basic-auth";
+      };
     };
     environment.etc."rancher/k3s/k3s.yaml".text = "stub kubeconfig\n";
     systemd.tmpfiles.rules = [
@@ -129,6 +139,7 @@ pkgs.testers.runNixOSTest {
     service = "chuggy-github-app-token-worker-refresh.service"
     timer = "chuggy-github-app-token-worker-refresh.timer"
     reader_service = "chuggy-github-app-token-reader-refresh.service"
+    build_reader_service = "chuggy-github-app-token-build-reader-refresh.service"
     secret = "chuggy-github-worker-token.json"
 
     def object_in(namespace):
@@ -147,6 +158,7 @@ pkgs.testers.runNixOSTest {
         assert machine.succeed("systemctl show -p StartLimitBurst --value " + service).strip() == "6"
         assert machine.succeed("systemctl show -p Persistent --value " + timer).strip() == "yes"
         assert machine.succeed("systemctl show -p LoadState --value " + reader_service).strip() == "loaded"
+        assert machine.succeed("systemctl show -p LoadState --value " + build_reader_service).strip() == "loaded"
 
     with subtest("a first refresh creates labelled Secrets in every namespace"):
         machine.succeed("systemctl start " + service)
@@ -182,5 +194,12 @@ pkgs.testers.runNixOSTest {
         assert decoded_token("chuggy") == "token-5"
         assert decoded_token("chuggy-work") == "token-5"
         assert machine.succeed("cat ${githubStore}/attempts").strip() == "5"
+
+    with subtest("git credentials use Kubernetes basic-auth keys"):
+        machine.succeed("systemctl start " + build_reader_service)
+        value = json.loads(machine.succeed("cat ${clusterStore}/chuggy-build/chuggy-build-source-read.json"))
+        assert value["type"] == "kubernetes.io/basic-auth"
+        assert machine.succeed("printf %s '" + value["data"]["username"] + "' | base64 -d").strip() == "x-access-token"
+        assert machine.succeed("printf %s '" + value["data"]["password"] + "' | base64 -d").strip() == "token-6"
   '';
 }

@@ -195,6 +195,16 @@
         secretName = "chuggy-github-reader-token";
         namespaces = [ "chuggy" ];
       };
+      build-reader = {
+        appId = "4708055";
+        installationId = "156333284";
+        repository = "chuggy";
+        permission = "read";
+        privateKeyFile = "/var/lib/chuggy/secrets/github-app/chuggy-portal.pem";
+        secretName = "chuggy-build-source-read";
+        namespaces = [ "chuggy-build" ];
+        secretFormat = "git-basic-auth";
+      };
       worker = {
         appId = "4728465";
         installationId = "156786211";
