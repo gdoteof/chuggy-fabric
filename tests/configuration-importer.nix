@@ -17,12 +17,15 @@ pkgs.runCommand "chuggy-configuration-importer" {
   test "$(grep -Fc 'commit="$(git ls-remote' "$manifest")" -eq 1
 
   # The pod has only reader Git material and its own database login.
-  grep -F 'secretName: chuggy-git-sync' "$manifest" >/dev/null
+  grep -F 'repository=https://github.com/kasofsk/chuggy.git' "$manifest" >/dev/null
+  grep -F 'secretName: chuggy-github-reader-token' "$manifest" >/dev/null
+  grep -F 'path: chuggy-github' "$manifest" >/dev/null
+  grep -F 'credentialUsername: "x-access-token"' "$manifest" >/dev/null
   test "$(grep -Fc 'credentialReference:' "$manifest" || true)" -eq 0
   grep -F 'key: configuration-importer-password' "$manifest" >/dev/null
   grep -F 'postgres://chuggy_configuration_importer_login:$(CHUG_CONFIGURATION_IMPORTER_PASSWORD)' "$manifest" >/dev/null
   test "$(grep -c 'role%3Dchuggy_configuration_importer' "$manifest" || true)" -eq 0
-  test "$(grep -c 'git-operator\|github-app' "$manifest" || true)" -eq 0
+  test "$(grep -c 'git-operator' "$manifest" || true)" -eq 0
   test "$(grep -c 'HOME=' "$manifest" || true)" -eq 0
   grep -F 'GIT_CONFIG_GLOBAL=/dev/null' "$manifest" >/dev/null
   grep -F 'automountServiceAccountToken: false' "$manifest" >/dev/null
@@ -43,6 +46,8 @@ pkgs.runCommand "chuggy-configuration-importer" {
   grep -F 'failedJobsHistoryLimit: 3' "$manifest" >/dev/null
 
   grep -F 'name: chuggy-configuration-importer-egress' \
+    "$root/cluster/apps/chuggy-control-plane-network-policy.yaml" >/dev/null
+  grep -F 'cidr: 0.0.0.0/0' \
     "$root/cluster/apps/chuggy-control-plane-network-policy.yaml" >/dev/null
   grep -F 'test "$(git rev-parse --short=7 HEAD)" = e92cce9' "$root/README.md" >/dev/null
   grep -F 'CHUG_PG_CONFIGURATION_IMPORTER_PASSWORD' "$root/README.md" >/dev/null

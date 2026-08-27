@@ -422,8 +422,10 @@ spec:
         - protocol: TCP
           port: 5432
 ---
-# The importer resolves and reads the internal repository, then appends through
-# its own database role. Those are its only two application destinations.
+# The importer resolves and reads GitHub, then appends through its own database
+# role. NetworkPolicy cannot name GitHub as a hostname, so the public rule
+# admits HTTPS to public addresses while excluding private, loopback,
+# carrier-grade NAT and link-local ranges.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -456,12 +458,15 @@ spec:
         - protocol: TCP
           port: 5432
     - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: chuggy-git
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: git
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.168.0.0/16
       ports:
         - protocol: TCP
-          port: 8080
+          port: 443

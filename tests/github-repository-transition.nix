@@ -27,8 +27,10 @@ pkgs.runCommand "github-repository-transition" {
   done
 
   importer="$root/cluster/apps/chuggy-configuration-importer.yaml"
-  if grep -F 'github.com/kasofsk/chuggy' "$importer"; then
-    echo 'configuration importer must remain on internal git during transition' >&2
+  grep -F 'https://github.com/kasofsk/chuggy.git' "$importer" >/dev/null
+  grep -F 'chuggy-github-reader-token' "$importer" >/dev/null
+  if grep -F 'git.chuggy-git.svc.cluster.local' "$importer"; then
+    echo 'configuration importer still names internal git after cutover' >&2
     exit 1
   fi
 
