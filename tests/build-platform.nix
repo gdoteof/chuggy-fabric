@@ -344,7 +344,7 @@ pkgs.runCommand "chuggy-build-platform" {
   grep -F 'has(status.conditions)' "$root/modules/flux.nix" >/dev/null
   grep -F "e.status == 'False'" "$root/modules/flux.nix" >/dev/null
   grep -F "e.status == 'True'" "$root/modules/flux.nix" >/dev/null
-  grep -F "s.git.commitSha == metadata.annotations" "$root/modules/flux.nix" >/dev/null
+  grep -F "status.source.git.commitSha == metadata.annotations" "$root/modules/flux.nix" >/dev/null
   grep -F "status.output.digest.matches" "$root/modules/flux.nix" >/dev/null
   grep -F 'healthCheckExprs:' "$root/cluster/flux-system/gotk-components.yaml" >/dev/null
   grep -F 'kustomize-controller:v1.5.1@sha256:b89935f9428764c389c5192fdb8f6c53b66e365fa09ac8cec597e82273e9f518' "$root/cluster/flux-system/gotk-components.yaml" >/dev/null

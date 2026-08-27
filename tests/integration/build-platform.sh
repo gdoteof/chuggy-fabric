@@ -98,7 +98,7 @@ done
 (( SECONDS < deadline )) || { echo "Flux did not report the test revision Ready through BuildRun CEL health" >&2; exit 1; }
 
 buildrun_json=$(kubectl -n "$namespace" get "buildrun/$buildrun" -o json) || { echo "Flux reported Ready without materializing $buildrun" >&2; exit 1; }
-observed_commit=$(printf '%s' "$buildrun_json" | jq -r '[.status.sources[]? | select(.name == "default") | .git.commitSha] | last // empty')
+observed_commit=$(printf '%s' "$buildrun_json" | jq -r '.status.source.git.commitSha // empty')
 reported_digest=$(printf '%s' "$buildrun_json" | jq -r '.status.output.digest // empty')
 [[ $observed_commit == "$source_commit" ]] || { echo "built $observed_commit, expected $source_commit" >&2; exit 1; }
 [[ $reported_digest =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "Shipwright did not report an image digest" >&2; exit 1; }

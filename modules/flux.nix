@@ -149,17 +149,15 @@ let
             has(status.conditions) &&
             (status.conditions.filter(e, e.type == 'Succeeded').exists(e, e.status == 'False') ||
             (status.conditions.filter(e, e.type == 'Succeeded').exists(e, e.status == 'True') &&
-            (!has(status.sources) ||
-            !status.sources.exists(s, s.name == 'default' && has(s.git) &&
-            s.git.commitSha == metadata.annotations['fabric.chuggy.dev/source-commit']) ||
+            (!has(status.source) || !has(status.source.git) ||
+            status.source.git.commitSha != metadata.annotations['fabric.chuggy.dev/source-commit'] ||
             !has(status.output) || !has(status.output.digest) ||
             !status.output.digest.matches('^sha256:[0-9a-f]{64}$'))))
           current: >-
             has(status.conditions) &&
             status.conditions.filter(e, e.type == 'Succeeded').exists(e, e.status == 'True') &&
-            has(status.sources) &&
-            status.sources.exists(s, s.name == 'default' && has(s.git) &&
-            s.git.commitSha == metadata.annotations['fabric.chuggy.dev/source-commit']) &&
+            has(status.source) && has(status.source.git) &&
+            status.source.git.commitSha == metadata.annotations['fabric.chuggy.dev/source-commit'] &&
             has(status.output) && has(status.output.digest) &&
             status.output.digest.matches('^sha256:[0-9a-f]{64}$')
   '';

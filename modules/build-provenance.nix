@@ -8,7 +8,7 @@ let
     else configuredResultsPath;
   recorder = pkgs.writeShellApplication {
     name = "chuggy-build-provenance";
-    runtimeInputs = [ pkgs.coreutils pkgs.gawk pkgs.gnugrep pkgs.jq pkgs.kubectl ];
+    runtimeInputs = [ pkgs.coreutils pkgs.diffutils pkgs.gawk pkgs.gnugrep pkgs.jq pkgs.kubectl ];
     text = builtins.readFile ../scripts/record-build-provenance;
   };
   observer = pkgs.writeShellApplication {
