@@ -213,7 +213,7 @@ spec:
             - name: CHUG_SCHEDULER_WORKER_ENVIRONMENT
               value: |
                 {
-                  "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\",\"credential\":\"chuggy-git-worker\",\"username\":\"worker\"},\"https://github.com/kasofsk/chuggy.git\":{\"url\":\"https://github.com/kasofsk/chuggy.git\",\"credential\":\"chuggy-github-worker\",\"username\":\"x-access-token\"}}",
+                  "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\",\"credential\":\"chuggy-git-worker\",\"credentialUsername\":\"worker\"},\"https://github.com/kasofsk/chuggy.git\":{\"url\":\"https://github.com/kasofsk/chuggy.git\",\"credential\":\"chuggy-github-worker\",\"credentialUsername\":\"x-access-token\"}}",
                   "CHUG_WORKER_WORKSPACE": "/workspace"
                 }
             - name: CHUG_SCHEDULER_WORKER_LABELS
