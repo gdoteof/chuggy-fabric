@@ -115,7 +115,7 @@ metadata:
   name: chuggy-scheduler
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: ad6be1a
+    fabric.chuggy.dev/source-commit: e7376d2
   labels: { app: chuggy-scheduler }
 spec:
   replicas: 1
@@ -143,7 +143,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: scheduler
-          image: registry.chuggy.internal/chuggy/api@sha256:b37b38687aa2278e1d63c4df7fe22ce73be8268aca058edb3717e8823a1adfc8
+          image: registry.chuggy.internal/chuggy/api@sha256:1324c84468694ab27796872990f619a0a4af5bf91dc6e80871365ce3e38d15f5
           imagePullPolicy: IfNotPresent
           command:
             [
@@ -233,15 +233,45 @@ spec:
             # `ExecutionPolicyDenied` before a pod is asked for.
             # Generations remain admitted while a nonterminal ticket pins them;
             # publishing a successor does not retire its predecessors.
+            # An entry may also carry the name and version the scheduler
+            # publishes the image under, which is what a reader is shown in
+            # place of the digest; this site is the one source of those labels,
+            # and a version is assigned here when the image is admitted and
+            # never afterwards. Versions below are admission order, read from
+            # this file's history.
             - name: CHUG_SCHEDULER_ADMITTED_IMAGES
               value: |
                 [
-                  "registry.chuggy.internal/chuggy/worker@sha256:de1409a2a51b82bc18f6517bc62603956ad5698b26e36ed64b7f84c793e62cae",
-                  "registry.chuggy.internal/chuggy/worker@sha256:cfe57dd168347730f91aec689be4adaf53750f237af54bb9effedf53319d34a6",
-                  "registry.chuggy.internal/chuggy/worker@sha256:49cc3c3d713e4b40341f68dfb83e1bf1acabb6d5986e1f1786ea5706afe0690f",
-                  "registry.chuggy.internal/chuggy/worker@sha256:beb6ed311a398723fc33c47269077a3c55fcac51627f65db5d82932f6183fc38",
-                  "registry.chuggy.internal/chuggy/worker@sha256:c50b3333142063e90c6d7d6143119bcf1dd9b138e8aa740b831dc48699896e1f",
-                  "registry.chuggy.internal/chuggy/worker@sha256:9949c44297be92b3a49d11c3982b897730e4e283031f1b8b21b285e0ca04dbbe"
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:de1409a2a51b82bc18f6517bc62603956ad5698b26e36ed64b7f84c793e62cae",
+                    "name": "chuggy-worker",
+                    "version": "0.1"
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:cfe57dd168347730f91aec689be4adaf53750f237af54bb9effedf53319d34a6",
+                    "name": "chuggy-worker",
+                    "version": "0.2"
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:49cc3c3d713e4b40341f68dfb83e1bf1acabb6d5986e1f1786ea5706afe0690f",
+                    "name": "chuggy-worker",
+                    "version": "0.3"
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:beb6ed311a398723fc33c47269077a3c55fcac51627f65db5d82932f6183fc38",
+                    "name": "chuggy-worker",
+                    "version": "0.4"
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:c50b3333142063e90c6d7d6143119bcf1dd9b138e8aa740b831dc48699896e1f",
+                    "name": "chuggy-worker",
+                    "version": "0.5"
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:9949c44297be92b3a49d11c3982b897730e4e283031f1b8b21b285e0ca04dbbe",
+                    "name": "chuggy-worker",
+                    "version": "0.6"
+                  }
                 ]
             # PR 5's, provisional. D30 says the adopting machine must supply
             # these and that the shared module provides no guessed defaults;
