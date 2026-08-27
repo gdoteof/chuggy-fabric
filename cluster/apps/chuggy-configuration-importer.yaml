@@ -12,15 +12,15 @@ data:
   askpass.sh: |
     #!/bin/sh
     case "$1" in
-      *Username*) printf '%s\n' chuggy ;;
-      *Password*) cat /var/run/chuggy/repository-credentials/chuggy-git ;;
+      *Username*) printf '%s\n' x-access-token ;;
+      *Password*) cat /var/run/chuggy/repository-credentials/chuggy-github ;;
       *) exit 1 ;;
     esac
   import.sh: |
     #!/bin/sh
     set -eu
 
-    repository=http://git.chuggy-git.svc.cluster.local./chuggy.git
+    repository=https://github.com/kasofsk/chuggy.git
     export GIT_CONFIG_GLOBAL=/dev/null
     export GIT_CONFIG_NOSYSTEM=1
     export GIT_TERMINAL_PROMPT=0
@@ -35,7 +35,7 @@ data:
     commit="$(git ls-remote --exit-code "$repository" refs/heads/main | awk 'NR == 1 { print $1 }')"
     case "$commit" in
       [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
-      *) echo "configuration importer: internal main did not resolve to one full SHA-1" >&2; exit 2 ;;
+      *) echo "configuration importer: GitHub main did not resolve to one full SHA-1" >&2; exit 2 ;;
     esac
 
     export CHUG_CONFIGURATION_IMPORT_COMMIT="$commit"
@@ -47,9 +47,9 @@ data:
           scratchDirectory: "/var/lib/chuggy/git",
           credentialSources: [{
             repository,
-            path: "/var/run/chuggy/repository-credentials/chuggy-git",
+            path: "/var/run/chuggy/repository-credentials/chuggy-github",
           }],
-          credentialUsername: "chuggy",
+          credentialUsername: "x-access-token",
           localTimeoutSecsMax: 120,
           remoteTimeoutSecsMax: 120,
         },
@@ -129,7 +129,7 @@ spec:
                 - name: CHUG_CONFIGURATION_IMPORT_DATABASE_URL
                   value: postgres://chuggy_configuration_importer_login:$(CHUG_CONFIGURATION_IMPORTER_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy
                 - name: CHUG_CONFIGURATION_IMPORT_REPOSITORY
-                  value: http://git.chuggy-git.svc.cluster.local./chuggy.git
+                  value: https://github.com/kasofsk/chuggy.git
               volumeMounts:
                 - name: scripts
                   mountPath: /opt/chuggy-configuration-importer
@@ -157,8 +157,8 @@ spec:
               emptyDir: {}
             - name: repository-credentials
               secret:
-                secretName: chuggy-git-sync
+                secretName: chuggy-github-reader-token
                 defaultMode: 0444
                 items:
-                  - key: password
-                    path: chuggy-git
+                  - key: token
+                    path: chuggy-github
