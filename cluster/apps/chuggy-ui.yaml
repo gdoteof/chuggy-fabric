@@ -113,7 +113,7 @@ metadata:
   name: chuggy-ui
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: 3867ca2
+    fabric.chuggy.dev/source-commit: cfaca0a
   labels: { app: chuggy-ui }
 spec:
   replicas: 1
