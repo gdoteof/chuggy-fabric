@@ -86,6 +86,20 @@ spec:
           podSelector:
             matchLabels:
               chuggy.dev/postgres-client: "true"
+        # The work namespace, the same way and for a different reason: what runs
+        # there is agent-authored, and what it authenticates as is a role that
+        # cannot open a session in the chuggy database — `chuggy_worker`, which
+        # holds CONNECT on none of the deployment's databases and membership in
+        # none of its groups. So this element admits the packet and the server
+        # is what refuses the session; neither half is the whole of it. The
+        # egress half is chuggy-work.yaml, and the role is argued in
+        # `deploy/rig/postgres/worker-database-roles.sql` in kasofsk/chuggy.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy-work
+          podSelector:
+            matchLabels:
+              chuggy.dev/postgres-client: "true"
       ports:
         - protocol: TCP
           port: 5432

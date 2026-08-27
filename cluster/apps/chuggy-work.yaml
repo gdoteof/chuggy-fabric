@@ -77,6 +77,24 @@ spec:
             matchLabels: { app.kubernetes.io/name: git }
       ports:
         - { protocol: TCP, port: 8080 }
+    # PostgreSQL, which a worker reaches as `chuggy_worker` to make the one
+    # database its attempt owns and to run the repository's own gates against
+    # it. That is the same server the control plane holds its authority in, and
+    # what separates the two is the role rather than the machine: the chuggy
+    # database takes CONNECT from PUBLIC and gives it by name, so this login
+    # cannot open a session there, and it is granted membership in no group
+    # role, so on PostgreSQL 16 or newer it cannot give itself one. The rule and
+    # its argument are `deploy/rig/postgres/worker-database-roles.sql` in
+    # kasofsk/chuggy; the ingress half is postgres-network-policy.yaml, which
+    # admits this namespace only for pods carrying the client label.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy
+          podSelector:
+            matchLabels: { app: postgres }
+      ports:
+        - { protocol: TCP, port: 5432 }
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
