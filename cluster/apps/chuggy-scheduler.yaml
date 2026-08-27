@@ -115,7 +115,7 @@ metadata:
   name: chuggy-scheduler
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: b90db0ab
+    fabric.chuggy.dev/source-commit: f87bc06
   labels: { app: chuggy-scheduler }
 spec:
   replicas: 1
@@ -143,7 +143,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: scheduler
-          image: registry.chuggy.internal/chuggy/api@sha256:9ef799c6b4c07818edc1e424c91b91857ba39180f3016785d1e8db17a2eeeaf5
+          image: registry.chuggy.internal/chuggy/api@sha256:b9f94073bf5da1715a46ffb39aaf88c2da772b6dc42d4ccb9e201ce29241edca
           imagePullPolicy: IfNotPresent
           command:
             [
@@ -213,7 +213,7 @@ spec:
             - name: CHUG_SCHEDULER_WORKER_ENVIRONMENT
               value: |
                 {
-                  "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\",\"credential\":\"chuggy-git-worker\",\"username\":\"worker\"},\"https://github.com/kasofsk/chuggy.git\":{\"url\":\"https://github.com/kasofsk/chuggy.git\",\"credential\":\"chuggy-github-worker\",\"username\":\"x-access-token\"}}",
+                  "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\",\"credential\":\"chuggy-git-worker\",\"credentialUsername\":\"worker\"},\"https://github.com/kasofsk/chuggy.git\":{\"url\":\"https://github.com/kasofsk/chuggy.git\",\"credential\":\"chuggy-github-worker\",\"credentialUsername\":\"x-access-token\"}}",
                   "CHUG_WORKER_WORKSPACE": "/workspace"
                 }
             - name: CHUG_SCHEDULER_WORKER_LABELS
