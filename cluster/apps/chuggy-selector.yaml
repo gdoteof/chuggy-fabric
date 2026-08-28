@@ -97,7 +97,7 @@ metadata:
   name: chuggy-selector
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: f998866
+    fabric.chuggy.dev/source-commit: b22a67b
   labels: { app: chuggy-selector }
 spec:
   # ZERO, AND NOT BECAUSE THIS IS UNFINISHED. `selector-source` is what a run
@@ -142,7 +142,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: selector
-          image: registry.chuggy.internal/chuggy/api@sha256:c92fa9dcfe8b1cc8d39efe31d22317f586bdca503ec6eb2aa99f3c21bc0e9cba
+          image: registry.chuggy.internal/chuggy/api@sha256:bddc068370092261bc4088401c45f494981883d9504ad29f391d97f5dceaeb0c
           imagePullPolicy: IfNotPresent
           command:
             [
