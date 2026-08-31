@@ -60,8 +60,8 @@
 # mint that fails has a minute of still-good token to be retried in.
 # `mintCooldownMs` bounds grant requests to one per ten seconds however many
 # reads arrive and however many of them fail, and the command refuses to start
-# unless it is shorter than the margin, because a cooldown longer than the
-# margin is one that leaves no room for that retry.
+# unless it is shorter than the margin, because a cooldown that is not shorter
+# is one that leaves no room for that retry.
 #
 # THE CLIENT ITSELF IS OUT OF BAND, like the secret it authenticates with, and
 # so is the API's opinion of it: a project membership row for the principal its
@@ -121,12 +121,12 @@
 # A `secretKeyRef` naming a key that is not there refuses to start the pod,
 # which is the right failure: a selector with no credential should not run.
 #
-# ONLY THE POLICY TOKEN LANDS IN A JSON STRING, and it alone carries the
-# constraint chuggy-ticket-service.yaml states in full: a `"` or a `\` in it
-# makes the configuration below unparseable, and a `$(` is expanded by the
-# kubelet before the process ever reads it. The client secret is read from a
-# variable of its own instead of being interpolated into that document, so
-# whatever Hydra generates is safe there. The database password in the same
+# OF THE TWO, ONLY THE POLICY TOKEN LANDS IN A JSON STRING, and it alone
+# carries the constraint chuggy-ticket-service.yaml states in full: a `"` or a
+# `\` in it makes the configuration below unparseable, and a `$(` is expanded
+# by the kubelet before the process ever reads it. The client secret is read
+# from a variable of its own instead of being interpolated into that document,
+# so whatever Hydra generates is safe there. The database password in the same
 # document carries the whole list.
 #
 # That is worth stating for the policy token more than for a password, because

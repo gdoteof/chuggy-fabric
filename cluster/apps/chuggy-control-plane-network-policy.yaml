@@ -46,11 +46,12 @@
 #
 # A ClusterIP is not what a rule matches. Service addresses are translated
 # before the filter chain sees the packet, so a destination is written here as
-# the pod that answers it: PostgreSQL and the API by their labels alone, because
-# a bare `podSelector` is scoped to this policy's own namespace and they are in
-# it; CoreDNS, the git service and Hydra by a `namespaceSelector` and a
-# `podSelector` together, because they are not. The one place that fails is the
-# Kubernetes API server, and that is argued where the scheduler's rule is.
+# the pod that answers it: PostgreSQL, the API and the worker plane by their
+# labels alone, because a bare `podSelector` is scoped to this policy's own
+# namespace and they are in it; CoreDNS, the git service and Hydra by a
+# `namespaceSelector` and a `podSelector` together, because they are not. The
+# one place that fails is the Kubernetes API server, and that is argued where
+# the scheduler's rule is.
 ---
 # Nothing may open a connection to the four loop processes or to the migration
 # Job, because none of them listens. They have no port, no Service and no probe;

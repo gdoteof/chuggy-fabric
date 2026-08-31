@@ -1481,9 +1481,11 @@ not after it.
    env gives `CreateContainerConfigError`, a mounted secret gives
    `ContainerCreating` on a `FailedMount`.
 
-   The selector's is **not a value the operator invents**. It is what Hydra
-   returns when the client the selector authenticates as is registered, so the
-   registration comes first and the Secret carries its output;
+   Of the selector's two, the client secret is **not a value the operator
+   invents**: it is what Hydra returns when the client the selector
+   authenticates as is registered, so the registration comes first and the
+   Secret carries its output. The policy token is the operator's own, because
+   nothing issues one — nothing serves the protocol it authenticates to.
    `chuggy-selector.yaml` holds both commands and argues the audience the client
    must be granted.
 
