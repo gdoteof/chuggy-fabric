@@ -28,20 +28,41 @@
 # itself, and asks `/health/ready` at the root; a base URL carrying the version
 # prefix would send both somewhere that does not exist.
 #
-# ------------------------------------------- the token, and what expires it ----
+# -------------------------------------- the token, and where it comes from ----
 #
-# `source.bearerToken` IS A STATIC VALUE AND THE ISSUER SIGNS SHORT TOKENS.
-# ory-hydra.yaml sets `ttl.access_token` to fifteen minutes, deliberately,
-# because nothing revokes an offline-verified JWT. This configuration hands the
-# command one token and there is nothing in this repository, and nothing in the
-# command, that gets another: after that lifetime every call this workload makes
-# to the API is a 401, and the pod stays up.
+# THE SELECTOR MINTS ITS OWN AND REPLACES IT BEFORE IT EXPIRES. ory-hydra.yaml
+# sets `ttl.access_token` to fifteen minutes, deliberately, because nothing
+# revokes an offline-verified JWT, so a token written into this file by hand is
+# refused 401 a quarter of an hour after somebody typed it while the pod stays
+# up. `source.credential` therefore names a token endpoint and a client rather
+# than a token, and kasofsk/chuggy's `clientCredentialsTokenSource` asks Hydra
+# for a grant and asks again before the granted expiry.
 #
-# The seam for the fix is already in kasofsk/chuggy -- `nativeHttpClient` takes
-# `accessToken` as a function of a signal, and `src/roots/selector.ts` wires a
-# constant into it. What closes this is that command asking Hydra for a
-# client-credentials token and refreshing it, plus a confidential client
-# registered on the admin port. Neither is a manifest, so neither is here.
+# THE TOKEN ENDPOINT IS REACHED IN-CLUSTER AND THE ISSUER IS NOT. Minting only
+# needs the endpoint to answer; the issuer string is Hydra's own configuration
+# and is in the token whichever address minted it, so `hydra-public` over the
+# pod network is enough here -- and it is a destination the selector's egress
+# rule has to name, which chuggy-control-plane-network-policy.yaml does.
+# Verification is the opposite case and chuggy-api.yaml argues it there: the
+# issuer is compared for equality, so that pod leaves the cluster for the keys.
+#
+# `scope` IS EMPTY BECAUSE NOTHING READS ONE. The API decides by the issuer, the
+# audience and the project membership of the principal the token names, and a
+# scope requested here would be a string no reader checks -- which is worse than
+# none, because it reads like an authorization that is being enforced.
+#
+# THE TWO DURATIONS ARE THIS DEPLOYMENT'S AND NOT THE ISSUER'S. A held token
+# stops being handed out `refreshMarginMs` before its expiry -- a minute, so a
+# mint that fails has a minute of still-good token to be retried in.
+# `mintCooldownMs` bounds grant requests to one per ten seconds however many
+# reads arrive and however many of them fail, and the command refuses to start
+# unless it is shorter than the margin, because a cooldown longer than the
+# margin is one that leaves no room for that retry.
+#
+# THE CLIENT ITSELF IS OUT OF BAND, like the secret it authenticates with, and
+# so is the API's opinion of it: a project membership row for the principal its
+# tokens carry is what turns a verified token into a project this selector may
+# read. Both are named under the Secrets below.
 #
 # --------------------------------------------------- the policy host, absent ----
 #
@@ -54,12 +75,12 @@
 #
 # IT IS NOT THE ONE THAT FAILS FIRST. `selectorCommandPreconditions` orders
 # `selector-source` ahead of it, and that is the name a replica of this
-# Deployment reported: `selector could not run: selector-source`, with the
-# Secret below in place. The API is not what is wrong there -- `/health/ready`
-# answers 200, and the hand-written token in that Secret is refused 401 on
-# `/api/v1/projects`, which is the static-token problem this file argues above.
-# So this section is hidden behind that one: fix the token and the report moves
-# here, and here there is nothing to fix.
+# Deployment reported while its token was a constant: `selector could not run:
+# selector-source`. The API was not what was wrong there -- `/health/ready`
+# answered 200 and the hand-written token was refused 401 on `/api/v1/projects`,
+# which is the problem the section above now configures the fix for -- a token
+# minted by the client named below is answered 200 on that same route. So the
+# report moves here, and here there is nothing to fix.
 #
 # The name below is what that Service will be called when it exists. It is a
 # name that does not resolve today, which is the loud failure rather than the
@@ -68,28 +89,43 @@
 #
 # ------------------------------------------------------------- the Secrets ----
 #
-# Out of band, because this repository is public. Both tokens are the
+# Out of band, because this repository is public. Both values are the
 # selector's own, so they are its own Secret rather than more keys on the
 # credential Secret the machine layer synchronizes:
 #
 #   kubectl -n chuggy create secret generic chuggy-selector \
-#     --from-literal=source-bearer-token=<access token for the API> \
+#     --from-literal=source-client-secret=<the client secret Hydra returned> \
 #     --from-literal=policy-bearer-token=<token the policy host accepts>
+#
+# The client that secret belongs to is registered on the admin port, and its id
+# is the `clientId` below rather than a generated one, so the configuration can
+# name it and so the subject its tokens carry is readable in the API's records:
+#
+#   kubectl -n ory exec deploy/hydra -c hydra -- hydra create oauth2-client \
+#     --endpoint http://127.0.0.1:4445 --id chuggy-selector \
+#     --name chuggy-selector --grant-type client_credentials \
+#     --audience https://chuggy.vteng.io/api
+#
+# The audience there is what Hydra must GRANT, and chuggy-api.yaml states the
+# same string as what the API requires; a client registered without it gets
+# tokens every read is refused on. The default token-endpoint authentication is
+# `client_secret_basic`, which is what the command presents.
 #
 # A `secretKeyRef` naming a key that is not there refuses to start the pod,
 # which is the right failure: a selector with no credential should not run.
 #
-# BOTH TOKENS ARE HAND-WRITTEN AND BOTH LAND IN A JSON STRING, so both carry the
-# constraint chuggy-ticket-service.yaml states in full. Two lines of it bite
-# here and the URL ones do not, because a token is not in a userinfo: a `"` or a
-# `\` in either value makes the configuration below unparseable, and a `$(` is
-# expanded by the kubelet before the process ever reads it. The database
-# password in the same document carries the whole list.
+# ONLY THE POLICY TOKEN LANDS IN A JSON STRING, and it alone carries the
+# constraint chuggy-ticket-service.yaml states in full: a `"` or a `\` in it
+# makes the configuration below unparseable, and a `$(` is expanded by the
+# kubelet before the process ever reads it. The client secret is read from a
+# variable of its own instead of being interpolated into that document, so
+# whatever Hydra generates is safe there. The database password in the same
+# document carries the whole list.
 #
-# That is worth stating for a token more than for a password, because nothing
-# generates these. The password comes from the machine layer's hex generator;
-# these two are typed by whoever runs the command above. A base64 or JWT-shaped
-# value is safe on both counts. A passphrase somebody invents is not.
+# That is worth stating for the policy token more than for a password, because
+# nothing generates it: the password comes from the machine layer's hex
+# generator and this is typed by whoever runs the command above. A base64 or
+# JWT-shaped value is safe on both counts. A passphrase somebody invents is not.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -101,12 +137,20 @@ metadata:
   labels: { app: chuggy-selector }
 spec:
   # ZERO, AND NOT BECAUSE THIS IS UNFINISHED. `selector-source` is what a run
-  # reports, and it is not the reason: it is unsatisfied today and there is a
-  # seam for it. `selector-policy` is the reason. Nothing implements the trusted
-  # selector policy protocol -- not here, not in kasofsk/chuggy, not anywhere --
-  # so nothing outside this repository clears it either. A replica restates that
-  # absence every backoff interval and tells nobody anything, and it is one more
-  # red pod for a real one to hide behind.
+  # reported and it was never the reason: it has a fix, and the configuration
+  # below is that fix. `selector-policy` is the reason. Nothing implements the
+  # trusted selector policy protocol -- not here, not in kasofsk/chuggy, not
+  # anywhere -- so nothing outside this repository clears it either. A replica
+  # restates that absence every backoff interval and tells nobody anything, and
+  # it is one more red pod for a real one to hide behind.
+  #
+  # THE CONFIGURATION BELOW IS AHEAD OF THE IMAGE ABOVE, deliberately and only
+  # while this number is zero. `source.credential` is the shape kasofsk/chuggy
+  # reads from e4181ed onwards; the digest here is built from an earlier commit
+  # and would refuse this document as unparseable. Nothing parses it at zero
+  # replicas, and the next release moves the digest past that commit -- but a
+  # release and a raise to one are not the same step, and this is why they are
+  # not.
   #
   # A Deployment with no available replica also never passes `wait: true`, which
   # health-checks every object in this directory. At zero it does: kstatus reads
@@ -158,10 +202,14 @@ spec:
                     name: chuggy-postgres-credentials,
                     key: selector-service-password,
                   }
-            - name: CHUG_SELECTOR_SOURCE_TOKEN
+            # The one value the configuration document below does not carry.
+            # The command reads it from here directly and joins it to the rest
+            # of `source.credential`, which is how a public repository can hold
+            # every other field of a credential.
+            - name: CHUG_SELECTOR_SOURCE_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  { name: chuggy-selector, key: source-bearer-token }
+                  { name: chuggy-selector, key: source-client-secret }
             - name: CHUG_SELECTOR_POLICY_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -176,11 +224,19 @@ spec:
             # kasofsk/chuggy's selector runtime, and restating a default is how
             # two copies of one number come to disagree.
             #
-            # `identity.principal` must name the same subject the source token
-            # carries. The API authorizes by the token; this value is what the
-            # selector's own reads are attributed to, and a mismatch between the
-            # two shows up as an authorization refusal on a call the token
-            # should have allowed.
+            # `identity.principal` is not what gets this workload past the
+            # API -- the token is, and the HTTP client discards this value on
+            # every call. It is the name the selector attributes its own reads
+            # to, so it is written as the principal the API derives from the
+            # same token, and a mismatch is two names for one actor rather than
+            # a refusal.
+            #
+            # That derivation is `oidcPrincipal` in kasofsk/chuggy: the issuer's
+            # length, a colon, the issuer, then the subject, so that no pair of
+            # issuer and subject encodes to another pair's string. The issuer is
+            # the one chuggy-api.yaml verifies against and the subject of a
+            # client-credentials token is the client's id, which is why that id
+            # is set by hand where the client is created.
             - name: CHUG_SELECTOR_CONFIG
               value: |
                 {
@@ -192,15 +248,22 @@ spec:
                     "shutdownDrainMilliseconds": 15000
                   },
                   "identity": {
-                    "principal": "selector@chuggy.vteng.io",
+                    "principal": "21:https://auth.vteng.iochuggy-selector",
                     "instance": "$(CHUG_POD_NAME)"
                   },
                   "source": {
                     "baseUrl": "http://chuggy-api.chuggy.svc.cluster.local:3000",
-                    "bearerToken": "$(CHUG_SELECTOR_SOURCE_TOKEN)",
                     "requestDeadlineMs": 10000,
                     "responseBytesMax": 1048576,
-                    "responseReadsMax": 1024
+                    "responseReadsMax": 1024,
+                    "credential": {
+                      "tokenUrl": "http://hydra-public.ory.svc.cluster.local:4444/oauth2/token",
+                      "clientId": "chuggy-selector",
+                      "audience": ["https://chuggy.vteng.io/api"],
+                      "scope": [],
+                      "refreshMarginMs": 60000,
+                      "mintCooldownMs": 10000
+                    }
                   },
                   "policy": {
                     "baseUrl": "http://chuggy-selector-policy.chuggy.svc.cluster.local:8080",
