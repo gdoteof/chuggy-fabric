@@ -9,12 +9,14 @@
 # chuggy-ticket-service.yaml and is not repeated.
 #
 # THIS WORKLOAD IS DECLARED HERE AND RUNS NO REPLICA. Two of its preconditions
-# have no answer here, both of them for reasons outside this repository, and
-# both are stated below where the value that depends on them is written. One of
-# the two has a fix with a seam already cut for it; the other has none anywhere,
-# and that is what `replicas: 0` is argued from, beside the number. Everything
-# else stays declared, so the gap is a manifest with a zero in it rather than a
-# manifest nobody wrote.
+# had no answer here. One of them is answered now, as far as a manifest can
+# answer anything: the credential below is what `selector-source` was missing,
+# and what is left of it is a client registration and a project membership row,
+# neither of which is a manifest. The other has no answer anywhere, and that is
+# what `replicas: 0` is argued from, beside the number. Both are stated below
+# where the value that depends on them is written. Everything else stays
+# declared, so the gap is a manifest with a zero in it rather than a manifest
+# nobody wrote.
 #
 # ------------------------------------------------ what it reaches, and how ----
 #
@@ -30,13 +32,14 @@
 #
 # -------------------------------------- the token, and where it comes from ----
 #
-# THE SELECTOR MINTS ITS OWN AND REPLACES IT BEFORE IT EXPIRES. ory-hydra.yaml
-# sets `ttl.access_token` to fifteen minutes, deliberately, because nothing
-# revokes an offline-verified JWT, so a token written into this file by hand is
-# refused 401 a quarter of an hour after somebody typed it while the pod stays
-# up. `source.credential` therefore names a token endpoint and a client rather
-# than a token, and kasofsk/chuggy's `clientCredentialsTokenSource` asks Hydra
-# for a grant and asks again before the granted expiry.
+# THE SELECTOR MINTS ITS OWN AND REPLACES IT BEFORE IT EXPIRES. `ory/hydra.yaml`
+# -- the document kustomization.yaml turns into the ConfigMap ory-hydra.yaml
+# mounts -- sets `ttl.access_token` to fifteen minutes, deliberately, because
+# nothing revokes an offline-verified JWT, so a token written into this file by
+# hand is refused 401 a quarter of an hour after somebody typed it while the pod
+# stays up. `source.credential` therefore names a token endpoint and a client
+# rather than a token, and kasofsk/chuggy's `clientCredentialsTokenSource` asks
+# Hydra for a grant and asks again before the granted expiry.
 #
 # THE TOKEN ENDPOINT IS REACHED IN-CLUSTER AND THE ISSUER IS NOT. Minting only
 # needs the endpoint to answer; the issuer string is Hydra's own configuration
@@ -62,7 +65,9 @@
 # THE CLIENT ITSELF IS OUT OF BAND, like the secret it authenticates with, and
 # so is the API's opinion of it: a project membership row for the principal its
 # tokens carry is what turns a verified token into a project this selector may
-# read. Both are named under the Secrets below.
+# read. The client and the secret are named under the Secrets below. The
+# membership row is not, and nothing here can write one -- it is granted through
+# the API, like any other project access.
 #
 # --------------------------------------------------- the policy host, absent ----
 #

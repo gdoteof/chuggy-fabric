@@ -188,9 +188,9 @@ spec:
         - protocol: TCP
           port: 443
 ---
-# The selector adds the API and Hydra to the same two destinations: its project
-# view comes through `/api/v1` rather than out of the database, and the token it
-# presents there is one it mints for itself.
+# The selector adds two destinations to the same two above: the API, because its
+# project view comes through `/api/v1` rather than out of the database, and
+# Hydra, because the token it presents to the API is one it mints for itself.
 #
 # HYDRA IS THE SECOND, ON ITS PUBLIC PORT AND NOT ITS ADMIN ONE. The selector
 # asks `/oauth2/token` for a client-credentials grant; registering the client
