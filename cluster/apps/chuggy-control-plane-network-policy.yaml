@@ -47,7 +47,9 @@
 # A ClusterIP is not what a rule matches. Service addresses are translated
 # before the filter chain sees the packet, so a destination is written here as
 # the pod that answers it: CoreDNS by its label, PostgreSQL by its, the API by
-# its. The one place that fails is the Kubernetes API server, and that is argued
+# its, Hydra by its namespace and its label together, because a bare
+# `podSelector` is scoped to this policy's own namespace and Hydra is not in it.
+# The one place that fails is the Kubernetes API server, and that is argued
 # where the scheduler's rule is.
 ---
 # Nothing may open a connection to the four loop processes or to the migration

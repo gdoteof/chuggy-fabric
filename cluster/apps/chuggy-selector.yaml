@@ -9,10 +9,11 @@
 # chuggy-ticket-service.yaml and is not repeated.
 #
 # THIS WORKLOAD IS DECLARED HERE AND RUNS NO REPLICA. Two of its preconditions
-# had no answer here. One of them is answered now, as far as a manifest can
-# answer anything: the credential below is what `selector-source` was missing,
-# and what is left of it is a client registration and a project membership row,
-# neither of which is a manifest. The other has no answer anywhere, and that is
+# had no answer here. `selector-source` has one now: the credential below is
+# what it was missing, and the client that credential names is registered out of
+# band, which is the whole of what it takes -- an empty project list is a pass,
+# so the membership row further down is what turns the pass into work rather
+# than what makes it one. `selector-policy` has no answer anywhere, and that is
 # what `replicas: 0` is argued from, beside the number. Both are stated below
 # where the value that depends on them is written. Everything else stays
 # declared, so the gap is a manifest with a zero in it rather than a manifest
@@ -83,9 +84,10 @@
 # Deployment reported while its token was a constant: `selector could not run:
 # selector-source`. The API was not what was wrong there -- `/health/ready`
 # answered 200 and the hand-written token was refused 401 on `/api/v1/projects`,
-# which is the problem the section above now configures the fix for -- a token
-# minted by the client named below is answered 200 on that same route. So the
-# report moves here, and here there is nothing to fix.
+# which is the problem the section above now configures the fix for: a token
+# minted by the client named below is answered 200 on that same route, and
+# `projectInventory` is what the precondition asks for past that. So the report
+# a replica makes next names this section, and here there is nothing to fix.
 #
 # The name below is what that Service will be called when it exists. It is a
 # name that does not resolve today, which is the loud failure rather than the
@@ -129,8 +131,9 @@
 #
 # That is worth stating for the policy token more than for a password, because
 # nothing generates it: the password comes from the machine layer's hex
-# generator and this is typed by whoever runs the command above. A base64 or
-# JWT-shaped value is safe on both counts. A passphrase somebody invents is not.
+# generator and this is typed by whoever runs the `create secret` above. A
+# base64 or JWT-shaped value is safe on both counts. A passphrase somebody
+# invents is not.
 ---
 apiVersion: apps/v1
 kind: Deployment
