@@ -79,8 +79,10 @@
 # The generator is the machine layer's and hex is what it emits, which satisfies
 # every line above at once. This is the constraint that rests on that, and it is
 # stated here because no check enforces it. THE SAME CONSTRAINT BINDS EVERY
-# VALUE THAT ARRIVES THIS WAY, credential or not: chuggy-selector.yaml expands
-# two hand-written bearer tokens into a JSON document exactly like this one.
+# VALUE THAT ARRIVES THIS WAY, credential or not: chuggy-selector.yaml expands a
+# hand-written bearer token into a JSON document exactly like this one, and its
+# header states which of its two secrets that is and which one escapes this by
+# being read from a variable of its own.
 #
 # ------------------------------------------------------ the configuration ----
 #

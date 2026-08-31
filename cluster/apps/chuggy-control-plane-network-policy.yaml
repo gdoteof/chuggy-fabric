@@ -46,9 +46,12 @@
 #
 # A ClusterIP is not what a rule matches. Service addresses are translated
 # before the filter chain sees the packet, so a destination is written here as
-# the pod that answers it: CoreDNS by its label, PostgreSQL by its, the API by
-# its. The one place that fails is the Kubernetes API server, and that is argued
-# where the scheduler's rule is.
+# the pod that answers it: PostgreSQL, the API and the worker plane by their
+# labels alone, because a bare `podSelector` is scoped to this policy's own
+# namespace and they are in it; CoreDNS, the git service and Hydra by a
+# `namespaceSelector` and a `podSelector` together, because they are not. The
+# one place that fails is the Kubernetes API server, and that is argued where
+# the scheduler's rule is.
 ---
 # Nothing may open a connection to the four loop processes or to the migration
 # Job, because none of them listens. They have no port, no Service and no probe;
@@ -188,8 +191,20 @@ spec:
         - protocol: TCP
           port: 443
 ---
-# The selector adds the API to the same two destinations, because its project
-# view comes through `/api/v1` rather than out of the database.
+# The selector adds the API and Hydra to the DNS and PostgreSQL every rule here
+# begins with: the API because its project view comes through `/api/v1` rather
+# than out of the database, and Hydra because the token it presents to the API
+# is one it mints for itself.
+#
+# HYDRA IS THE SECOND, ON ITS PUBLIC PORT AND NOT ITS ADMIN ONE. The selector
+# asks `/oauth2/token` for a client-credentials grant; registering the client
+# that grant belongs to is an admin-port act and it is done by hand, out of
+# band, so nothing here needs 4445. `ory-network-policy.yaml` admits 4444 from
+# anywhere on the pod network and this is the other half of that: without this
+# arm the selector's own egress rule refuses the connection that policy would
+# have accepted. The number is the pod's as well as the Service's -- read off
+# `kubectl -n ory get endpointslice`, for the reason the finalizer rule below
+# states at length.
 #
 # It does NOT reach the trusted selector policy host, and that is not an
 # omission: no such Service exists in this directory, so there is nothing to
@@ -234,6 +249,16 @@ spec:
       ports:
         - protocol: TCP
           port: 3000
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ory
+          podSelector:
+            matchLabels:
+              app: hydra
+      ports:
+        - protocol: TCP
+          port: 4444
 ---
 # The finalizer can push to both the rig's git service and GitHub. The internal
 # remote is selected by namespace and pod label. NetworkPolicy cannot name

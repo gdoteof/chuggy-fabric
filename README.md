@@ -1475,11 +1475,19 @@ not after it.
    It must print `t`. The importer connects as the login role; it does not use
    `SET ROLE`, so this inherited membership is the capability boundary.
 5. **Create `chuggy-selector` and `chuggy-finalizer-credentials`** by hand — the
-   selector's two bearer tokens and the finalizer's git credential. Values never
-   go in this repository; it is public. A pod whose Secret is missing is never
-   built, under one of two names: a `secretKeyRef` env gives
-   `CreateContainerConfigError`, a mounted secret gives `ContainerCreating` on a
-   `FailedMount`.
+   selector's OAuth2 client secret and policy token, and the finalizer's git
+   credential. Values never go in this repository; it is public. A pod whose
+   Secret is missing is never built, under one of two names: a `secretKeyRef`
+   env gives `CreateContainerConfigError`, a mounted secret gives
+   `ContainerCreating` on a `FailedMount`.
+
+   Of the selector's two, the client secret is **not a value the operator
+   invents**: it is what Hydra returns when the client the selector
+   authenticates as is registered, so the registration comes first and the
+   Secret carries its output. The policy token is the operator's own, because
+   nothing issues one — nothing serves the protocol it authenticates to.
+   `chuggy-selector.yaml` holds both commands and argues the audience the client
+   must be granted.
 
    The finalizer's is **not a credential for anywhere outside this cluster**. Its
    remote is `rig.git` on the rig's own git service, so the value is the operator
@@ -1512,8 +1520,11 @@ not after it.
   repository clears it. `selector-source` is ordered ahead of it and is what a
   replica reported — `selector could not run: selector-source`, the API
   answering `/health/ready` 200 and refusing the hand-written token 401 — and
-  that one has a seam for a fix. `chuggy-selector.yaml` argues both beside the
-  number, and PR 5 is what restores it to one.
+  that one is answered now: the selector mints its own token from Hydra rather
+  than being handed one, so on an image built from a commit that reads the new
+  credential — which the deployed digest is not yet — what a replica reports
+  next is the policy host. `chuggy-selector.yaml` argues both beside the number,
+  and the policy host is what keeps it at zero.
 - **The finalizer promotes onto this cluster's own git and nothing external.**
   Its remote is `rig.git` in `chuggy-git`, and `chuggy-finalizer-egress` admits
   that one pod on its own 8080 and no longer admits the public internet at all --
