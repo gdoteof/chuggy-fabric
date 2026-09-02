@@ -100,7 +100,7 @@ metadata:
   name: chuggy-web
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: 3fa7fa9
+    fabric.chuggy.dev/source-commit: 6c6f176
   labels: { app: chuggy-web }
 spec:
   replicas: 1

@@ -203,7 +203,7 @@ metadata:
   name: chuggy-api
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: 3fa7fa9
+    fabric.chuggy.dev/source-commit: 6c6f176
   labels: { app: chuggy-api }
 spec:
   # One. The journal makes concurrent writers safe, so this is not a
@@ -262,7 +262,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: api
-          image: registry.chuggy.internal/chuggy/api@sha256:c6157962b2ccae6c67c7906074b167ab53b28f6fd2ccc8b3ec634176461b9e74
+          image: registry.chuggy.internal/chuggy/api@sha256:d7286b816a30225f92e37a6dfd58b0f77aca3a6af22a6b57eac8a79fc886daac
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
