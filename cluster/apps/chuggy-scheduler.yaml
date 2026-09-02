@@ -261,6 +261,10 @@ spec:
             # and a version is assigned here when the image is admitted and
             # never afterwards. Versions below are admission order, read from
             # this file's history.
+            # An entry that also names a platform must publish the agent
+            # capabilities it carries, and names the operating system and the
+            # architecture together or neither: that triple is what a task
+            # requiring a capability rather than a digest resolves against.
             - name: CHUG_SCHEDULER_ADMITTED_IMAGES
               value: |
                 [
@@ -308,6 +312,14 @@ spec:
                     "image": "registry.chuggy.internal/chuggy/worker@sha256:64e5f0216584270e71c32ffc0cb9b05003c8c3e59c49eaf34f38a7cac08ec06c",
                     "name": "chuggy-worker",
                     "version": "0.9"
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:842a0297acb5a83fb80baee1b885e82e7b356d182914ff9d6606973da8fba448",
+                    "name": "chuggy-worker",
+                    "version": "0.10",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
                   }
                 ]
             # PR 5's, provisional. D30 says the adopting machine must supply
