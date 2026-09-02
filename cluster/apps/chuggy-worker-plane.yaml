@@ -78,6 +78,9 @@ spec:
       port: 3001
       targetPort: http
 ---
+# Two kinds of pod in `chuggy-work` reach this listener, and each is admitted by
+# the label its own egress policy is keyed on rather than by the namespace: a
+# namespace rule alone would admit anything anyone ever places there.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -95,6 +98,19 @@ spec:
           podSelector:
             matchLabels:
               chuggy.dev/worker: "true"
+      ports:
+        - { protocol: TCP, port: 3001 }
+    # A session pod, for its turn mailbox and its transcript store. A second
+    # `from` element rather than a second label on the one above, because the
+    # two selectors inside one element are ANDed: an element naming both labels
+    # would admit only a pod carrying both, which is neither of these.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy-work
+          podSelector:
+            matchLabels:
+              chuggy.dev/session: "true"
       ports:
         - { protocol: TCP, port: 3001 }
 ---

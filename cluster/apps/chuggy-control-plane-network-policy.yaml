@@ -88,9 +88,17 @@ spec:
   policyTypes:
     - Ingress
 ---
-# The API is reachable from Traefik, which is how the internet reaches it, and
-# from the selector, which is the only in-cluster client it has. Nothing else on
-# the pod network may open a connection to it.
+# The API is reachable from Traefik, which is how the internet reaches it, from
+# the selector, and from a session pod in `chuggy-work`. Nothing else on the pod
+# network may open a connection to it.
+#
+# THE THIRD ELEMENT NAMES ITS NAMESPACE AND THE SECOND DELIBERATELY DOES NOT.
+# `chuggy.dev/api-client` is one label with two readers, and a bare podSelector
+# is scoped to this policy's own namespace, so a `chuggy-work` pod carrying that
+# label is admitted by nothing at all -- which is what a session pod would have
+# hit. Widening the bare selector with a namespaceSelector instead would admit
+# the label from every namespace on the cluster; naming `chuggy-work` says which
+# other namespace may carry it, and the next one is another element.
 #
 # Before this rule any pod in any namespace could reach `/api/v1` directly and
 # present a token to it. That is not a hole -- the API authenticates -- but it
@@ -126,6 +134,16 @@ spec:
         # admits a labelled pod in `chuggy` and nothing another namespace
         # labels the same way.
         - podSelector:
+            matchLabels:
+              chuggy.dev/api-client: "true"
+        # A session pod, which carries the same label in `chuggy-work` and so
+        # needs the namespace said out loud. `chuggy-sessions` in
+        # chuggy-work.yaml is the egress half; neither half admits anything on
+        # its own.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy-work
+          podSelector:
             matchLabels:
               chuggy.dev/api-client: "true"
       ports:

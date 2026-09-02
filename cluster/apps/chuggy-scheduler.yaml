@@ -19,23 +19,27 @@
 # a projected ServiceAccount token needs, since the kubelet rewrites it roughly
 # hourly.
 #
-# WHAT THE TOKEN MAY DO IS BOUND BY THE RBAC BELOW AND BY NOTHING ELSE. It
-# grants `get` on one namespace by name, which is what the command's
-# `cluster-namespace-reachable` precondition asks. IT CANNOT CREATE A POD:
-# `kubectl auth can-i create pods -n chuggy-work
-# --as=system:serviceaccount:chuggy:chuggy-scheduler` answers no. The Role that
-# would let it place workers there, the pod security that bounds what it may
-# place, and the immutable worker-image allowlist are PR 5 of
-# kasofsk/chuggy#197.
+# WHAT THE TOKEN MAY DO IS BOUND BY THE RBAC BELOW AND BY NOTHING ELSE. The
+# ClusterRole here grants `get` on one namespace by name, which is what the
+# command's `cluster-namespace-reachable` precondition asks. The verbs that let
+# it place a pod are a Role in `chuggy-work` rather than anything in this file:
+# `chuggy-scheduler-worker-launcher` in chuggy-work.yaml, which grants `create,
+# get, delete` on pods and Secrets there and binds this ServiceAccount to it.
+# Both kinds of pod this process places -- a worker attempt and an agent session
+# -- go through that one grant.
 #
-# NOTHING REACHES THAT REFUSAL UNDER THE POLICY BELOW, and the two must not be
-# confused for each other. `kubernetesWorkerPodRequest` resolves the profile
-# first and answers `Denied` before it builds a request, so no placement is ever
-# submitted and the API server never answers anything. The 403 is what would
-# arrive once a policy names an admitted profile, and `kubernetesPlaced` holds a
-# forbidden answer as unavailable rather than denied -- only 400, 413, 415 and
-# 422 are refusals of the document itself. That is the right reading: a 403
-# cannot be told apart from an exhausted quota by its status line.
+# WHAT BOUNDS WHAT IT MAY PLACE IS NOT RBAC. Three things do, and none of them
+# is a verb: the namespace enforces Pod Security `restricted`, the two security
+# contexts below are what satisfy it, and `CHUG_SCHEDULER_ADMITTED_IMAGES` is
+# the allowlist a pinned requirement is resolved against.
+#
+# A REFUSAL FROM THE API SERVER AND A REFUSAL FROM POLICY ARE NOT THE SAME
+# ANSWER. `kubernetesWorkerPodRequest` resolves the profile first and answers
+# `Denied` before it builds a request, so an unadmitted image is refused without
+# the API server ever being asked. A 403 that did arrive is held as unavailable
+# rather than denied -- only 400, 413, 415 and 422 are refusals of the document
+# itself -- and that is the right reading: a 403 cannot be told apart from an
+# exhausted quota by its status line.
 #
 # NODE_EXTRA_CA_CERTS IS NOT DECORATION. The adapter reaches the API server with
 # plain `fetch`, which trusts the public root store and nothing else. Without
@@ -67,11 +71,11 @@
 #
 # ---------------------------------------------------------- the worker namespace ----
 #
-# `chuggy-work` is NOT declared in this directory. The README says why: it was
-# bootstrapped by hand as a deployment rehearsal fixture, and declaring it would
-# commit Flux to maintaining state the rehearsal means to tear down. PR 5 is
-# where it stops being a fixture. The ClusterRole below therefore names it
-# without creating it, and a namespace that is not there is a precondition this
+# `chuggy-work` is chuggy-work.yaml, which declares the namespace, the identity
+# both kinds of placed pod run as, the Role that lets this process place them,
+# and one NetworkPolicy per kind of pod. It was a hand-bootstrapped rehearsal
+# fixture when this file was written and is not one now. The ClusterRole below
+# still only reads it: a namespace that is absent stays a precondition this
 # command reports rather than an error it raises.
 ---
 apiVersion: v1
@@ -382,10 +386,83 @@ spec:
                     "review": { "instructions": [] }
                   }
                 ]
-            # The worker pod site policy -- labels, annotations, node selector
-            # and both security contexts -- is left unset, so the command hands
-            # the cluster a pod with none of them. That is PR 5's, and a guess
-            # here would be a security context somebody would then trust.
+            # ------------------------------------------------ agent sessions ----
+            #
+            # The second kind of pod this one process places: a long-lived agent
+            # session, which has no ticket, no task and no pinned configuration,
+            # and whose durable identity is a row rather than the pod. The pod
+            # is a cache of it, so ending one costs a resume and nothing else.
+            #
+            # THE SITE IS NOT NAMED TWICE. A session pod stands on the same
+            # cluster API, namespace, service account, token file, both security
+            # contexts, worker-plane URL, capability file, workspace path and
+            # credential mounts the worker half above names. A second set of
+            # variables for those would be a second answer to what this site is,
+            # and the first change to one of them would leave the other half
+            # placing pods the site no longer describes. What a session names
+            # for itself is what makes it a session.
+            #
+            # THE LABELS ARE LOAD-BEARING IN BOTH DIRECTIONS AND MUST NOT BE
+            # DROPPED TO "SIMPLIFY". `chuggy.dev/session` is what the
+            # `chuggy-sessions` NetworkPolicy in chuggy-work.yaml selects, and a
+            # pod in that namespace selected by NO policy is isolated in neither
+            # direction -- so an empty value here is strictly worse than the
+            # worker label would be. `chuggy.dev/api-client` is what the third
+            # `from` element on `chuggy-api-admits-traefik-and-the-selector`
+            # admits. Neither is authentication: what a session may do is its
+            # bearer's and its principal's.
+            #
+            # `chuggy.dev/postgres-client` is deliberately absent. A slice-1
+            # session makes no scratch database, and the label is the only thing
+            # postgres-network-policy.yaml admits this namespace for.
+            - name: CHUG_SCHEDULER_SESSION_LABELS
+              value: '{"chuggy.dev/session":"true","chuggy.dev/api-client":"true"}'
+            # Smaller than a worker's, because the two do different work. A
+            # worker checks a repository out, installs its dependencies and runs
+            # its gates; a session runs one agent process against a mailbox and
+            # writes its transcript back over HTTP. The ephemeral limit sizes
+            # the workspace emptyDir, which holds the runtime's local mirror of
+            # a transcript whose durable copy is on the artifacts volume -- so
+            # it is sized for one session's working set and not for a checkout.
+            - name: CHUG_SCHEDULER_SESSION_RESOURCES
+              value: |
+                {
+                  "cpuRequest": "100m",
+                  "cpuLimit": "1",
+                  "memoryRequest": "512Mi",
+                  "memoryLimit": "1Gi",
+                  "ephemeralStorageLimit": "4Gi"
+                }
+            # Four hours, against the worker's one. A session pod is not doing a
+            # thing that finishes, so this is not a bound on the work: it is how
+            # long one pod may go on standing for a session before the session
+            # is resumed into a new one. That resume is the path this whole
+            # slice exists to make ordinary, and running it on a schedule is how
+            # a placed pod stops being able to outlive the image it was placed
+            # from. Five idle minutes ends a pod well before this in practice.
+            - name: CHUG_SCHEDULER_SESSION_DEADLINE_SECS
+              value: "14400"
+            # Which model every session of this site speaks to. A site choice
+            # and not a session's: the lead is the project's standing reader,
+            # and reading a project well is the work.
+            - name: CHUG_SCHEDULER_SESSION_MODEL
+              value: claude-opus-5
+            # CHUG_SCHEDULER_SESSION_POLICY -- the one image, profile and grant
+            # every session here runs under -- is NOT set yet, and the process
+            # refuses to start without it. That refusal is the ordering, in the
+            # only form a manifest can hold it: Session mode is a change to the
+            # worker image, the image is built from a chuggy commit that does
+            # not exist until this slice merges there, and a policy naming
+            # today's worker digest would place sessions on an image with no
+            # Session mode -- pods that start, find no task document they
+            # understand, and refuse every turn while looking placed. The commit
+            # that admits the built image is the commit that writes this.
+            #
+            # CHUG_SCHEDULER_SESSION_POD_NAME_PREFIX, _ANNOTATIONS,
+            # _ENVIRONMENT, _BOUNDS and _PASS_BOUNDS are unset on purpose. Each
+            # has a published default in `src/roots/schedulerConfig.ts`, this
+            # rig wants every one of them, and a value written here equal to its
+            # default is a second copy that only ever drifts.
           resources:
             requests: { cpu: 50m, memory: 128Mi }
             limits: { memory: 384Mi }
