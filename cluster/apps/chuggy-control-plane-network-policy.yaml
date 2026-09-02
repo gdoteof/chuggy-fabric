@@ -224,11 +224,13 @@ spec:
 # `kubectl -n ory get endpointslice`, for the reason the finalizer rule below
 # states at length.
 #
-# It does NOT reach the trusted selector policy host, and that is not an
-# omission: no such Service exists in this directory, so there is nothing to
-# name. Adding one is an edit to this rule as well as to
-# chuggy-selector.yaml -- and until then the workload's own precondition is
-# what reports the absence, not this policy.
+# POSTGRESQL IS ALSO WHERE ITS DECISIONS COME FROM, which is why the rule did
+# not change when the policy did. The selector asks the project's lead for a
+# decision by offering a turn on the lead session's mailbox, and that mailbox is
+# a set of functions on the database this arm already permits. There is no
+# fourth destination to add and no policy service to name -- the protocol that
+# once wanted one was retired, and chuggy-selector.yaml argues that where the
+# configuration used to name it.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

@@ -8,16 +8,14 @@
 # constraint on the password, the absence of any health listener -- is argued in
 # chuggy-ticket-service.yaml and is not repeated.
 #
-# THIS WORKLOAD IS DECLARED HERE AND RUNS NO REPLICA. Two of its preconditions
-# had no answer here. `selector-source` has one now: the credential below is
-# what it was missing, and the client that credential names is registered out of
+# THIS WORKLOAD RUNS. Neither of the two preconditions that kept it from
+# running is left. `selector-source` was answered: the credential below is what
+# it was missing, and the client that credential names is registered out of
 # band, which is the whole of what it takes -- an empty project list is a pass,
 # so the membership row further down is what turns the pass into work rather
-# than what makes it one. `selector-policy` has no answer anywhere, and that is
-# what `replicas: 0` is argued from, beside the number. Both are stated below
-# where the value that depends on them is written. Everything else stays
-# declared, so the gap is a manifest with a zero in it rather than a manifest
-# nobody wrote.
+# than what makes it one. `selector-policy` was not answered but removed, along
+# with the protocol it asked after and in favour of what decides instead. Each
+# is stated below, where the value that depends on it is written.
 #
 # ------------------------------------------------ what it reaches, and how ----
 #
@@ -70,39 +68,41 @@
 # membership row is not, and nothing here can write one -- it is granted through
 # the API, like any other project access.
 #
-# --------------------------------------------------- the policy host, absent ----
+# ------------------------------------------- the policy, and where it lives ----
 #
-# `policy.baseUrl` names a trusted selector policy service. NOTHING SERVES THAT
-# PROTOCOL. kasofsk/chuggy defines the client and the media type in
-# `src/adapters/http/trustedSelectorPolicy.ts` and implements no server for it;
-# no Service in `cluster/apps/` answers it either. So the `selector-policy`
-# precondition cannot pass, and it is the one this workload is ultimately
-# blocked on.
+# THE PROJECT'S LEAD IS THE POLICY, AND IT IS NOT A SERVICE. A decision is a
+# turn offered on the lead session's mailbox: the selector writes the turn,
+# waits for it to be answered, and reads the answer back as the decision. The
+# mailbox is a set of definer functions on the database this pod already
+# connects to, granted to the role the URL below selects, so the whole of the
+# policy protocol is the connection the first section of this file argues.
 #
-# IT IS NOT THE ONE THAT FAILS FIRST. `selectorCommandPreconditions` orders
-# `selector-source` ahead of it, and that is the name a replica of this
-# Deployment reported while its token was a constant: `selector could not run:
-# selector-source`. The API was not what was wrong there -- `/health/ready`
-# answered 200 and the hand-written token was refused 401 on `/api/v1/projects`,
-# which is the problem the section above now configures the fix for: a token
-# minted by the client named below is answered 200 on that same route, and
-# `projectInventory` is what the precondition asks for past that. So the report
-# a replica makes next names this section, and here there is nothing to fix.
+# NOTHING HERE NAMES A POLICY HOST, BECAUSE THERE IS NOTHING TO NAME. The
+# trusted selector policy protocol -- a base URL, a bearer token, a media type
+# and a client -- was retired in kasofsk/chuggy with the change that gave the
+# selector something to decide with instead. There is no `policy` block, no
+# second Secret key and no egress arm; the network policy file states the same
+# thing from the other side.
 #
-# The name below is what that Service will be called when it exists. It is a
-# name that does not resolve today, which is the loud failure rather than the
-# quiet one -- a base URL pointing at something that answers with the wrong
-# thing would be worse.
+# WHAT RUNS THE TURN IS NOT THE SELECTOR'S TO CONFIGURE. A lead turn is placed
+# as a session pod by `chuggy-scheduler.yaml` and claimed through
+# `chuggy-worker-plane.yaml`; this Deployment offers the turn and reads the row.
+# So a selector that cannot get an answer is a scheduler or a plane finding, and
+# the decision it records says which.
 #
 # ------------------------------------------------------------- the Secrets ----
 #
-# Out of band, because this repository is public. Both values are the
-# selector's own, so they are its own Secret rather than more keys on the
-# credential Secret the machine layer synchronizes:
+# Out of band, because this repository is public. The value is the selector's
+# own, so it is its own Secret rather than another key on the credential Secret
+# the machine layer synchronizes:
 #
 #   kubectl -n chuggy create secret generic chuggy-selector \
-#     --from-literal=source-client-secret=<the client secret Hydra returned> \
-#     --from-literal=policy-bearer-token=<token the policy host accepts>
+#     --from-literal=source-client-secret=<the client secret Hydra returned>
+#
+# THERE IS ONE KEY NOW AND THERE WERE TWO. `policy-bearer-token` authenticated
+# the retired policy protocol and nothing reads it; a Secret already carrying it
+# keeps a value no pod mounts, which is worth deleting where it stands rather
+# than leaving as a credential nobody can account for.
 #
 # The client that secret belongs to is registered on the admin port, and its id
 # is the `clientId` below rather than a generated one, so the configuration can
@@ -121,19 +121,18 @@
 # A `secretKeyRef` naming a key that is not there refuses to start the pod,
 # which is the right failure: a selector with no credential should not run.
 #
-# OF THE TWO, ONLY THE POLICY TOKEN LANDS IN A JSON STRING, and it alone
-# carries the constraint chuggy-ticket-service.yaml states in full: a `"` or a
-# `\` in it makes the configuration below unparseable, and a `$(` is expanded
-# by the kubelet before the process ever reads it. The client secret is read
-# from a variable of its own instead of being interpolated into that document,
-# so whatever Hydra generates is safe there. The database password in the same
-# document carries the whole list.
+# THE DATABASE PASSWORD IS NOW THE ONLY SECRET INTERPOLATED INTO A JSON STRING,
+# and it alone carries the constraint chuggy-ticket-service.yaml states in full:
+# a `"` or a `\` in it makes the configuration below unparseable, and a `$(` is
+# expanded by the kubelet before the process ever reads it. The client secret is
+# read from a variable of its own instead of being interpolated into that
+# document, so whatever Hydra generates is safe there. Nothing else is
+# substituted into the document but the pod's own name.
 #
-# That is worth stating for the policy token more than for a password, because
-# nothing generates it: the password comes from the machine layer's hex
-# generator and this is typed by whoever runs the `create secret` above. A
-# base64 or JWT-shaped value is safe on both counts. A passphrase somebody
-# invents is not.
+# That constraint was worth stating twice while a hand-typed token was in the
+# document too. It is not any more: the password comes from the machine layer's
+# hex generator, which satisfies the whole list by construction, and there is no
+# longer a value here that somebody invents.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -144,35 +143,31 @@ metadata:
     fabric.chuggy.dev/source-commit: b47c0ef
   labels: { app: chuggy-selector }
 spec:
-  # ZERO, AND NOT BECAUSE THIS IS UNFINISHED. `selector-source` is what a run
-  # reported and it was never the reason: it has a fix, and the configuration
-  # below is that fix. `selector-policy` is the reason. Nothing implements the
-  # trusted selector policy protocol -- not here, not in kasofsk/chuggy, not
-  # anywhere -- so nothing outside this repository clears it either. A replica
-  # restates that absence every backoff interval and tells nobody anything, and
-  # it is one more red pod for a real one to hide behind.
+  # ONE, BECAUSE THERE IS FINALLY SOMETHING FOR IT TO ASK. The zero here was
+  # argued from `selector-policy` alone: a precondition asking a protocol
+  # nothing served, which no release could clear and which a replica would have
+  # restated every backoff interval as one more red pod for a real one to hide
+  # behind. That precondition no longer exists -- the section above says what
+  # decides in its place -- so the number that was argued from it goes with it.
   #
-  # THE CONFIGURATION BELOW IS AHEAD OF THE IMAGE ABOVE, deliberately and only
-  # while this number is zero. `source.credential` is the shape kasofsk/chuggy
-  # reads from e4181ed onwards; the digest here is built from an earlier commit
-  # and would refuse this document as unparseable. Nothing parses it at zero
-  # replicas, and the next release moves the digest past that commit -- but a
-  # release and a raise to one are not the same step, and this is why they are
-  # not.
+  # ONE AND NOT MORE, and that is a bound rather than a resource decision. Every
+  # decision this process writes is named after the instance that wrote it, and
+  # two instances sweeping one installation would offer two turns to one lead
+  # for one project's change. `strategy: Recreate` is the same rule during a
+  # roll: the old pod is gone before the new one starts, so a rollout never puts
+  # a second sweeper beside the first.
   #
-  # A Deployment with no available replica also never passes `wait: true`, which
-  # health-checks every object in this directory. At zero it does: kstatus reads
-  # `observedGeneration`, the `Progressing` and `Available` conditions and the
-  # replica counts, and a Deployment asked for none and running none satisfies
-  # all of them -- `Available` is the one that is False at one replica. That
-  # takes this object out of the set the health check fails on. It does not make
-  # `apps` Ready: chuggy-finalizer is in that set too and stays at one, because
-  # its blocker is reachable and this one is not.
+  # THIS NUMBER AND THE CONFIGURATION BELOW ARE BOTH AHEAD OF THE IMAGE ABOVE,
+  # and unlike at zero that is now visible: the digest here is built from a
+  # commit that still requires a `policy` block, and it refuses this document
+  # with `selector configuration:` and exits. So the release that repins this
+  # image is the commit that makes the Deployment run, and raising the number is
+  # not a step that can land before it.
   #
-  # Everything else in this file stays declared, because none of it is wrong --
-  # the RBAC, the network policy and the configuration are what PR 5 turns on.
-  # Restoring this to 1 is the last step of that, not a step of its own.
-  replicas: 0
+  # A Deployment with no available replica never passes `wait: true`, which
+  # health-checks every object in this directory; at zero this object was out of
+  # that set and it is now in it, beside chuggy-finalizer.
+  replicas: 1
   strategy: { type: Recreate }
   selector:
     matchLabels: { app: chuggy-selector }
@@ -218,10 +213,6 @@ spec:
               valueFrom:
                 secretKeyRef:
                   { name: chuggy-selector, key: source-client-secret }
-            - name: CHUG_SELECTOR_POLICY_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  { name: chuggy-selector, key: policy-bearer-token }
             # Every operation and decision this process writes is named after
             # the instance that wrote it, so the pod is the instance. A fixed
             # string would make two pods' work indistinguishable in the journal.
@@ -231,6 +222,16 @@ spec:
             # `selector` is omitted: its three bounds have defaults in
             # kasofsk/chuggy's selector runtime, and restating a default is how
             # two copies of one number come to disagree.
+            #
+            # THE DOCUMENT'S SHAPE IS `selectorConfiguration`'s AND THAT SCHEMA
+            # IS STRICT: a key it does not name refuses the process as surely as
+            # a key it requires and does not find. `policy` was required until
+            # the protocol was retired and it is gone from here in the same
+            # step, which is why this document and the digest above have to move
+            # together. Anything the lead host needs written -- how often it
+            # reads the turn back, and what it stamps a decision's
+            # implementation with -- belongs to that same commit, because until
+            # it lands there is no merged schema to write it against.
             #
             # `identity.principal` is not what gets this workload past the
             # API -- the token is, and the HTTP client discards this value on
@@ -272,13 +273,6 @@ spec:
                       "refreshMarginMs": 60000,
                       "mintCooldownMs": 10000
                     }
-                  },
-                  "policy": {
-                    "baseUrl": "http://chuggy-selector-policy.chuggy.svc.cluster.local:8080",
-                    "bearerToken": "$(CHUG_SELECTOR_POLICY_TOKEN)",
-                    "requestDeadlineMs": 10000,
-                    "responseBytesMax": 1048576,
-                    "controlDeadlineMs": 30000
                   }
                 }
           resources:

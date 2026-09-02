@@ -1522,17 +1522,17 @@ not after it.
 
 ### What does not work yet, and why
 
-- **The selector is deployed at zero replicas.** Its `selector-policy`
-  precondition asks a trusted selector policy service whether it is ready, and
-  no server implements that protocol anywhere, so nothing outside this
-  repository clears it. `selector-source` is ordered ahead of it and is what a
-  replica reported — `selector could not run: selector-source`, the API
-  answering `/health/ready` 200 and refusing the hand-written token 401 — and
-  that one is answered now: the selector mints its own token from Hydra rather
-  than being handed one, so on an image built from a commit that reads the new
-  credential — which the deployed digest is not yet — what a replica reports
-  next is the policy host. `chuggy-selector.yaml` argues both beside the number,
-  and the policy host is what keeps it at zero.
+- **The selector runs one replica, and it is ahead of its own image.** Both of
+  the preconditions that kept it at zero are answered: it mints its own token
+  from Hydra rather than being handed one, and `selector-policy` — which asked a
+  trusted policy service nothing ever implemented — was retired in
+  kasofsk/chuggy along with the protocol, because the project's lead decides in
+  its place. A decision is now a turn on that lead's mailbox, which is the
+  database this pod already connects to, so nothing was added to
+  `chuggy-selector-egress` for it. What is not yet true is the digest: the image
+  pinned here predates the retirement and still requires the `policy` block the
+  configuration no longer carries, so the replica runs only from the release
+  that repins it. `chuggy-selector.yaml` argues all of that beside the number.
 - **The finalizer promotes onto this cluster's own git and nothing external.**
   Its remote is `rig.git` in `chuggy-git`, and `chuggy-finalizer-egress` admits
   that one pod on its own 8080 and no longer admits the public internet at all --

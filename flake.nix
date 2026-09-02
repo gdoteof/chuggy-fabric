@@ -119,6 +119,7 @@
       configurationImporter = import ./tests/configuration-importer.nix { inherit pkgs; };
       developmentWorker = import ./tests/development-worker.nix { inherit pkgs; };
       sessionPlacement = import ./tests/session-placement.nix { inherit pkgs; };
+      selectorReach = import ./tests/selector-reach.nix { inherit pkgs; };
       githubRepositoryTransition = import ./tests/github-repository-transition.nix { inherit pkgs; };
       githubAppToken = import ./tests/github-app-token.nix { inherit pkgs; };
     in
@@ -164,6 +165,11 @@
         # this goes wrong is a pod no policy selects, which is unisolated in
         # both directions and looks correct in every file separately.
         session-placement = sessionPlacement;
+
+        # Where the selector is configured to go against where it is permitted
+        # to go: two halves of one reach, in a JSON string and in a policy, each
+        # of which reads correctly while the other is wrong.
+        selector-reach = selectorReach;
         github-repository-transition = githubRepositoryTransition;
         github-app-token = githubAppToken;
 
