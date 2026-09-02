@@ -14,6 +14,19 @@ succeeded, the far end admits what it should, and the packets are simply dropped
 So each egress arm is resolved against the pod templates this directory declares
 AND against the policy standing over that same workload, and no expectation here
 is a label literal.
+
+AN ABSENT FIELD IS THE WIDEST THING AN ARM CAN SAY, in both halves and in the
+same way. `ports` absent admits every port; `to` absent reaches every
+destination; a `podSelector` absent inside a peer selects every pod in the
+namespace. Each of those is refused by name rather than iterated over zero times,
+because a loop that finds nothing to check reads exactly like a loop that checked
+and was satisfied.
+
+WHAT THIS GATE CANNOT RESOLVE IT REFUSES rather than passes. A namespaceSelector
+on a label other than `kubernetes.io/metadata.name`, and a podSelector with
+matchExpressions alone, are both legal Kubernetes and both outside what is
+evaluated here; each gets a refusal saying so, so an unsupported shape is a
+finding to answer instead of a silence to trust.
 """
 
 import json
@@ -43,8 +56,8 @@ SESSION_EGRESS = {("UDP", 53), ("TCP", 53), ("TCP", 3001), ("TCP", 3000), ("TCP"
 # pod templates this directory declares and against the policy protecting them,
 # and neither expectation is a literal label written here.
 SESSION_EGRESS_TARGETS = {
-    ("TCP", 3001): "chuggy-worker-plane-ingress",
-    ("TCP", 3000): "chuggy-api-admits-traefik-and-the-selector",
+    frozenset({("TCP", 3001)}): "chuggy-worker-plane-ingress",
+    frozenset({("TCP", 3000)}): "chuggy-api-admits-traefik-and-the-selector",
 }
 
 POD_TEMPLATE_KINDS = ("Deployment", "StatefulSet", "DaemonSet", "Job", "ReplicaSet")
@@ -197,78 +210,105 @@ def main():
     if sessions["spec"].get("ingress") != []:
         refuse("chuggy-sessions admits ingress; a session is never connected to")
 
-    # 2. Where it may go is exactly the four destinations, and no more -- both
-    #    the ports and the pods each arm names.
+    # 2. Where it may go is exactly four arms, each held to an exact set of
+    #    ports AND an exact set of destinations. Both halves are load-bearing and
+    #    an absent one is the widest thing the object can say: an arm with no
+    #    `ports` admits every port, and an arm with no `to` reaches every
+    #    destination. Neither expectation below is a literal written here.
     templates = pod_templates(documents)
     workers = one(documents, "NetworkPolicy", "chuggy-workers", WORK)
     reached = set()
     for rule in sessions["spec"].get("egress", []):
         if not rule.get("ports"):
             refuse("a chuggy-sessions egress arm names no port, so it admits every port")
+        if not rule.get("to"):
+            refuse("a chuggy-sessions egress arm names no destination, so it reaches everything")
         opened = ports(rule)
         reached |= opened
-        for peer in rule.get("to", []):
+        for peer in rule["to"]:
             # An ipBlock is the honest exception: the model is on the public
-            # internet and no object in this cluster stands for it.
+            # internet and no object in this cluster stands for it. The arm
+            # carrying one is still held to an exact peer set below.
             if "ipBlock" in peer:
                 continue
             namespace = peer_namespace(peer, WORK)
-            selector = peer.get("podSelector", {}).get("matchLabels", {})
-            if not selector:
-                refuse(f"a chuggy-sessions arm for {sorted(opened)} selects a whole namespace")
-            if any(space == namespace for space, _ in templates):
-                # A namespace this directory declares pods in: the selector must
-                # actually pick one out. This is what an arm pointed at a
-                # container name, a Service name or a typo fails.
-                if not pods_selected(templates, namespace, selector):
-                    refuse(
-                        f"a chuggy-sessions arm for {sorted(opened)} selects "
-                        f"{selector} in {namespace}, which no declared pod carries"
-                    )
-            else:
-                # `kube-system`'s CoreDNS is not ours to declare, so the
-                # expectation is taken from the sibling policy in this same file
-                # that reaches the same resolver rather than from a literal here.
-                sibling = [
-                    other
-                    for arm in workers["spec"].get("egress", [])
-                    if ports(arm) == opened
-                    for other in arm.get("to", [])
-                ]
-                if peer not in sibling:
-                    refuse(
-                        f"a chuggy-sessions arm for {sorted(opened)} selects {selector} in "
-                        f"{namespace}, which this directory declares no pod in and "
-                        "chuggy-workers does not reach the same way"
-                    )
-        # And the workload it names is the one the far-end policy stands over,
-        # so the two ends of a reach cannot drift apart while each reads right.
-        for key, name in SESSION_EGRESS_TARGETS.items():
-            if key not in opened:
-                continue
-            space, guarded = protects(one(documents, "NetworkPolicy", name, CONTROL))
-            here = [
-                labels
-                for peer in rule.get("to", [])
-                if "ipBlock" not in peer
-                for labels in pods_selected(
-                    templates,
-                    peer_namespace(peer, WORK),
-                    peer.get("podSelector", {}).get("matchLabels", {}),
-                )
-            ]
-            if here != pods_selected(templates, space, guarded):
+            if namespace is None:
                 refuse(
-                    f"the chuggy-sessions arm for {key} does not select the pods "
-                    f"{name} stands over"
+                    f"a chuggy-sessions arm for {sorted(opened)} names a namespaceSelector "
+                    "on something other than kubernetes.io/metadata.name, which this gate "
+                    "cannot resolve to a namespace"
                 )
+            pods = peer.get("podSelector")
+            if not pods:
+                refuse(
+                    f"a chuggy-sessions arm for {sorted(opened)} names no podSelector, "
+                    f"so it selects every pod in {namespace}"
+                )
+            chosen = pods.get("matchLabels", {})
+            if not chosen:
+                refuse(
+                    f"a chuggy-sessions arm for {sorted(opened)} selects pods in {namespace} "
+                    "by matchExpressions alone, which this gate cannot resolve"
+                )
+            # A namespace this directory declares pods in: the selector must
+            # actually pick one out. This is what an arm pointed at a container
+            # name, a Service name or a rename fails.
+            if any(space == namespace for space, _ in templates) and not pods_selected(
+                templates, namespace, chosen
+            ):
+                refuse(
+                    f"a chuggy-sessions arm for {sorted(opened)} selects "
+                    f"{chosen} in {namespace}, which no declared pod carries"
+                )
+        target = SESSION_EGRESS_TARGETS.get(frozenset(opened))
+        if target is None:
+            # CoreDNS and the public internet are not this directory's to declare,
+            # so the exact peer set for those arms is taken from the sibling arm in
+            # `chuggy-workers` reaching the same place on the same ports -- the one
+            # other statement in this tree of where that destination is.
+            siblings = [
+                arm.get("to")
+                for arm in workers["spec"].get("egress", [])
+                if ports(arm) == opened
+            ]
+            if rule["to"] not in siblings:
+                refuse(
+                    f"the chuggy-sessions arm for {sorted(opened)} names a destination no "
+                    "chuggy-workers arm on the same ports names, and this directory "
+                    "declares no pod to resolve it against"
+                )
+            continue
+        # The workload it names is the one the far-end policy stands over, so the
+        # two ends of a reach cannot drift apart while each reads right alone.
+        if any("ipBlock" in peer for peer in rule["to"]):
+            refuse(
+                f"the chuggy-sessions arm for {sorted(opened)} reaches an address range "
+                f"as well as the pods {target} stands over"
+            )
+        space, guarded = protects(one(documents, "NetworkPolicy", target, CONTROL))
+        here = [
+            selected
+            for peer in rule["to"]
+            for selected in pods_selected(
+                templates,
+                peer_namespace(peer, WORK),
+                peer["podSelector"]["matchLabels"],
+            )
+        ]
+        if here != pods_selected(templates, space, guarded):
+            refuse(
+                f"the chuggy-sessions arm for {sorted(opened)} does not select exactly the "
+                f"pods {target} stands over"
+            )
     if reached != SESSION_EGRESS:
         refuse(f"chuggy-sessions egress is {sorted(reached)}, expected {sorted(SESSION_EGRESS)}")
 
-    # 3. No OTHER policy in the namespace selects a session, which is what keeps
-    #    a session's egress budget its own. NetworkPolicies are additive, so
-    #    naming `chuggy-workers` alone would leave a future third policy free to
-    #    widen a session silently.
+    # 3. No OTHER policy in the namespace selects a session. NetworkPolicies are
+    #    additive, so naming `chuggy-workers` alone would leave a third policy
+    #    added later free to widen a session silently. A policy carrying no rule
+    #    widens nothing -- a namespace default-deny is exactly that shape -- but
+    #    it is still a second object deciding what selects a session, and this
+    #    gate is where that is recorded, so it is refused too and told apart.
     for document in documents:
         if document.get("kind") != "NetworkPolicy":
             continue
@@ -278,8 +318,14 @@ def main():
         if name == "chuggy-sessions":
             continue
         other = document["spec"]["podSelector"].get("matchLabels", {})
-        if all(labels.get(key) == value for key, value in other.items()):
+        if not all(labels.get(key) == value for key, value in other.items()):
+            continue
+        if document["spec"].get("ingress") or document["spec"].get("egress"):
             refuse(f"a session pod is also selected by {name} and inherits what it permits")
+        refuse(
+            f"a session pod is also selected by {name}, which permits nothing; a baseline "
+            "deny over a session is a deliberate change and this gate is its record"
+        )
 
     # 4. Both reaches a session's egress permits are admitted at the other end.
     plane = one(documents, "NetworkPolicy", "chuggy-worker-plane-ingress", CONTROL)
