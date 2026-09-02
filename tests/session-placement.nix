@@ -7,9 +7,12 @@
 # of them is silent -- a pod in `chuggy-work` that no NetworkPolicy selects is
 # isolated in NEITHER direction, so dropping the session label from the
 # scheduler's configuration would not deny a session anything, it would hand it
-# the whole pod network. So the labels are read out of the Deployment's own
-# environment and the selectors are matched against them, which is what the
-# cluster does.
+# the whole pod network. The other silent one is a destination selector naming
+# nothing: right ports, no pod, packets dropped, and every object still reading
+# correctly on its own. So the labels are read out of the Deployment's own
+# environment, and every selector -- the ones that admit a session and the ones
+# a session's own egress names -- is resolved against the pods and the policies
+# the render actually contains, which is what the cluster does.
 { pkgs }:
 
 let

@@ -448,15 +448,29 @@ spec:
             - name: CHUG_SCHEDULER_SESSION_MODEL
               value: claude-opus-5
             # CHUG_SCHEDULER_SESSION_POLICY -- the one image, profile and grant
-            # every session here runs under -- is NOT set yet, and the process
-            # refuses to start without it. That refusal is the ordering, in the
-            # only form a manifest can hold it: Session mode is a change to the
-            # worker image, the image is built from a chuggy commit that does
-            # not exist until this slice merges there, and a policy naming
-            # today's worker digest would place sessions on an image with no
-            # Session mode -- pods that start, find no task document they
-            # understand, and refuse every turn while looking placed. The commit
-            # that admits the built image is the commit that writes this.
+            # every session here runs under -- is NOT set yet.
+            #
+            # THE IMAGE PINNED ABOVE READS NONE OF THESE FIVE VARIABLES, so this
+            # is not a deployment that is currently broken. That image is built
+            # from 6c6f176, where `src/roots/schedulerConfig.ts` names no
+            # `SESSION_` variable at all; it ignores the four above and places
+            # no session. The refusal arrives with the image, not with this
+            # commit: the scheduler built from b47c0ef parses `SESSION_POLICY`,
+            # `SESSION_RESOURCES` and `SESSION_MODEL` as required, so repinning
+            # this manifest to that image while this is still unset is what
+            # would stop the process from starting.
+            #
+            # That is the ordering, in the only form a manifest can hold it, and
+            # it fails closed at both ends. Session mode is a change to the
+            # worker image; that image's digest is not known until its BuildRun
+            # ends and is read twice; and a policy naming today's worker digest
+            # would place sessions on an image with no Session mode -- pods that
+            # start, find no task document they understand, and refuse every turn
+            # while looking placed. So the commit that admits the built image by
+            # digest is the commit that writes this, and it is the same commit
+            # that repins the image above.
+            # `builds/chuggy/b47c0efc25bfe9d84b5472b8b93c3477baef0967/` holds the
+            # request that produces the digest both of them wait on.
             #
             # CHUG_SCHEDULER_SESSION_POD_NAME_PREFIX, _ANNOTATIONS,
             # _ENVIRONMENT, _BOUNDS and _PASS_BOUNDS are unset on purpose. Each
