@@ -324,6 +324,14 @@ spec:
                     "operatingSystem": "Linux",
                     "architecture": "Amd64",
                     "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:fe7018f6ea36630cdbe71f7aba03f93f8f73a14c0ac1405411d6d034aa07a8ef",
+                    "name": "chuggy-worker",
+                    "version": "0.11",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
                   }
                 ]
             # PR 5's, provisional. D30 says the adopting machine must supply
@@ -447,30 +455,35 @@ spec:
             # and reading a project well is the work.
             - name: CHUG_SCHEDULER_SESSION_MODEL
               value: claude-opus-5
-            # CHUG_SCHEDULER_SESSION_POLICY -- the one image, profile and grant
-            # every session here runs under -- is NOT set yet.
+            # The one image, profile and grant every session here runs under.
+            # Its image is the worker built from the same commit this release
+            # pins everywhere else, requested by
+            # `builds/chuggy/b47c0efc25bfe9d84b5472b8b93c3477baef0967/` and
+            # admitted as `0.11` above; a session and an attempt on this site run
+            # the same binary, and this is the only variable that says so twice.
             #
-            # THE IMAGE PINNED ABOVE READS NONE OF THESE FIVE VARIABLES, so this
-            # is not a deployment that is currently broken. That image is built
-            # from 6c6f176, where `src/roots/schedulerConfig.ts` names no
-            # `SESSION_` variable at all; it ignores the four above and places
-            # no session. The refusal arrives with the image, not with this
-            # commit: the scheduler built from b47c0ef parses `SESSION_POLICY`,
-            # `SESSION_RESOURCES` and `SESSION_MODEL` as required, so repinning
-            # this manifest to that image while this is still unset is what
-            # would stop the process from starting.
-            #
-            # That is the ordering, in the only form a manifest can hold it, and
-            # it fails closed at both ends. Session mode is a change to the
-            # worker image; that image's digest is not known until its BuildRun
-            # ends and is read twice; and a policy naming today's worker digest
-            # would place sessions on an image with no Session mode -- pods that
-            # start, find no task document they understand, and refuse every turn
-            # while looking placed. So the commit that admits the built image by
-            # digest is the commit that writes this, and it is the same commit
-            # that repins the image above.
-            # `builds/chuggy/b47c0efc25bfe9d84b5472b8b93c3477baef0967/` holds the
-            # request that produces the digest both of them wait on.
+            # `credentials` is `claude-code` alone, against the execution
+            # policy's three. A session takes no checkout, so the two git
+            # credentials would be a grant it never uses, and
+            # `kubernetesSessionPodRequest` denies a credential slot this list
+            # does not name. `tools` is empty because slice 1 gives the lead no
+            # tool of its own; the roster is where one arrives.
+            # `mayCompleteTask` is false for the reason it is false above: the
+            # single journaled actor is what completes a ticket.
+            - name: CHUG_SCHEDULER_SESSION_POLICY
+              value: |
+                {
+                  "image": "registry.chuggy.internal/chuggy/worker@sha256:fe7018f6ea36630cdbe71f7aba03f93f8f73a14c0ac1405411d6d034aa07a8ef",
+                  "profile": "chuggy-development",
+                  "runtimeVersion": "claude-code-latest",
+                  "grant": {
+                    "tools": [],
+                    "credentials": ["claude-code"],
+                    "network": true,
+                    "filesystem": "WriteWorkspace",
+                    "mayCompleteTask": false
+                  }
+                }
             #
             # CHUG_SCHEDULER_SESSION_POD_NAME_PREFIX, _ANNOTATIONS,
             # _ENVIRONMENT, _BOUNDS and _PASS_BOUNDS are unset on purpose. Each
