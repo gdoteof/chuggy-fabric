@@ -11,9 +11,21 @@ exactly right while each selector beside them names a pod that does not exist --
 a container name, a Service name, a rename that landed on one side. That failure
 is silent in the direction that matters: the pod is Running, the placement
 succeeded, the far end admits what it should, and the packets are simply dropped.
-So each egress arm is resolved against the pod templates this directory declares
-AND against the policy standing over that same workload, and no expectation here
-is a label literal.
+So every egress arm is resolved, by whichever of two rules its destination
+admits, and neither expectation is a label literal:
+
+  * A destination this directory DECLARES A POD FOR -- the worker plane, the API
+    -- is resolved twice over: the arm's selector must pick a real pod template
+    out of the render, and the pods it picks must be exactly the pods the policy
+    standing over that workload protects. The two ends of one reach then cannot
+    drift apart while each reads correctly alone.
+  * A destination this directory declares NO POD FOR -- `kube-system`'s CoreDNS,
+    and the public internet, neither of which is ours -- has nothing to resolve
+    against, so the arm's whole peer list must EQUAL the `chuggy-workers` arm
+    reaching the same place on the same ports. That is the one other statement in
+    this tree of where those are, and comparing against it keeps a literal out of
+    this file. It is a relative expectation and worth reading as one: an edit that
+    changes both arms together widens both, and the two hunks are adjacent.
 
 AN ABSENT FIELD IS THE WIDEST THING AN ARM CAN SAY, in both halves and in the
 same way. `ports` absent admits every port; `to` absent reaches every
@@ -210,7 +222,7 @@ def main():
     if sessions["spec"].get("ingress") != []:
         refuse("chuggy-sessions admits ingress; a session is never connected to")
 
-    # 2. Where it may go is exactly four arms, each held to an exact set of
+    # 2. Where it may go: every arm held to an exact set of
     #    ports AND an exact set of destinations. Both halves are load-bearing and
     #    an absent one is the widest thing the object can say: an arm with no
     #    `ports` admits every port, and an arm with no `to` reaches every
@@ -238,17 +250,19 @@ def main():
                     "on something other than kubernetes.io/metadata.name, which this gate "
                     "cannot resolve to a namespace"
                 )
-            pods = peer.get("podSelector")
-            if not pods:
-                refuse(
-                    f"a chuggy-sessions arm for {sorted(opened)} names no podSelector, "
-                    f"so it selects every pod in {namespace}"
-                )
-            chosen = pods.get("matchLabels", {})
-            if not chosen:
+            pods = peer.get("podSelector") or {}
+            chosen = pods.get("matchLabels") or {}
+            if not chosen and pods.get("matchExpressions"):
                 refuse(
                     f"a chuggy-sessions arm for {sorted(opened)} selects pods in {namespace} "
                     "by matchExpressions alone, which this gate cannot resolve"
+                )
+            if not chosen:
+                # An absent podSelector, an empty one and an empty `matchLabels`
+                # are one shape to the cluster and get one message.
+                refuse(
+                    f"a chuggy-sessions arm for {sorted(opened)} names no pod labels, "
+                    f"so it selects every pod in {namespace}"
                 )
             # A namespace this directory declares pods in: the selector must
             # actually pick one out. This is what an arm pointed at a container
@@ -273,9 +287,8 @@ def main():
             ]
             if rule["to"] not in siblings:
                 refuse(
-                    f"the chuggy-sessions arm for {sorted(opened)} names a destination no "
-                    "chuggy-workers arm on the same ports names, and this directory "
-                    "declares no pod to resolve it against"
+                    f"the chuggy-sessions arm for {sorted(opened)} names a destination set "
+                    "no chuggy-workers arm on the same ports names"
                 )
             continue
         # The workload it names is the one the far-end policy stands over, so the
