@@ -118,6 +118,7 @@
       imagePromotion = import ./tests/image-promotion.nix { inherit pkgs; };
       configurationImporter = import ./tests/configuration-importer.nix { inherit pkgs; };
       developmentWorker = import ./tests/development-worker.nix { inherit pkgs; };
+      sessionPlacement = import ./tests/session-placement.nix { inherit pkgs; };
       githubRepositoryTransition = import ./tests/github-repository-transition.nix { inherit pkgs; };
       githubAppToken = import ./tests/github-app-token.nix { inherit pkgs; };
     in
@@ -157,6 +158,12 @@
         example = self.nixosConfigurations.example.config.system.build.toplevel;
         mini-example = self.nixosConfigurations.mini-example.config.system.build.toplevel;
         development-worker = developmentWorker;
+
+        # The session pod's labels and the four objects that select them, held
+        # against the rendered cluster rather than against the files: the way
+        # this goes wrong is a pod no policy selects, which is unisolated in
+        # both directions and looks correct in every file separately.
+        session-placement = sessionPlacement;
         github-repository-transition = githubRepositoryTransition;
         github-app-token = githubAppToken;
 

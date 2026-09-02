@@ -13,6 +13,11 @@ metadata:
   namespace: chuggy-work
 automountServiceAccountToken: false
 ---
+# Verbs on pods and Secrets in this namespace, granted to the one process that
+# places them. The name says worker because a worker was the only thing placed
+# here when it was written; a session pod is placed by the same process through
+# the same two resources, so the grant covers both without widening. Renaming it
+# would recreate the Role and its binding for a word.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -95,6 +100,85 @@ spec:
             matchLabels: { app: postgres }
       ports:
         - { protocol: TCP, port: 5432 }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - { protocol: TCP, port: 443 }
+---
+# The other kind of pod this namespace holds: an agent session, which is one
+# long-lived conversation rather than one ticket's attempt.
+#
+# IT CARRIES ITS OWN LABEL RATHER THAN THE WORKER'S, and the label is the whole
+# of what decides which policy above selects it. Reusing `chuggy.dev/worker`
+# would place a session inside the rule directly above and hand it PostgreSQL
+# and the git service -- two reaches a session has no use for, since it makes no
+# scratch database and takes no checkout. The hazard runs the other way as well
+# and is worse: a pod in this namespace that NO policy selects is isolated in
+# neither direction, so this object and the label the scheduler puts on a
+# session pod have to arrive together, and the manifest that sets
+# `CHUG_SCHEDULER_SESSION_LABELS` is in the same commit as this.
+#
+# `ingress: []` because nothing ever opens a connection to a session. It polls
+# the worker plane for its next turn, which is the posture the worker above has
+# toward its own input bundle, and it means a reaped pod is unreachable rather
+# than half-reachable.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-sessions
+  namespace: chuggy-work
+spec:
+  podSelector:
+    matchLabels:
+      chuggy.dev/session: "true"
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    # The mailbox and the transcript store, which are the same process: a
+    # session's turns arrive over this and every entry it appends goes back over
+    # it. Without this arm a session pod is placed, starts, and answers nothing.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy
+          podSelector:
+            matchLabels: { app: chuggy-worker-plane }
+      ports:
+        - { protocol: TCP, port: 3001 }
+    # The API, which a session reaches as an ordinary client presenting its own
+    # bearer. Nothing in this slice calls it -- a session is given no tools yet
+    # -- so this arm is the half of a reach that has to exist before the tools
+    # do, and its other half is the third `from` element on
+    # `chuggy-api-admits-traefik-and-the-selector`. Either half alone refuses
+    # the connection, so both are written in one change.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy
+          podSelector:
+            matchLabels: { app: chuggy-api }
+      ports:
+        - { protocol: TCP, port: 3000 }
+    # The model, which is on the public internet. Same shape and same admitted
+    # blast radius as the worker's rule above: NetworkPolicy cannot name a host,
+    # so this permits any public HTTPS destination.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

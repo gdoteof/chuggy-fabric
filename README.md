@@ -61,12 +61,20 @@ with a different card, so it lives in the host file.
 `nixos-live/` is history, not input. Nothing imports it.
 
 What `cluster/apps/` declares is deliberately less than what the cluster runs.
-The `chuggy-git` and `chuggy-work` namespaces were bootstrapped by hand from the
-[chuggy](https://github.com/kasofsk/chuggy) repo as deployment rehearsal
-fixtures — transient by intent, so declaring them here would commit Flux to
-maintaining state the rehearsal means to tear down.
+The `chuggy-git` and `chuggy-work` namespaces were both bootstrapped by hand from
+the [chuggy](https://github.com/kasofsk/chuggy) repo as deployment rehearsal
+fixtures — transient by intent, so declaring one would have committed Flux to
+maintaining state the rehearsal meant to tear down. `chuggy-work` stopped being a
+fixture: `cluster/apps/chuggy-work.yaml` declares the namespace, the identity
+both kinds of placed pod run as, the Role that lets the scheduler place them, and
+one NetworkPolicy per kind of pod — `chuggy-workers` for a ticket's attempt,
+`chuggy-sessions` for an agent session, each keyed on that kind's own label. A
+pod placed there carrying neither label is selected by neither policy, and a pod
+no policy selects is isolated in **neither** direction; the `session-placement`
+check holds that against the rendered cluster. `chuggy-git` is still a fixture
+and is still undeclared.
 
-One of those fixtures is a **second Flux control loop**, which is why the
+That remaining fixture is a **second Flux control loop**, which is why the
 [ownership label](#verified) has to be read by value rather than by presence.
 `Kustomization/rig` in `chuggy-git` follows an in-cluster git server and
 reconciles a ConfigMap beside it every minute, so that object carries
