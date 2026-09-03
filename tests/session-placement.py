@@ -39,25 +39,58 @@ on a label other than `kubernetes.io/metadata.name`, and a podSelector with
 matchExpressions alone, are both legal Kubernetes and both outside what is
 evaluated here; each gets a refusal saying so, so an unsupported shape is a
 finding to answer instead of a silence to trust.
+
+A REACH IS ALSO WRITTEN AS A URL AND AS A GRANT, and those halves fail the same
+silent way. Two more pairings are held here for that reason, and neither is a
+literal either:
+
+  * The origin the session's tools reach the API at is resolved through the
+    Service it addresses -- its selector, and its port through the container port
+    that Service's targetPort names -- and the pods it lands on must be exactly
+    the pods one egress arm permits on exactly that port. An origin naming a
+    destination no arm permits is a tool that hangs, and NetworkPolicy is matched
+    after the ClusterIP is translated away, so an arm copied from the URL's own
+    number is wrong for a Service that renames its port.
+  * A checkout takes a reach, a credential and a repository map, and this file
+    already holds the reach. So the map a session resolves against must be the
+    map a worker resolves against -- one site, one statement of which
+    repositories exist -- every credential the session policy grants must be one
+    the credential mounts carry, or the placement is denied, and at least one
+    repository in that map must have its credential granted, or the arm above is
+    a permission for a clone that cannot authenticate.
 """
 
 import json
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import yaml
 
 WORK = "chuggy-work"
 CONTROL = "chuggy"
 SESSION_LABELS_VARIABLE = "CHUG_SCHEDULER_SESSION_LABELS"
+SESSION_API_URL_VARIABLE = "CHUG_SCHEDULER_SESSION_API_URL"
+SESSION_ENVIRONMENT_VARIABLE = "CHUG_SCHEDULER_SESSION_ENVIRONMENT"
+SESSION_POLICY_VARIABLE = "CHUG_SCHEDULER_SESSION_POLICY"
+WORKER_ENVIRONMENT_VARIABLE = "CHUG_SCHEDULER_WORKER_ENVIRONMENT"
+CREDENTIAL_MOUNTS_VARIABLE = "CHUG_SCHEDULER_WORKER_CREDENTIAL_MOUNTS"
+REPOSITORIES_VARIABLE = "CHUG_WORKER_REPOSITORIES"
 
 # Where a session pod may go, as (protocol, port). A session takes its turns and
 # writes its transcript over the worker plane, reaches the API as an ordinary
-# client, resolves names, and talks to the model over public HTTPS. PostgreSQL
-# and the git service are absent because a slice-1 session makes no scratch
-# database and takes no checkout -- and this set is exact, so gaining one is a
-# finding rather than a silent widening.
-SESSION_EGRESS = {("UDP", 53), ("TCP", 53), ("TCP", 3001), ("TCP", 3000), ("TCP", 443)}
+# client, clones its project's repository from the in-cluster git service,
+# resolves names, and talks to the model over public HTTPS. PostgreSQL is absent
+# because a session makes no scratch database -- and this set is exact, so
+# gaining one is a finding rather than a silent widening.
+SESSION_EGRESS = {
+    ("UDP", 53),
+    ("TCP", 53),
+    ("TCP", 3001),
+    ("TCP", 3000),
+    ("TCP", 443),
+    ("TCP", 8080),
+}
 
 # The two destinations a session's egress names by label, each paired with the
 # policy that stands in front of that same workload. The pairing is what makes
@@ -185,6 +218,74 @@ def pods_selected(templates, namespace, selector):
         if space == namespace
         and all(labels.get(key) == value for key, value in selector.items())
     ]
+
+
+def json_variable(entry, name):
+    """One env value parsed as JSON, refused rather than skipped where it is absent."""
+    raw = variable(entry, name)
+    if raw is None:
+        refuse(f"the scheduler names no {name}")
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as error:
+        refuse(f"{name} is not JSON: {error}")
+
+
+def cluster_service(url, name):
+    """The (namespace, service) a cluster-local origin addresses.
+
+    Only `<service>.<namespace>.svc.cluster.local` is resolvable here, with or
+    without the root's trailing dot. Anything else -- an IP, an external name, a
+    bare Service name relying on the pod's search path -- is refused rather than
+    guessed at, because a destination this file cannot resolve is one it cannot
+    hold an egress arm against.
+    """
+    host = (url.hostname or "").rstrip(".")
+    suffix = ".svc.cluster.local"
+    if not host.endswith(suffix):
+        refuse(f"{name} names {host}, which is not a <service>.<namespace>{suffix} address")
+    parts = host[: -len(suffix)].split(".")
+    if len(parts) != 2:
+        refuse(f"{name} names {host}, which is not a <service>.<namespace>{suffix} address")
+    return parts[1], parts[0]
+
+
+def service_pod_port(documents, templates, service, wanted, name):
+    """The container port behind a Service port, and the pods that publish it.
+
+    A NetworkPolicy is evaluated against the destination pod after the ClusterIP
+    is translated away, so the port an egress arm must permit is this one and not
+    the Service's. A named targetPort is resolved on the containers of the pods
+    the Service selects, which is what a rename on either side fails.
+    """
+    selector = service["spec"].get("selector")
+    if not selector:
+        refuse(f"the Service {name} addresses selects no pod by label")
+    namespace = service["metadata"].get("namespace")
+    selected = pods_selected(templates, namespace, selector)
+    if not selected:
+        refuse(f"the Service {name} addresses selects {selector} in {namespace}, which no declared pod carries")
+    entries = [port for port in service["spec"].get("ports", []) if port.get("port") == wanted]
+    if len(entries) != 1:
+        refuse(f"the Service {name} addresses publishes no single port {wanted}")
+    target = entries[0].get("targetPort", wanted)
+    if isinstance(target, int):
+        return target, selected
+    published = {
+        port.get("name"): port.get("containerPort")
+        for document in documents
+        if document.get("kind") in POD_TEMPLATE_KINDS
+        and document["metadata"].get("namespace") == namespace
+        and all(
+            document["spec"]["template"]["metadata"].get("labels", {}).get(key) == value
+            for key, value in selector.items()
+        )
+        for container in document["spec"]["template"]["spec"]["containers"]
+        for port in container.get("ports", [])
+    }
+    if target not in published:
+        refuse(f"the Service {name} addresses names targetPort {target}, which its pods do not publish")
+    return published[target], selected
 
 
 def protects(policy):
@@ -355,6 +456,94 @@ def main():
     postgres = one(documents, "NetworkPolicy", "postgres-admits-labelled-clients", CONTROL)
     if admits(postgres, "ingress", WORK, labels, "TCP", 5432):
         refuse("PostgreSQL admits a session pod, which makes no scratch database")
+
+    # 6. The origin a session's tools reach the API at is a destination its
+    #    egress permits, resolved the whole way: URL to Service, Service port to
+    #    the container port its pods publish, and that port to the one arm whose
+    #    peers select exactly those pods. Written as a URL in one variable and as
+    #    a peer in another file, this is the pairing that reads right on each
+    #    side while every tool call hangs.
+    scheduled = container(scheduler, "scheduler")
+    origin = variable(scheduled, SESSION_API_URL_VARIABLE)
+    if origin is None:
+        refuse(f"the scheduler names no {SESSION_API_URL_VARIABLE}, which the launcher requires")
+    url = urlsplit(origin)
+    if url.scheme not in ("http", "https"):
+        refuse(f"{SESSION_API_URL_VARIABLE} is not an http or https origin")
+    if url.username or url.password:
+        refuse(f"{SESSION_API_URL_VARIABLE} carries credentials")
+    if url.path not in ("", "/") or url.query or url.fragment:
+        refuse(
+            f"{SESSION_API_URL_VARIABLE} is not an origin; the pod's client builds the "
+            "versioned path onto it"
+        )
+    space, named = cluster_service(url, SESSION_API_URL_VARIABLE)
+    served = url.port or (443 if url.scheme == "https" else 80)
+    port, behind = service_pod_port(
+        documents,
+        templates,
+        one(documents, "Service", named, space),
+        served,
+        SESSION_API_URL_VARIABLE,
+    )
+    permitted = [
+        rule
+        for rule in sessions["spec"].get("egress", [])
+        if ("TCP", port) in ports(rule)
+        and [
+            selected
+            for peer in rule["to"]
+            if "ipBlock" not in peer
+            for selected in pods_selected(
+                templates, peer_namespace(peer, WORK), peer["podSelector"]["matchLabels"]
+            )
+        ]
+        == behind
+    ]
+    if len(permitted) != 1:
+        refuse(
+            f"{SESSION_API_URL_VARIABLE} resolves to {named}.{space} on pod port {port}, which "
+            f"{len(permitted)} chuggy-sessions arms permit; exactly one must"
+        )
+
+    # 7. A checkout is a reach, a credential and a map, and step 2 holds only the
+    #    reach. The map is the worker's -- one site, one statement of which
+    #    repositories exist here -- every credential granted is one the mounts
+    #    carry, since the launcher denies a slot they do not, and something in
+    #    that map is clonable, or the git arm above permits a clone that cannot
+    #    authenticate.
+    policy = json_variable(scheduled, SESSION_POLICY_VARIABLE)
+    granted = set(policy.get("grant", {}).get("credentials", []))
+    mounts = set(json_variable(scheduled, CREDENTIAL_MOUNTS_VARIABLE))
+    ungrantable = granted - mounts
+    if ungrantable:
+        refuse(
+            f"{SESSION_POLICY_VARIABLE} grants {sorted(ungrantable)}, which "
+            f"{CREDENTIAL_MOUNTS_VARIABLE} does not mount, so every placement is denied"
+        )
+    sessions_map = json_variable(scheduled, SESSION_ENVIRONMENT_VARIABLE).get(REPOSITORIES_VARIABLE)
+    workers_map = json_variable(scheduled, WORKER_ENVIRONMENT_VARIABLE).get(REPOSITORIES_VARIABLE)
+    if sessions_map is None:
+        refuse(
+            f"{SESSION_ENVIRONMENT_VARIABLE} carries no {REPOSITORIES_VARIABLE}, so a session "
+            "placed with a repository refuses to resolve it"
+        )
+    if workers_map is None:
+        refuse(f"{WORKER_ENVIRONMENT_VARIABLE} carries no {REPOSITORIES_VARIABLE}")
+    # Parsed rather than compared as text: the two are JSON documents inside JSON
+    # strings, and a difference in their whitespace is not a difference in what
+    # they say.
+    repositories = json.loads(sessions_map)
+    if repositories != json.loads(workers_map):
+        refuse(
+            f"the session's {REPOSITORIES_VARIABLE} is not the worker's, so the two kinds of pod "
+            "answer differently which repositories exist on this site"
+        )
+    if not any(entry.get("credential") in granted for entry in repositories.values()):
+        refuse(
+            f"{SESSION_POLICY_VARIABLE} grants the credential of no repository in "
+            f"{REPOSITORIES_VARIABLE}, so no checkout can authenticate"
+        )
 
 
 if __name__ == "__main__":

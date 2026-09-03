@@ -118,10 +118,16 @@ spec:
 #
 # IT CARRIES ITS OWN LABEL RATHER THAN THE WORKER'S, and the label is the whole
 # of what decides which policy above selects it. Reusing `chuggy.dev/worker`
-# would place a session inside the rule directly above and hand it PostgreSQL
-# and the git service -- two reaches a session has no use for, since it makes no
-# scratch database and takes no checkout. The hazard runs the other way as well
-# and is worse: a pod in this namespace that NO policy selects is isolated in
+# would place a session inside the rule directly above and hand it PostgreSQL,
+# which a session has no use for: it makes no scratch database, and
+# `CHUG_SCHEDULER_SESSION_LABELS` withholds the client label that server's
+# ingress admits this namespace for. It reaches the git service and the worker
+# does too, and that is the case worth being explicit about -- the reach is
+# written out below as this policy's own arm rather than inherited, so the two
+# kinds of pod go on being two rules that can be argued apart.
+#
+# The hazard runs the other way as well and is worse: a pod in this namespace
+# that NO policy selects is isolated in
 # neither direction, so this object and the label the scheduler puts on a
 # session pod have to arrive together, and the manifest that sets
 # `CHUG_SCHEDULER_SESSION_LABELS` is in the same commit as this.
@@ -163,11 +169,13 @@ spec:
       ports:
         - { protocol: TCP, port: 3001 }
     # The API, which a session reaches as an ordinary client presenting its own
-    # bearer. Nothing in this slice calls it -- a session is given no tools yet
-    # -- so this arm is the half of a reach that has to exist before the tools
-    # do, and its other half is the third `from` element on
+    # bearer. This arm was written before there was anything to call: it is now
+    # what the pod's own MCP tools go over, at the origin
+    # `CHUG_SCHEDULER_SESSION_API_URL` names, and what that bearer may do there
+    # is the principal's project membership and not this rule. Its other half is
+    # the third `from` element on
     # `chuggy-api-admits-traefik-and-the-selector`. Either half alone refuses
-    # the connection, so both are written in one change.
+    # the connection, so the two were written in one change and move together.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -176,6 +184,32 @@ spec:
             matchLabels: { app: chuggy-api }
       ports:
         - { protocol: TCP, port: 3000 }
+    # The in-cluster git mirror, which a session clones its project's repository
+    # from so the agent runtime reads the tree's own working notes. Same
+    # destination the worker's rule above names and written the same way,
+    # because there is one git service here and two kinds of pod that read it.
+    #
+    # THE PORT IS THE POD'S AND NOT THE SERVICE'S. A NetworkPolicy is evaluated
+    # after the ClusterIP has been translated away, and the URL in the
+    # repositories map carries no port at all -- so an arm written from that URL
+    # would name the Service's and permit nothing. 8080 is the worker's number
+    # for the same destination, directly above, and `chuggy-git` is a
+    # hand-bootstrapped fixture this directory declares no object for, which is
+    # why the two arms rather than a Service are what hold it.
+    #
+    # It is the reach half of a checkout and not the whole of one: the pod also
+    # needs the credential, which `CHUG_SCHEDULER_SESSION_POLICY`'s grant names,
+    # and the map to resolve the reference against, which
+    # `CHUG_SCHEDULER_SESSION_ENVIRONMENT` carries. Any one of the three alone
+    # is a clone that fails, so all three are written in one change.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy-git
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: git }
+      ports:
+        - { protocol: TCP, port: 8080 }
     # The model, which is on the public internet. Same shape and same admitted
     # blast radius as the worker's rule above: NetworkPolicy cannot name a host,
     # so this permits any public HTTPS destination.
