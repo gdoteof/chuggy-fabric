@@ -1522,23 +1522,24 @@ not after it.
 
 ### What does not work yet, and why
 
-- **The selector runs and `vteng/chuggy` dispatches automatically, but its lead
-  is closed, so nothing is dispatched.** Both of the preconditions that kept the
-  selector at zero replicas are answered: it mints its own token from Hydra
-  rather than being handed one, and `selector-policy` — which asked a trusted
-  policy service nothing ever implemented — is retired along with the protocol
-  by kasofsk/chuggy#503, because the project's lead decides in its place. A
-  decision becomes a turn on that lead's mailbox, which is the database this pod
-  already connects to, so nothing was added to `chuggy-selector-egress` for it.
-  Release 18's phase B then wrote the two things that are not manifests: the
-  `ManageProjectSelector` access a settings write needs, and `dispatchMode:
-  Automatic` on `vteng/chuggy`. What is left is a row rather than a rule. This
-  project's `agent_session` of kind `Lead` was opened by release 16's resume
-  proof and closed at the end of it; `open_agent_session` admits one `Lead` per
-  project whatever its state, and a closed session cannot be reopened, so the
-  selector's pass observes the project, composes a turn and is refused
-  `Closed` by the mailbox. `chuggy-selector.yaml` argues the rest beside the
-  number.
+- **The lead now runs and decides, and nothing it dispatches is delivered.**
+  Both of the preconditions that kept the selector at zero replicas are
+  answered: it mints its own token from Hydra rather than being handed one, and
+  `selector-policy` — which asked a trusted policy service nothing ever
+  implemented — is retired along with the protocol by kasofsk/chuggy#503,
+  because the project's lead decides in its place. A decision becomes a turn on
+  that lead's mailbox, which is the database this pod already connects to, so
+  nothing was added to `chuggy-selector-egress` for it. Release 18 was blocked
+  by a closed lead row; release 19 carries the migration that makes a project
+  take a successor, and on the rig it did — the lead opened itself, filed and
+  released derived work, and staged three dispatches in one decision. What stops
+  them now is one row's initial state: `enforce_selector_proposal_initial_state`
+  reads `selector_runtime_settings.dispatch_mode`, which is the
+  **installation's** mode and is `ApprovalRequired`, so every delivery is stamped
+  `AwaitingApproval` however a project's own `dispatchMode` reads — and the
+  image serves no route that approves one. Both halves are chuggy's, not this
+  repository's, and neither is a manifest: nothing here can set the installation
+  mode either.
 - **The finalizer promotes onto this cluster's own git and nothing external.**
   Its remote is `rig.git` in `chuggy-git`, and `chuggy-finalizer-egress` admits
   that one pod on its own 8080 and no longer admits the public internet at all --
@@ -1620,6 +1621,71 @@ writing down claims nobody checked. What every entry must carry is what the one
 below carries: the fabric merge commit, the chuggy commit, every digest that
 moved, the ledger range, and the undo — including the dump, because a ledger
 that has moved forward is not walked back by reverting a fabric commit.
+
+### Release 19 — 2026-09-03 — a project takes a successor lead, and one decision dispatches several
+
+- **fabric** `7cdb0e7` → **`e8677bc`** (PR #133; the build request it depends on
+  is PR #131, `938db7e` → `7cdb0e7`).
+- **chuggy** `5b3f381` → **`0ab8a7322b5da7efa0364eb9f271043da31be69b`** — slice
+  6 (a decision dispatches several tickets, each fenced on its own candidate
+  version) and the two fixes release 18 measured: a project whose lead closed
+  takes a successor, and a thread's mailbox starts where the change log stood
+  when it opened.
+- **Ledger 063 → 067** (064 a delivery is one decision's dispatch of one ticket;
+  065 the decision log says which of a decision's dispatches landed; 066 a closed
+  lead is history and the project takes a successor; 067 a thread's mailbox starts
+  where the change log stood when it opened). The migrate Job
+  `chuggy-migrate-0ab8a732-registry` reported `applied 64,65,66,67` and
+  completed.
+- **Digests that moved:** api
+  `sha256:b76bc1bd…9d256` →
+  `sha256:91435dc0a55f6923b6c69aecca9f9d04cf5c56bfad9e21afa00339f177677421` on
+  `chuggy-api`, `-finalizer`, `-scheduler`, `-selector`, `-ticket-service` and
+  `-worker-plane`; `chuggy-ui` `sha256:5e733e1c…e17d39` →
+  `sha256:87e9a55a523a473225c7ff3a7a3f60f49db282ddcb30e752808bb9031e6f6406`.
+  `chuggy-web` did not move (`sha256:2b63599e…0ab0e6`).
+- **Worker:** built from
+  `builds/chuggy/0ab8a7322b5da7efa0364eb9f271043da31be69b/`, admitted as
+  `chuggy-worker` **`0.14`** =
+  `sha256:3e37aa3529dd22235c3ff13c05a3f7ef3ec4694ce1652eeeb29cde3a8f58ca82`, and
+  `CHUG_SCHEDULER_SESSION_POLICY.image` moved to it from `0.13`
+  (`sha256:06a094c6…e994e`) in the same commit. The digest was read from the
+  BuildRun and from the registry before it was written anywhere, and the two
+  agreed. `images/worker/leadDecision.mjs` is what moved: the dispatch tool takes
+  several tickets and the ceiling it enforces is the contract's.
+- **What this release turns on.** `CHUG_SELECTOR_CONFIG.lead.credentialSlot` is
+  now required by the image — it is the credential mount a lead this process
+  opens speaks through, and it is `claude-code`, the same slot the api's
+  `CHUG_API_THREAD_CREDENTIAL_SLOT` names and one of the two
+  `CHUG_SCHEDULER_SESSION_POLICY.grant.credentials`. Two new gate arms hold that
+  pairing: `tests/selector-reach` holds the field's shape, which is all the
+  selector's own schema decides, and `tests/session-placement` step 10 holds the
+  slot against the grant, which is the half no start-up check can see.
+- **What phase B measured on the rig.** The runtime opened a successor lead
+  (`lead-<uuid>`, `agent_reference` null before its first turn and bound after)
+  while release 16's closed lead stayed closed; its first turn carried the
+  seeding block; it filed a `FollowUp`, released it under its own
+  `operation.via_session`, and a later turn staged **three** dispatches in one
+  decision, which the record holds as one `selector_interaction` row and three
+  `selector_proposal_delivery` rows each with its own state. A thread opened with
+  two qualifying, unconsumed change rows below it took **zero** wake turns and
+  was woken by the next change, which is 067. Nothing was delivered: see the
+  first bullet under "What does not work yet".
+
+**Undo.** `git revert -m 1 e8677bc` and
+`flux reconcile kustomization apps --with-source` puts every digest above back,
+restores the `0.13` session pin and removes `lead.credentialSlot` — which the
+`0ab8a732` image refuses, so the revert must go back to the api digest above it
+in the same reconcile, as reverting the whole commit does. **It does not walk the
+ledger back**: 067 is applied and the pre-067 images refuse it, so going below
+067 is a restore from `/home/geoff/backups/pre-064-20260903.dump` (2 290 482 B)
+with `pre-064-20260903-globals.sql` (13 507 B), taken on the node while the
+ledger still read 063. Those two files are the only way below it. Phase B's
+writes outside git are undone separately and are listed in its own record: the
+project's selector overrides go back to `{"dispatchMode":"Automatic"}` with a
+`PUT` at the revision the route reports, and the `policy-bearer-token` key this
+release deleted from the `chuggy-selector` Secret is in
+`/home/geoff/chuggy-selector-secret-before-release19.yaml` on the node.
 
 ### Release 18 — 2026-09-03 — the selector runs, and a member has a thread
 
