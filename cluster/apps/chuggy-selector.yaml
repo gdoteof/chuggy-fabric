@@ -145,7 +145,7 @@ metadata:
   name: chuggy-selector
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: 5b3f381
+    fabric.chuggy.dev/source-commit: 0ab8a732
   labels: { app: chuggy-selector }
 spec:
   # ONE, BECAUSE THERE IS FINALLY SOMETHING FOR IT TO ASK. The zero here was
@@ -166,9 +166,10 @@ spec:
   # unlike at zero that is now visible. An image built before the retirement,
   # handed this document, writes `selector configuration:` and exits; at one
   # replica a pod that exits is a CrashLoopBackOff rather than a manifest nobody
-  # parses. The digest above is built from 5b3f381, which is the commit that
-  # retires the protocol, so this release is the one that may raise the number
-  # and no earlier one could have.
+  # parses. The digest above is built from a commit after 5b3f381, the commit
+  # that retires the protocol; release 18 was the first that could raise the
+  # number, no earlier one could have, and every release since carries a digest
+  # from a later commit.
   #
   # A Deployment with no available replica never passes `wait: true`, which
   # health-checks every object in this directory; at zero this object was out of
@@ -195,7 +196,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: selector
-          image: registry.chuggy.internal/chuggy/api@sha256:b76bc1bd7f9646a3980ad37194a97c6525ba02a978a16a713df81c63ff59d256
+          image: registry.chuggy.internal/chuggy/api@sha256:91435dc0a55f6923b6c69aecca9f9d04cf5c56bfad9e21afa00339f177677421
           imagePullPolicy: IfNotPresent
           command:
             [
@@ -237,18 +238,34 @@ spec:
             # the digest above have to move together and why neither half of the
             # swap is a separable edit.
             #
-            # `lead` IS THE LEAD HOST'S TWO NUMBERS AND NOT A DESTINATION. The
-            # host offers a turn on the lead session's mailbox and reads the row
-            # back until it settles, so `pollIntervalMs` is how often it asks the
-            # database a question it already holds a connection for -- two
-            # seconds, because a lead turn is minutes long and a shorter interval
-            # buys latency nobody observes at the cost of a query per pod per
-            # tick. `controlDeadlineMs` bounds the OTHER two calls, `cancel` and
-            # `inspect`, which is what the retired block's field of the same name
-            # bounded; the value is carried across unchanged, because the thing
-            # it bounds did not change when the protocol under it did. Neither
-            # number bounds a decision: the turn's own envelope is a per-project
-            # setting and is not written here.
+            # `lead` IS THE LEAD HOST'S TWO NUMBERS AND ONE NAME, AND NO
+            # DESTINATION. The host offers a turn on the lead session's mailbox
+            # and reads the row back until it settles, so `pollIntervalMs` is how
+            # often it asks the database a question it already holds a connection
+            # for -- two seconds, because a lead turn is minutes long and a
+            # shorter interval buys latency nobody observes at the cost of a
+            # query per pod per tick. `controlDeadlineMs` bounds the OTHER two
+            # calls, `cancel` and `inspect`, which is what the retired block's
+            # field of the same name bounded; the value is carried across
+            # unchanged, because the thing it bounds did not change when the
+            # protocol under it did. Neither number bounds a decision: the turn's
+            # own envelope is a per-project setting and is not written here.
+            #
+            # `credentialSlot` IS THE ONE FIELD OF THE THREE THAT PLACES A POD.
+            # The image this pins opens a project's lead itself where none is
+            # open, and the session row it writes carries the slot a pod for that
+            # lead will speak through; `kubernetesSessionPodRequest` denies a
+            # placement whose slot `CHUG_SCHEDULER_SESSION_POLICY`'s grant does
+            # not name, so this value is one of that grant's credentials or every
+            # lead turn is denied at pod time rather than here. Of the two it
+            # grants, `chuggy-git-worker` is a git password and `claude-code` is
+            # the model credential -- and it is the same slot the api names in
+            # `CHUG_API_THREAD_CREDENTIAL_SLOT` for a member's thread, because a
+            # lead and a thread reach the model the same way on this site. It is
+            # required and the schema is strict, so an image built after
+            # kasofsk/chuggy#545 refuses a document without it: the field arrives
+            # in the same commit as the digest that requires it, for the reason
+            # the swap above arrived in one.
             #
             # CHUG_SELECTOR_THREAD_WAKES_PER_PASS_MAX is unset, and unset is not
             # unbounded. The wake pass caps what it asks for at the contract's
@@ -300,7 +317,8 @@ spec:
                   },
                   "lead": {
                     "pollIntervalMs": 2000,
-                    "controlDeadlineMs": 30000
+                    "controlDeadlineMs": 30000,
+                    "credentialSlot": "claude-code"
                   }
                 }
           resources:
