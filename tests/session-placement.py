@@ -60,6 +60,13 @@ literal either:
     a permission for a clone that cannot authenticate. A mirror is that same
     pairing once more: it is what a session clones in place of the binding, so
     it must be in that map and its credential must be granted.
+  * A CREDENTIAL SLOT IS NAMED WHERE A SESSION IS OPENED AND ENFORCED WHERE ONE
+    IS PLACED, and those are three manifests. The api names the slot a member's
+    thread speaks through and the selector names the slot a lead it opens speaks
+    through, while the launcher denies a placement whose slot the scheduler's
+    grant does not carry. Neither opener can see that grant, so a slot absent
+    from it is a session that opens, is scheduled and is denied at pod time --
+    the row exists, the turn is queued, and nothing ever runs it.
 
 THE IMAGE A SESSION RUNS ON IS WRITTEN TWICE and held nowhere else. It is
 admitted in `CHUG_SCHEDULER_ADMITTED_IMAGES` and pinned in
@@ -88,6 +95,14 @@ ADMITTED_IMAGES_VARIABLE = "CHUG_SCHEDULER_ADMITTED_IMAGES"
 WORKER_ENVIRONMENT_VARIABLE = "CHUG_SCHEDULER_WORKER_ENVIRONMENT"
 CREDENTIAL_MOUNTS_VARIABLE = "CHUG_SCHEDULER_WORKER_CREDENTIAL_MOUNTS"
 REPOSITORIES_VARIABLE = "CHUG_WORKER_REPOSITORIES"
+
+# Where the two credential slots this site opens sessions on are written, which
+# is neither of them in the scheduler that enforces them. The api's is a plain
+# variable and the selector's is a field of its configuration document.
+API_THREAD_SLOT_VARIABLE = "CHUG_API_THREAD_CREDENTIAL_SLOT"
+SELECTOR_CONFIGURATION_VARIABLE = "CHUG_SELECTOR_CONFIG"
+LEAD_CONFIGURATION_KEY = "lead"
+LEAD_CREDENTIAL_SLOT_FIELD = "credentialSlot"
 
 # Where a session pod may go, as (protocol, port). A session takes its turns and
 # writes its transcript over the worker plane, reaches the API as an ordinary
@@ -597,6 +612,41 @@ def main():
             f"{SESSION_POLICY_VARIABLE} places sessions on an image older than the newest "
             f"{ADMITTED_IMAGES_VARIABLE} entry, so one of the two was repinned without the other"
         )
+
+    # 10. A credential slot is named by whoever OPENS a session and enforced by
+    #     whoever PLACES one, and those are different manifests. The api names
+    #     the slot a member's thread speaks through and the selector names the
+    #     slot a lead it opens speaks through; `kubernetesSessionPodRequest`
+    #     denies a placement whose slot the grant above does not carry. So a slot
+    #     written in either place and absent from the grant is a session that
+    #     opens, is scheduled, and is denied at pod time -- the row exists, the
+    #     turn is queued, and nothing ever runs it. Both are read out of the
+    #     render, and the selector's out of its JSON document, because a slot
+    #     inside a configuration blob is invisible to every `grep` beside it.
+    served = container(one(documents, "Deployment", "chuggy-api", CONTROL), "api")
+    selecting = container(one(documents, "Deployment", "chuggy-selector", CONTROL), "selector")
+    document = variable(selecting, SELECTOR_CONFIGURATION_VARIABLE)
+    if document is None:
+        refuse(f"the selector names no {SELECTOR_CONFIGURATION_VARIABLE}")
+    try:
+        lead = json.loads(document).get(LEAD_CONFIGURATION_KEY) or {}
+    except json.JSONDecodeError as error:
+        refuse(f"{SELECTOR_CONFIGURATION_VARIABLE} is not JSON: {error}")
+    for opened, source, slot in (
+        ("a member's thread", API_THREAD_SLOT_VARIABLE, variable(served, API_THREAD_SLOT_VARIABLE)),
+        (
+            "a lead it opens",
+            f"{SELECTOR_CONFIGURATION_VARIABLE}.{LEAD_CONFIGURATION_KEY}.{LEAD_CREDENTIAL_SLOT_FIELD}",
+            lead.get(LEAD_CREDENTIAL_SLOT_FIELD),
+        ),
+    ):
+        if not isinstance(slot, str) or not slot:
+            refuse(f"{source} is not a credential slot, so nothing names what {opened} speaks through")
+        if slot not in granted:
+            refuse(
+                f"{source} names credential slot {slot!r} for {opened}, which "
+                f"{SESSION_POLICY_VARIABLE} does not grant, so every pod for one is denied"
+            )
 
 
 if __name__ == "__main__":

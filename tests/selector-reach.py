@@ -63,6 +63,16 @@ RETIRED_SECRET_KEY = "policy-bearer-token"
 LEAD_CONFIGURATION_KEY = "lead"
 LEAD_FIELDS = ("pollIntervalMs", "controlDeadlineMs")
 
+# The third field, which is a name rather than a number and so cannot be checked
+# by the loop above. It is required by the image that opens a lead itself, and a
+# document without it refuses the process exactly as a document without the block
+# does. WHAT IT NAMES is not decided here: a slot the session grant does not
+# carry is denied at pod time rather than at start-up, and that pairing is held
+# in tests/session-placement.py, which parses the scheduler's grant. This file
+# holds only what the selector's own schema holds -- present, a string, and not
+# empty.
+LEAD_CREDENTIAL_SLOT_FIELD = "credentialSlot"
+
 # The suffix a cluster-local Service name carries. A host without it is either
 # outside the cluster or a short name whose namespace depends on the pod's own
 # search path, and neither is resolvable here.
@@ -325,6 +335,13 @@ def main():
                 f"{LEAD_CONFIGURATION_KEY}.{field} is not a positive integer, which the "
                 "selector's configuration schema requires of it"
             )
+    slot = lead.get(LEAD_CREDENTIAL_SLOT_FIELD)
+    if not isinstance(slot, str) or not slot:
+        refuse(
+            f"{LEAD_CONFIGURATION_KEY}.{LEAD_CREDENTIAL_SLOT_FIELD} is not a non-empty "
+            "string; the image that opens a lead names the credential its pod speaks "
+            "through here, and its schema requires the field"
+        )
 
     # 3. Every destination the configuration names is permitted, on the port the
     #    pod listens on rather than the one the URL publishes.
