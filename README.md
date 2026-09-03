@@ -1522,18 +1522,23 @@ not after it.
 
 ### What does not work yet, and why
 
-- **The selector runs, and no project dispatches automatically yet.** Both of
-  the preconditions that kept it at zero replicas are answered: it mints its own
-  token from Hydra rather than being handed one, and `selector-policy` — which
-  asked a trusted policy service nothing ever implemented — is retired along
-  with the protocol by kasofsk/chuggy#503, because the project's lead decides in
-  its place. A decision becomes a turn on that lead's mailbox, which is the
-  database this pod already connects to, so nothing was added to
-  `chuggy-selector-egress` for it. What is left is not a manifest: a project
-  dispatches automatically only when its own `dispatchMode` says so, which is a
-  per-project setting written through the API by a principal holding
-  `ManageProjectSelector`, and no project on this rig carries either yet.
-  `chuggy-selector.yaml` argues the rest beside the number.
+- **The selector runs and `vteng/chuggy` dispatches automatically, but its lead
+  is closed, so nothing is dispatched.** Both of the preconditions that kept the
+  selector at zero replicas are answered: it mints its own token from Hydra
+  rather than being handed one, and `selector-policy` — which asked a trusted
+  policy service nothing ever implemented — is retired along with the protocol
+  by kasofsk/chuggy#503, because the project's lead decides in its place. A
+  decision becomes a turn on that lead's mailbox, which is the database this pod
+  already connects to, so nothing was added to `chuggy-selector-egress` for it.
+  Release 18's phase B then wrote the two things that are not manifests: the
+  `ManageProjectSelector` access a settings write needs, and `dispatchMode:
+  Automatic` on `vteng/chuggy`. What is left is a row rather than a rule. This
+  project's `agent_session` of kind `Lead` was opened by release 16's resume
+  proof and closed at the end of it; `open_agent_session` admits one `Lead` per
+  project whatever its state, and a closed session cannot be reopened, so the
+  selector's pass observes the project, composes a turn and is refused
+  `Closed` by the mailbox. `chuggy-selector.yaml` argues the rest beside the
+  number.
 - **The finalizer promotes onto this cluster's own git and nothing external.**
   Its remote is `rig.git` in `chuggy-git`, and `chuggy-finalizer-egress` admits
   that one pod on its own 8080 and no longer admits the public internet at all --
@@ -1615,6 +1620,60 @@ writing down claims nobody checked. What every entry must carry is what the one
 below carries: the fabric merge commit, the chuggy commit, every digest that
 moved, the ledger range, and the undo — including the dump, because a ledger
 that has moved forward is not walked back by reverting a fabric commit.
+
+### Release 18 — 2026-09-03 — the selector runs, and a member has a thread
+
+- **fabric** `5869a93` → **`37dcffa`** (PR #129; the build request it depends on
+  is PR #127, `8e83872` → `5869a93`).
+- **chuggy** `6a9dc09` → **`5b3f38107572551891704e594bb6513afa08e8f4`** — the
+  agentic selector's slices 2 to 5: the lead is the policy host, a member has a
+  thread with its own mailbox and wakes, a member may ask the lead aside, and a
+  session clones the in-cluster mirror.
+- **Ledger 061 → 063** (062 member threads, their messages and their wakes; 063
+  inquiries against a lead, forked and retained nowhere). The migrate Job
+  `chuggy-migrate-5b3f381-registry` reported `applied 62,63` and completed.
+- **Digests that moved:** api `sha256:576dfffc…f4ff` →
+  `sha256:b76bc1bd7f9646a3980ad37194a97c6525ba02a978a16a713df81c63ff59d256` on
+  `chuggy-api`, `-finalizer`, `-scheduler`, `-selector`, `-ticket-service` and
+  `-worker-plane`; `chuggy-ui` `sha256:ddcac78b…5fb222` →
+  `sha256:5e733e1c3b6d9a7994f9aff78fd3b28c4e2b2d4fecf16175f1df482322e17d39`.
+  `chuggy-web` did not move (`sha256:2b63599e…0ab0e6`).
+- **Worker:** built from
+  `builds/chuggy/5b3f38107572551891704e594bb6513afa08e8f4/`, admitted as
+  `chuggy-worker` **`0.13`** =
+  `sha256:06a094c632eb2d6715ab35f3d1cd11c7fdd1ba7e95c04652f5cc259db00e994e`,
+  and `CHUG_SCHEDULER_SESSION_POLICY.image` moved to it from `0.12`
+  (`sha256:e2aac0fc…9261`) in the same commit. The digest was read from the
+  BuildRun and from the registry before it was written anywhere, and the two
+  agreed; `tests/session-placement` now holds the pinned image against the
+  admitted list rather than leaving that pairing to a reader.
+- **What this release turns on.** `chuggy-selector` moves from `replicas: 0` to
+  `1` and its retired `policy` block is replaced by `lead`, because
+  kasofsk/chuggy#503 retires the trusted selector policy protocol in favour of a
+  turn on the project lead's mailbox. `CHUG_SCHEDULER_SESSION_POLICY` gains a
+  `mirrors` map, so a session clones `git.chuggy-git` where a project binds
+  github.com without moving the binding the finalizer promotes through — proved
+  on the rig by a session pod whose `origin` is
+  `http://git.chuggy-git.svc.cluster.local./chuggy.git`. The api gains
+  `CHUG_API_THREAD_CREDENTIAL_SLOT`.
+- **What phase B wrote outside git**, because neither is a manifest: Geoff's
+  principal was granted `ManageProjectSelector` on `vteng/chuggy`, and that
+  project's `dispatchMode` was set to `Automatic` through
+  `PUT …/selector-settings` at `expectedRevision 0` (the project carried no
+  overrides, so nothing was replaced). A member thread was opened, answered nine
+  turns on the 0.13 worker and released ticket 23. Nothing dispatched: see the
+  closed-lead paragraph under "What does not work yet".
+
+**Undo.** `git revert -m 1 37dcffa` and
+`flux reconcile kustomization apps --with-source` puts every digest above back,
+restores the `0.12` session pin and returns `chuggy-selector` to `replicas: 0`.
+**It does not walk the ledger back**: 063 is applied and the pre-063 images
+refuse it, so going below 063 is a restore from
+`/home/geoff/backups/pre-062-20260903.dump` (1 058 127 B) with
+`pre-062-20260903-globals.sql` (13 507 B), taken on the node while the ledger
+still read 061. Those two files are the only way below it. The two phase-B
+writes are undone separately: re-grant the four verbs the membership row
+carried before, and `PUT` the settings route with an empty override set.
 
 ### Release 17 — 2026-09-03 — the lead's tools and its checkout
 
