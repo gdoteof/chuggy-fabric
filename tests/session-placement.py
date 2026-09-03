@@ -57,7 +57,18 @@ literal either:
     repositories exist -- every credential the session policy grants must be one
     the credential mounts carry, or the placement is denied, and at least one
     repository in that map must have its credential granted, or the arm above is
-    a permission for a clone that cannot authenticate.
+    a permission for a clone that cannot authenticate. A mirror is that same
+    pairing once more: it is what a session clones in place of the binding, so
+    it must be in that map and its credential must be granted.
+
+THE IMAGE A SESSION RUNS ON IS WRITTEN TWICE and held nowhere else. It is
+admitted in `CHUG_SCHEDULER_ADMITTED_IMAGES` and pinned in
+`CHUG_SCHEDULER_SESSION_POLICY`, and every other check over these two is a
+`grep -F` for one digest, which answers whether a string is in a file and never
+how many times or where -- so either site could carry a digest the other does
+not while that line stayed green. Held here, over the parsed render, in the
+direction a release moves them: the pinned image is admitted, and it is the
+newest admission.
 """
 
 import json
@@ -73,6 +84,7 @@ SESSION_LABELS_VARIABLE = "CHUG_SCHEDULER_SESSION_LABELS"
 SESSION_API_URL_VARIABLE = "CHUG_SCHEDULER_SESSION_API_URL"
 SESSION_ENVIRONMENT_VARIABLE = "CHUG_SCHEDULER_SESSION_ENVIRONMENT"
 SESSION_POLICY_VARIABLE = "CHUG_SCHEDULER_SESSION_POLICY"
+ADMITTED_IMAGES_VARIABLE = "CHUG_SCHEDULER_ADMITTED_IMAGES"
 WORKER_ENVIRONMENT_VARIABLE = "CHUG_SCHEDULER_WORKER_ENVIRONMENT"
 CREDENTIAL_MOUNTS_VARIABLE = "CHUG_SCHEDULER_WORKER_CREDENTIAL_MOUNTS"
 REPOSITORIES_VARIABLE = "CHUG_WORKER_REPOSITORIES"
@@ -543,6 +555,47 @@ def main():
         refuse(
             f"{SESSION_POLICY_VARIABLE} grants the credential of no repository in "
             f"{REPOSITORIES_VARIABLE}, so no checkout can authenticate"
+        )
+
+    # 8. A mirror is the third half of the same reach: what a session clones is
+    #    the binding put through this map, so a value the map above does not
+    #    carry is a session placed against a remote the image cannot resolve, and
+    #    a value whose credential is ungranted is one it can resolve and cannot
+    #    authenticate. The keys are project bindings, and no project is declared
+    #    here, so nothing is asserted about them.
+    for bound, mirror in (policy.get("mirrors") or {}).items():
+        entry = repositories.get(mirror)
+        if entry is None:
+            refuse(
+                f"{SESSION_POLICY_VARIABLE} mirrors {bound} at {mirror}, which "
+                f"{REPOSITORIES_VARIABLE} does not carry, so the session cannot resolve it"
+            )
+        if entry.get("credential") not in granted:
+            refuse(
+                f"{SESSION_POLICY_VARIABLE} mirrors {bound} at {mirror}, whose credential "
+                f"{entry.get('credential')!r} it does not grant, so that clone cannot authenticate"
+            )
+
+    # 9. The image a session is placed on is one the scheduler admits, and it is
+    #    the newest admission. Both halves are written in this one file and
+    #    nothing in either repository held them together: `tests/development-worker`
+    #    greps each digest, and a `grep -F` answers whether a string is in a file
+    #    and never how many times or where, so either site alone could carry a
+    #    digest the other does not while that line stayed satisfied. Newest and
+    #    not merely present, because admission order is release order: a policy
+    #    on an older admitted image is a release that moved one site and not the
+    #    other.
+    admitted = json_variable(scheduled, ADMITTED_IMAGES_VARIABLE)
+    images = [entry.get("image") for entry in admitted]
+    if policy.get("image") not in images:
+        refuse(
+            f"{SESSION_POLICY_VARIABLE} places sessions on an image "
+            f"{ADMITTED_IMAGES_VARIABLE} does not admit, so every placement is denied"
+        )
+    if policy.get("image") != images[-1]:
+        refuse(
+            f"{SESSION_POLICY_VARIABLE} places sessions on an image older than the newest "
+            f"{ADMITTED_IMAGES_VARIABLE} entry, so one of the two was repinned without the other"
         )
 
 

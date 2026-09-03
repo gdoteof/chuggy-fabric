@@ -203,7 +203,7 @@ metadata:
   name: chuggy-api
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: 6a9dc09
+    fabric.chuggy.dev/source-commit: 5b3f381
   labels: { app: chuggy-api }
 spec:
   # One. The journal makes concurrent writers safe, so this is not a
@@ -262,7 +262,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: api
-          image: registry.chuggy.internal/chuggy/api@sha256:576dfffcb0be35e0bb32facf5d8e6b84322b7e49c78b4ce4af7a79468e13f4ff
+          image: registry.chuggy.internal/chuggy/api@sha256:b76bc1bd7f9646a3980ad37194a97c6525ba02a978a16a713df81c63ff59d256
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -295,6 +295,22 @@ spec:
             # written here.
             - name: CHUG_API_OIDC_ALGORITHMS
               value: RS256
+            # The named credential mount a member's thread speaks to the model
+            # through, written on the API because the API is what opens a
+            # thread's session. It is not free: `kubernetesSessionPodRequest`
+            # denies a placement whose slot the session grant does not name, so
+            # a value here is one of `CHUG_SCHEDULER_SESSION_POLICY`'s granted
+            # credentials, and of those it is the one that speaks to a model.
+            # It is also the slot the lead's own sessions are provisioned on, so
+            # a thread and its project's lead reach the model the same way.
+            #
+            # REQUIRED RATHER THAN DEFAULTED, and that is the image's decision:
+            # a per-user Anthropic credential is what this becomes, and a
+            # defaulted slot would open every member's thread on whatever the
+            # lead happens to use while reading as though somebody had chosen
+            # it. The API exits at start-up without it.
+            - name: CHUG_API_THREAD_CREDENTIAL_SLOT
+              value: claude-code
             - name: CHUG_API_ARTIFACT_ROOT
               value: /var/lib/chuggy/artifacts
             - name: CHUG_API_GIT_SCRATCH_ROOT

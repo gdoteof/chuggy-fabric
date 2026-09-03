@@ -119,7 +119,7 @@ metadata:
   name: chuggy-scheduler
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: 6a9dc09
+    fabric.chuggy.dev/source-commit: 5b3f381
   labels: { app: chuggy-scheduler }
 spec:
   replicas: 1
@@ -147,7 +147,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: scheduler
-          image: registry.chuggy.internal/chuggy/api@sha256:576dfffcb0be35e0bb32facf5d8e6b84322b7e49c78b4ce4af7a79468e13f4ff
+          image: registry.chuggy.internal/chuggy/api@sha256:b76bc1bd7f9646a3980ad37194a97c6525ba02a978a16a713df81c63ff59d256
           imagePullPolicy: IfNotPresent
           command:
             [
@@ -337,6 +337,14 @@ spec:
                     "image": "registry.chuggy.internal/chuggy/worker@sha256:e2aac0fc9347a936dc6b279385f0100e005c4e219227ed4c619f2b61e3e89261",
                     "name": "chuggy-worker",
                     "version": "0.12",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:06a094c632eb2d6715ab35f3d1cd11c7fdd1ba7e95c04652f5cc259db00e994e",
+                    "name": "chuggy-worker",
+                    "version": "0.13",
                     "operatingSystem": "Linux",
                     "architecture": "Amd64",
                     "capabilities": ["Agent:Claude", "Agent:Codex"]
@@ -538,11 +546,11 @@ spec:
             # than the number: it is per account, and today there is one.
             - name: CHUG_SCHEDULER_SESSION_PASS_BOUNDS
               value: '{"attemptsPerAccountMax":6}'
-            # The one image, profile and grant every session here runs under.
-            # Its image is the worker built from the same commit this release
-            # pins everywhere else, requested by
-            # `builds/chuggy/6a9dc0909d1feb569922a0a02470f219d1612d20/` and
-            # admitted as `0.12` above; a session and an attempt on this site run
+            # The one image, profile, grant and mirror map every session here
+            # runs under. Its image is the worker built from the same commit
+            # this release pins everywhere else, requested by
+            # `builds/chuggy/5b3f38107572551891704e594bb6513afa08e8f4/` and
+            # admitted as `0.13` above; a session and an attempt on this site run
             # the same binary, and this is the only variable that says so twice.
             #
             # `credentials` is two of the execution policy's three.
@@ -560,8 +568,30 @@ spec:
             # `chuggy-github-worker` STAYS OUT, and it is the interesting half.
             # A lead reads the mirror; it has no branch to push and no forge
             # call to make, and the map above resolving a GitHub reference is
-            # not the same as this granting one -- a binding naming the forge
-            # would fail loudly here rather than quietly reach it.
+            # not the same as this granting one.
+            #
+            # `mirrors` IS WHAT MAKES THAT EXCLUSION SURVIVABLE, and it is the
+            # third of the three ways it could have been. `vteng/chuggy` binds
+            # `https://github.com/kasofsk/chuggy.git`, which the map above
+            # resolves to `chuggy-github-worker` -- a credential this grant does
+            # not name, so a session would be placed with no tree. Granting the
+            # forge credential would reverse the paragraph above; repointing the
+            # binding would also move where the finalizer opens pull requests,
+            # because it reads the same row. This moves neither: the scheduler
+            # rewrites the reference to the mirror as it composes the placement,
+            # so the binding still says github.com to everything that promotes
+            # and the session still clones in-cluster with the credential it
+            # holds. A binding this map does not carry is passed through
+            # unchanged, so the general case is unaffected by the one entry.
+            #
+            # THE KEY IS THE BINDING AND THE VALUE IS WHAT IS CLONED, in that
+            # order, and each is checked against a different thing. The key is
+            # matched against the project's `repository_binding` row verbatim,
+            # so an entry that does not spell that row is an entry that never
+            # fires and says nothing when it does not. The value is resolved by
+            # the image against `CHUG_WORKER_REPOSITORIES` above, so it must be
+            # a key of that map -- this one is, and it resolves to
+            # `chuggy-git-worker`, which is the credential this grant names.
             #
             # THIS LIST IS THE WHOLE OF THAT BOUND, and the network is not the
             # other half of it: `chuggy-sessions`' public-443 arm cannot name a
@@ -582,7 +612,7 @@ spec:
             - name: CHUG_SCHEDULER_SESSION_POLICY
               value: |
                 {
-                  "image": "registry.chuggy.internal/chuggy/worker@sha256:e2aac0fc9347a936dc6b279385f0100e005c4e219227ed4c619f2b61e3e89261",
+                  "image": "registry.chuggy.internal/chuggy/worker@sha256:06a094c632eb2d6715ab35f3d1cd11c7fdd1ba7e95c04652f5cc259db00e994e",
                   "profile": "chuggy-development",
                   "runtimeVersion": "claude-code-latest",
                   "grant": {
@@ -591,6 +621,9 @@ spec:
                     "network": true,
                     "filesystem": "WriteWorkspace",
                     "mayCompleteTask": false
+                  },
+                  "mirrors": {
+                    "https://github.com/kasofsk/chuggy.git": "http://git.chuggy-git.svc.cluster.local./chuggy.git"
                   }
                 }
             # THE RELEASE COMMIT REWRITES THE VALUE ABOVE, and it rewrites the
@@ -599,10 +632,14 @@ spec:
             # means writing the grant out again beside it. The credential list
             # is the part of it that is easy to drop on the way past, and
             # dropping `chuggy-git-worker` places a session that starts, takes
-            # its turns and silently has no checkout. `tests/session-placement.py`
-            # is what makes that loud rather than silent: it refuses a grant
-            # naming a credential the mounts above do not carry, and one leaving
-            # no repository in the map above clonable at all.
+            # its turns and silently has no checkout. `mirrors` is the same
+            # hazard one step further out: a rewrite that drops the entry places
+            # a session against the forge with a credential it does not hold.
+            # `tests/session-placement.py` is what makes the first loud rather
+            # than silent: it refuses a grant naming a credential the mounts
+            # above do not carry, and one leaving no repository in the map above
+            # clonable at all. It does not hold the mirror map against any
+            # project's binding, because no binding is declared in this tree.
             #
             # CHUG_SCHEDULER_SESSION_POD_NAME_PREFIX, _ANNOTATIONS and _BOUNDS
             # are unset on purpose. Each has a published default in
