@@ -467,8 +467,13 @@ spec:
             # process REQUIRES it: `schedulerSessions` reads it with
             # `schedulerRequired`, so a scheduler repinned to an image that has
             # this variable and a manifest that does not exits rather than
-            # placing sessions without tools. It arrives in the same commit as
-            # the image that asks for it.
+            # placing sessions without tools. NOTHING READS IT TODAY: the
+            # image pinned above is built from `b47c0ef`, whose
+            # `schedulerSessions` has no such variable and ignores it. It
+            # becomes load-bearing at the slice-3 repin, which is why it is
+            # written before that commit rather than in it -- a required
+            # variable arriving with the image that requires it is a release
+            # whose scheduler exits if either half is fumbled.
             #
             # AN ORIGIN AND NOT A ROUTE. `checkedKubernetesSessionLaunchConfig`
             # refuses a URL carrying a path, a query, a fragment or credentials,
@@ -546,9 +551,13 @@ spec:
             # A lead reads the mirror; it has no branch to push and no forge
             # call to make, and the map above resolving a GitHub reference is
             # not the same as this granting one -- a binding naming the forge
-            # would fail loudly here rather than quietly reach it. What it may
-            # do is bounded twice over, by this list and by the arm
-            # chuggy-work.yaml permits.
+            # would fail loudly here rather than quietly reach it.
+            #
+            # THIS LIST IS THE WHOLE OF THAT BOUND, and the network is not the
+            # other half of it: `chuggy-sessions`' public-443 arm cannot name a
+            # host, so github.com is already reachable from a session pod. What
+            # stops a lead pushing to the forge is that it holds no credential
+            # for one, and nothing else does.
             #
             # `tools` is empty, and stays empty. It is a `PolicyAuthorityGrant`
             # field the session pod reads nothing out of: what tools a session
