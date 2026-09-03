@@ -332,6 +332,14 @@ spec:
                     "operatingSystem": "Linux",
                     "architecture": "Amd64",
                     "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:e2aac0fc9347a936dc6b279385f0100e005c4e219227ed4c619f2b61e3e89261",
+                    "name": "chuggy-worker",
+                    "version": "0.12",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
                   }
                 ]
             # PR 5's, provisional. D30 says the adopting machine must supply
@@ -531,8 +539,8 @@ spec:
             # The one image, profile and grant every session here runs under.
             # Its image is the worker built from the same commit this release
             # pins everywhere else, requested by
-            # `builds/chuggy/b47c0efc25bfe9d84b5472b8b93c3477baef0967/` and
-            # admitted as `0.11` above; a session and an attempt on this site run
+            # `builds/chuggy/6a9dc0909d1feb569922a0a02470f219d1612d20/` and
+            # admitted as `0.12` above; a session and an attempt on this site run
             # the same binary, and this is the only variable that says so twice.
             #
             # `credentials` is two of the execution policy's three.
@@ -572,7 +580,7 @@ spec:
             - name: CHUG_SCHEDULER_SESSION_POLICY
               value: |
                 {
-                  "image": "registry.chuggy.internal/chuggy/worker@sha256:fe7018f6ea36630cdbe71f7aba03f93f8f73a14c0ac1405411d6d034aa07a8ef",
+                  "image": "registry.chuggy.internal/chuggy/worker@sha256:e2aac0fc9347a936dc6b279385f0100e005c4e219227ed4c619f2b61e3e89261",
                   "profile": "chuggy-development",
                   "runtimeVersion": "claude-code-latest",
                   "grant": {
