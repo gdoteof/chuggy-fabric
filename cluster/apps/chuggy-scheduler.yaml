@@ -119,7 +119,7 @@ metadata:
   name: chuggy-scheduler
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: b47c0ef
+    fabric.chuggy.dev/source-commit: 6a9dc09
   labels: { app: chuggy-scheduler }
 spec:
   replicas: 1
@@ -147,7 +147,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: scheduler
-          image: registry.chuggy.internal/chuggy/api@sha256:e0a55398aa83c0f6d115627b66888bf52c7ef9ebe657c2759ff1410356e63baf
+          image: registry.chuggy.internal/chuggy/api@sha256:576dfffcb0be35e0bb32facf5d8e6b84322b7e49c78b4ce4af7a79468e13f4ff
           imagePullPolicy: IfNotPresent
           command:
             [
@@ -332,6 +332,14 @@ spec:
                     "operatingSystem": "Linux",
                     "architecture": "Amd64",
                     "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:e2aac0fc9347a936dc6b279385f0100e005c4e219227ed4c619f2b61e3e89261",
+                    "name": "chuggy-worker",
+                    "version": "0.12",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
                   }
                 ]
             # PR 5's, provisional. D30 says the adopting machine must supply
@@ -463,17 +471,19 @@ spec:
             # and reading a project well is the work.
             - name: CHUG_SCHEDULER_SESSION_MODEL
               value: claude-opus-5
-            # Where the pod's own tools reach this installation's API, and the
-            # process REQUIRES it: `schedulerSessions` reads it with
-            # `schedulerRequired`, so a scheduler repinned to an image that has
-            # this variable and a manifest that does not exits rather than
-            # placing sessions without tools. NOTHING READS IT TODAY: the
-            # image pinned above is built from `b47c0ef`, whose
-            # `schedulerSessions` has no such variable and ignores it. It
-            # becomes load-bearing at the slice-3 repin, which is why it is
-            # written before that commit rather than in it -- a required
-            # variable arriving with the image that requires it is a release
-            # whose scheduler exits if either half is fumbled.
+            # Where the pod's own tools reach this installation's API. THE
+            # IMAGE PINNED ABOVE READS IT AND REQUIRES IT: `schedulerSessions`
+            # takes it with `schedulerRequired`, so deleting this variable does
+            # not place sessions without tools -- it exits the scheduler at
+            # start-up, and a scheduler that exits this way says so only in the
+            # previous container's stderr.
+            #
+            # It was written one release before the image that requires it, and
+            # the reason is worth keeping now that both halves are here: a
+            # required variable arriving in the same commit as the image that
+            # requires it is a release that breaks if either half is fumbled.
+            # This is that commit, so the sentence is history rather than a
+            # caveat -- there is no longer a pinned image that ignores this.
             #
             # AN ORIGIN AND NOT A ROUTE. `checkedKubernetesSessionLaunchConfig`
             # refuses a URL carrying a path, a query, a fragment or credentials,
@@ -531,8 +541,8 @@ spec:
             # The one image, profile and grant every session here runs under.
             # Its image is the worker built from the same commit this release
             # pins everywhere else, requested by
-            # `builds/chuggy/b47c0efc25bfe9d84b5472b8b93c3477baef0967/` and
-            # admitted as `0.11` above; a session and an attempt on this site run
+            # `builds/chuggy/6a9dc0909d1feb569922a0a02470f219d1612d20/` and
+            # admitted as `0.12` above; a session and an attempt on this site run
             # the same binary, and this is the only variable that says so twice.
             #
             # `credentials` is two of the execution policy's three.
@@ -572,7 +582,7 @@ spec:
             - name: CHUG_SCHEDULER_SESSION_POLICY
               value: |
                 {
-                  "image": "registry.chuggy.internal/chuggy/worker@sha256:fe7018f6ea36630cdbe71f7aba03f93f8f73a14c0ac1405411d6d034aa07a8ef",
+                  "image": "registry.chuggy.internal/chuggy/worker@sha256:e2aac0fc9347a936dc6b279385f0100e005c4e219227ed4c619f2b61e3e89261",
                   "profile": "chuggy-development",
                   "runtimeVersion": "claude-code-latest",
                   "grant": {
