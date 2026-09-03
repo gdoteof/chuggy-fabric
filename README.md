@@ -1601,6 +1601,55 @@ back, and nothing has rebooted the box. What would prove it is exactly that —
 write through the finalizer, delete the pod, read through the API; then reboot
 and repeat.
 
+## Releases
+
+A release is a commit on this repository's `main` that moves the control plane's
+image digests to one chuggy commit and, where the release carries them, lets the
+migrate Job apply that commit's migrations. Merging in kasofsk/chuggy deploys
+nothing; this is where a deployment happens.
+
+**The list starts here rather than being backfilled.** Earlier releases were
+recorded outside this repository and reconstructing them from history would be
+writing down claims nobody checked. What every entry must carry is what the one
+below carries: the fabric merge commit, the chuggy commit, every digest that
+moved, the ledger range, and the undo — including the dump, because a ledger
+that has moved forward is not walked back by reverting a fabric commit.
+
+### Release 17 — 2026-09-03 — the lead's tools and its checkout
+
+- **fabric** `5c92ffa` → **`57523bb`** (PR #125; the build request it depends on
+  is PR #123, `5c92ffa`).
+- **chuggy** `b47c0ef` → **`6a9dc09`** — the agentic selector's slices 1, 2 and
+  3: the lead session's composition, its durable tools, the in-process `chuggy`
+  MCP server in the worker image, and the repository checkout a session takes.
+- **Ledger 058 → 061** (059 the lead's decisions and refusals, 060 a withdrawn
+  rate-limited attempt, 061 the lead's tools and objectives).
+- **Digests that moved:** api `sha256:e0a55398…63baf` → `sha256:576dfffc…f4ff`
+  on `chuggy-api`, `-finalizer`, `-scheduler`, `-selector`, `-ticket-service`
+  and `-worker-plane`; `chuggy-ui` `sha256:42487574…225102` →
+  `sha256:ddcac78b…5fb222`. `chuggy-web` did not move
+  (`sha256:2b63599e…0ab0e6`).
+- **Worker:** built from `builds/chuggy/6a9dc0909d1feb569922a0a02470f219d1612d20/`,
+  admitted as `chuggy-worker` **`0.12`** =
+  `sha256:e2aac0fc9347a936dc6b279385f0100e005c4e219227ed4c619f2b61e3e89261`,
+  and `CHUG_SCHEDULER_SESSION_POLICY.image` moved to it from `0.11`
+  (`sha256:fe7018f6…a8ef`). The digest was read from the BuildRun and from the
+  registry before it was written anywhere, and the two agreed.
+- **Not in this release:** `chuggy-selector` is still `replicas: 0`, so
+  `dispatchMode: Automatic` was not turned on — its fence is a readiness row only
+  a running selector writes, and the image still requires a `policy` block whose
+  service does not exist. The lead's `project_membership` row on `vteng/chuggy`
+  *was* granted (`Read`, `Mutate`, `ProposeDispatch`), which is inert until a
+  session runs.
+
+**Undo.** `git revert -m 1 57523bb` and
+`flux reconcile kustomization apps --with-source` puts every digest above back
+and restores the `0.11` session pin. **It does not walk the ledger back**: 061 is
+applied and the pre-061 images refuse it, so going below 061 is a restore from
+`/home/geoff/backups/pre-059-20260903.dump` (1 010 209 B) with
+`pre-059-20260903-globals.sql` (13 507 B), taken on the node while the ledger
+still read 058. Those two files are the only way below it.
+
 ## Giving someone else access
 
 Two separable questions, and conflating them is the trap: *what may they do*
