@@ -427,11 +427,19 @@ spec:
               value: '{"chuggy.dev/session":"true","chuggy.dev/api-client":"true"}'
             # Smaller than a worker's, because the two do different work. A
             # worker checks a repository out, installs its dependencies and runs
-            # its gates; a session runs one agent process against a mailbox and
-            # writes its transcript back over HTTP. The ephemeral limit sizes
-            # the workspace emptyDir, which holds the runtime's local mirror of
-            # a transcript whose durable copy is on the artifacts volume -- so
-            # it is sized for one session's working set and not for a checkout.
+            # its gates; a session checks the same repository out and reads it,
+            # and installs nothing and runs nothing. The ephemeral limit sizes
+            # the workspace emptyDir, which now holds both the runtime's local
+            # mirror of a transcript whose durable copy is on the artifacts
+            # volume and that checkout.
+            #
+            # THE NUMBER DID NOT MOVE WHEN THE CHECKOUT ARRIVED, and that is a
+            # measurement rather than an oversight: the checkout is a clone of
+            # this one repository with no dependency tree under it, and the unit
+            # that added the checkout measured a fresh clone of it against this
+            # limit and found it a small part of it. A worker needs twenty because
+            # `node_modules` and a build are what fill a workspace, and a
+            # session has neither.
             - name: CHUG_SCHEDULER_SESSION_RESOURCES
               value: |
                 {
@@ -455,6 +463,66 @@ spec:
             # and reading a project well is the work.
             - name: CHUG_SCHEDULER_SESSION_MODEL
               value: claude-opus-5
+            # Where the pod's own tools reach this installation's API, and the
+            # process REQUIRES it: `schedulerSessions` reads it with
+            # `schedulerRequired`, so a scheduler repinned to an image that has
+            # this variable and a manifest that does not exits rather than
+            # placing sessions without tools. It arrives in the same commit as
+            # the image that asks for it.
+            #
+            # AN ORIGIN AND NOT A ROUTE. `checkedKubernetesSessionLaunchConfig`
+            # refuses a URL carrying a path, a query, a fragment or credentials,
+            # because the pod's client builds the versioned path onto it.
+            #
+            # The same Service the selector's own `source.baseUrl` names, on the
+            # same port, and the `chuggy-sessions` egress arm for 3000 in
+            # chuggy-work.yaml is what makes it reachable -- an origin here
+            # naming a destination no arm permits is a tool that hangs and then
+            # times out, with nothing saying why.
+            - name: CHUG_SCHEDULER_SESSION_API_URL
+              value: http://chuggy-api.chuggy.svc.cluster.local:3000
+            # The site's map of the repositories that exist here, which a
+            # session resolves its project's binding against exactly as a worker
+            # resolves its input bundle's reference: same variable, same parser,
+            # same grant check. It is read only where the placement bound a
+            # repository, so a project with no binding places a session that
+            # never looks at it.
+            #
+            # IT IS THE WORKER'S MAP AND MUST STAY IT. There is one git service
+            # and one forge on this site, and two kinds of pod that read them; a
+            # second, narrower map here would be a second answer to which
+            # repositories exist, and the first entry added for a worker would
+            # leave a session unable to resolve a binding the API accepted.
+            # `tests/session-placement.py` holds the two equal so the copy is
+            # checked rather than remembered. What differs between the two kinds
+            # of pod is not the map: it is which credential the grant below
+            # names and which destination chuggy-work.yaml permits.
+            #
+            # `CHUG_WORKER_WORKSPACE` is deliberately NOT repeated here. It is
+            # one of `kubernetesSessionReservedVariables`, which the launcher
+            # writes itself and refuses to have supplied.
+            - name: CHUG_SCHEDULER_SESSION_ENVIRONMENT
+              value: |
+                {
+                  "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\",\"credential\":\"chuggy-git-worker\",\"credentialUsername\":\"worker\"},\"https://github.com/kasofsk/chuggy.git\":{\"url\":\"https://github.com/kasofsk/chuggy.git\",\"credential\":\"chuggy-github-worker\",\"credentialUsername\":\"x-access-token\"}}"
+                }
+            # How many session attempts one Claude account may have live at
+            # once. The published default is written for a site whose only
+            # session is a lead; this site is about to have a lead and a thread
+            # per user on one shared account, and a ceiling that the lead alone
+            # can fill is a thread that never gets placed.
+            #
+            # Six, and every other bound left at its default. It is under the
+            # installation-wide ceiling the process defaults to -- which the
+            # command refuses to start without, since a per-account ceiling
+            # above the cluster's is one that can never bind -- and that ceiling
+            # is not restated here, because a value written equal to its default
+            # is the second copy this section's last paragraph is about.
+            #
+            # Per-user credentials would change the axis this counts on rather
+            # than the number: it is per account, and today there is one.
+            - name: CHUG_SCHEDULER_SESSION_PASS_BOUNDS
+              value: '{"attemptsPerAccountMax":6}'
             # The one image, profile and grant every session here runs under.
             # Its image is the worker built from the same commit this release
             # pins everywhere else, requested by
@@ -462,12 +530,34 @@ spec:
             # admitted as `0.11` above; a session and an attempt on this site run
             # the same binary, and this is the only variable that says so twice.
             #
-            # `credentials` is `claude-code` alone, against the execution
-            # policy's three. A session takes no checkout, so the two git
-            # credentials would be a grant it never uses, and
+            # `credentials` is two of the execution policy's three.
             # `kubernetesSessionPodRequest` denies a credential slot this list
-            # does not name. `tools` is empty because slice 1 gives the lead no
-            # tool of its own; the roster is where one arrives.
+            # does not name, so it is the list and not the mounts above that
+            # decides what a session can authenticate as.
+            #
+            # `claude-code` is what the runtime speaks to the model with.
+            # `chuggy-git-worker` is what it clones the in-cluster mirror with,
+            # and it is here because a session now takes a checkout -- the
+            # sentence this comment used to carry, that a session takes none and
+            # the git credentials would be a grant it never uses, was true and
+            # is not.
+            #
+            # `chuggy-github-worker` STAYS OUT, and it is the interesting half.
+            # A lead reads the mirror; it has no branch to push and no forge
+            # call to make, and the map above resolving a GitHub reference is
+            # not the same as this granting one -- a binding naming the forge
+            # would fail loudly here rather than quietly reach it. What it may
+            # do is bounded twice over, by this list and by the arm
+            # chuggy-work.yaml permits.
+            #
+            # `tools` is empty, and stays empty. It is a `PolicyAuthorityGrant`
+            # field the session pod reads nothing out of: what tools a session
+            # holds is its `agent_session.capabilities`, mapped in the image to
+            # `allowedTools`/`disallowedTools`. Writing the lead's roster here
+            # would be a third copy of it -- after `src/interpreter/leadTools.ts`
+            # and `images/worker/chuggyTools.mjs` -- that nothing reads and
+            # nothing holds against the other two, which is a control described
+            # as stronger than it is.
             # `mayCompleteTask` is false for the reason it is false above: the
             # single journaled actor is what completes a ticket.
             - name: CHUG_SCHEDULER_SESSION_POLICY
@@ -478,18 +568,96 @@ spec:
                   "runtimeVersion": "claude-code-latest",
                   "grant": {
                     "tools": [],
-                    "credentials": ["claude-code"],
+                    "credentials": ["chuggy-git-worker", "claude-code"],
                     "network": true,
                     "filesystem": "WriteWorkspace",
                     "mayCompleteTask": false
                   }
                 }
+            # THE RELEASE COMMIT REWRITES THE VALUE ABOVE, and it rewrites the
+            # whole of it: this variable is one JSON document, so moving the
+            # image digest to the worker built from the release's chuggy commit
+            # means writing the grant out again beside it. The credential list
+            # is the part of it that is easy to drop on the way past, and
+            # dropping `chuggy-git-worker` places a session that starts, takes
+            # its turns and silently has no checkout. `tests/session-placement.py`
+            # is what makes that loud rather than silent: it refuses a grant
+            # naming a credential the mounts above do not carry, and one leaving
+            # no repository in the map above clonable at all.
             #
-            # CHUG_SCHEDULER_SESSION_POD_NAME_PREFIX, _ANNOTATIONS,
-            # _ENVIRONMENT, _BOUNDS and _PASS_BOUNDS are unset on purpose. Each
-            # has a published default in `src/roots/schedulerConfig.ts`, this
-            # rig wants every one of them, and a value written here equal to its
-            # default is a second copy that only ever drifts.
+            # CHUG_SCHEDULER_SESSION_POD_NAME_PREFIX, _ANNOTATIONS and _BOUNDS
+            # are unset on purpose. Each has a published default in
+            # `src/roots/schedulerConfig.ts`, this rig wants every one of them,
+            # and a value written here equal to its default is a second copy
+            # that only ever drifts. _ENVIRONMENT and _PASS_BOUNDS were in that
+            # list until this rig wanted something other than the default from
+            # each, and _PASS_BOUNDS still names only the one bound it moved.
+            #
+            # ------------------------------- the lead's membership, and why ----
+            #
+            # NOT A MANIFEST, AND NOT BECAUSE NOBODY GOT TO IT. The session this
+            # deployment places for a project's lead authenticates as the
+            # `chuggy-selector` principal chuggy-selector.yaml registers, and
+            # what that principal may do on a project is one `project_membership`
+            # row. That table has exactly one door -- `provisionProjectAccess.ts`
+            # in kasofsk/chuggy, run as the table's owner -- and the row is not
+            # journalled state, so no migration seeds it and none should: a
+            # migration cannot know which projects exist. A Job here would be
+            # the same command with a Kubernetes object wrapped round it,
+            # re-created under a new name at every release and re-running a
+            # grant for a project list this repository does not have either.
+            #
+            # So it is a command, run once per project, and this is where it is
+            # written down -- beside the grant and the API origin above, which
+            # are the other two things that must all be true before a lead's
+            # tool reaches anything. As the owner identity, from the node:
+            #
+            #   PW=$(kubectl -n chuggy get secret chuggy-postgres-credentials \
+            #          -o go-template='{{index .data "owner-password" | base64decode}}')
+            #   kubectl -n chuggy exec deploy/chuggy-api -- env \
+            #     CHUG_PROVISION_DATABASE_URL="postgres://chuggy_owner:$PW@postgres.chuggy.svc.cluster.local:5432/chuggy" \
+            #     CHUG_PROVISION_ACTION=grant \
+            #     CHUG_API_OIDC_ISSUER=<the issuer chuggy-api.yaml states> \
+            #     CHUG_PROVISION_SUBJECT=chuggy-selector \
+            #     CHUG_PROVISION_TENANT=vteng CHUG_PROVISION_PROJECT=chuggy \
+            #     CHUG_PROVISION_ACCESS=Read,Mutate,ProposeDispatch \
+            #     CHUG_PROVISION_AUTHORITY_KIND=OidcUser \
+            #     CHUG_PROVISION_AUTHORITY_SUBJECT=chuggy-selector \
+            #     node --experimental-strip-types src/roots/provisionProjectAccess.ts
+            #
+            # The whole of it runs inside one bare ssh so the owner password
+            # never leaves the node.
+            #
+            # THE ISSUER IS THE STRING AND NOT A DESCRIPTION OF ONE. That root
+            # derives the principal from issuer and subject, and a principal
+            # that differs from the one the token carries by a character
+            # authenticates perfectly and is refused `NotFound` on every project
+            # call, with nothing anywhere saying why. chuggy-selector.yaml's
+            # `identity.principal` is that same derivation already written out,
+            # so the two can be read against each other before the row is.
+            #
+            # THE THREE VERBS ARE THE CEILING AND THE TWO THAT ARE ABSENT ARE
+            # THE POINT. `DispatchTicket` is withheld, so a pod that ignored its
+            # whole tool roster still could not dispatch past a project's
+            # approval gate; `ManageProjectSelector` is withheld, so it cannot
+            # rewrite its own objectives. Those are the controls, and they are
+            # in the database rather than in the pod being controlled.
+            #
+            # ------------------------------------- and the Automatic switch ----
+            #
+            # ALSO NOT A MANIFEST, AND NOT THE SAME KIND OF THING. Whether a
+            # project dispatches automatically is a per-project SETTING written
+            # through the API under the revision it was read at, and a write
+            # REPLACES THE WHOLE OVERRIDE SET -- so a hand-written body carrying
+            # only `dispatchMode` deletes that project's North Star and every
+            # limit it had. Set it in the console's own editor, which reads the
+            # revision and sends the set back whole.
+            #
+            # It is fenced on a row nothing here writes either: the settings
+            # write is refused `AutomaticDispatchUnavailable` until
+            # `selector_runtime_readiness` says a production host is registered,
+            # which the selector writes on a pass, which takes a running
+            # replica -- and chuggy-selector.yaml is where that count is.
           resources:
             requests: { cpu: 50m, memory: 128Mi }
             limits: { memory: 384Mi }
