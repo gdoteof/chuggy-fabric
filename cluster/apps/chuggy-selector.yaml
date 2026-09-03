@@ -13,9 +13,12 @@
 # it was missing, and the client that credential names is registered out of
 # band, which is the whole of what it takes -- an empty project list is a pass,
 # so the membership row further down is what turns the pass into work rather
-# than what makes it one. `selector-policy` was not answered but removed, along
-# with the protocol it asked after and in favour of what decides instead. Each
-# is stated below, where the value that depends on it is written.
+# than what makes it one. `selector-policy` is not answered but withdrawn: the
+# closing commit of kasofsk/chuggy#503 deletes the protocol it asks after, in
+# favour of what decides instead. THAT COMMIT HAS NOT LANDED, so this manifest
+# is a statement about the image it is about to be repinned to rather than
+# about the digest below. Each is stated where the value that depends on it is
+# written.
 #
 # ------------------------------------------------ what it reaches, and how ----
 #
@@ -77,10 +80,14 @@
 # connects to, granted to the role the URL below selects, so the whole of the
 # policy protocol is the connection the first section of this file argues.
 #
-# NOTHING HERE NAMES A POLICY HOST, BECAUSE THERE IS NOTHING TO NAME. The
-# trusted selector policy protocol -- a base URL, a bearer token, a media type
-# and a client -- was retired in kasofsk/chuggy with the change that gave the
-# selector something to decide with instead. There is no `policy` block, no
+# NOTHING HERE NAMES A POLICY HOST, BECAUSE THE IMAGE THIS IS FOR WILL NOT READ
+# ONE. The trusted selector policy protocol -- a base URL, a bearer token, a
+# media type and a client -- is retired by the closing commit of
+# kasofsk/chuggy#503, which deletes `src/adapters/http/trustedSelectorPolicy.ts`
+# and composes `leadPolicyHost` over `postgresLeadMailbox` in its place. Until
+# that commit lands and this Deployment is repinned to an image built from it,
+# no process reads this document as written: every earlier image requires the
+# `policy` block and refuses without it. There is no `policy` block here, no
 # second Secret key and no egress arm; the network policy file states the same
 # thing from the other side.
 #
@@ -158,11 +165,12 @@ spec:
   # a second sweeper beside the first.
   #
   # THIS NUMBER AND THE CONFIGURATION BELOW ARE BOTH AHEAD OF THE IMAGE ABOVE,
-  # and unlike at zero that is now visible: the digest here is built from a
-  # commit that still requires a `policy` block, and it refuses this document
-  # with `selector configuration:` and exits. So the release that repins this
-  # image is the commit that makes the Deployment run, and raising the number is
-  # not a step that can land before it.
+  # and unlike at zero that is now visible. The digest here is built from a
+  # commit that still requires a `policy` block; handed this document it writes
+  # `selector configuration:` and exits, and at one replica a pod that exits is
+  # a CrashLoopBackOff rather than a manifest nobody parses. Only an image built
+  # from the commit that retires the protocol runs this, so the repin to such an
+  # image is what makes the Deployment work and no earlier repin will do.
   #
   # A Deployment with no available replica never passes `wait: true`, which
   # health-checks every object in this directory; at zero this object was out of
@@ -225,13 +233,14 @@ spec:
             #
             # THE DOCUMENT'S SHAPE IS `selectorConfiguration`'s AND THAT SCHEMA
             # IS STRICT: a key it does not name refuses the process as surely as
-            # a key it requires and does not find. `policy` was required until
-            # the protocol was retired and it is gone from here in the same
-            # step, which is why this document and the digest above have to move
-            # together. Anything the lead host needs written -- how often it
-            # reads the turn back, and what it stamps a decision's
-            # implementation with -- belongs to that same commit, because until
-            # it lands there is no merged schema to write it against.
+            # a key it requires and does not find. `policy` is required by
+            # every image built so far and named by none of the images the
+            # retirement produces, which is why this document and the digest
+            # above have to move together. Anything the lead host needs
+            # written -- how often it reads the turn back, and what it stamps a
+            # decision's implementation with -- belongs to that same commit,
+            # because until it lands there is no merged schema to write it
+            # against.
             #
             # `identity.principal` is not what gets this workload past the
             # API -- the token is, and the HTTP client discards this value on

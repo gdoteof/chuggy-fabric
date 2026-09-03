@@ -1525,14 +1525,16 @@ not after it.
 - **The selector runs one replica, and it is ahead of its own image.** Both of
   the preconditions that kept it at zero are answered: it mints its own token
   from Hydra rather than being handed one, and `selector-policy` — which asked a
-  trusted policy service nothing ever implemented — was retired in
-  kasofsk/chuggy along with the protocol, because the project's lead decides in
-  its place. A decision is now a turn on that lead's mailbox, which is the
-  database this pod already connects to, so nothing was added to
-  `chuggy-selector-egress` for it. What is not yet true is the digest: the image
-  pinned here predates the retirement and still requires the `policy` block the
-  configuration no longer carries, so the replica runs only from the release
-  that repins it. `chuggy-selector.yaml` argues all of that beside the number.
+  trusted policy service nothing ever implemented — is retired along with the
+  protocol by the closing commit of kasofsk/chuggy#503, because the project's
+  lead decides in its place. A decision becomes a turn on that lead's mailbox,
+  which is the database this pod already connects to, so nothing was added to
+  `chuggy-selector-egress` for it. Two things are not true yet: that commit has
+  not landed, and the digest pinned here predates it and still requires the
+  `policy` block the configuration no longer carries. So this Deployment runs
+  only once it is repinned to an image built from that commit — an earlier one
+  exits at every backoff. `chuggy-selector.yaml` argues all of that beside the
+  number.
 - **The finalizer promotes onto this cluster's own git and nothing external.**
   Its remote is `rig.git` in `chuggy-git`, and `chuggy-finalizer-egress` admits
   that one pod on its own 8080 and no longer admits the public internet at all --

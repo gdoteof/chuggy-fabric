@@ -229,8 +229,8 @@ spec:
 # decision by offering a turn on the lead session's mailbox, and that mailbox is
 # a set of functions on the database this arm already permits. There is no
 # fourth destination to add and no policy service to name -- the protocol that
-# once wanted one was retired, and chuggy-selector.yaml argues that where the
-# configuration used to name it.
+# wanted one is retired by the commit chuggy-selector.yaml names, which argues
+# that where the configuration used to name it.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

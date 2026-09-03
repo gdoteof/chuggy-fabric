@@ -286,8 +286,9 @@ def main():
     #    parses this with, and a bearer-token mount is a credential nothing reads.
     if RETIRED_CONFIGURATION_KEY in document:
         refuse(
-            f"the configuration still carries a {RETIRED_CONFIGURATION_KEY!r} block; the "
-            "trusted policy protocol was retired and the schema no longer names it"
+            f"the configuration still carries a {RETIRED_CONFIGURATION_KEY!r} block; this "
+            "manifest is written for the image that retires the trusted policy protocol, "
+            "and that image's schema names no such block"
         )
     for item in entry.get("env", []):
         key = item.get("valueFrom", {}).get("secretKeyRef", {}).get("key")
