@@ -166,9 +166,10 @@ spec:
   # unlike at zero that is now visible. An image built before the retirement,
   # handed this document, writes `selector configuration:` and exits; at one
   # replica a pod that exits is a CrashLoopBackOff rather than a manifest nobody
-  # parses. The digest above is built from 5b3f381, which is the commit that
-  # retires the protocol, so this release is the one that may raise the number
-  # and no earlier one could have.
+  # parses. The digest above is built from a commit after 5b3f381, the commit
+  # that retires the protocol; release 18 was the first that could raise the
+  # number, no earlier one could have, and every release since carries a digest
+  # from a later commit.
   #
   # A Deployment with no available replica never passes `wait: true`, which
   # health-checks every object in this directory; at zero this object was out of
