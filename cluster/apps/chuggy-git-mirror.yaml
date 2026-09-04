@@ -47,9 +47,10 @@
 # class and installs the hook on every repository; `deploy/rig/git/README.md`
 # states what each class may do. THE SECRET IS MADE BEFORE THIS RECONCILES,
 # AND THE SERVICE IS RE-SEEDED BEFORE THAT: the projection below is not
-# optional, so without the Secret the pod never starts and the Job shows a
-# `FailedMount`; with the Secret but a service that has not minted the class,
-# git answers `Authentication failed`. Either is loud; neither moves the mirror.
+# optional, so without the Secret the pod never starts and the Job's pod
+# shows a `FailedMount`; with the Secret but a service that has not minted the
+# class, git answers `Authentication failed`. Either is loud; neither moves the
+# mirror.
 #
 # ------------------------------------------------------------- the two remotes ----
 #
