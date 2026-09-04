@@ -39,6 +39,12 @@
 # new object the sidecar picks up just the same -- and the name it replaced
 # would be one more thing for prune to take away. There is no pod template here
 # for a hash to move.
+#
+# `chuggy-git-mirror` in chuggy-git-mirror.yaml stays plain for a third reason:
+# the pod template that mounts it is a CronJob's, and every run makes a new pod
+# that resolves the ConfigMap as it is then. An edit to that script reaches the
+# cluster on the next scheduled run without anything rolling, so hashing the
+# name would buy a rollout of something that has no running pod to roll.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -51,6 +57,7 @@ resources:
   - chuggy-configuration-importer.yaml
   - chuggy-control-plane-network-policy.yaml
   - chuggy-finalizer.yaml
+  - chuggy-git-mirror.yaml
   - chuggy-migrate.yaml
   - chuggy-scheduler.yaml
   - chuggy-selector.yaml
