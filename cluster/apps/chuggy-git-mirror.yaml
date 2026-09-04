@@ -45,9 +45,11 @@
 # and the answer to it is a credential class the hook admits to `main` rather
 # than a wall taken down. `deploy/rig/git/seed.sh` in kasofsk/chuggy mints the
 # class and installs the hook on every repository; `deploy/rig/git/README.md`
-# states what each class may do. THE SECRET IS MADE BEFORE THIS RECONCILES:
-# until it exists the run fails with git's `Authentication failed`, on the same
-# two-minute period, which is loud in the same way.
+# states what each class may do. THE SECRET IS MADE BEFORE THIS RECONCILES,
+# AND THE SERVICE IS RE-SEEDED BEFORE THAT: the projection below is not
+# optional, so without the Secret the pod never starts and the Job shows a
+# `FailedMount`; with the Secret but a service that has not minted the class,
+# git answers `Authentication failed`. Either is loud; neither moves the mirror.
 #
 # ------------------------------------------------------------- the two remotes ----
 #
