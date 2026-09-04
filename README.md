@@ -1622,6 +1622,70 @@ below carries: the fabric merge commit, the chuggy commit, every digest that
 moved, the ledger range, and the undo — including the dump, because a ledger
 that has moved forward is not walked back by reverting a fabric commit.
 
+### Release 20 — 2026-09-03 — the four release-19 findings, and every proof to completion
+
+- **fabric** `99f277b` → **`285a7bd`** (PR #137; the build request it depends on
+  is PR #135, `006cde1` → `99f277b`).
+- **chuggy** `0ab8a732` → **`2678a2f0b2bd681730f480d3349cd35cbb31f20d`** — the
+  fixes for what release 19 measured: a delivery is stamped from its
+  **project's** dispatch mode (kasofsk/chuggy#557), a forked inquiry reads its
+  parent's objects under the session that wrote them (kasofsk/chuggy#556), and
+  the installation's token floor is one whole observation while the worker
+  denies the runtime's discovery tool (kasofsk/chuggy#558).
+- **Ledger 067 → 070** (068 a delivery is stamped from its project's dispatch
+  mode; 069 a store row says which session wrote the batch; 070 a decision's
+  token budget is one whole observation). The migrate Job
+  `chuggy-migrate-2678a2f0-registry` reported `applied 68,69,70` and completed
+  in six seconds. 070 moved `selector_runtime_settings` to revision 6 with
+  `limits.tokensPerDecision` 200000 → 16619439, by migration.
+- **Digests that moved:** api `sha256:91435dc0…7421` →
+  `sha256:a8b00d77aa568e59c306951249e3823a8cae0f22ec42373d09a3126701e45ce7` on
+  `chuggy-api`, `-finalizer`, `-scheduler`, `-selector`, `-ticket-service` and
+  `-worker-plane`. `chuggy-ui` (`sha256:87e9a55a…6406`) and `chuggy-web`
+  (`sha256:2b63599e…0ab0e6`) did not move: nothing under `ui/` changed.
+- **Worker:** built from
+  `builds/chuggy/2678a2f0b2bd681730f480d3349cd35cbb31f20d/`, admitted as
+  `chuggy-worker` **`0.15`** =
+  `sha256:782b97c2f557fda741dedf58005d830aae1556e29d9433aa286f3da9694ced33`, and
+  `CHUG_SCHEDULER_SESSION_POLICY.image` moved to it from `0.14`
+  (`sha256:3e37aa35…ca82`) in the same commit. The digest was read from the
+  BuildRun and from the registry before it was written anywhere, and the two
+  agreed. `images/worker/chuggyTools.mjs` is what moved: `ToolSearch` joins the
+  built-in roster, so the pod denies it instead of offering a tool no
+  capability admits.
+- **No selector document change**, and none was needed: the rendered
+  `CHUG_SELECTOR_CONFIG` is byte-identical to release 19's, and both chuggy
+  parsers (`selectorConfiguration`, `schedulerCommandConfig`) at `2678a2f0`
+  accept the rendered environment. One gap measured on the way: an admit entry
+  that reused a version number is green in every fabric gate and refused by
+  `schedulerCommandConfig` — held by hand this release, not gated.
+- **What phase B measured on the rig.** The standing successor lead decided
+  under the installation's own controls — no project limit, no project
+  allowlist — and four decisions of 0.75–1.1 M tokens landed under the 070
+  floor (release 19's first two were discarded at 200 000). Each delivery row
+  was stamped `Pending` from the project's `Automatic` over the installation's
+  `ApprovalRequired`, was claimed, and the tickets ran to `Done` (25, 34); a
+  thread-released ticket was dispatched and finished; a released ticket whose
+  brief named a missing file was refused and the filing member's thread woke
+  on the refusal and filed nothing; an inquiry against the standing lead
+  **answered** through the fork with zero batches of its own. Both console
+  halves were opened: the lead page draws one row per dispatch with its
+  landing, and the settings page shows `dispatchesPerDecision` and the live
+  floor. Two new defects, kasofsk/chuggy#561 and kasofsk/chuggy#562: a refused
+  `tool_use` is still recorded and judged by the decision control (one
+  discarded decision per lead), and a session attempt whose runtime budget is
+  exhausted keeps claiming and instantly failing turns until its pod is deleted.
+
+**Undo.** `git revert -m 1 285a7bd` and
+`flux reconcile kustomization apps --with-source` puts every digest above back
+and restores the `0.14` session pin. **It does not walk the ledger back**: 070
+is applied and the pre-070 images refuse it, so going below 070 is a restore
+from `/home/geoff/backups/pre-068-20260903.dump` (2 896 024 B) with
+`pre-068-20260903-globals.sql`, taken on the node while the ledger still read
+067. Phase B's writes outside git are listed in its own record; the project's
+selector overrides stand at revision 10 as `{"dispatchMode":"Automatic",
+"basePrompt":"Hold this project…"}`.
+
 ### Release 19 — 2026-09-03 — a project takes a successor lead, and one decision dispatches several
 
 - **fabric** `7cdb0e7` → **`e8677bc`** (PR #133; the build request it depends on
