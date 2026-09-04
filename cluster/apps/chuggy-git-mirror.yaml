@@ -1,0 +1,363 @@
+# What moves the in-cluster mirror. Nothing did, which is kasofsk/chuggy#554:
+# `chuggy.git` on the rig's git service stood at one commit across several
+# releases while `kasofsk/chuggy`'s `main` moved, so a lead session cloned that
+# repository, read a tree its own tickets are not pinned to, and refused
+# released work on a file that exists in the repository and not in the mirror.
+# The mirror is named to a session by the scheduler's repositories map; nothing
+# in a release, in that map, or in kasofsk/chuggy's `deploy/rig/git/` advances
+# it. This is the thing that does.
+#
+# IT IS A CronJob AND NOT A LOOP because a mirror that stops has to say so. A
+# Deployment holding a `while true` would report a failed fetch as a restart
+# count and a working mirror and a dead one look the same from outside; a Job
+# that exits non-zero is a Failed Job the previous three of which are kept
+# below. The defect this fixes was silent for weeks, so being loud on the way
+# out is most of the value.
+#
+# ---------------------------------------------------- where it runs, and why ----
+#
+# `chuggy-work`, which is the one namespace that already holds both credentials
+# this needs. `chuggy-github-worker-token` is delivered here by the host's
+# `modules/github-app-token.nix` -- adding a namespace to that module is a host
+# rebuild, so the job goes to the token rather than the token to the job -- and
+# `chuggy-git-worker` is the mirror's own credential, created here by hand like
+# the other worker credentials and named by the scheduler's credential mounts.
+# The control-plane namespace has a GitHub reader token and NO credential that
+# can reach the git service: `chuggy-finalizer-credentials` is the operator's,
+# it is created by hand, and it is not on this rig.
+#
+# THIS POD HOLDS NOTHING ITS NAMESPACE DID NOT ALREADY HOLD, which is the whole
+# argument for the placement. Both Secrets are already mounted into every worker
+# and session pod here. Copying the operator credential in instead would put a
+# credential that may move `rig.git` -- the branch Flux reconciles the cluster
+# from -- into the namespace agent code runs in, and chuggy-finalizer.yaml
+# argues that only the finalizer holds one.
+#
+# WHAT THE WORKER CREDENTIAL MAY DO TO THIS REPOSITORY IS A RIG FACT AND NOT A
+# FILE FACT. `deploy/rig/git/seed.sh` in kasofsk/chuggy puts `worker` in the
+# htpasswd writers file, so nginx admits it to `/git-receive-pack` on every
+# repository the service carries; what narrows it to create-only attempt
+# branches is a `pre-receive` hook, and that script installs one into `rig.git`
+# alone. `chuggy.git` was pushed by hand and nothing installs a hook there. So
+# this push is expected to be accepted, and if a hook is added to the mirror
+# later it will be refused with `worker may only create an attempt-scoped ticket
+# branch` on the Job's stderr -- which is the failure this file wants, rather
+# than a mirror that quietly stops moving again. The credential that may move a
+# branch under any hook is `git-operator`, in `chuggy-git`.
+#
+# ------------------------------------------------------------- the two remotes ----
+#
+# EACH REMOTE HAS ITS OWN ASKPASS AND THERE IS NO MATCHING ON PROMPTS. git hands
+# an askpass helper a prompt string and nothing else, so one helper serving two
+# remotes has to decide which secret to print by looking at that string -- and
+# the failure mode of getting it wrong is handing a GitHub installation token to
+# an unauthenticated in-cluster service. Two helpers, each of which prints one
+# file, cannot make that mistake: the remote decides which helper runs before
+# git is invoked. Each username is in its remote's URL, so only a password is
+# ever asked for, and a prompt for a username is a URL that lost one and exits 1
+# rather than guessing.
+#
+# NOTHING HERE PUSHES TO GitHub. The source remote is only ever fetched from,
+# and the token mounted for it is the Worker App's, whose installation permits
+# writes to `kasofsk/chuggy` -- the read this needs is a subset of what the one
+# token in this namespace carries, and minting a narrower one is a host rebuild.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chuggy-git-mirror
+  namespace: chuggy-work
+data:
+  source-askpass.sh: |
+    #!/bin/sh
+    case "$1" in
+      *Password*) cat /var/run/chuggy/credentials/chuggy-github-worker ;;
+      *) exit 1 ;;
+    esac
+  target-askpass.sh: |
+    #!/bin/sh
+    case "$1" in
+      *Password*) cat /var/run/chuggy/credentials/chuggy-git-worker ;;
+      *) exit 1 ;;
+    esac
+  sync.sh: |
+    #!/bin/sh
+    set -eu
+
+    : "${CHUG_GIT_MIRROR_SOURCE:?the repository the mirror follows is unset}"
+    : "${CHUG_GIT_MIRROR_TARGET:?the mirror to move is unset}"
+    : "${CHUG_GIT_MIRROR_BRANCH:?the branch to keep equal is unset}"
+
+    export GIT_CONFIG_GLOBAL=/dev/null
+    export GIT_CONFIG_NOSYSTEM=1
+    export GIT_TERMINAL_PROMPT=0
+    export HOME=/var/lib/chuggy/git
+
+    source_askpass=/opt/chuggy-git-mirror/source-askpass.sh
+    target_askpass=/opt/chuggy-git-mirror/target-askpass.sh
+    ref="refs/heads/$CHUG_GIT_MIRROR_BRANCH"
+
+    # The branch's value on a remote, on stdout. 0 with a value, 2 for a remote
+    # that answered and carries no such branch, 1 for one that did not answer
+    # within the window. `--exit-code` is the only thing that tells the second
+    # and third apart, and only the second is a state a run may continue from.
+    #
+    # The window is here because kube-router programs a new pod's egress after
+    # the pod is running, so the first seconds of every run look like a remote
+    # refusing connections.
+    head_of() {
+      remote="$1"
+      askpass="$2"
+      attempt=1
+      while :; do
+        # The status is bound in the same list as the assignment. Reading `$?`
+        # after an `if` reads the `if`, which is 0 when no branch ran.
+        advertised="$(GIT_ASKPASS="$askpass" timeout 30s \
+          git ls-remote --exit-code "$remote" "$ref")" && status=0 || status=$?
+        if [ "$status" -eq 0 ]; then
+          printf '%s\n' "$advertised" | awk 'NR == 1 { print $1 }'
+          return 0
+        fi
+        if [ "$status" -eq 2 ]; then
+          return 2
+        fi
+        if [ "$attempt" -ge 15 ]; then
+          echo "git mirror: $remote did not answer for $ref" >&2
+          return 1
+        fi
+        attempt=$((attempt + 1))
+        sleep 2
+      done
+    }
+
+    sha1() {
+      case "$1" in
+      [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) return 0 ;;
+      *) return 1 ;;
+      esac
+    }
+
+    set +e
+    source_head="$(head_of "$CHUG_GIT_MIRROR_SOURCE" "$source_askpass")"
+    source_status=$?
+    target_head="$(head_of "$CHUG_GIT_MIRROR_TARGET" "$target_askpass")"
+    target_status=$?
+    set -e
+
+    if [ "$source_status" -eq 2 ]; then
+      echo "git mirror: $CHUG_GIT_MIRROR_SOURCE carries no $ref, so there is nothing to follow" >&2
+      exit 2
+    fi
+    if [ "$source_status" -ne 0 ] || [ "$target_status" -eq 1 ]; then
+      exit 2
+    fi
+    # An absent branch on the mirror is a state to create rather than a failure,
+    # and it is the lease's empty expectation below.
+    if [ "$target_status" -eq 2 ]; then
+      target_head=""
+    fi
+    if ! sha1 "$source_head"; then
+      echo "git mirror: $CHUG_GIT_MIRROR_SOURCE advertised $ref as something other than one full SHA-1" >&2
+      exit 2
+    fi
+    if [ -n "$target_head" ] && ! sha1 "$target_head"; then
+      echo "git mirror: $CHUG_GIT_MIRROR_TARGET advertised $ref as something other than one full SHA-1" >&2
+      exit 2
+    fi
+
+    if [ "$source_head" = "$target_head" ]; then
+      echo "git mirror: $CHUG_GIT_MIRROR_TARGET is already at $source_head"
+      exit 0
+    fi
+
+    # The scratch repository is seeded from the mirror before the source is
+    # asked for anything, so what crosses the internet is the difference between
+    # the two rather than a clone. It does not outlive this run.
+    work="$HOME/sync"
+    rm -rf "$work"
+    git init -q --bare "$work"
+    if [ -n "$target_head" ]; then
+      GIT_ASKPASS="$target_askpass" git -C "$work" fetch -q --no-tags \
+        "$CHUG_GIT_MIRROR_TARGET" "$ref:refs/heads/target"
+    fi
+    GIT_ASKPASS="$source_askpass" git -C "$work" fetch -q --no-tags \
+      "$CHUG_GIT_MIRROR_SOURCE" "$ref:refs/heads/source"
+
+    # What is pushed is what was fetched and not what was advertised: the source
+    # may have moved between the two, and moving the mirror to a revision this
+    # run never received is how a mirror comes to advertise a commit it cannot
+    # serve.
+    source_head="$(git -C "$work" rev-parse refs/heads/source)"
+    if [ "$source_head" = "$target_head" ]; then
+      echo "git mirror: $CHUG_GIT_MIRROR_TARGET is already at $source_head"
+      exit 0
+    fi
+
+    # The lease is the branch's value as it stood before either fetch, so a push
+    # that would overwrite anything written since is refused rather than forced.
+    # An empty expectation is how git says the branch must not exist yet. One
+    # branch is pushed and never `--mirror`: the worker's attempt branches are
+    # pushed to GitHub under `refs/heads/chuggy/tickets/<n>/attempts/<sha>` and
+    # are not on this remote, so a mirroring push would be deleting refs that
+    # exist on neither side for no reason.
+    GIT_ASKPASS="$target_askpass" git -C "$work" push \
+      --force-with-lease="$ref:$target_head" \
+      "$CHUG_GIT_MIRROR_TARGET" "refs/heads/source:$ref"
+    echo "git mirror: moved $CHUG_GIT_MIRROR_TARGET $ref from ${target_head:-nothing} to $source_head"
+---
+# The pod is isolated in both directions and reaches three things: the resolver,
+# the git service that carries the mirror, and public HTTPS for GitHub. It is
+# NOT the worker's rule or the session's -- it carries neither of their labels
+# and so neither PostgreSQL nor the worker plane nor the API is open to it.
+#
+# A POD IN THIS NAMESPACE THAT NO POLICY SELECTS IS ISOLATED IN NEITHER
+# DIRECTION, which is why this object and the pod template that carries its
+# label are in one file, and why `tests/git-mirror.nix` resolves the two against
+# the rendered cluster rather than against either of them.
+#
+# THE PORT IS THE POD'S AND NOT THE SERVICE'S; chuggy-work.yaml's session arm
+# argues that at length for the same destination and the number is the same 8080.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-git-mirror
+  namespace: chuggy-work
+spec:
+  podSelector:
+    matchLabels:
+      app: chuggy-git-mirror
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy-git
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: git }
+      ports:
+        - { protocol: TCP, port: 8080 }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - { protocol: TCP, port: 443 }
+---
+# EVERY TWO MINUTES, WHICH IS THE CONFIGURATION IMPORTER'S PERIOD. That job
+# records which commit of `kasofsk/chuggy` a project's configuration is pinned
+# to; this one moves the tree a session reads. #554 is those two disagreeing, so
+# they answer the same question at the same rate and the mirror cannot be more
+# than one period behind the revision a ticket is pinned to.
+#
+# A RUN THAT HAS NOTHING TO DO COSTS TWO REF ADVERTISEMENTS. The two heads are
+# compared before any object is asked for, so the cost of the period is a few
+# kilobytes; only a run that has to move the branch transfers a pack, and that
+# pack is the difference between the mirror and GitHub because the scratch is
+# seeded from the mirror first.
+#
+# THE IMAGE IS THE ONE THAT SERVES THE MIRROR, pinned at the digest
+# `deploy/rig/git/bootstrap/git-service.yaml` in kasofsk/chuggy pins, and
+# already on this node because that Deployment is running. It was verified by
+# running its git rather than by reading its Dockerfile: `sync.sh` was exercised
+# inside this digest against a pair of throwaway repositories, including the
+# lease refusing a branch that moved under the run. The two pins are
+# independent; if that one moves, this need not follow.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: chuggy-git-mirror
+  namespace: chuggy-work
+  labels: { app: chuggy-git-mirror }
+spec:
+  schedule: "*/2 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 420
+      template:
+        metadata:
+          labels:
+            app: chuggy-git-mirror
+        spec:
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: sync
+              image: ynohat/git-http-backend@sha256:b6f1e3e3cc06b8ae05fc22174808dfc3b4abd567cf8bc8c8bac311d83361b041
+              imagePullPolicy: IfNotPresent
+              command: [/bin/sh, /opt/chuggy-git-mirror/sync.sh]
+              env:
+                - name: CHUG_GIT_MIRROR_SOURCE
+                  value: https://x-access-token@github.com/kasofsk/chuggy.git
+                - name: CHUG_GIT_MIRROR_TARGET
+                  value: http://worker@git.chuggy-git.svc.cluster.local./chuggy.git
+                - name: CHUG_GIT_MIRROR_BRANCH
+                  value: main
+              volumeMounts:
+                - name: scripts
+                  mountPath: /opt/chuggy-git-mirror
+                  readOnly: true
+                - name: scratch
+                  mountPath: /var/lib/chuggy/git
+                - name: credentials
+                  mountPath: /var/run/chuggy/credentials
+                  readOnly: true
+              resources:
+                requests: { cpu: 25m, memory: 64Mi }
+                limits: { memory: 256Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+                seccompProfile: { type: RuntimeDefault }
+          volumes:
+            - name: scripts
+              configMap:
+                name: chuggy-git-mirror
+                defaultMode: 0555
+            - name: scratch
+              emptyDir: {}
+            # World-readable inside this container for the reason
+            # chuggy-finalizer.yaml gives at length: the kubelet writes a
+            # Secret volume owned by uid 0 whatever `runAsUser` says, this pod
+            # declares no `fsGroup`, and there is no second uid here to read it.
+            - name: credentials
+              projected:
+                defaultMode: 0444
+                sources:
+                  - secret:
+                      name: chuggy-github-worker-token
+                      items:
+                        - key: token
+                          path: chuggy-github-worker
+                  - secret:
+                      name: chuggy-git-worker
+                      items:
+                        - key: password
+                          path: chuggy-git-worker

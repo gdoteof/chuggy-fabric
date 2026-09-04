@@ -113,8 +113,11 @@ spec:
       ports:
         - { protocol: TCP, port: 443 }
 ---
-# The other kind of pod this namespace holds: an agent session, which is one
-# long-lived conversation rather than one ticket's attempt.
+# The other kind of pod the SCHEDULER places here: an agent session, which is
+# one long-lived conversation rather than one ticket's attempt. It is not the
+# last kind of pod in this namespace -- chuggy-git-mirror.yaml declares a third,
+# whose policy is in that file beside the pod template that carries its label,
+# for the reason the next paragraph but one gives.
 #
 # IT CARRIES ITS OWN LABEL RATHER THAN THE WORKER'S, and the label is the whole
 # of what decides which policy above selects it. Reusing `chuggy.dev/worker`
