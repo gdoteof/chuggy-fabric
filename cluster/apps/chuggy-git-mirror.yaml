@@ -16,34 +16,38 @@
 #
 # ---------------------------------------------------- where it runs, and why ----
 #
-# `chuggy-work`, which is the one namespace that already holds both credentials
-# this needs. `chuggy-github-worker-token` is delivered here by the host's
+# `chuggy-work`, because the GitHub token this needs is already here.
+# `chuggy-github-worker-token` is delivered by the host's
 # `modules/github-app-token.nix` -- adding a namespace to that module is a host
-# rebuild, so the job goes to the token rather than the token to the job -- and
-# `chuggy-git-worker` is the mirror's own credential, created here by hand like
-# the other worker credentials and named by the scheduler's credential mounts.
-# The control-plane namespace has a GitHub reader token and NO credential that
-# can reach the git service: `chuggy-finalizer-credentials` is the operator's,
-# it is created by hand, and it is not on this rig.
+# rebuild, so the job goes to the token rather than the token to the job. The
+# control-plane namespace has a GitHub reader token and NO credential that can
+# reach the git service: `chuggy-finalizer-credentials` is the operator's, it is
+# created by hand, and it is not on this rig.
 #
-# THIS POD HOLDS NOTHING ITS NAMESPACE DID NOT ALREADY HOLD, which is the whole
-# argument for the placement. Both Secrets are already mounted into every worker
-# and session pod here. Copying the operator credential in instead would put a
-# credential that may move `rig.git` -- the branch Flux reconciles the cluster
-# from -- into the namespace agent code runs in, and chuggy-finalizer.yaml
-# argues that only the finalizer holds one.
+# THE MIRROR'S OWN CREDENTIAL IS THE ONE THING THIS POD HOLDS THAT NO WORKER OR
+# SESSION POD HOLDS. `chuggy-git-mirror` is a copy of the git service's
+# `git-mirror` Secret, made in this namespace by hand the way the worker's own
+# credential was, and the scheduler's credential mounts do not name it -- so it
+# is mounted into this pod and nowhere else. What it may do is decided by the
+# same `pre-receive` hook that narrows the worker: `mirror` may move
+# `refs/heads/main`, on every repository the service carries EXCEPT `rig.git`,
+# which is the branch Flux reconciles the cluster from. So the whole of what
+# this pod's extra credential can do is what this pod does every two minutes,
+# and copying the operator credential here instead -- which may move `rig.git`
+# -- would put that into the namespace agent code runs in, against
+# chuggy-finalizer.yaml's argument that only the finalizer holds one.
 #
-# WHAT THE WORKER CREDENTIAL MAY DO TO THIS REPOSITORY IS A RIG FACT AND NOT A
-# FILE FACT. `deploy/rig/git/seed.sh` in kasofsk/chuggy puts `worker` in the
-# htpasswd writers file, so nginx admits it to `/git-receive-pack` on every
-# repository the service carries; what narrows it to create-only attempt
-# branches is a `pre-receive` hook, and that script installs one into `rig.git`
-# alone. `chuggy.git` was pushed by hand and nothing installs a hook there. So
-# this push is expected to be accepted, and if a hook is added to the mirror
-# later it will be refused with `worker may only create an attempt-scoped ticket
-# branch` on the Job's stderr -- which is the failure this file wants, rather
-# than a mirror that quietly stops moving again. The credential that may move a
-# branch under any hook is `git-operator`, in `chuggy-git`.
+# WHY NOT THE WORKER'S, WHICH THIS JOB ASKED FOR FIRST. `chuggy.git` carries the
+# attempt-branch hook -- it was pushed and hooked by hand, which no file in
+# either tree recorded -- so the first run of this job was refused with `worker
+# may only create an attempt-scoped ticket branch` on the Job's stderr. That is
+# the failure this file wanted rather than a mirror that quietly stops moving,
+# and the answer to it is a credential class the hook admits to `main` rather
+# than a wall taken down. `deploy/rig/git/seed.sh` in kasofsk/chuggy mints the
+# class and installs the hook on every repository; `deploy/rig/git/README.md`
+# states what each class may do. THE SECRET IS MADE BEFORE THIS RECONCILES:
+# until it exists the run fails with git's `Authentication failed`, on the same
+# two-minute period, which is loud in the same way.
 #
 # ------------------------------------------------------------- the two remotes ----
 #
@@ -77,7 +81,7 @@ data:
   target-askpass.sh: |
     #!/bin/sh
     case "$1" in
-      *Password*) cat /var/run/chuggy/credentials/chuggy-git-worker ;;
+      *Password*) cat /var/run/chuggy/credentials/chuggy-git-mirror ;;
       *) exit 1 ;;
     esac
   sync.sh: |
@@ -317,7 +321,7 @@ spec:
                 - name: CHUG_GIT_MIRROR_SOURCE
                   value: https://x-access-token@github.com/kasofsk/chuggy.git
                 - name: CHUG_GIT_MIRROR_TARGET
-                  value: http://worker@git.chuggy-git.svc.cluster.local./chuggy.git
+                  value: http://mirror@git.chuggy-git.svc.cluster.local./chuggy.git
                 - name: CHUG_GIT_MIRROR_BRANCH
                   value: main
               volumeMounts:
@@ -359,7 +363,7 @@ spec:
                         - key: token
                           path: chuggy-github-worker
                   - secret:
-                      name: chuggy-git-worker
+                      name: chuggy-git-mirror
                       items:
                         - key: password
-                          path: chuggy-git-worker
+                          path: chuggy-git-mirror

@@ -19,10 +19,20 @@ two halves of the defect: what a lead reads, and what its tickets are pinned to.
 A CREDENTIAL IS THREE OBJECTS AND EACH READS CORRECTLY ALONE. A URL carries a
 username, a projected volume carries a file, and an askpass helper cats a path.
 Get any one wrong and git prompts for a password on a terminal that does not
-exist, which is a hung run and not a message. So the username in each URL is
-resolved against the repositories map, the secret and key behind it against the
-credential mounts the scheduler declares, and the file each askpass helper reads
-against the path the volume actually projects.
+exist, which is a hung run and not a message. So the three are resolved against
+each other, and the source's against the site's maps as well: its username
+against the repositories map, its secret and key against the credential mounts
+the scheduler declares.
+
+THE TARGET'S CREDENTIAL IS THE MIRROR'S OWN AND THE MAPS CANNOT RESOLVE IT.
+Pushing as the worker is what the first run of this job did, and the git
+service's `pre-receive` hook refused it: `worker` may create an attempt-scoped
+ticket branch and nothing else. So the class below is a fourth one, named here
+because there is no site map that carries it -- and what IS resolved is that no
+credential the scheduler mounts into a worker or session pod is this one, and
+that the username a worker uses at this repository is not this one. Those two
+are the header's claim that the pod holds a credential nothing else in its
+namespace holds, and they fail if either class is quietly given the other's.
 
 A POD IN `chuggy-work` THAT NO POLICY SELECTS IS ISOLATED IN NEITHER DIRECTION,
 and one selected by two inherits the wider. Both are silent. So the policies are
@@ -31,12 +41,14 @@ select it, and the destinations it may reach are compared against the session's
 arms reaching the same ports rather than written here -- the same relative
 expectation `session-placement.py` makes, and for the same reason.
 
-WHAT THIS GATE CANNOT SEE. It says nothing about whether the mirror's credential
-is permitted to move a branch: that is a `pre-receive` hook on a repository this
-tree does not declare, and the first run on the rig is what answers it. It says
-nothing about the schedule being often enough. And one assertion is a text
-comparison rather than a structural one -- the branch, which the importer names
-inside a shell script, so there is nothing structural to compare against.
+WHAT THIS GATE CANNOT SEE. It says nothing about which refs the hook admits the
+mirror's credential to move: that hook is on a repository this tree does not
+declare, `deploy/rig/git/` in kasofsk/chuggy is where it is written, and a run
+on the rig is what answers it. It says nothing about whether the Secret named
+below exists in the namespace yet. It says nothing about the schedule being
+often enough. And two things are written here rather than resolved: the branch,
+which the importer names inside a shell script, so there is nothing structural
+to compare against, and the mirror's class, for the reason above.
 """
 
 import json
@@ -63,6 +75,12 @@ BRANCH_VARIABLE = "CHUG_GIT_MIRROR_BRANCH"
 
 CREDENTIAL_ROOT = "/var/run/chuggy/credentials"
 CREDENTIAL_PATH = re.compile(r"/var/run/chuggy/credentials/[A-Za-z0-9._-]+")
+
+# The mirror's own credential class, which is written here because no map in the
+# render carries it: the git service's `git-mirror` user, copied into this
+# namespace as a Secret of the same shape the worker's credentials have.
+MIRROR_USERNAME = "mirror"
+MIRROR_SECRET = ("chuggy-git-mirror", "password")
 
 # Where this pod may go, as (protocol, port): the resolver, the git service that
 # carries the mirror, and public HTTPS for the source. The set is exact, so
@@ -294,34 +312,71 @@ def main():
     if f"refs/heads/{branch}" not in import_script:
         refuse(f"this job keeps {branch} equal; the importer's script resolves another branch")
 
-    # 7. Each remote's username, secret and file, which are three objects that
-    #    each read correctly alone.
+    # 7. The source's username, secret and file, which are three objects that
+    #    each read correctly alone, resolved against the site's own maps.
     volumes = pod.get("volumes", [])
     scripts = one(documents, "ConfigMap", JOB, WORK)["data"]
-    for role, url, username in (("source", source, source_user), ("target", target, target_user)):
-        entry = repositories.get(url)
-        if entry is None:
-            refuse(f"the {role} {url} is not a repository the site's map carries")
-        if username != entry["credentialUsername"]:
-            refuse(
-                f"the {role} URL authenticates as {username!r}; the site's map says "
-                f"{entry['credentialUsername']!r}"
-            )
-        mount = mounts.get(entry["credential"])
-        if mount is None:
-            refuse(f"the {role}'s credential {entry['credential']} has no mount to take it from")
+
+    def helper_serves(role):
+        """The (secret, key) the role's askpass helper actually prints."""
         helper = f"{role}-askpass.sh"
         if helper not in scripts:
             refuse(f"the sync ConfigMap carries no {helper}")
         wanted = credential_file(scripts[helper], helper)
-        served = projected_path(container, volumes, wanted, JOB)
-        if served != (mount["secretName"], mount["key"]):
-            refuse(
-                f"{helper} reads {wanted}, which this pod fills from {served}; the site's "
-                f"map says {entry['credential']} is {mount['secretName']}/{mount['key']}"
-            )
         if not wanted.startswith(CREDENTIAL_ROOT + "/"):
             refuse(f"{helper} reads {wanted}, which is outside {CREDENTIAL_ROOT}")
+        return helper, wanted, projected_path(container, volumes, wanted, JOB)
+
+    entry = repositories.get(source)
+    if entry is None:
+        refuse(f"the source {source} is not a repository the site's map carries")
+    if source_user != entry["credentialUsername"]:
+        refuse(
+            f"the source URL authenticates as {source_user!r}; the site's map says "
+            f"{entry['credentialUsername']!r}"
+        )
+    mount = mounts.get(entry["credential"])
+    if mount is None:
+        refuse(f"the source's credential {entry['credential']} has no mount to take it from")
+    helper, wanted, served = helper_serves("source")
+    if served != (mount["secretName"], mount["key"]):
+        refuse(
+            f"{helper} reads {wanted}, which this pod fills from {served}; the site's "
+            f"map says {entry['credential']} is {mount['secretName']}/{mount['key']}"
+        )
+
+    # 8. The target's three, which are the mirror's own class. The site's maps
+    #    bind this repository to the worker, and the worker is exactly who the
+    #    hook refuses on `main` -- so here the maps say what this must NOT be.
+    binding = repositories.get(target)
+    if binding is None:
+        refuse(f"the target {target} is not a repository the site's map carries")
+    if target_user != MIRROR_USERNAME:
+        refuse(
+            f"the target URL authenticates as {target_user!r}; this job pushes as "
+            f"{MIRROR_USERNAME!r}, which is the class the git service's hook admits to `main`"
+        )
+    if target_user == binding["credentialUsername"]:
+        refuse(
+            f"the site's map gives a session {target_user!r} at {target}, so the mirror's "
+            "class and the worker's have become one credential"
+        )
+    helper, wanted, served = helper_serves("target")
+    if served != MIRROR_SECRET:
+        refuse(
+            f"{helper} reads {wanted}, which this pod fills from {served}; the mirror pushes "
+            f"with {MIRROR_SECRET[0]}/{MIRROR_SECRET[1]} and nothing else"
+        )
+    # Every credential a worker or session pod can hold is a mount the scheduler
+    # declares, so this is the whole of "no other pod in this namespace holds
+    # it" -- and it is that, rather than the name, which makes the extra
+    # credential in this pod arguable.
+    for name, declared in mounts.items():
+        if (declared["secretName"], declared["key"]) == MIRROR_SECRET:
+            refuse(
+                f"the scheduler mounts {MIRROR_SECRET[0]}/{MIRROR_SECRET[1]} as {name}, so every "
+                "worker and session pod holds the mirror's credential too"
+            )
 
 
 main()
