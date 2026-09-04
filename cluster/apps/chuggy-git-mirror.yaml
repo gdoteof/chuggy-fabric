@@ -104,7 +104,9 @@ data:
     #
     # The window is here because kube-router programs a new pod's egress after
     # the pod is running, so the first seconds of every run look like a remote
-    # refusing connections.
+    # refusing connections. Both remotes' windows together stay inside the
+    # Job's `activeDeadlineSeconds`, so a remote that never answers ends the
+    # run with this function's line on stderr and not with DeadlineExceeded.
     head_of() {
       remote="$1"
       askpass="$2"
@@ -112,7 +114,7 @@ data:
       while :; do
         # The status is bound in the same list as the assignment. Reading `$?`
         # after an `if` reads the `if`, which is 0 when no branch ran.
-        advertised="$(GIT_ASKPASS="$askpass" timeout 30s \
+        advertised="$(GIT_ASKPASS="$askpass" timeout 20s \
           git ls-remote --exit-code "$remote" "$ref")" && status=0 || status=$?
         if [ "$status" -eq 0 ]; then
           printf '%s\n' "$advertised" | awk 'NR == 1 { print $1 }'
@@ -121,7 +123,7 @@ data:
         if [ "$status" -eq 2 ]; then
           return 2
         fi
-        if [ "$attempt" -ge 15 ]; then
+        if [ "$attempt" -ge 5 ]; then
           echo "git mirror: $remote did not answer for $ref" >&2
           return 1
         fi
