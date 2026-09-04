@@ -1628,10 +1628,10 @@ that has moved forward is not walked back by reverting a fabric commit.
   is PR #135, `006cde1` → `99f277b`).
 - **chuggy** `0ab8a732` → **`2678a2f0b2bd681730f480d3349cd35cbb31f20d`** — the
   fixes for what release 19 measured: a delivery is stamped from its
-  **project's** dispatch mode (#557), a forked inquiry reads its parent's
-  objects under the session that wrote them (#556), and the installation's
-  token floor is one whole observation while the worker denies the runtime's
-  discovery tool (#558).
+  **project's** dispatch mode (kasofsk/chuggy#557), a forked inquiry reads its
+  parent's objects under the session that wrote them (kasofsk/chuggy#556), and
+  the installation's token floor is one whole observation while the worker
+  denies the runtime's discovery tool (kasofsk/chuggy#558).
 - **Ledger 067 → 070** (068 a delivery is stamped from its project's dispatch
   mode; 069 a store row says which session wrote the batch; 070 a decision's
   token budget is one whole observation). The migrate Job
@@ -1662,8 +1662,8 @@ that has moved forward is not walked back by reverting a fabric commit.
 - **What phase B measured on the rig.** The standing successor lead decided
   under the installation's own controls — no project limit, no project
   allowlist — and four decisions of 0.75–1.1 M tokens landed under the 070
-  floor (release 19's first two were discarded at 200 000). Each delivery row was
-  stamped `Pending` from the project's `Automatic` over the installation's
+  floor (release 19's first two were discarded at 200 000). Each delivery row
+  was stamped `Pending` from the project's `Automatic` over the installation's
   `ApprovalRequired`, was claimed, and the tickets ran to `Done` (25, 34); a
   thread-released ticket was dispatched and finished; a released ticket whose
   brief named a missing file was refused and the filing member's thread woke
@@ -1671,10 +1671,10 @@ that has moved forward is not walked back by reverting a fabric commit.
   **answered** through the fork with zero batches of its own. Both console
   halves were opened: the lead page draws one row per dispatch with its
   landing, and the settings page shows `dispatchesPerDecision` and the live
-  floor. Two new defects, kasofsk/chuggy#561 and #562: a refused `tool_use` is still recorded and judged by
-  the decision control (one discarded decision per lead), and a session
-  attempt whose runtime budget is exhausted keeps claiming and instantly
-  failing turns until its pod is deleted.
+  floor. Two new defects, kasofsk/chuggy#561 and kasofsk/chuggy#562: a refused
+  `tool_use` is still recorded and judged by the decision control (one
+  discarded decision per lead), and a session attempt whose runtime budget is
+  exhausted keeps claiming and instantly failing turns until its pod is deleted.
 
 **Undo.** `git revert -m 1 285a7bd` and
 `flux reconcile kustomization apps --with-source` puts every digest above back
