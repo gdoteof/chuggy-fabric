@@ -76,6 +76,18 @@ how many times or where -- so either site could carry a digest the other does
 not while that line stayed green. Held here, over the parsed render, in the
 direction a release moves them: the pinned image is admitted, and it is the
 newest admission.
+
+AND THE ADMITTED LIST IS ONE THE SCHEDULER CAN PARSE AT ALL. Its parser refuses
+a list that admits one image twice or spells one (name, version) label twice,
+and a refusal at parse time is not a bad placement, it is a CrashLoopBackOff:
+the whole deployment, before a ticket is read. Nothing in this repository held
+that rule, so an admit entry renumbered to a version already admitted was green
+in every check here while the scheduler would not have booted. Mirrored below
+key for key, and the key is the point: a label is name AND version together, so
+the same version published under a second worker name is admitted and only a
+repeated pair is refused. The original is `schedulerImagesAreDistinct` in
+kasofsk/chuggy `src/roots/schedulerConfig.ts`, whose refusal wording this
+follows; a copy is what this is, and it moves when that moves.
 """
 
 import json
@@ -256,6 +268,16 @@ def json_variable(entry, name):
         return json.loads(raw)
     except json.JSONDecodeError as error:
         refuse(f"{name} is not JSON: {error}")
+
+
+def admitted_image(entry):
+    """The image one admitted entry names, in either shape the scheduler parses.
+
+    An entry is a bare reference, admitted and unnamed, or that same reference
+    labelled with a worker name and version -- so a deployment adopts labels one
+    image at a time, and neither shape may be read as the other.
+    """
+    return entry if isinstance(entry, str) else entry.get("image")
 
 
 def cluster_service(url, name):
@@ -601,7 +623,34 @@ def main():
     #    on an older admitted image is a release that moved one site and not the
     #    other.
     admitted = json_variable(scheduled, ADMITTED_IMAGES_VARIABLE)
-    images = [entry.get("image") for entry in admitted]
+
+    # 9a. And that list is one the scheduler's parser accepts: no image admitted
+    #     twice, no (name, version) label spelled twice. This arm is prior to the
+    #     two below -- a list refused at parse time is not a misplaced session,
+    #     it is a deployment that never boots -- and it is a mirror of
+    #     `schedulerImagesAreDistinct`, so the key is the pair and a version
+    #     reused under a different worker name is admitted here as it is there.
+    seen_images = set()
+    seen_labels = set()
+    for index, entry in enumerate(admitted):
+        image = admitted_image(entry)
+        if image in seen_images:
+            refuse(
+                f"{ADMITTED_IMAGES_VARIABLE}: {index} admits the image {image} twice, "
+                "which the scheduler refuses to parse, so it would not boot"
+            )
+        seen_images.add(image)
+        if isinstance(entry, str):
+            continue
+        label = (entry.get("name"), entry.get("version"))
+        if label in seen_labels:
+            refuse(
+                f"{ADMITTED_IMAGES_VARIABLE}: {index} names the worker {label[0]} version "
+                f"{label[1]} twice, which the scheduler refuses to parse, so it would not boot"
+            )
+        seen_labels.add(label)
+
+    images = [admitted_image(entry) for entry in admitted]
     if policy.get("image") not in images:
         refuse(
             f"{SESSION_POLICY_VARIABLE} places sessions on an image "
