@@ -120,6 +120,7 @@
       developmentWorker = import ./tests/development-worker.nix { inherit pkgs; };
       sessionPlacement = import ./tests/session-placement.nix { inherit pkgs; };
       selectorReach = import ./tests/selector-reach.nix { inherit pkgs; };
+      gitMirror = import ./tests/git-mirror.nix { inherit pkgs; };
       githubRepositoryTransition = import ./tests/github-repository-transition.nix { inherit pkgs; };
       githubAppToken = import ./tests/github-app-token.nix { inherit pkgs; };
     in
@@ -170,6 +171,12 @@
         # to go: two halves of one reach, in a JSON string and in a policy, each
         # of which reads correctly while the other is wrong.
         selector-reach = selectorReach;
+
+        # Which two repositories the mirror sync keeps equal, held against the
+        # map that decides what a session reads and the job that decides what
+        # its tickets are pinned to. A sync pointed at the wrong pair is green
+        # forever, which is what #554 looked like with nothing there at all.
+        git-mirror = gitMirror;
         github-repository-transition = githubRepositoryTransition;
         github-app-token = githubAppToken;
 
