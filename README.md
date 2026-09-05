@@ -1628,18 +1628,20 @@ that has moved forward is not walked back by reverting a fabric commit.
   is PR #151, `7e3d60c` → `b6c5235`).
 - **chuggy** `d8821c10` → **`b32afdb57a0c3c74c0f286b94befe57697c82206`** — a
   transcript entry larger than one store batch is degraded at the pod's session
-  store instead of being sent as a body the plane refuses: text bulk is cut to a
-  head and a note, an `image` or `document` block is replaced by a line naming
-  its media type and size, a signed thinking block is kept whole, and the keys
-  that identify an entry are never touched; only the stored copy changes
+  store instead of being sent as a body the plane refuses: a text field is cut
+  to a head and a note, an encoded string or a list is dropped whole and the
+  note says what it replaced, an `image` or `document` block is replaced by a
+  text block naming what it was, a signed thinking block is kept whole, and
+  the keys that identify an entry are never touched; only the stored copy
+  changes
   (kasofsk/chuggy#578, closing #575, eight fresh-session reviews with nothing
   planted; the residual, a signed block alone larger than a batch, is #582).
   Between the two commits the tree moved under `images/worker/` only.
-- **Ledger 074, unchanged.** No migration, so no dump was taken and the undo is
-  a revert.
+- **Ledger 074 → 074.** No migration, so no dump was taken and the undo is a
+  revert.
 - **Digests that moved.** None but the worker's: api (`sha256:42a7d0fc…9145`),
   `chuggy-ui` (`sha256:1ba98402…7e8e`) and `chuggy-web` (`sha256:2b63599e…0ab0e6`)
-  did not move; `deploy-to-gtr.sh` phase 1 built no image and wrote the ten
+  did not move; `deploy-to-gtr.sh`'s first run built no image and wrote the ten
   `source-commit` annotations and the migrate Job's name. The reviewer checked
   that nothing outside `images/worker/` moved, and that no api or console
   Dockerfile copies that path, against the two commits rather than the pull
@@ -1654,9 +1656,12 @@ that has moved forward is not walked back by reverting a fabric commit.
   pod template changed, so only the scheduler rolled: one container, no
   restart, no previous container to read. `/health/ready` answered `200` on the
   api Service's port 3000 after, and the migrate Job completed with nothing to
-  apply.
+  apply. Nothing has run under `0.18`: no session or worker pod was placed
+  after the roll, and every thread on `vteng/chuggy` was closed just before it,
+  so the first ticket released to the lead is the first session on this image.
 - **Undo.** `git revert -m 1 cfccacf` on this repository: the scheduler goes back
-  to `0.17` and restarts once more, which again needs no live attempt.
+  to `0.17`, one more roll of its pod, which like this one must find no session
+  or worker pod live in `chuggy-work`.
 
 ### Release 23 — 2026-09-05 — the refusal exclusion is exact for the page it is asked about
 
