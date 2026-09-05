@@ -1629,17 +1629,20 @@ that has moved forward is not walked back by reverting a fabric commit.
   list and `CHUG_SCHEDULER_SESSION_POLICY` are byte-identical to release 25.
   The commit before it, `c3be34c` (PR #156), is not a release: it moved
   `CHUG_SCHEDULER_SESSION_RESOURCES` from a 1Gi memory limit to 4Gi and the
-  request from 512Mi to 1Gi, after the first live member thread lost two
-  attempts to the old limit while a typecheck of its checkout ran, and rolled
-  the scheduler alone.
+  request from 512Mi to 1Gi, after the first member thread opened since
+  release 25 lost two attempts to the old limit — containerd's `TaskOOM`
+  events name both — while a typecheck of its checkout ran, and rolled the
+  scheduler alone.
 - **chuggy** `58a747d9` → **`a03998270162cccd7ccc1065f48a93ae17f76e5a`** — a
-  member thread's objectives carry a purpose between the owner and the two
-  standing rules: a request for a change is a request for a draft filed
-  through the draft tools, the lead dispatches and the fabric works, the shell
-  and the checkout are for reading the tree so a draft is accurate and change
-  nothing in it, and every turn ends by saying what was filed. The first live
-  thread had been asked whether the thread pages could be made more idiomatic
-  and had edited the console in its checkout, run the gates and filed nothing
+  member thread's objectives carry a purpose after the owner and before the
+  North Star and the two standing rules: a request for a change is a request
+  for a draft filed through the draft tools, the lead dispatches and the
+  fabric works, the shell and the checkout are for reading the tree so a draft
+  is accurate and change nothing in it, no build or gate is run, and every
+  turn ends by saying what was filed. The first thread opened through release
+  25's fixed control, which is that release's proof, had been asked whether
+  the thread pages could be made more idiomatic and had edited the console in
+  its checkout, run the gates and filed nothing
   (kasofsk/chuggy#584, four fresh-session reviews with nothing planted, every
   finding comment-level). The lead roster's comment stops leaning on a thread
   running the gates. Between the two commits the tree moved under
@@ -1652,16 +1655,18 @@ that has moved forward is not walked back by reverting a fabric commit.
   (`sha256:1e331179…5957`) and `chuggy-web` (`sha256:2b63599e…0ab0e6`) did
   not move; `deploy-to-gtr.sh`'s first run built the api alone and wrote the
   ten `source-commit` annotations and the migrate Job's name. The reviewer
-  rendered `cluster/apps` at main and at the branch and found the diff to be
-  the ten annotations, the eight api images and the Job's name.
+  rendered `cluster/apps` at `c3be34c` and at `0f0b82c` and found the diff to
+  be the ten annotations, the eight api images and the Job's name.
 - **The roll.** `deploy-to-gtr.sh`'s first run was made from a detached
   worktree; the merge was `gh pr merge --admin --merge` and
   `flux reconcile kustomization apps --with-source` by hand, with no session or
   worker pod live in `chuggy-work`, because the script's merge path was
   refused by the operator's own permission classifier. Every Deployment naming
-  the api rolled; api, finalizer and selector each restarted once on the
-  startup race against the postgres network policy and are on their second
-  container. `/health/ready` answered `200` through the edge after, the migrate
+  the api rolled; api, finalizer and selector each restarted once at startup
+  and are on their second container — the finalizer's and the selector's first
+  containers ended on `ECONNREFUSED` to postgres, the api's on its database
+  not answering as `chuggy_api`, the race a new pod runs against the postgres
+  network policy. `/health/ready` answered `200` through the edge after, the migrate
   Job completed with nothing to apply, and the live api image was read for the
   new objectives' first sentence. A thread's prompt is recorded on its session
   row at open, so the thread that motivated the change keeps its old
