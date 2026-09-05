@@ -1622,6 +1622,61 @@ below carries: the fabric merge commit, the chuggy commit, every digest that
 moved, the ledger range, and the undo — including the dump, because a ledger
 that has moved forward is not walked back by reverting a fabric commit.
 
+### Release 22 — 2026-09-05 — the six loop defects, and an attempt that ends on its own reason
+
+- **fabric** `cc0e6d3` → **`e439267`** (PR #147; the build request it depends on
+  is PR #146, `52e96de` → `cc0e6d3`).
+- **chuggy** `f8dc9194` → **`3ff1ed581e3f60a93b36a4c10d1e12aab8161079`** — the
+  six defects releases 19 to 21 found in the session loop, each landed after a
+  fresh-session review with nothing planted: the selector observes before it
+  allocates and drops a candidate whose standing refusal names the version it
+  shows (kasofsk/chuggy#572, closing #555 and #563); a wake reason is written
+  on the change row rather than read off present state (#571, migration 071,
+  closing #542); an attempt ends on its pod's own terminal phase with the
+  reason of the last turn it failed, instead of on the lapsed lease (#573,
+  migration 072, closing #509 and the plane half of #569); and every chuggy
+  tool answer is weighed against the store's line before it is returned, a
+  transcript read pages by entry, and the lead's decision tools answer the
+  model normally (#570, closing #568 and #569 — five review rounds).
+- **Ledger 070 → 072.** `chuggy-migrate-3ff1ed58-registry` reported
+  `applied 71,72`. Dump before the merge, the only way below 071:
+  `/home/geoff/backups/chuggy-pre-3ff1ed58.dump` (4 953 812 bytes, `PGDMP`)
+  and `chuggy-pre-3ff1ed58-globals.sql`, on the node.
+- **Digests that moved.** api `sha256:a8b00d77…5ce7` →
+  **`sha256:d6759c01…bab8`** on the six Deployments, the importer CronJob and
+  the migrate Job — `src/` moved. `chuggy-ui` (`sha256:87e9a55a…6406`) and
+  `chuggy-web` (`sha256:2b63599e…0ab0e6`) did not: nothing under `ui/` or the
+  console's other inputs changed, and the reviewer checked that claim against
+  the two commits rather than the pull request.
+- **Worker:** built from `builds/chuggy/3ff1ed58…079/`, admitted as
+  `chuggy-worker` **`0.17`** =
+  `sha256:00598efb07666fbe0a66ce7a8951b0aadf93cbb5ca2bca00581142f77ec17458`,
+  and `CHUG_SCHEDULER_SESSION_POLICY.image` moved to it from `0.16`
+  (`sha256:eccacebe…20b6`) in the same commit. The BuildRun's digest and the
+  registry's agreed. `images/worker/chuggyTools.mjs`, `transcriptPage.mjs`
+  and their suites are what moved; the execution worker the configurations
+  pin is unchanged.
+- **The roll.** Every control-plane pod restarted twice and the selector three
+  times; the previous containers said, in order, that the applied prefix of 70
+  is not one the image accepts, that the database must be migrated, and that
+  the api had not reported ready — the expected sequence while the Job runs.
+  `/health/ready` answered `200` after, and the importer's next run completed.
+- **The merge was by hand** (dump, `gh pr merge`, `flux reconcile kustomization
+  apps --with-source`, the Job wait, the rollout read-back), because
+  `deploy-to-gtr.sh --merge` counts the git-mirror CronJob's pods in
+  `chuggy-work` as a live attempt — kasofsk/chuggy#576.
+- **Red proof corrected a standing note.** A wrong digest in the admit entry
+  alone, a wrong digest in the policy alone, a duplicated version, and one api
+  manifest on the old digest were each planted on a scratch copy: all four
+  red. The first two are held by `tests/session-placement.py` (PR #139) under
+  `nix flake check`; the earlier claim that they were green everywhere is
+  withdrawn.
+- **Nothing was driven on the rig after the roll.** No member was minted and
+  no turn queued, so the fixes are proved by their suites and reviews, not by a
+  session; the thirty-seven `Lost` attempt rows stand from before 072. The
+  undo is the dump for the ledger and `git revert -m 1 e439267` for the
+  manifests.
+
 ### Release 21 — 2026-09-04 — the session loop that ends and forgives
 
 - **fabric** `18fc6cb` → **`1296bed`** (PR #144; the build request it depends on
