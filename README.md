@@ -1622,7 +1622,7 @@ below carries: the fabric merge commit, the chuggy commit, every digest that
 moved, the ledger range, and the undo — including the dump, because a ledger
 that has moved forward is not walked back by reverting a fabric commit.
 
-### Release 21 — 2026-09-05 — the session loop that ends and forgives
+### Release 21 — 2026-09-04 — the session loop that ends and forgives
 
 - **fabric** `18fc6cb` → **`1296bed`** (PR #144; the build request it depends on
   is PR #142, `e176ebd` → `18fc6cb`).
@@ -1648,7 +1648,7 @@ that has moved forward is not walked back by reverting a fabric commit.
   `CHUG_SCHEDULER_SESSION_POLICY.image` moved to it from `0.15`
   (`sha256:782b97c2…ced33`) in the same commit. The digest was read from the
   BuildRun and from the registry before it was written anywhere, and the two
-  agreed. `images/worker/session.mjs` is what moved.
+  agreed. `images/worker/session.mjs` and its two suites are what moved.
 - **No selector document change**, and both chuggy parsers at `f8dc9194`
   accept the rendered environment. The gap release 20 measured is closed: an
   admit entry that reused a version number is now red in `session-placement`
@@ -1671,9 +1671,10 @@ that has moved forward is not walked back by reverting a fabric commit.
 
 **Undo.** `git revert -m 1 1296bed` and
 `flux reconcile kustomization apps --with-source` restores the `0.15` session
-pin and the ten annotations; the ledger did not move, so nothing below needs a
-restore. Phase B's writes outside git are listed in its own record; the
-project's selector overrides stand at revision 12 as
+pin, the ten `source-commit` annotations and the migrate Job's `2678a2f0`
+name, and drops the `0.16` admit entry; the ledger did not move, so nothing
+below needs a restore. Phase B's writes outside git are listed in its own
+record; the project's selector overrides stand at revision 12 as
 `{"dispatchMode":"Automatic","basePrompt":"Hold this project…"}`.
 
 ### Release 20 — 2026-09-03 — the four release-19 findings, and every proof to completion
