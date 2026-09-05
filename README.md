@@ -1622,6 +1622,61 @@ below carries: the fabric merge commit, the chuggy commit, every digest that
 moved, the ledger range, and the undo — including the dump, because a ledger
 that has moved forward is not walked back by reverting a fabric commit.
 
+### Release 26 — 2026-09-05 — a thread is told what it is for
+
+- **fabric** `c3be34c` → **`0f0b82c`** (PR #157). No build request: nothing
+  under `images/worker/` moved, so the worker stays `0.18` and the admitted
+  list and `CHUG_SCHEDULER_SESSION_POLICY` are byte-identical to release 25.
+  The commit before it, `c3be34c` (PR #156), is not a release: it moved
+  `CHUG_SCHEDULER_SESSION_RESOURCES` from a 1Gi memory limit to 4Gi and the
+  request from 512Mi to 1Gi, after the first member thread opened since
+  release 25 lost two attempts to the old limit — containerd's `TaskOOM`
+  events name both — while a typecheck of its checkout ran, and rolled the
+  scheduler alone.
+- **chuggy** `58a747d9` → **`a03998270162cccd7ccc1065f48a93ae17f76e5a`** — a
+  member thread's objectives carry a purpose after the owner and before the
+  North Star and the two standing rules: a request for a change is a request
+  for a draft filed through the draft tools, the lead dispatches and the
+  fabric works, the shell and the checkout are for reading the tree so a draft
+  is accurate and change nothing in it, no build or gate is run, and every
+  turn ends by saying what was filed. The first thread opened after release
+  25 rolled had been asked whether the thread pages could be made more
+  idiomatic and had edited the console in its checkout, run the gates and
+  filed nothing
+  (kasofsk/chuggy#584, four fresh-session reviews with nothing planted, every
+  finding comment-level). The lead roster's comment stops leaning on a thread
+  running the gates. Between the two commits the tree moved under
+  `src/interpreter/` and one test only.
+- **Ledger 074 → 074.** No migration, so no dump was taken and the undo is a
+  revert.
+- **Digests that moved.** api `sha256:42a7d0fc…9145` →
+  **`sha256:ceb26b02…5d52`**, what the registry answers for
+  `chuggy/api:a0399827`, in every manifest that names it. `chuggy-ui`
+  (`sha256:1e331179…5957`) and `chuggy-web` (`sha256:2b63599e…0ab0e6`) did
+  not move; `deploy-to-gtr.sh`'s first run built the api alone and wrote the
+  ten `source-commit` annotations and the migrate Job's name. The reviewer
+  rendered `cluster/apps` at `c3be34c` and at `0f0b82c` and found the diff to
+  be the ten annotations, the eight api images and the Job's name.
+- **The roll.** `deploy-to-gtr.sh`'s first run was made from a detached
+  worktree; the merge was `gh pr merge --admin --merge` and
+  `flux reconcile kustomization apps --with-source` by hand, with no session or
+  worker pod live in `chuggy-work`, because the script's merge path was
+  refused by the operator's own permission classifier. Every Deployment naming
+  the api rolled; api, finalizer and selector each restarted once at startup
+  and are on their second container — the finalizer's and the selector's first
+  containers ended on `ECONNREFUSED` to postgres, the api's on the one
+  not-ready line it has for any failure to reach its database, the race a new
+  pod runs against the postgres network policy. `/health/ready` answered `200`
+  on the api Service's port 3000 after (the edge routes only `/api/v1` to the
+  api, and the console's fallback answers any other path), the migrate Job
+  completed with nothing to apply, and the live api image was read for the
+  new objectives' first sentence. A thread's prompt is recorded on its session
+  row at open, so the thread that motivated the change keeps its old
+  objectives until it is closed and another opened; that opening is the proof.
+- **Undo.** `git revert -m 1 0f0b82c` on this repository: the api goes back to
+  `42a7d0fc…9145`, one more roll of every Deployment that names it, which like
+  this one must find no session or worker pod live in `chuggy-work`.
+
 ### Release 25 — 2026-09-05 — the console opens a thread
 
 - **fabric** `6810fa8` → **`590f49d`** (PR #154). No build request: nothing
