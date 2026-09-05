@@ -1622,6 +1622,51 @@ below carries: the fabric merge commit, the chuggy commit, every digest that
 moved, the ledger range, and the undo — including the dump, because a ledger
 that has moved forward is not walked back by reverting a fabric commit.
 
+### Release 23 — 2026-09-05 — the refusal exclusion is exact for the page it is asked about
+
+- **fabric** `94defe9` → **`742a9fc`** (PR #149). No build request: nothing
+  under `images/worker/` moved, so the worker stays `0.17` and the admitted
+  list and `CHUG_SCHEDULER_SESSION_POLICY` are byte-identical to release 22.
+- **chuggy** `3ff1ed58` → **`d8821c101764b559f5721b3be6060fd14a987660`** — the
+  selector's observation excludes a candidate whose standing refusal names the
+  version shown, for every candidate on the page rather than for the first
+  page of the project's refusals ordered by ticket, and the refusals the lead
+  is shown are the same read as the exclusion, so what is excluded is always
+  liftable (kasofsk/chuggy#579, closing #574, three fresh-session reviews with
+  nothing planted); and `deploy-to-gtr.sh --merge` counts only worker and
+  session pods as a live attempt (#577, closing #576).
+- **Ledger 072 → 074.** `chuggy-migrate-d8821c10-registry` reported
+  `applied 73,74`: 073 creates `standing_agentic_refusals_among`, grants it to
+  the selector role and revokes that role's grant on the paged
+  `standing_agentic_refusals` (the API's own read is untouched); 074 widens
+  `session_turn`'s input check to the observation that now carries one refusal
+  per candidate and raises `tokensPerDecision` to that floor — settings
+  revision 6 → 7 on the rig, a floor and never a lowering. Migration 059's
+  file also changed, by one TypeScript `export` keyword; its SQL is
+  byte-identical, and the Job applied only 73 and 74. Dump before the merge,
+  the only way below 073: `/home/geoff/backups/chuggy-pre-d8821c10.dump`
+  (4 959 689 bytes, `PGDMP`) and `chuggy-pre-d8821c10-globals.sql` — on the
+  host that ran the script, not on the node.
+- **Digests that moved.** api `sha256:d6759c01…bab8` →
+  **`sha256:42a7d0fc…9145`** on the six Deployments, the importer CronJob and
+  the migrate Job — `src/` moved. `chuggy-ui` `sha256:87e9a55a…6406` →
+  **`sha256:1ba98402…7e8e`**: `images/chuggy-ui/Dockerfile` copies
+  `src/contract`, which moved, so the script rebuilt the console by its own
+  rule although nothing under `ui/` changed. `chuggy-web`
+  (`sha256:2b63599e…0ab0e6`) did not move. The reviewer read both digests
+  from the rig's registry and checked the `COPY` line against the two commits.
+- **The merge was the script's.** `deploy-to-gtr.sh --merge` ran end to end
+  for the first time: the dump, the merge, the reconcile, the Job wait and the
+  rollout read-back in one command. Every control-plane
+  pod restarted once or twice and the selector three times; the previous
+  containers said, in order, that the applied prefix of 72 is not one the
+  image accepts, that the database must be migrated, and that the api had not
+  reported ready. `/health/ready` answered `200` on the api Service's port
+  3000 after, and the importer's next run completed on `d8821c10`.
+- **Undo.** `git revert -m 1 742a9fc` on this repository and restore the dump; the
+  revert alone leaves the ledger at 74, the selector role without its grant on
+  the paged read, and the wider input check in place.
+
 ### Release 22 — 2026-09-05 — the six loop defects, and an attempt that ends on its own reason
 
 - **fabric** `cc0e6d3` → **`e439267`** (PR #147; the build request it depends on
