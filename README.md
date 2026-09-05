@@ -1622,6 +1622,39 @@ below carries: the fabric merge commit, the chuggy commit, every digest that
 moved, the ledger range, and the undo — including the dump, because a ledger
 that has moved forward is not walked back by reverting a fabric commit.
 
+### Release 25 — 2026-09-05 — the console opens a thread
+
+- **fabric** `6810fa8` → **`590f49d`** (PR #154). No build request: nothing
+  under `images/worker/` moved, so the worker stays `0.18` and the admitted
+  list and `CHUG_SCHEDULER_SESSION_POLICY` are byte-identical to release 24.
+- **chuggy** `b32afdb5` → **`58a747d9bad6f638e7e198a5c36e2765535adf83`** — the
+  console's `Open` control on the threads page posts the versioned empty
+  object instead of nothing. The request plumbing sends the versioned media
+  type only with a body, and the thread door takes only versioned JSON, so an
+  open that posted nothing was refused before it reached the caller's
+  identity: `UnsupportedMediaType` inside the cluster, and through the edge a
+  transport fault rendered as `InvalidRequest`, which is what the page showed
+  (kasofsk/chuggy#583; the routes suite now records the request as it left,
+  and is red without the body). Adversarial review was skipped at the owner's
+  instruction; the diff was held to its set by hand. Between the two commits
+  the tree moved under `ui/chuggy-ui/` only.
+- **Ledger 074 → 074.** No migration, so no dump was taken and the undo is a
+  revert.
+- **Digests that moved.** `chuggy-ui` `sha256:1ba98402…7e8e` →
+  **`sha256:1e331179…5957`**, what the registry answers for
+  `chuggy/web:chuggy-ui-58a747d9`. api (`sha256:42a7d0fc…9145`) and
+  `chuggy-web` (`sha256:2b63599e…0ab0e6`) did not move; `deploy-to-gtr.sh`'s
+  first run built the console alone and wrote the ten `source-commit`
+  annotations and the migrate Job's name.
+- **The roll.** `deploy-to-gtr.sh --merge` ran end to end. Only `chuggy-ui`'s
+  pod template changed, so only it rolled: one container, no restart.
+  `/health/ready` answered `200` on the api Service's port 3000 after, the
+  console answered `200` at its edge, and the migrate Job completed with
+  nothing to apply. Nothing has yet opened a thread through the fixed control;
+  the first member to press `Open` is its proof.
+- **Undo.** `git revert -m 1 590f49d` on this repository: `chuggy-ui` goes back
+  to `1ba98402…7e8e`, one more roll of its pod and nothing else.
+
 ### Release 24 — 2026-09-05 — the store clips an entry it cannot hold whole
 
 - **fabric** `7e3d60c` → **`cfccacf`** (PR #152; the build request it depends on
