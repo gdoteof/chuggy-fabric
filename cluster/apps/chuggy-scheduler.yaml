@@ -481,28 +481,30 @@ spec:
             # postgres-network-policy.yaml admits this namespace for.
             - name: CHUG_SCHEDULER_SESSION_LABELS
               value: '{"chuggy.dev/session":"true","chuggy.dev/api-client":"true"}'
-            # Smaller than a worker's, because the two do different work. A
-            # worker checks a repository out, installs its dependencies and runs
-            # its gates; a session checks the same repository out and reads it,
-            # and installs nothing and runs nothing. The ephemeral limit sizes
-            # the workspace emptyDir, which now holds both the runtime's local
-            # mirror of a transcript whose durable copy is on the artifacts
-            # volume and that checkout.
-            #
-            # THE NUMBER DID NOT MOVE WHEN THE CHECKOUT ARRIVED, and that is a
-            # measurement rather than an oversight: the checkout is a clone of
-            # this one repository with no dependency tree under it, and the unit
-            # that added the checkout measured a fresh clone of it against this
-            # limit and found it a small part of it. A worker needs twenty because
-            # `node_modules` and a build are what fill a workspace, and a
-            # session has neither.
+            # A session checks the project's repository out to read it, and a
+            # thread reads it with a shell: it runs what it needs to in order
+            # to understand the tree, and a TypeScript typecheck of a
+            # repository like chuggy's is such a thing. The memory limit and
+            # request are sized for that rather than for a clone alone,
+            # because a session pod killed at its limit loses the turn it was
+            # in and takes the turn again from a fresh checkout, so a limit
+            # below what one read can need is a limit paid for in repeated
+            # turns. The CPU limit is a worker's: a read that is slow is
+            # still a read. The ephemeral limit sizes the workspace emptyDir,
+            # which holds both the runtime's local mirror of a transcript
+            # whose durable copy is on the artifacts volume and that checkout;
+            # it did not move when the checkout arrived, because a fresh clone
+            # of the project's repository with no dependency tree under it was
+            # measured against it and found a small part of it. A worker needs
+            # more ephemeral storage because `node_modules` and a build are
+            # what fill a workspace.
             - name: CHUG_SCHEDULER_SESSION_RESOURCES
               value: |
                 {
                   "cpuRequest": "100m",
                   "cpuLimit": "1",
-                  "memoryRequest": "512Mi",
-                  "memoryLimit": "1Gi",
+                  "memoryRequest": "1Gi",
+                  "memoryLimit": "4Gi",
                   "ephemeralStorageLimit": "4Gi"
                 }
             # Four hours, against the worker's one. A session pod is not doing a
