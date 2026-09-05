@@ -1657,13 +1657,13 @@ that has moved forward is not walked back by reverting a fabric commit.
   from the rig's registry and checked the `COPY` line against the two commits.
 - **The merge was the script's.** `deploy-to-gtr.sh --merge` ran end to end
   for the first time: the dump, the merge, the reconcile, the Job wait and the
-  rollout read-back in one command, about two minutes. Every control-plane
+  rollout read-back in one command. Every control-plane
   pod restarted once or twice and the selector three times; the previous
   containers said, in order, that the applied prefix of 72 is not one the
   image accepts, that the database must be migrated, and that the api had not
   reported ready. `/health/ready` answered `200` on the api Service's port
   3000 after, and the importer's next run completed on `d8821c10`.
-- **Undo.** Revert `742a9fc` on this repository and restore the dump; the
+- **Undo.** `git revert -m 1 742a9fc` on this repository and restore the dump; the
   revert alone leaves the ledger at 74, the selector role without its grant on
   the paged read, and the wider input check in place.
 
