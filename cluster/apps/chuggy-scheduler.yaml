@@ -119,7 +119,7 @@ metadata:
   name: chuggy-scheduler
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: d8821c10
+    fabric.chuggy.dev/source-commit: b32afdb5
   labels: { app: chuggy-scheduler }
 spec:
   replicas: 1
@@ -380,6 +380,14 @@ spec:
                     "operatingSystem": "Linux",
                     "architecture": "Amd64",
                     "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:a49a5244f556be7996b1d8a20e61a23504546e32f9eb1a3d636d4fb2b421d071",
+                    "name": "chuggy-worker",
+                    "version": "0.18",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
                   }
                 ]
             # PR 5's, provisional. D30 says the adopting machine must supply
@@ -581,8 +589,8 @@ spec:
             # The one image, profile, grant and mirror map every session here
             # runs under. Its image is the worker built from the same commit
             # this release pins everywhere else, requested by
-            # `builds/chuggy/3ff1ed581e3f60a93b36a4c10d1e12aab8161079/` and
-            # admitted as `0.17` above; a session and an attempt on this site run
+            # `builds/chuggy/b32afdb57a0c3c74c0f286b94befe57697c82206/` and
+            # admitted as `0.18` above; a session and an attempt on this site run
             # the same binary, and this is the only variable that says so twice.
             #
             # `credentials` is two of the execution policy's three.
@@ -644,7 +652,7 @@ spec:
             - name: CHUG_SCHEDULER_SESSION_POLICY
               value: |
                 {
-                  "image": "registry.chuggy.internal/chuggy/worker@sha256:00598efb07666fbe0a66ce7a8951b0aadf93cbb5ca2bca00581142f77ec17458",
+                  "image": "registry.chuggy.internal/chuggy/worker@sha256:a49a5244f556be7996b1d8a20e61a23504546e32f9eb1a3d636d4fb2b421d071",
                   "profile": "chuggy-development",
                   "runtimeVersion": "claude-code-latest",
                   "grant": {
