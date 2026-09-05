@@ -1622,6 +1622,47 @@ below carries: the fabric merge commit, the chuggy commit, every digest that
 moved, the ledger range, and the undo — including the dump, because a ledger
 that has moved forward is not walked back by reverting a fabric commit.
 
+### Release 24 — 2026-09-05 — the store clips an entry it cannot hold whole
+
+- **fabric** `7e3d60c` → **`cfccacf`** (PR #152; the build request it depends on
+  is PR #151, `7e3d60c` → `b6c5235`).
+- **chuggy** `d8821c10` → **`b32afdb57a0c3c74c0f286b94befe57697c82206`** — a
+  transcript entry larger than one store batch is degraded at the pod's session
+  store instead of being sent as a body the plane refuses: a text field is cut
+  to a head and a note, an encoded string or a list is dropped whole and the
+  note says what it replaced, an `image` or `document` block is replaced by a
+  text block naming what it was, a signed thinking block is kept whole, and
+  the keys that identify an entry are never touched; only the stored copy
+  changes
+  (kasofsk/chuggy#578, closing #575, eight fresh-session reviews with nothing
+  planted; the residual, a signed block alone larger than a batch, is #582).
+  Between the two commits the tree moved under `images/worker/` only.
+- **Ledger 074 → 074.** No migration, so no dump was taken and the undo is a
+  revert.
+- **Digests that moved.** None but the worker's: api (`sha256:42a7d0fc…9145`),
+  `chuggy-ui` (`sha256:1ba98402…7e8e`) and `chuggy-web` (`sha256:2b63599e…0ab0e6`)
+  did not move; `deploy-to-gtr.sh`'s first run built no image and wrote the ten
+  `source-commit` annotations and the migrate Job's name. The reviewer checked
+  that nothing outside `images/worker/` moved, and that no api or console
+  Dockerfile copies that path, against the two commits rather than the pull
+  request.
+- **Worker:** built from `builds/chuggy/b32afdb5…8206/`, admitted as
+  `chuggy-worker` **`0.18`** =
+  `sha256:a49a5244f556be7996b1d8a20e61a23504546e32f9eb1a3d636d4fb2b421d071`,
+  and `CHUG_SCHEDULER_SESSION_POLICY.image` moved to it from `0.17`
+  (`sha256:00598efb…7458`) in the same commit. The BuildRun's digest and the
+  registry's agreed. The execution worker the configurations pin is unchanged.
+- **The roll.** `deploy-to-gtr.sh --merge` ran end to end. Only the scheduler's
+  pod template changed, so only the scheduler rolled: one container, no
+  restart, no previous container to read. `/health/ready` answered `200` on the
+  api Service's port 3000 after, and the migrate Job completed with nothing to
+  apply. Nothing has run under `0.18`: no session or worker pod was placed
+  after the roll, and every thread on `vteng/chuggy` was closed just before it,
+  so the first ticket released to the lead is the first session on this image.
+- **Undo.** `git revert -m 1 cfccacf` on this repository: the scheduler goes back
+  to `0.17`, one more roll of its pod, which like this one must find no session
+  or worker pod live in `chuggy-work`.
+
 ### Release 23 — 2026-09-05 — the refusal exclusion is exact for the page it is asked about
 
 - **fabric** `94defe9` → **`742a9fc`** (PR #149). No build request: nothing
