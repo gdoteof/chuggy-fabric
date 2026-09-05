@@ -1622,6 +1622,60 @@ below carries: the fabric merge commit, the chuggy commit, every digest that
 moved, the ledger range, and the undo — including the dump, because a ledger
 that has moved forward is not walked back by reverting a fabric commit.
 
+### Release 21 — 2026-09-05 — the session loop that ends and forgives
+
+- **fabric** `18fc6cb` → **`1296bed`** (PR #144; the build request it depends on
+  is PR #142, `e176ebd` → `18fc6cb`).
+- **chuggy** `2678a2f0` → **`f8dc9194f2d2b88a50619225c521363b5f2822c8`** — the
+  two session-loop findings release 20 measured: a tool call the runtime refused
+  is not a tool the turn used (kasofsk/chuggy#561), and an attempt whose budget
+  is spent ends after its failed turn (kasofsk/chuggy#562), both in
+  kasofsk/chuggy#564. The same range carries the rig git service's mirror
+  credential (kasofsk/chuggy#566), which is not an image and was applied to
+  the rig by hand on 2026-09-04.
+- **Ledger 070 → 070.** Nothing migrates; the renamed Job
+  `chuggy-migrate-f8dc9194-registry` reported `the schema was already current`.
+  No dump was taken.
+- **Digests that moved: none but the worker's.** Nothing under `src/` or `ui/`
+  changed, so `deploy-to-gtr.sh` built nothing; api stays at
+  `sha256:a8b00d77…5ce7`, `chuggy-ui` at `sha256:87e9a55a…6406`, `chuggy-web`
+  at `sha256:2b63599e…0ab0e6`. Only the scheduler's pod template changed, and
+  it rolled once with no restart.
+- **Worker:** built from
+  `builds/chuggy/f8dc9194f2d2b88a50619225c521363b5f2822c8/`, admitted as
+  `chuggy-worker` **`0.16`** =
+  `sha256:eccacebea8fccaab485fac4d2bfb8990173853a7c44d1f0eec49806b274920b6`, and
+  `CHUG_SCHEDULER_SESSION_POLICY.image` moved to it from `0.15`
+  (`sha256:782b97c2…ced33`) in the same commit. The digest was read from the
+  BuildRun and from the registry before it was written anywhere, and the two
+  agreed. `images/worker/session.mjs` is what moved.
+- **No selector document change**, and both chuggy parsers at `f8dc9194`
+  accept the rendered environment. The gap release 20 measured is closed: an
+  admit entry that reused a version number is now red in `session-placement`
+  (PR #139), and this release's red proof exercised that arm.
+- **What phase B measured on the rig.** Every session pod checked out the
+  in-cluster mirror at `f8dc9194`, the released commit. The standing lead,
+  under a prompt that made it call `ToolSearch`, had the call refused by the
+  runtime, recorded a tool list without it, and its decision **landed** under
+  the installation allowlist (release 20's identical turn was discarded). A
+  member thread's attempt on the same worker answered eleven turns for $4.97,
+  failed the twelfth `AgentBudgetExhausted`, and its pod **exited 0 the same
+  second** instead of claiming on; the reaper collected the attempt on its
+  lapsed lease and the scheduler's fresh attempt answered the next queued turn
+  (release 20's spent pod had to be deleted by hand). Two new defects on the
+  way, older than this release: kasofsk/chuggy#568 (every lead decision tool
+  answers the model with an MCP result error after staging its effect) and
+  kasofsk/chuggy#569 (a tool result larger than the store's line bound — a
+  transcript page, or the executions listing at its page maximum — fails the
+  turn `StoreRefused` and ends the attempt).
+
+**Undo.** `git revert -m 1 1296bed` and
+`flux reconcile kustomization apps --with-source` restores the `0.15` session
+pin and the ten annotations; the ledger did not move, so nothing below needs a
+restore. Phase B's writes outside git are listed in its own record; the
+project's selector overrides stand at revision 12 as
+`{"dispatchMode":"Automatic","basePrompt":"Hold this project…"}`.
+
 ### Release 20 — 2026-09-03 — the four release-19 findings, and every proof to completion
 
 - **fabric** `99f277b` → **`285a7bd`** (PR #137; the build request it depends on
