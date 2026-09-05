@@ -145,7 +145,7 @@ metadata:
   name: chuggy-selector
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: 2678a2f0
+    fabric.chuggy.dev/source-commit: f8dc9194
   labels: { app: chuggy-selector }
 spec:
   # ONE, BECAUSE THERE IS FINALLY SOMETHING FOR IT TO ASK. The zero here was
