@@ -1639,10 +1639,10 @@ that has moved forward is not walked back by reverting a fabric commit.
   for a draft filed through the draft tools, the lead dispatches and the
   fabric works, the shell and the checkout are for reading the tree so a draft
   is accurate and change nothing in it, no build or gate is run, and every
-  turn ends by saying what was filed. The first thread opened through release
-  25's fixed control, which is that release's proof, had been asked whether
-  the thread pages could be made more idiomatic and had edited the console in
-  its checkout, run the gates and filed nothing
+  turn ends by saying what was filed. The first thread opened after release
+  25 rolled had been asked whether the thread pages could be made more
+  idiomatic and had edited the console in its checkout, run the gates and
+  filed nothing
   (kasofsk/chuggy#584, four fresh-session reviews with nothing planted, every
   finding comment-level). The lead roster's comment stops leaning on a thread
   running the gates. Between the two commits the tree moved under
@@ -1666,9 +1666,11 @@ that has moved forward is not walked back by reverting a fabric commit.
   and are on their second container — the finalizer's and the selector's first
   containers ended on `ECONNREFUSED` to postgres, the api's on its database
   not answering as `chuggy_api`, the race a new pod runs against the postgres
-  network policy. `/health/ready` answered `200` through the edge after, the migrate
-  Job completed with nothing to apply, and the live api image was read for the
-  new objectives' first sentence. A thread's prompt is recorded on its session
+  network policy. `/health/ready` answered `200` on the api Service's port
+  3000 after (the edge routes only `/api/v1` to the api, and the console's
+  fallback answers any other path), the migrate Job completed with nothing to
+  apply, and the live api image was read for the new objectives' first
+  sentence. A thread's prompt is recorded on its session
   row at open, so the thread that motivated the change keeps its old
   objectives until it is closed and another opened; that opening is the proof.
 - **Undo.** `git revert -m 1 0f0b82c` on this repository: the api goes back to
