@@ -1664,13 +1664,13 @@ that has moved forward is not walked back by reverting a fabric commit.
   refused by the operator's own permission classifier. Every Deployment naming
   the api rolled; api, finalizer and selector each restarted once at startup
   and are on their second container — the finalizer's and the selector's first
-  containers ended on `ECONNREFUSED` to postgres, the api's on its database
-  not answering as `chuggy_api`, the race a new pod runs against the postgres
-  network policy. `/health/ready` answered `200` on the api Service's port
-  3000 after (the edge routes only `/api/v1` to the api, and the console's
-  fallback answers any other path), the migrate Job completed with nothing to
-  apply, and the live api image was read for the new objectives' first
-  sentence. A thread's prompt is recorded on its session
+  containers ended on `ECONNREFUSED` to postgres, the api's on the one
+  not-ready line it has for any failure to reach its database, the race a new
+  pod runs against the postgres network policy. `/health/ready` answered `200`
+  on the api Service's port 3000 after (the edge routes only `/api/v1` to the
+  api, and the console's fallback answers any other path), the migrate Job
+  completed with nothing to apply, and the live api image was read for the
+  new objectives' first sentence. A thread's prompt is recorded on its session
   row at open, so the thread that motivated the change keeps its old
   objectives until it is closed and another opened; that opening is the proof.
 - **Undo.** `git revert -m 1 0f0b82c` on this repository: the api goes back to
