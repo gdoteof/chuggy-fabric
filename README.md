@@ -1622,6 +1622,68 @@ below carries: the fabric merge commit, the chuggy commit, every digest that
 moved, the ledger range, and the undo — including the dump, because a ledger
 that has moved forward is not walked back by reverting a fabric commit.
 
+### Release 28 — 2026-09-06 — a failed selector decision is retried, and the session cap is out of a lead's reach
+
+- **fabric** `17bf786` → **`8022de4`** (PR #162, which carried #161's change as
+  its own second commit; #161 was closed as superseded before the merge). No
+  build request: nothing under `images/worker/` moved, so the worker stays
+  `0.18` and the admitted list and `CHUG_SCHEDULER_SESSION_POLICY` are
+  byte-identical to release 27.
+- **chuggy** `dd12b248` → **`d5d90f556603a79a3ced140c0c7f105e04942761`** — a
+  selector decision whose policy run failed no longer consumes the dispatch view
+  (kasofsk/chuggy#588, three fresh-session reviews with nothing planted).
+  Before, the failure was recorded exactly as a completed decision, cursor and
+  candidate scan included, so on a view that did not move again the view was
+  never offered again: on the evening of 2026-09-05 the decision that carried
+  ticket 44 failed because its lead pod had spent the per-attempt dollar cap,
+  and `vteng/chuggy` stalled. Now the state the observation was built from is
+  kept with attention raised, so the next poll offers the same view to a fresh
+  attempt, a bounded number of times per view before the failure consumes it as
+  a completed decision would; the count is derived from the interaction ledger,
+  newest first, not stored. Also carried: kasofsk/chuggy#587 (every
+  configuration stage installs the toolchain) and one rig-authored console
+  change. Between the two commits the tree moved under `src/`, `ui/chuggy-ui/`,
+  `test/` and `.chug/configurations/`.
+- **The scheduler's session cap.** `CHUG_SCHEDULER_SESSION_BOUNDS` is set for
+  the first time, to a `budgetUsd` a working lead cannot reach. The runtime
+  meters the cap over one pod's whole life, and a lead pod's first turn re-reads
+  the whole transcript at full price, so under the published default a pod took
+  a few turns and failed the next, whatever it carried. Running session pods
+  keep the bounds they were placed with; there were none, so the lead's next
+  attempt is the first under the new cap.
+- **Ledger 075 → 075.** No migration moved, so no dump was taken and the undo is
+  a revert.
+- **Digests that moved.** api `sha256:8301d7e2…1c68` →
+  **`sha256:2477a163…6013`**, what the registry answers for
+  `chuggy/api:d5d90f55`, in every manifest that names it; `chuggy-ui`
+  `sha256:72254235…1347` → **`sha256:e107afbd…e4f2`**, what it answers for
+  `chuggy/web:chuggy-ui-d5d90f55`, because the tree moved under `ui/chuggy-ui/`
+  and under `src/contract/`, which the console image copies. `chuggy-web`
+  (`sha256:2b63599e…0ab0e6`) did not move. `deploy-to-gtr.sh`'s first run built
+  the two and wrote the ten `source-commit` annotations and the migrate Job's
+  name. The reviewer read both digests back from the registry, confirmed the
+  live Deployments ran the old ones and that no bound was set, and found the
+  diff to be the ten annotations, the eight api images, the one console image,
+  the Job's name, the one environment variable with its comment, and the
+  rewritten paragraph that had listed the variable as unset on purpose.
+- **The roll.** `deploy-to-gtr.sh --merge` ran end to end from a worktree
+  detached at the released commit: the merge, the reconcile, the migrate Job
+  completing with nothing to apply, and every Deployment naming the api rolling
+  with the console. Finalizer, scheduler, selector and ticket-service each
+  restarted once, every previous container ending on a refused connection to
+  postgres — the race a new pod runs — and none after. `/health/ready` answered
+  `200` on the api Service's port 3000, and the scheduler's rendered environment
+  carried the new bound.
+- **What it did not do.** The view the incident consumed stays consumed: the
+  selector state row for `vteng/chuggy` still holds the exhausted scan on the
+  view's current watermark, and nothing moves it but a journaled decision (a
+  released draft, a revoked ticket) or a hand edit of that row.
+- **Undo.** `git revert -m 1 8022de4` on this repository: the api goes back to
+  `8301d7e2…1c68`, `chuggy-ui` to `72254235…1347`, and the scheduler loses
+  `CHUG_SCHEDULER_SESSION_BOUNDS`, one more roll of every Deployment that names
+  either, which like this one must find no session or worker pod live in
+  `chuggy-work`.
+
 ### Release 27 — 2026-09-05 — a member thread closes from the console
 
 - **fabric** `e99383c` → **`7034e63`** (PR #159). No build request: nothing
