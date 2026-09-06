@@ -1624,10 +1624,11 @@ that has moved forward is not walked back by reverting a fabric commit.
 
 ### Release 31 — 2026-09-06 — the console's utilities are Tailwind over its tokens
 
-- **fabric** `42f64df` → **`83e1185d`** (PR #169), phase 1's output and nothing
-  else: ten `source-commit` annotations, the console digest line and the migrate
-  Job's name; no adversarial reviewer, the orchestrator held the diff to those
-  lines, read both digests back from the registry, and ran `--merge`.
+- **fabric** `42f64df` → **`83e1185d`** (PR #169). The PR was `deploy-to-gtr.sh`
+  phase 1's output and nothing else: ten `source-commit` annotations, the
+  console digest line and the migrate Job's name; no adversarial reviewer, the
+  orchestrator held the diff to those lines, read both digests back from the
+  registry, and ran `--merge`.
 - **chuggy** `2b092647` → **`99d5f2d0c10608bf332f4b4cec3069a52cd1cb26`** —
   Tailwind 4 integrated as a utility generator over the design system's tokens
   and nothing else (kasofsk/chuggy#594, one PR batched from one opus and four
@@ -1636,14 +1637,15 @@ that has moved forward is not walked back by reverting a fabric commit.
   palette, no default scales; the sheet maps Tailwind's namespaces onto the
   tokens by reference (`@theme inline reference`); the cascade is
   `properties, tokens, base, ui, page, utilities`, Tailwind's own `properties`
-  layer ordered weakest; the console's build now refuses a raw colour or
-  `px`/`rem` length in the emitted utilities layer, and a generated utility
-  whose name a layered sheet also selects (the scanner makes `.table`,
-  `.hidden`, `.filter` from ordinary words in the sources, so the Table
-  primitive's class became `tabular`). Legacy layout rules whose declarations
-  were token utilities moved onto their elements and left the legacy sheet.
-  Between the two commits the tree moved under `ui/chuggy-ui/`,
-  `scripts/console-policy.ts` and its tests,
+  layer ordered weakest; the console's build now refuses a raw colour, and a
+  `px`/`rem` length other than a zero or the `1px` hairline, in the emitted
+  utilities layer, and a generated utility whose name a layered sheet also
+  selects (the scanner makes `.table`, `.hidden`, `.filter` from ordinary words
+  in the sources, so the Table primitive's class became `tabular`). Legacy rules
+  whose every declaration was a token utility (layout, colour, size, weight)
+  moved onto their elements, and the dead `stage` rules were deleted. Between
+  the two commits the tree moved under `ui/chuggy-ui/`,
+  `scripts/console-policy.ts`, the script that runs it, and their tests,
   `.chug/tasks/check-console-sheets.sh` and its suite, and the root
   `package-lock.json`.
 - **Ledger 075 → 075.** No migration, so no dump was taken and the undo is a
@@ -1651,10 +1653,10 @@ that has moved forward is not walked back by reverting a fabric commit.
   already current.
 - **Digests that moved.** `chuggy-ui` `sha256:5a5f0f2f…71fe` →
   **`sha256:e33ddbaa…0590`**, what the registry answers for
-  `chuggy/web:chuggy-ui-99d5f2d0`. The api was rebuilt because the lockfile and
-  `scripts/` moved and came out at the digest it already ran,
-  `sha256:3a59514e…ae98e`, so no manifest naming it changed its image.
-  `chuggy-web` (`sha256:2b63599e…0ab0e6`) did not move.
+  `chuggy/web:chuggy-ui-99d5f2d0`. The api was rebuilt because the lockfile
+  moved and came out at the digest it already ran, `sha256:3a59514e…ae98e`, so
+  no manifest that names it changed its image. `chuggy-web`
+  (`sha256:2b63599e…0ab0e6`) did not move.
 - **The roll.** `deploy-to-gtr.sh --merge` from a worktree detached at the
   released commit: only the console pod rolled, with no restart; every other pod
   is the one release 29 left, restart counts included. `/health/ready` answered
@@ -1667,13 +1669,13 @@ that has moved forward is not walked back by reverting a fabric commit.
   44 with a run's evidence opened — the page holds no `<style>` element of its
   own and raised no `securitypolicyviolation`; the stylesheet's layers read from
   the CSSOM are `properties, tokens, base, ui, page, utilities` in that order;
-  both Table primitives draw as `tabular` with tabular figures; and the run
-  list, run rows, artifact rows and result box that this release moved onto
-  utilities compute to the token values (the space scale's gaps and padding, a
-  hairline top edge, the ink colours, weight 600). The served CSP header is
-  unchanged, the document carries no inline script or `style` attribute, and the
-  utilities layer resolves every colour and length to a token, the only literal
-  lengths being `1px` hairlines.
+  the Table primitive's two tables on the ticket page draw as `tabular` with
+  tabular figures; and the run list, run rows, artifact rows and result box that
+  this release moved onto utilities compute to the token values (the space
+  scale's gaps and padding, a hairline top edge, the ink colours, weight 600).
+  The served CSP header is unchanged, the document carries no inline script or
+  `style` attribute, and the utilities layer resolves every colour and length to
+  a token, the only literal lengths being `1px` hairlines.
 - **Undo.** `git revert -m 1 83e1185d` on this repository: `chuggy-ui` goes back
   to `5a5f0f2f…71fe`, one roll of the console pod and nothing else.
 
