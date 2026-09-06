@@ -66,7 +66,7 @@ metadata:
   name: chuggy-configuration-importer
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: dd12b248
+    fabric.chuggy.dev/source-commit: d5d90f55
   labels: { app: chuggy-configuration-importer }
 spec:
   schedule: "*/2 * * * *"
@@ -117,7 +117,7 @@ spec:
                 seccompProfile: { type: RuntimeDefault }
           containers:
             - name: importer
-              image: registry.chuggy.internal/chuggy/api@sha256:8301d7e223d8872e4ed0c326690433cd2f27b45049a2a52373fdf4df65db1c68
+              image: registry.chuggy.internal/chuggy/api@sha256:2477a163aa28c46eba09cb21f9798b4c94c7b9bb52a066e9621736667d236013
               imagePullPolicy: IfNotPresent
               command: [/opt/chuggy-configuration-importer/import.sh]
               env:
