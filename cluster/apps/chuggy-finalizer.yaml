@@ -138,7 +138,7 @@ metadata:
   name: chuggy-finalizer
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: a0399827
+    fabric.chuggy.dev/source-commit: dd12b248
   labels: { app: chuggy-finalizer }
 spec:
   replicas: 1
@@ -181,7 +181,7 @@ spec:
         # only thing an fsGroup would change here.
       containers:
         - name: finalizer
-          image: registry.chuggy.internal/chuggy/api@sha256:ceb26b023f12ff7e99873c40fbfed7a653b3fca01cc8c6d1e44e822ec6ba5d52
+          image: registry.chuggy.internal/chuggy/api@sha256:8301d7e223d8872e4ed0c326690433cd2f27b45049a2a52373fdf4df65db1c68
           imagePullPolicy: IfNotPresent
           command:
             [
