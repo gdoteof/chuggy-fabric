@@ -119,7 +119,7 @@ metadata:
   name: chuggy-scheduler
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: dd12b248
+    fabric.chuggy.dev/source-commit: d5d90f55
   labels: { app: chuggy-scheduler }
 spec:
   replicas: 1
@@ -147,7 +147,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: scheduler
-          image: registry.chuggy.internal/chuggy/api@sha256:8301d7e223d8872e4ed0c326690433cd2f27b45049a2a52373fdf4df65db1c68
+          image: registry.chuggy.internal/chuggy/api@sha256:2477a163aa28c46eba09cb21f9798b4c94c7b9bb52a066e9621736667d236013
           imagePullPolicy: IfNotPresent
           command:
             [
@@ -588,6 +588,24 @@ spec:
             # than the number: it is per account, and today there is one.
             - name: CHUG_SCHEDULER_SESSION_PASS_BOUNDS
               value: '{"attemptsPerAccountMax":6}'
+            # THE DOLLAR CAP IS PER ATTEMPT, AND A LEAD OUTLIVES ANY ATTEMPT.
+            # The runtime meters `budgetUsd` over one pod's whole life and
+            # answers every turn after the cap the same way before a token is
+            # spent, so the cap is what ends a lead pod -- and the first turn of
+            # the pod that replaces it re-reads the lead's entire transcript at
+            # full price. Under the launcher's published default that first turn
+            # is most of the cap, so a pod takes a few turns and then fails
+            # whichever turn comes next, whatever that turn was carrying.
+            #
+            # So the cap is set where a working lead cannot reach it. What bounds
+            # a session's spend is the account's own rate limit and the idle
+            # bound, which ends a pod nothing is asking anything of; a cap a
+            # working lead can reach is a cap that fails the work at the moment
+            # it arrives. It is a cap and not none because the bounds carry no
+            # way to name none, only a floor of a cent, and a runaway that
+            # spends this much in one pod is a runaway this site wants stopped.
+            - name: CHUG_SCHEDULER_SESSION_BOUNDS
+              value: '{"budgetUsd":1000}'
             # The one image, profile, grant and mirror map every session here
             # runs under. Its image is the worker built from the same commit
             # this release pins everywhere else, requested by
@@ -683,13 +701,14 @@ spec:
             # clonable at all. It does not hold the mirror map against any
             # project's binding, because no binding is declared in this tree.
             #
-            # CHUG_SCHEDULER_SESSION_POD_NAME_PREFIX, _ANNOTATIONS and _BOUNDS
-            # are unset on purpose. Each has a published default in
-            # `src/roots/schedulerConfig.ts`, this rig wants every one of them,
-            # and a value written here equal to its default is a second copy
-            # that only ever drifts. _ENVIRONMENT and _PASS_BOUNDS were in that
+            # CHUG_SCHEDULER_SESSION_POD_NAME_PREFIX and _ANNOTATIONS are unset
+            # on purpose. Each has a published default in
+            # `src/roots/schedulerConfig.ts`, this rig wants both of them, and a
+            # value written here equal to its default is a second copy that only
+            # ever drifts. _ENVIRONMENT, _PASS_BOUNDS and _BOUNDS were in that
             # list until this rig wanted something other than the default from
-            # each, and _PASS_BOUNDS still names only the one bound it moved.
+            # each, and _PASS_BOUNDS and _BOUNDS each still name only the one
+            # bound they moved.
             #
             # ------------------------------- the lead's membership, and why ----
             #
