@@ -1622,6 +1622,59 @@ below carries: the fabric merge commit, the chuggy commit, every digest that
 moved, the ledger range, and the undo — including the dump, because a ledger
 that has moved forward is not walked back by reverting a fabric commit.
 
+### Release 27 — 2026-09-05 — a member thread closes from the console
+
+- **fabric** `e99383c` → **`7034e63`** (PR #159). No build request: nothing
+  under `images/worker/` moved, so the worker stays `0.18` and the admitted list
+  and `CHUG_SCHEDULER_SESSION_POLICY` are byte-identical to release 26.
+- **chuggy** `a0399827` → **`dd12b2481e588cc2bb477118ffd781fccb869b9e`** — a
+  member thread can be closed through the API and from the console, where before
+  only the provisioning root inside the api pod could end one
+  (kasofsk/chuggy#585, PR #586, six fresh-session reviews with nothing planted).
+  `POST …/threads/:session/close` ends the thread named, for any member who may
+  mutate the project: a close is terminal and immediate, the turns it still held
+  are abandoned, the thread stays readable, and the member's next `Open` is a
+  new session. The thread page carries `Close` in its head and the listing a
+  small one per row. Migration 075 adds the door, a trigger that writes a
+  `Session` change when any session's state moves so a page re-reads on a close
+  that moved no turn, and replaces the listing to answer open threads first and
+  the rest newest first, so closed threads displace no live one from the bounded
+  page. Between the two commits the tree moved under `src/`, `ui/chuggy-ui/` and
+  `test/`.
+- **Ledger 074 → 075.** The pre-merge dump is
+  `/home/geoff/backups/chuggy-pre-dd12b248.dump`, with its globals beside it on
+  the operator's host, and the undo is a restore from it rather than a revert.
+- **Digests that moved.** api `sha256:ceb26b02…5d52` →
+  **`sha256:8301d7e2…1c68`**, what the registry answers for
+  `chuggy/api:dd12b248`, in every manifest that names it; `chuggy-ui`
+  `sha256:1e331179…5957` → **`sha256:72254235…1347`**, what it answers for
+  `chuggy/web:chuggy-ui-dd12b248`, because the console's own files moved and the
+  image copies `src/contract` besides. `chuggy-web` (`sha256:2b63599e…0ab0e6`)
+  did not move. `deploy-to-gtr.sh`'s first run built the two and wrote the ten
+  `source-commit` annotations and the migrate Job's name. The reviewer read both
+  digests back from the registry and found the diff to be the ten annotations,
+  the eight api images, the one console image and the Job's name.
+- **The roll.** `deploy-to-gtr.sh --merge` ran end to end from a worktree
+  detached at the released commit: the dump, the merge, the reconcile, the
+  migrate Job applying 075 in six seconds, and every Deployment naming the api
+  rolling with the console. The restarts were the migration window's: api,
+  finalizer and scheduler twice, selector three times, ticket-service once, each
+  previous container ending on the ledger-74 refusal, the not-migrated
+  precondition, the api not yet ready or a refused connection to postgres — the
+  race a new pod runs — and none after the api reported itself ready, which was
+  after the Job. `/health/ready` answered `200` on the api Service's port 3000
+  after. At the edge the close route answered `401` to an unauthenticated
+  versioned `POST` and `415` to one without the media type, and the console
+  answered `200`. The thread that motivated the change was closed through the
+  new control seventy-one seconds after the Job completed — its `Session` frame
+  naming `Closed` is the first row 075's trigger wrote on the rig — and its
+  member opened a new thread under two minutes later.
+- **Undo.** Restore `/home/geoff/backups/chuggy-pre-dd12b248.dump` and
+  `git revert -m 1 7034e63` on this repository: the api goes back to
+  `ceb26b02…5d52` and `chuggy-ui` to `1e331179…5957`, one more roll of every
+  Deployment that names either, which like this one must find no session or
+  worker pod live in `chuggy-work`.
+
 ### Release 26 — 2026-09-05 — a thread is told what it is for
 
 - **fabric** `c3be34c` → **`0f0b82c`** (PR #157). No build request: nothing
