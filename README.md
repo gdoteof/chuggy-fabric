@@ -1648,12 +1648,12 @@ that has moved forward is not walked back by reverting a fabric commit.
   **`sha256:8301d7e2…1c68`**, what the registry answers for
   `chuggy/api:dd12b248`, in every manifest that names it; `chuggy-ui`
   `sha256:1e331179…5957` → **`sha256:72254235…1347`**, what it answers for
-  `chuggy/web:chuggy-ui-dd12b248`, because the console image copies
-  `src/contract`. `chuggy-web` (`sha256:2b63599e…0ab0e6`) did not move.
-  `deploy-to-gtr.sh`'s first run built the two and wrote the ten `source-commit`
-  annotations and the migrate Job's name. The reviewer read both digests back
-  from the registry and found the diff to be the ten annotations, the eight api
-  images, the one console image and the Job's name.
+  `chuggy/web:chuggy-ui-dd12b248`, because the console's own files moved and the
+  image copies `src/contract` besides. `chuggy-web` (`sha256:2b63599e…0ab0e6`)
+  did not move. `deploy-to-gtr.sh`'s first run built the two and wrote the ten
+  `source-commit` annotations and the migrate Job's name. The reviewer read both
+  digests back from the registry and found the diff to be the ten annotations,
+  the eight api images, the one console image and the Job's name.
 - **The roll.** `deploy-to-gtr.sh --merge` ran end to end from a worktree
   detached at the released commit: the dump, the merge, the reconcile, the
   migrate Job applying 075 in six seconds, and every Deployment naming the api
@@ -1661,13 +1661,14 @@ that has moved forward is not walked back by reverting a fabric commit.
   finalizer and scheduler twice, selector three times, ticket-service once, each
   previous container ending on the ledger-74 refusal, the not-migrated
   precondition, the api not yet ready or a refused connection to postgres — the
-  race a new pod runs — and none after the Job landed. `/health/ready` answered
-  `200` on the api Service's port 3000 after. At the edge the close route
-  answered `401` to an unauthenticated versioned `POST` and `415` to one without
-  the media type, and the console answered `200`. The thread that motivated the
-  change was closed through the new control seventy-one seconds after the Job
-  completed — its `Session` frame naming `Closed` is the first row 075's trigger
-  wrote on the rig — and its member opened a new thread two minutes later.
+  race a new pod runs — and none after the api reported itself ready, which was
+  after the Job. `/health/ready` answered `200` on the api Service's port 3000
+  after. At the edge the close route answered `401` to an unauthenticated
+  versioned `POST` and `415` to one without the media type, and the console
+  answered `200`. The thread that motivated the change was closed through the
+  new control seventy-one seconds after the Job completed — its `Session` frame
+  naming `Closed` is the first row 075's trigger wrote on the rig — and its
+  member opened a new thread under two minutes later.
 - **Undo.** Restore `/home/geoff/backups/chuggy-pre-dd12b248.dump` and
   `git revert -m 1 7034e63` on this repository: the api goes back to
   `ceb26b02…5d52` and `chuggy-ui` to `1e331179…5957`, one more roll of every
