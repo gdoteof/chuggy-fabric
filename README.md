@@ -1668,11 +1668,11 @@ that has moved forward is not walked back by reverting a fabric commit.
   change was closed through the new control seventy-one seconds after the Job
   completed — its `Session` frame naming `Closed` is the first row 075's trigger
   wrote on the rig — and its member opened a new thread two minutes later.
-- **Undo.** Restore `/home/geoff/backups/chuggy-pre-dd12b248.dump` and `git
-  revert -m 1 7034e63` on this repository: the api goes back to `ceb26b02…5d52`
-  and `chuggy-ui` to `1e331179…5957`, one more roll of every Deployment that
-  names either, which like this one must find no session or worker pod live in
-  `chuggy-work`.
+- **Undo.** Restore `/home/geoff/backups/chuggy-pre-dd12b248.dump` and
+  `git revert -m 1 7034e63` on this repository: the api goes back to
+  `ceb26b02…5d52` and `chuggy-ui` to `1e331179…5957`, one more roll of every
+  Deployment that names either, which like this one must find no session or
+  worker pod live in `chuggy-work`.
 
 ### Release 26 — 2026-09-05 — a thread is told what it is for
 
