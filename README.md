@@ -1622,6 +1622,48 @@ below carries: the fabric merge commit, the chuggy commit, every digest that
 moved, the ledger range, and the undo — including the dump, because a ledger
 that has moved forward is not walked back by reverting a fabric commit.
 
+### Release 30 — 2026-09-06 — the console's controls are Radix primitives
+
+- **fabric** `54d4a2d` → **`42f64df`** (PR #167). The PR was
+  `deploy-to-gtr.sh` phase 1's output and nothing else — the ten
+  `source-commit` annotations, the console digest and the migrate Job's
+  name — so it had no adversarial reviewer: the orchestrator held the diff to
+  those three kinds of line, read the console digest back from the registry,
+  and ran `--merge`. A rollout PR that carries anything written by hand still
+  gets the review.
+- **chuggy** `6f557b42` → **`2b09264751bc319bf4f47b57b1233c1b8439cd70`** — the
+  realtime console's theme control, project switcher, hover texts and
+  disclosures are Radix primitives (kasofsk/chuggy#593, one PR batched from
+  four subagent branches; two fresh-session reviews with nothing planted):
+  a ToggleGroup, a non-modal DropdownMenu, a Tooltip a keyboard can reach,
+  and a Collapsible, each with a jsdom case asserting no `<style>` element
+  exists while it is open, because the served CSP's `style-src 'self'`
+  refuses the one Radix's modal layers and Select inject. Form selects stay
+  native for that reason. Between the two commits the tree moved under
+  `ui/chuggy-ui/` and the root `package-lock.json` only.
+- **Ledger 075 → 075.** No migration moved, so no dump was taken and the undo is
+  a revert. The migrate Job found the schema already current.
+- **Digests that moved.** `chuggy-ui` `sha256:1ee9d5fd…2b25` →
+  **`sha256:5a5f0f2f…71fe`**, what the registry answers for
+  `chuggy/web:chuggy-ui-2b092647`. The api was rebuilt because the lockfile
+  moved and came out at the digest it already ran, `sha256:3a59514e…ae98e`,
+  so no manifest that names it changed its image. `chuggy-web`
+  (`sha256:2b63599e…0ab0e6`) did not move.
+- **The roll.** `deploy-to-gtr.sh --merge` from a worktree detached at the
+  released commit: only the console pod rolled, with no restart; every other
+  pod is the one release 29 left, restart counts included. `/health/ready`
+  answered `200` on the api Service's port 3000. No ticket or session pod was
+  live in `chuggy-work` during the roll. Checked in Chrome against the live
+  `chuggy-ui.vteng.io` under its served CSP: the project menu opens with the
+  page left non-modal, the theme radios write the attribute and the store,
+  a tooltip opens on focus, and the page holds no `<style>` element and
+  raised no `securitypolicyviolation` through all three. Phase 1's first run
+  was refused by the gate on a `check-model` witness that died on an
+  unhandled rejection and passed alone a minute later; the second run was
+  clean.
+- **Undo.** `git revert -m 1 42f64df` on this repository: `chuggy-ui` goes
+  back to `1ee9d5fd…2b25`, one roll of the console pod and nothing else.
+
 ### Release 29 — 2026-09-06 — a rework is told what the evaluation found
 
 - **fabric** `22b74f2` → **`1d69bb6`** (PR #165), after #164 (`e2ce6af`), the
