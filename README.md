@@ -1633,13 +1633,14 @@ that has moved forward is not walked back by reverting a fabric commit.
   gets the review.
 - **chuggy** `6f557b42` → **`2b09264751bc319bf4f47b57b1233c1b8439cd70`** — the
   realtime console's theme control, project switcher, hover texts and
-  disclosures are Radix primitives (kasofsk/chuggy#593, one PR batched from
-  four subagent branches; two fresh-session reviews with nothing planted):
-  a ToggleGroup, a non-modal DropdownMenu, a Tooltip a keyboard can reach,
-  and a Collapsible, each with a jsdom case asserting no `<style>` element
-  exists while it is open, because the served CSP's `style-src 'self'`
-  refuses the one Radix's modal layers and Select inject. Form selects stay
-  native for that reason. Between the two commits the tree moved under
+  single-toggle disclosures are Radix primitives (kasofsk/chuggy#593, one PR
+  batched from four subagent branches; two fresh-session reviews with
+  nothing planted): a ToggleGroup, a non-modal DropdownMenu, a Tooltip a
+  keyboard can reach, and a Collapsible, each with a jsdom case asserting no
+  `<style>` element exists while it is open, because the served CSP's
+  `style-src 'self'` refuses the one Radix's modal layers and Select inject.
+  Form selects stay native for that reason, and the panels and the ledger
+  stay native `<details>`. Between the two commits the tree moved under
   `ui/chuggy-ui/` and the root `package-lock.json` only.
 - **Ledger 075 → 075.** No migration moved, so no dump was taken and the undo is
   a revert. The migrate Job found the schema already current.
