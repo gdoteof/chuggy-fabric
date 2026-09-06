@@ -1622,7 +1622,7 @@ below carries: the fabric merge commit, the chuggy commit, every digest that
 moved, the ledger range, and the undo — including the dump, because a ledger
 that has moved forward is not walked back by reverting a fabric commit.
 
-### Release 27 — 2026-09-06 — a member thread closes from the console
+### Release 27 — 2026-09-05 — a member thread closes from the console
 
 - **fabric** `e99383c` → **`7034e63`** (PR #159). No build request: nothing
   under `images/worker/` moved, so the worker stays `0.18` and the admitted list
@@ -1639,12 +1639,11 @@ that has moved forward is not walked back by reverting a fabric commit.
   `Session` change when any session's state moves so a page re-reads on a close
   that moved no turn, and replaces the listing to answer open threads first and
   the rest newest first, so closed threads displace no live one from the bounded
-  page. Between the two commits the tree moved under `src/`, `src/contract/`,
-  `ui/chuggy-ui/` and `test/`.
+  page. Between the two commits the tree moved under `src/`, `ui/chuggy-ui/` and
+  `test/`.
 - **Ledger 074 → 075.** The pre-merge dump is
-  ``/home/geoff/backups/chuggy-pre-dd12b248.dump` (with its globals beside it)`
-  on the operator's host, and the undo is a restore from it rather than a
-  revert.
+  `/home/geoff/backups/chuggy-pre-dd12b248.dump`, with its globals beside it on
+  the operator's host, and the undo is a restore from it rather than a revert.
 - **Digests that moved.** api `sha256:ceb26b02…5d52` →
   **`sha256:8301d7e2…1c68`**, what the registry answers for
   `chuggy/api:dd12b248`, in every manifest that names it; `chuggy-ui`
@@ -1665,12 +1664,15 @@ that has moved forward is not walked back by reverting a fabric commit.
   race a new pod runs — and none after the Job landed. `/health/ready` answered
   `200` on the api Service's port 3000 after. At the edge the close route
   answered `401` to an unauthenticated versioned `POST` and `415` to one without
-  the media type, and the console answered `200`. Nothing has yet pressed
-  `Close`; the thread that motivated the change is the first to.
-- **Undo.** Restore ``chuggy-pre-dd12b248.dump`` and `git revert -m 1 7034e63`
-  on this repository: the api goes back to `ceb26b02…5d52` and `chuggy-ui` to
-  `1e331179…5957`, one more roll of every Deployment that names either, which
-  like this one must find no session or worker pod live in `chuggy-work`.
+  the media type, and the console answered `200`. The thread that motivated the
+  change was closed through the new control seventy-one seconds after the Job
+  completed — its `Session` frame naming `Closed` is the first row 075's trigger
+  wrote on the rig — and its member opened a new thread two minutes later.
+- **Undo.** Restore `/home/geoff/backups/chuggy-pre-dd12b248.dump` and `git
+  revert -m 1 7034e63` on this repository: the api goes back to `ceb26b02…5d52`
+  and `chuggy-ui` to `1e331179…5957`, one more roll of every Deployment that
+  names either, which like this one must find no session or worker pod live in
+  `chuggy-work`.
 
 ### Release 26 — 2026-09-05 — a thread is told what it is for
 
