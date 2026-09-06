@@ -1622,6 +1622,68 @@ below carries: the fabric merge commit, the chuggy commit, every digest that
 moved, the ledger range, and the undo — including the dump, because a ledger
 that has moved forward is not walked back by reverting a fabric commit.
 
+### Release 29 — 2026-09-06 — a rework is told what the evaluation found
+
+- **fabric** `22b74f2` → **`1d69bb6`** (PR #165), after #164 (`e2ce6af`), the
+  worker build request for chuggy `9ed88690`. The worker moves to **`0.19`**:
+  `CHUG_SCHEDULER_ADMITTED_IMAGES` gains the entry, shaped like `0.18`, for
+  `sha256:0f728b62…4009` — what BuildRun `build-9ba10868…-a1` produced from
+  `builds/chuggy/9ed88690…/` and what the registry answers for
+  `chuggy/worker:request-9ba10868…` — and `CHUG_SCHEDULER_SESSION_POLICY.image`
+  moves to it in the same commit.
+- **chuggy** `d5d90f55` → **`6f557b42d67581eb6943bd368544373d9b55756b`** — a
+  Work task that follows a failed evaluation is briefed with the reports of
+  that evaluation's failed executions (kasofsk/chuggy#591, closes #590; three
+  fresh-session reviews with nothing planted). Before, the only section that
+  reached back to an earlier task was the work reports a review reads, so a
+  rework was briefed like a first attempt: on 2026-09-06 ticket 44 failed its
+  commanded check stage twice on findings its reworks never saw, and passed
+  on the third. Now the reports of the latest evaluation's `Failed`
+  executions render under a section of their own, prefaced by wording the
+  template owns, under the same bounds and refusals as the work reports; the
+  worker's check stage reports the failing gate's last output after the
+  status lines, scrubbed and made printable before the plane measures it, so
+  the section names the gate and what it found rather than an exit status.
+  Also carried: #592, which moves `chuggy-development`'s worker pin from
+  `0.10` to this release's `0.19`, so a ticket released against the new
+  revision runs its check stage on the worker that writes the excerpt.
+  Between the two commits the tree moved under `src/`, `images/worker/`,
+  `ui/chuggy-ui/`, `test/` and `.chug/configurations/`.
+- **Ledger 075 → 075.** No migration moved, so no dump was taken and the undo is
+  a revert.
+- **Digests that moved.** api `sha256:2477a163…6013` →
+  **`sha256:3a59514e…ae98e`**, what the registry answers for
+  `chuggy/api:6f557b42`, in every manifest that names it; `chuggy-ui`
+  `sha256:e107afbd…e4f2` → **`sha256:1ee9d5fd…2b25`**, what it answers for
+  `chuggy/web:chuggy-ui-6f557b42`, because the tree moved under
+  `ui/chuggy-ui/`. `chuggy-web` (`sha256:2b63599e…0ab0e6`) did not move.
+  `deploy-to-gtr.sh`'s first run built the two and wrote the ten
+  `source-commit` annotations and the migrate Job's name; the admit commit
+  was by hand. The reviewer read the three moving digests back from the
+  registry and the BuildRun, confirmed the configuration at `6f557b42` pins
+  the same worker digest, and found the diff to be the annotations, the api
+  and console images, the Job's name, the admit entry, the policy image and
+  the nix grep line; five mutations each went red under
+  `check-release-consistency` or `session-placement.py`.
+- **The roll.** `deploy-to-gtr.sh --merge` ran end to end from a worktree detached at
+  the released commit: the merge, the reconcile, the migrate Job finding the
+  schema already current in six seconds, and every Deployment naming the api
+  rolling with the console and the scheduler. The restarts were the
+  pod-startup race: finalizer, scheduler and ticket-service once on a
+  refused connection to postgres, the selector twice on a failed source
+  fetch, none after. `/health/ready` answered `200` on the api Service's
+  port 3000, and the rendered scheduler's session policy names the `0.19`
+  digest. No ticket or session pod was live in `chuggy-work` during the roll.
+  Nothing has yet reworked under the new briefing; the next ticket released
+  against `chuggy-development`'s new revision that fails its check stage is
+  the first to.
+- **Undo.** `git revert -m 1 1d69bb6` on this repository: the api goes back
+  to `2477a163…6013`, `chuggy-ui` to `e107afbd…e4f2`, and the session policy
+  to `0.18`, one more roll of every Deployment that names any of them, which
+  like this one must find no session or worker pod live in `chuggy-work`. A
+  ticket released against `chuggy-development`'s new revision would then be
+  refused at pod time until re-created against an earlier one.
+
 ### Release 28 — 2026-09-06 — a failed selector decision is retried, and the session cap is out of a lead's reach
 
 - **fabric** `17bf786` → **`8022de4`** (PR #162, which carried #161's change as
