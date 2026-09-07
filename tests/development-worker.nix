@@ -42,14 +42,18 @@ pkgs.runCommand "chuggy-development-worker" {
   grep -F 'kubernetes.io/metadata.name: chuggy-git' "$network" >/dev/null
   grep -F '{ protocol: TCP, port: 443 }' "$network" >/dev/null
 
-  # The shared database an attempt scopes itself on: the Secret the scheduler
-  # names, the label both halves of the path key on, the egress that admits the
-  # server and the ingress that admits this namespace. Each is half of a reach
-  # that fails closed without the other, and a worker that cannot reach
-  # PostgreSQL fails every gate that needs one rather than skipping it.
-  grep -F '{"secretName":"chuggy-worker-database","key":"url"}' "$scheduler" >/dev/null
-  grep -F '"chuggy.dev/postgres-client":"true"' "$scheduler" >/dev/null
-  grep -F '{ protocol: TCP, port: 5432 }' "$network" >/dev/null
-  grep -F 'kubernetes.io/metadata.name: chuggy-work' "$policy" >/dev/null
+  # The PostgreSQL an attempt runs gates against is a sidecar of its pod: the
+  # scheduler names the image, and neither the work namespace's egress nor the
+  # server's ingress admits a path from a worker to the control plane's server.
+  grep -F '"image": "docker.io/library/postgres:18-alpine@sha256:' "$scheduler" >/dev/null
+  if grep -F '"chuggy.dev/postgres-client"' "$scheduler" >/dev/null; then
+    echo "worker pods are labelled as postgres clients" >&2; exit 1
+  fi
+  if grep -F 'port: 5432' "$network" >/dev/null; then
+    echo "the work namespace has an egress to PostgreSQL" >&2; exit 1
+  fi
+  if grep -F 'kubernetes.io/metadata.name: chuggy-work' "$policy" >/dev/null; then
+    echo "the server's ingress admits the work namespace" >&2; exit 1
+  fi
   touch "$out"
 ''
