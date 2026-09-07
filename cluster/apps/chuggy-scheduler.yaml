@@ -119,7 +119,7 @@ metadata:
   name: chuggy-scheduler
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: c7087d59
+    fabric.chuggy.dev/source-commit: f23cbf69
   labels: { app: chuggy-scheduler }
 spec:
   replicas: 1
@@ -147,7 +147,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: scheduler
-          image: registry.chuggy.internal/chuggy/api@sha256:d6a7ec745570da761ca42f7457143d4534aa735882f1a7805eaa48f1b6c96bf2
+          image: registry.chuggy.internal/chuggy/api@sha256:cba03eb468f18a3dda2417abdd3d284749377676ba2681502d587ae80bd58fb1
           imagePullPolicy: IfNotPresent
           command:
             [
@@ -195,22 +195,27 @@ spec:
               value: "3600"
             - name: CHUG_SCHEDULER_PASS_BOUNDS
               value: '{"attemptLeaseSecs":300}'
-            # The server every worker of this site shares, named as a Secret
-            # key and never as a URL: the scheduler hands the pod a
-            # `secretKeyRef`, so the connection string is read by the kubelet
-            # and is in neither this process nor the pod spec it submits. The
-            # Secret is `chuggy-worker-database` in `chuggy-work`, because a
-            # `secretKeyRef` resolves in the pod's own namespace; it is created
-            # by hand there, like the other two worker credentials, and its
-            # `url` key is `chuggy_worker`'s whole connection string.
-            #
-            # The database in that URL is where the role authenticates, never
-            # where work runs: the image replaces it with the attempt's own
-            # database before any gate sees a URL. A worker image that does not
-            # read this ignores it, which is what lets this land before one that
-            # does is built.
+            # The PostgreSQL an attempt runs its gates against: a sidecar of
+            # the attempt's own pod, running this image on the pod's loopback,
+            # with the worker as its superuser. A repository's gates migrate
+            # the server they are pointed at and a migration makes cluster-wide
+            # roles, an authority agent-authored code can hold only on a server
+            # that holds nothing else; so no worker reaches the control plane's
+            # server, and neither namespace policy admits the path. The image
+            # is the one `.chug/tasks/_postgres.sh` in kasofsk/chuggy runs the
+            # same gates against locally, pinned by digest.
             - name: CHUG_SCHEDULER_WORKER_DATABASE
-              value: '{"secretName":"chuggy-worker-database","key":"url"}'
+              value: |
+                {
+                  "image": "docker.io/library/postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2",
+                  "resources": {
+                    "cpuRequest": "250m",
+                    "cpuLimit": "1",
+                    "memoryRequest": "256Mi",
+                    "memoryLimit": "1Gi",
+                    "ephemeralStorageLimit": "4Gi"
+                  }
+                }
             - name: CHUG_SCHEDULER_WORKER_CREDENTIAL_MOUNTS
               value: |
                 {
@@ -237,13 +242,12 @@ spec:
                   "CHUG_WORKER_WORKSPACE": "/workspace"
                 }
             # `chuggy.dev/worker` is what chuggy-work.yaml's egress policy
-            # selects on; `chuggy.dev/postgres-client` is what
-            # postgres-network-policy.yaml's ingress admits this namespace for.
-            # Both are possession of a label and neither is authentication —
-            # what a worker may do on that server is its role's, and the role is
-            # `deploy/rig/postgres/worker-database-roles.sql` in kasofsk/chuggy.
+            # selects on. It is possession of a label and not authentication,
+            # and it is not `chuggy.dev/postgres-client`: a worker's PostgreSQL
+            # is a sidecar of its own pod, and the control plane's server
+            # admits nothing from the work namespace.
             - name: CHUG_SCHEDULER_WORKER_LABELS
-              value: '{"chuggy.dev/worker":"true","chuggy.dev/postgres-client":"true"}'
+              value: '{"chuggy.dev/worker":"true"}'
             - name: CHUG_SCHEDULER_WORKER_POD_SECURITY
               value: '{"runAsNonRoot":true,"runAsUser":1000,"runAsGroup":1000,"fsGroup":1000,"fsGroupChangePolicy":"OnRootMismatch","seccompProfile":{"type":"RuntimeDefault"}}'
             - name: CHUG_SCHEDULER_WORKER_CONTAINER_SECURITY
@@ -396,6 +400,14 @@ spec:
                     "operatingSystem": "Linux",
                     "architecture": "Amd64",
                     "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:528b60992328f9076fc97a731027f2aef38e23c42f1261067ef417e03b06bb27",
+                    "name": "chuggy-worker",
+                    "version": "0.20",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
                   }
                 ]
             # PR 5's, provisional. D30 says the adopting machine must supply
@@ -484,9 +496,9 @@ spec:
             # admits. Neither is authentication: what a session may do is its
             # bearer's and its principal's.
             #
-            # `chuggy.dev/postgres-client` is deliberately absent. A slice-1
-            # session makes no scratch database, and the label is the only thing
-            # postgres-network-policy.yaml admits this namespace for.
+            # No PostgreSQL label: a session runs no gates, so no server is
+            # placed beside it, and the control plane's server admits nothing
+            # from this namespace in any case.
             - name: CHUG_SCHEDULER_SESSION_LABELS
               value: '{"chuggy.dev/session":"true","chuggy.dev/api-client":"true"}'
             # A session checks the project's repository out to read it, and a
@@ -617,8 +629,8 @@ spec:
             # The one image, profile, grant and mirror map every session here
             # runs under. Its image is the worker built from the same commit
             # this release pins everywhere else, requested by
-            # `builds/chuggy/9ed88690d31748abb7ccd86700b05f70108cf920/` and
-            # admitted as `0.19` above; a session and an attempt on this site run
+            # `builds/chuggy/8c3ee90b750fc1d141be928ef2950042a90cc1b7/` and
+            # admitted as `0.20` above; a session and an attempt on this site run
             # the same binary, and this is the only variable that says so twice.
             #
             # `credentials` is two of the execution policy's three.
@@ -680,7 +692,7 @@ spec:
             - name: CHUG_SCHEDULER_SESSION_POLICY
               value: |
                 {
-                  "image": "registry.chuggy.internal/chuggy/worker@sha256:0f728b620c5e35fa5872fe9642ee90d75b49c5b33f822999926f17f2b00e4009",
+                  "image": "registry.chuggy.internal/chuggy/worker@sha256:528b60992328f9076fc97a731027f2aef38e23c42f1261067ef417e03b06bb27",
                   "profile": "chuggy-development",
                   "runtimeVersion": "claude-code-latest",
                   "grant": {

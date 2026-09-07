@@ -82,24 +82,10 @@ spec:
             matchLabels: { app.kubernetes.io/name: git }
       ports:
         - { protocol: TCP, port: 8080 }
-    # PostgreSQL, which a worker reaches as `chuggy_worker` to make the one
-    # database its attempt owns and to run the repository's own gates against
-    # it. That is the same server the control plane holds its authority in, and
-    # what separates the two is the role rather than the machine: the chuggy
-    # database takes CONNECT from PUBLIC and gives it by name, so this login
-    # cannot open a session there, and it is granted membership in no group
-    # role, so on PostgreSQL 16 or newer it cannot give itself one. The rule and
-    # its argument are `deploy/rig/postgres/worker-database-roles.sql` in
-    # kasofsk/chuggy; the ingress half is postgres-network-policy.yaml, which
-    # admits this namespace only for pods carrying the client label.
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: chuggy
-          podSelector:
-            matchLabels: { app: postgres }
-      ports:
-        - { protocol: TCP, port: 5432 }
+    # No PostgreSQL. The server an attempt runs the repository's gates against
+    # is a sidecar of its own pod, on loopback (chuggy-scheduler.yaml's
+    # CHUG_SCHEDULER_WORKER_DATABASE), so nothing agent-authored has a route to
+    # the server the control plane holds its authority in.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -121,13 +107,12 @@ spec:
 #
 # IT CARRIES ITS OWN LABEL RATHER THAN THE WORKER'S, and the label is the whole
 # of what decides which policy above selects it. Reusing `chuggy.dev/worker`
-# would place a session inside the rule directly above and hand it PostgreSQL,
-# which a session has no use for: it makes no scratch database, and
-# `CHUG_SCHEDULER_SESSION_LABELS` withholds the client label that server's
-# ingress admits this namespace for. It reaches the git service and the worker
-# does too, and that is the case worth being explicit about -- the reach is
-# written out below as this policy's own arm rather than inherited, so the two
-# kinds of pod go on being two rules that can be argued apart.
+# would place a session inside the rule directly above and hand it a worker's
+# reach, which is not a session's: an attempt's PostgreSQL is a sidecar of its
+# own pod and a session is placed with none. It reaches the git service and the
+# worker does too, and that is the case worth being explicit about -- the reach
+# is written out below as this policy's own arm rather than inherited, so the
+# two kinds of pod go on being two rules that can be argued apart.
 #
 # The hazard runs the other way as well and is worse: a pod in this namespace
 # that NO policy selects is isolated in
