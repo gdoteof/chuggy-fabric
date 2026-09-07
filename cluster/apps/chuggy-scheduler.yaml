@@ -239,8 +239,13 @@ spec:
               value: |
                 {
                   "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\",\"credential\":\"chuggy-git-worker\",\"credentialUsername\":\"worker\"},\"https://github.com/kasofsk/chuggy.git\":{\"url\":\"https://github.com/kasofsk/chuggy.git\",\"credential\":\"chuggy-github-worker\",\"credentialUsername\":\"x-access-token\"}}",
-                  "CHUG_WORKER_WORKSPACE": "/workspace"
+                  "CHUG_WORKER_WORKSPACE": "/workspace",
+                  "CHUG_PG_WORKERS": "4"
                 }
+            # `CHUG_PG_WORKERS` is the count `check-postgres` defaults to; the
+            # worker alone would run the gate in one database. Its suites share a
+            # database per worker and some leave state behind (chuggy #548), so
+            # the rig runs the placement a local run runs and reds agree.
             # `chuggy.dev/worker` is what chuggy-work.yaml's egress policy
             # selects on. It is possession of a label and not authentication,
             # and it is not `chuggy.dev/postgres-client`: a worker's PostgreSQL
