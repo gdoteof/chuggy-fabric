@@ -119,7 +119,7 @@ metadata:
   name: chuggy-scheduler
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: f23cbf69
+    fabric.chuggy.dev/source-commit: 694663d9
   labels: { app: chuggy-scheduler }
 spec:
   replicas: 1
@@ -147,7 +147,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: scheduler
-          image: registry.chuggy.internal/chuggy/api@sha256:cba03eb468f18a3dda2417abdd3d284749377676ba2681502d587ae80bd58fb1
+          image: registry.chuggy.internal/chuggy/api@sha256:0466a181172826f5cd5269f0ea1c7b71d11266810b92ef6a4de9f0d1209bc085
           imagePullPolicy: IfNotPresent
           command:
             [
@@ -242,10 +242,10 @@ spec:
                   "CHUG_WORKER_WORKSPACE": "/workspace",
                   "CHUG_PG_WORKERS": "4"
                 }
-            # `CHUG_PG_WORKERS` is the count `check-postgres` defaults to; the
-            # worker alone would run the gate in one database. Its suites share a
-            # database per worker and some leave state behind (chuggy #548), so
-            # the rig runs the placement a local run runs and reds agree.
+            # `CHUG_PG_WORKERS` is the concurrency `check-postgres` defaults to;
+            # the worker alone would run the gate's suites one after another.
+            # Each suite has a database of its own at any count, so the count
+            # is throughput and the verdict does not depend on it.
             # `chuggy.dev/worker` is what chuggy-work.yaml's egress policy
             # selects on. It is possession of a label and not authentication,
             # and it is not `chuggy.dev/postgres-client`: a worker's PostgreSQL
@@ -410,6 +410,14 @@ spec:
                     "image": "registry.chuggy.internal/chuggy/worker@sha256:528b60992328f9076fc97a731027f2aef38e23c42f1261067ef417e03b06bb27",
                     "name": "chuggy-worker",
                     "version": "0.20",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:7d9397bad9d1174314a83be8d5aaad1a0e2aa83af767b7892aa789d23ced2362",
+                    "name": "chuggy-worker",
+                    "version": "0.21",
                     "operatingSystem": "Linux",
                     "architecture": "Amd64",
                     "capabilities": ["Agent:Claude", "Agent:Codex"]
@@ -697,7 +705,7 @@ spec:
             - name: CHUG_SCHEDULER_SESSION_POLICY
               value: |
                 {
-                  "image": "registry.chuggy.internal/chuggy/worker@sha256:528b60992328f9076fc97a731027f2aef38e23c42f1261067ef417e03b06bb27",
+                  "image": "registry.chuggy.internal/chuggy/worker@sha256:7d9397bad9d1174314a83be8d5aaad1a0e2aa83af767b7892aa789d23ced2362",
                   "profile": "chuggy-development",
                   "runtimeVersion": "claude-code-latest",
                   "grant": {
