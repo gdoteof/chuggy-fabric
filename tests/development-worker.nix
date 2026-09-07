@@ -53,6 +53,7 @@ pkgs.runCommand "chuggy-development-worker" {
   if grep -F 'port: 5432' "$network" >/dev/null; then
     echo "the work namespace has an egress to PostgreSQL" >&2; exit 1
   fi
+  grep -F 'name: postgres-admits-labelled-clients' "$policy" >/dev/null
   if grep -F 'kubernetes.io/metadata.name: chuggy-work' "$policy" >/dev/null; then
     echo "the server's ingress admits the work namespace" >&2; exit 1
   fi

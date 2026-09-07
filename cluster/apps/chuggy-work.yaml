@@ -107,13 +107,12 @@ spec:
 #
 # IT CARRIES ITS OWN LABEL RATHER THAN THE WORKER'S, and the label is the whole
 # of what decides which policy above selects it. Reusing `chuggy.dev/worker`
-# would place a session inside the rule directly above and hand it PostgreSQL,
-# which a session has no use for: it makes no scratch database, and
-# `CHUG_SCHEDULER_SESSION_LABELS` withholds the client label that server's
-# ingress admits this namespace for. It reaches the git service and the worker
-# does too, and that is the case worth being explicit about -- the reach is
-# written out below as this policy's own arm rather than inherited, so the two
-# kinds of pod go on being two rules that can be argued apart.
+# would place a session inside the rule directly above and hand it a worker's
+# reach, which is not a session's: an attempt's PostgreSQL is a sidecar of its
+# own pod and a session is placed with none. It reaches the git service and the
+# worker does too, and that is the case worth being explicit about -- the reach
+# is written out below as this policy's own arm rather than inherited, so the
+# two kinds of pod go on being two rules that can be argued apart.
 #
 # The hazard runs the other way as well and is worse: a pod in this namespace
 # that NO policy selects is isolated in
