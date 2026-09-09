@@ -174,46 +174,23 @@
     branch = "main";
   };
 
+  # The two Apps' keys, which are files on this box and nowhere else. Which
+  # repositories they mint for is not a fact about this machine: it is
+  # `repositories.nix`, and a repository added there arrives here as its four
+  # tokens without this file changing.
   chuggy.githubAppTokens = {
     enable = true;
-    tokens = {
-      finalizer = {
+    apps = {
+      portal = {
         appId = "4708055";
-        installationId = "156333284";
-        repository = "chuggy";
-        permission = "write";
         privateKeyFile = "/var/lib/chuggy/secrets/github-app/chuggy-portal.pem";
-        secretName = "chuggy-github-finalizer-token";
-        namespaces = [ "chuggy" ];
-      };
-      reader = {
-        appId = "4708055";
-        installationId = "156333284";
-        repository = "chuggy";
-        permission = "read";
-        privateKeyFile = "/var/lib/chuggy/secrets/github-app/chuggy-portal.pem";
-        secretName = "chuggy-github-reader-token";
-        namespaces = [ "chuggy" ];
-      };
-      build-reader = {
-        appId = "4708055";
-        installationId = "156333284";
-        repository = "chuggy";
-        permission = "read";
-        privateKeyFile = "/var/lib/chuggy/secrets/github-app/chuggy-portal.pem";
-        secretName = "chuggy-build-source-read";
-        namespaces = [ "chuggy-build" ];
-        secretFormat = "git-basic-auth";
       };
       worker = {
         appId = "4728465";
-        installationId = "156786211";
-        repository = "chuggy";
-        permission = "write";
         privateKeyFile = "/var/lib/chuggy/secrets/github-app/chuggy-worker.pem";
-        secretName = "chuggy-github-worker-token";
-        namespaces = [ "chuggy-work" ];
       };
     };
+    repositories =
+      lib.mapAttrs (_: repository: repository.tokens) (import ../../repositories.nix);
   };
 }

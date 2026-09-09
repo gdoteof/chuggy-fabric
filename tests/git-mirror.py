@@ -1,28 +1,38 @@
 #!/usr/bin/env python3
 """Refuse a rendered cluster whose mirror sync moves something other than the
-repository a session is told to read.
+repositories a session is told to read.
 
 kasofsk/chuggy#554 is what this gate is the record of: the in-cluster mirror
 stood still while `kasofsk/chuggy`'s `main` moved, and every object involved
 read correctly on its own. A job that fetches and pushes is easy; a job that
-fetches and pushes THE RIGHT TWO REPOSITORIES is the part nothing else here
-would notice going wrong, because the URLs are written once in this job, once in
-the scheduler's mirrors map, once in its repositories map and once in the
-importer's script, and a run against the wrong pair succeeds.
+fetches and pushes THE RIGHT REPOSITORIES is the part nothing else here would
+notice going wrong, because each pair is written once in this job, once in the
+scheduler's mirrors map, once in its repositories map and once in the importer's
+list, and a run against the wrong pair succeeds.
 
-So nothing below is a URL literal. The pair this job moves must BE an entry of
+So nothing below is a URL literal. Every pair this job moves must BE an entry of
 `CHUG_SCHEDULER_SESSION_POLICY`'s `mirrors` map -- the map that decides what a
-session clones in place of its project's binding -- and the source must also be
-the repository the configuration importer pins a revision from. Those are the
-two halves of the defect: what a lead reads, and what its tickets are pinned to.
+session clones in place of its project's binding -- and every repository the
+importer pins revisions from must be one of the sources. Those are the two
+halves of the defect: what a lead reads, and what its tickets are pinned to.
+
+ONE JOB OVER A LIST, SO EVERY ASSERTION IS PER ENTRY. A second CronJob with two
+names changed would be a second schedule and a second policy, and this file
+would have to be told about it; a list is checked by iterating it, and an entry
+that is not in the site's maps is refused by the same code that refuses the
+first.
 
 A CREDENTIAL IS THREE OBJECTS AND EACH READS CORRECTLY ALONE. A URL carries a
-username, a projected volume carries a file, and an askpass helper cats a path.
+username, a projected volume carries a file, and the entry names which file.
 Get any one wrong and git prompts for a password on a terminal that does not
 exist, which is a hung run and not a message. So the three are resolved against
-each other, and the source's against the site's maps as well: its username
-against the repositories map, its secret and key against the credential mounts
-the scheduler declares.
+each other, and each source's against the site's own maps as well: its username
+against the repositories map, its file against the credential mount the
+scheduler declares for that repository's credential.
+
+THE SOURCE HELPER PRINTS NO LITERAL, and that is checked rather than assumed: it
+prints the file the run names for the entry it is on, so a literal path in it
+would be one repository's token served for every source.
 
 THE TARGET'S CREDENTIAL IS THE MIRROR'S OWN AND THE MAPS CANNOT RESOLVE IT.
 Pushing as the worker is what the first run of this job did, and the git
@@ -30,9 +40,16 @@ service's `pre-receive` hook refused it: `worker` may create an attempt-scoped
 ticket branch and nothing else. So the class below is a fourth one, named here
 because there is no site map that carries it -- and what IS resolved is that no
 credential the scheduler mounts into a worker or session pod is this one, and
-that the username a worker uses at this repository is not this one. Those two
+that the username a worker uses at these repositories is not this one. Those two
 are the header's claim that the pod holds a credential nothing else in its
 namespace holds, and they fail if either class is quietly given the other's.
+
+THE DEADLINE IS A FUNCTION OF THE LIST'S LENGTH. Every remote a run cannot reach
+costs the retry window in `head_of`, and a list long enough for those windows to
+exceed the Job's `activeDeadlineSeconds` is a run killed mid-fetch -- which is a
+mirror that stops moving and reports DeadlineExceeded rather than which remote
+failed. So the window is read out of the script, multiplied by the two remotes
+of every entry, and held under the deadline.
 
 A POD IN `chuggy-work` THAT NO POLICY SELECTS IS ISOLATED IN NEITHER DIRECTION,
 and one selected by two inherits the wider. Both are silent. So the policies are
@@ -42,10 +59,11 @@ arms reaching the same ports rather than written here -- the same relative
 expectation `session-placement.py` makes, and for the same reason.
 
 WHAT THIS GATE CANNOT SEE. It says nothing about which refs the hook admits the
-mirror's credential to move: that hook is on a repository this tree does not
-declare, `deploy/rig/git/` in kasofsk/chuggy is where it is written, and a run
-on the rig is what answers it. It says nothing about whether the Secret named
-below exists in the namespace yet. It says nothing about the schedule being
+mirror's credential to move, nor about whether a bare repository exists on the
+service at all: that hook and those repositories are on a service this tree does
+not declare, `deploy/rig/git/` in kasofsk/chuggy is where it is written, and a
+run on the rig is what answers it. It says nothing about whether the Secrets
+named below exist in the namespace yet. It says nothing about the schedule being
 often enough. And two things are written here rather than resolved: the branch,
 which the importer names inside a shell script, so there is nothing structural
 to compare against, and the mirror's class, for the reason above.
@@ -67,11 +85,11 @@ SESSION_POLICY_VARIABLE = "CHUG_SCHEDULER_SESSION_POLICY"
 SESSION_ENVIRONMENT_VARIABLE = "CHUG_SCHEDULER_SESSION_ENVIRONMENT"
 CREDENTIAL_MOUNTS_VARIABLE = "CHUG_SCHEDULER_WORKER_CREDENTIAL_MOUNTS"
 REPOSITORIES_VARIABLE = "CHUG_WORKER_REPOSITORIES"
-IMPORT_REPOSITORY_VARIABLE = "CHUG_CONFIGURATION_IMPORT_REPOSITORY"
+IMPORT_REPOSITORIES_VARIABLE = "CHUG_CONFIGURATION_IMPORT_REPOSITORIES"
 
-SOURCE_VARIABLE = "CHUG_GIT_MIRROR_SOURCE"
-TARGET_VARIABLE = "CHUG_GIT_MIRROR_TARGET"
+MIRROR_REPOSITORIES_VARIABLE = "CHUG_GIT_MIRROR_REPOSITORIES"
 BRANCH_VARIABLE = "CHUG_GIT_MIRROR_BRANCH"
+SOURCE_CREDENTIAL_VARIABLE = "CHUG_GIT_MIRROR_SOURCE_CREDENTIAL"
 
 CREDENTIAL_ROOT = "/var/run/chuggy/credentials"
 CREDENTIAL_PATH = re.compile(r"/var/run/chuggy/credentials/[A-Za-z0-9._-]+")
@@ -83,7 +101,7 @@ MIRROR_USERNAME = "mirror"
 MIRROR_SECRET = ("chuggy-git-mirror", "password")
 
 # Where this pod may go, as (protocol, port): the resolver, the git service that
-# carries the mirror, and public HTTPS for the source. The set is exact, so
+# carries the mirrors, and public HTTPS for the sources. The set is exact, so
 # gaining a destination is a finding rather than a silent widening -- and what
 # it must NOT gain is the rest of what its namespace permits its neighbours,
 # which is PostgreSQL, the worker plane and the API.
@@ -129,6 +147,23 @@ def variable(container, name, owner):
     return value
 
 
+def rows(value, columns, owner):
+    """The non-empty lines of a configured list, each split into exactly the
+    columns named. A line of another shape is one the run itself reports and
+    fails on, so a render carrying one is refused here instead."""
+    parsed = []
+    for line in value.splitlines():
+        fields = line.split()
+        if not fields:
+            continue
+        if len(fields) != len(columns):
+            refuse(f"{owner} carries {line.strip()!r}, which is not {', '.join(columns)}")
+        parsed.append(dict(zip(columns, fields)))
+    if not parsed:
+        refuse(f"{owner} carries no entries, so nothing is followed")
+    return parsed
+
+
 def ports(rule, owner):
     if "ports" not in rule:
         refuse(f"a {owner} rule names no ports, which admits every port")
@@ -156,11 +191,11 @@ def split_userinfo(url, owner):
     return parts.username, urlunsplit((parts.scheme, host, parts.path, parts.query, parts.fragment))
 
 
-def credential_file(script, helper):
-    found = CREDENTIAL_PATH.findall(script)
+def only_number(pattern, script, description):
+    found = re.findall(pattern, script)
     if len(found) != 1:
-        refuse(f"{helper} names {len(found)} credential files, wanted one")
-    return found[0]
+        refuse(f"sync.sh states {description} {len(found)} times, wanted once")
+    return int(found[0])
 
 
 def projected_path(container, volumes, wanted, owner):
@@ -267,7 +302,7 @@ def main():
     if reached != EGRESS:
         refuse(f"the sync pod reaches {sorted(reached)}, expected {sorted(EGRESS)}")
 
-    # 4. The pair it moves is a pair the scheduler tells a session to read.
+    # 4. What the site says exists, and what a session is told to clone.
     scheduler = one(documents, "Deployment", "chuggy-scheduler", CONTROL)
     scheduling = sole_container(scheduler["spec"]["template"]["spec"], "chuggy-scheduler")
     session_policy = json.loads(variable(scheduling, SESSION_POLICY_VARIABLE, "the scheduler"))
@@ -281,91 +316,100 @@ def main():
     )
     mounts = json.loads(variable(scheduling, CREDENTIAL_MOUNTS_VARIABLE, "the scheduler"))
 
-    source_user, source = split_userinfo(
-        variable(container, SOURCE_VARIABLE, JOB), SOURCE_VARIABLE
-    )
-    target_user, target = split_userinfo(
-        variable(container, TARGET_VARIABLE, JOB), TARGET_VARIABLE
-    )
-    if mirrors.get(source) != target:
-        refuse(
-            f"this job keeps {target} equal to {source}; the session policy mirrors "
-            f"{json.dumps(mirrors)}, and a mirror nothing moves is #554"
-        )
-
-    # 5. The source is the repository a project's configuration is pinned from.
-    #    A mirror kept equal to some other tree is the same defect with a
-    #    different URL in it.
-    importer = one(documents, "CronJob", IMPORTER, CONTROL)
-    importing = sole_container(
-        importer["spec"]["jobTemplate"]["spec"]["template"]["spec"], IMPORTER
-    )
-    imported = variable(importing, IMPORT_REPOSITORY_VARIABLE, "the importer")
-    if imported != source:
-        refuse(f"this job follows {source}; the importer pins revisions from {imported}")
-
-    # 6. The branch. The importer resolves it inside a shell script, so this one
-    #    assertion is a text comparison: there is nothing structural to hold it
-    #    against, and what it buys is that the two cannot name different branches.
-    branch = variable(container, BRANCH_VARIABLE, JOB)
-    import_script = one(documents, "ConfigMap", IMPORTER, CONTROL)["data"]["import.sh"]
-    if f"refs/heads/{branch}" not in import_script:
-        refuse(f"this job keeps {branch} equal; the importer's script resolves another branch")
-
-    # 7. The source's username, secret and file, which are three objects that
-    #    each read correctly alone, resolved against the site's own maps.
     volumes = pod.get("volumes", [])
     scripts = one(documents, "ConfigMap", JOB, WORK)["data"]
 
-    def helper_serves(role):
-        """The (secret, key) the role's askpass helper actually prints."""
-        helper = f"{role}-askpass.sh"
-        if helper not in scripts:
-            refuse(f"the sync ConfigMap carries no {helper}")
-        wanted = credential_file(scripts[helper], helper)
-        if not wanted.startswith(CREDENTIAL_ROOT + "/"):
-            refuse(f"{helper} reads {wanted}, which is outside {CREDENTIAL_ROOT}")
-        return helper, wanted, projected_path(container, volumes, wanted, JOB)
+    # 5. The source helper prints the run's file and no literal, so one entry's
+    #    token cannot be served for every source.
+    helper = "source-askpass.sh"
+    if helper not in scripts:
+        refuse(f"the sync ConfigMap carries no {helper}")
+    literal = CREDENTIAL_PATH.findall(scripts[helper])
+    if literal:
+        refuse(f"{helper} prints {literal[0]}, so every source is served one entry's credential")
+    if f"${SOURCE_CREDENTIAL_VARIABLE}" not in scripts[helper]:
+        refuse(f"{helper} does not print the file {SOURCE_CREDENTIAL_VARIABLE} names")
+    sync = scripts.get("sync.sh")
+    if sync is None:
+        refuse("the sync ConfigMap carries no sync.sh")
+    if f'{SOURCE_CREDENTIAL_VARIABLE}="$credentials/$3"' not in sync:
+        refuse(f"sync.sh does not set {SOURCE_CREDENTIAL_VARIABLE} from the entry's own column")
+    if f"credentials={CREDENTIAL_ROOT}\n" not in sync:
+        refuse(f"sync.sh reads its credentials from somewhere other than {CREDENTIAL_ROOT}")
 
-    entry = repositories.get(source)
-    if entry is None:
-        refuse(f"the source {source} is not a repository the site's map carries")
-    if source_user != entry["credentialUsername"]:
-        refuse(
-            f"the source URL authenticates as {source_user!r}; the site's map says "
-            f"{entry['credentialUsername']!r}"
-        )
-    mount = mounts.get(entry["credential"])
-    if mount is None:
-        refuse(f"the source's credential {entry['credential']} has no mount to take it from")
-    helper, wanted, served = helper_serves("source")
-    if served != (mount["secretName"], mount["key"]):
-        refuse(
-            f"{helper} reads {wanted}, which this pod fills from {served}; the site's "
-            f"map says {entry['credential']} is {mount['secretName']}/{mount['key']}"
-        )
+    # 6. Every pair this job moves is a pair the scheduler tells a session to
+    #    read, and each source's three credential objects agree with the site's
+    #    own maps.
+    entries = rows(
+        variable(container, MIRROR_REPOSITORIES_VARIABLE, JOB),
+        ("source", "target", "credential"),
+        MIRROR_REPOSITORIES_VARIABLE,
+    )
+    followed = set()
+    for entry in entries:
+        source_user, source = split_userinfo(entry["source"], "a mirror source")
+        target_user, target = split_userinfo(entry["target"], "a mirror target")
+        followed.add(source)
+        if mirrors.get(source) != target:
+            refuse(
+                f"this job keeps {target} equal to {source}; the session policy mirrors "
+                f"{json.dumps(mirrors)}, and a mirror nothing moves is #554"
+            )
 
-    # 8. The target's three, which are the mirror's own class. The site's maps
-    #    bind this repository to the worker, and the worker is exactly who the
-    #    hook refuses on `main` -- so here the maps say what this must NOT be.
-    binding = repositories.get(target)
-    if binding is None:
-        refuse(f"the target {target} is not a repository the site's map carries")
-    if target_user != MIRROR_USERNAME:
-        refuse(
-            f"the target URL authenticates as {target_user!r}; this job pushes as "
-            f"{MIRROR_USERNAME!r}, which is the class the git service's hook admits to `main`"
-        )
-    if target_user == binding["credentialUsername"]:
-        refuse(
-            f"the site's map gives a session {target_user!r} at {target}, so the mirror's "
-            "class and the worker's have become one credential"
-        )
-    helper, wanted, served = helper_serves("target")
+        binding = repositories.get(source)
+        if binding is None:
+            refuse(f"the source {source} is not a repository the site's map carries")
+        if source_user != binding["credentialUsername"]:
+            refuse(
+                f"the source URL for {source} authenticates as {source_user!r}; the site's "
+                f"map says {binding['credentialUsername']!r}"
+            )
+        mount = mounts.get(binding["credential"])
+        if mount is None:
+            refuse(
+                f"the credential {binding['credential']} the site's map gives {source} has "
+                "no mount to take it from"
+            )
+        wanted = f"{CREDENTIAL_ROOT}/{entry['credential']}"
+        served = projected_path(container, volumes, wanted, JOB)
+        if served != (mount["secretName"], mount["key"]):
+            refuse(
+                f"{source} is followed with {wanted}, which this pod fills from {served}; "
+                f"the site's map says {binding['credential']} is "
+                f"{mount['secretName']}/{mount['key']}"
+            )
+
+        # 7. The target's, which are the mirror's own class. The site's maps
+        #    bind this repository to the worker, and the worker is exactly who
+        #    the hook refuses on `main` -- so here the maps say what this must
+        #    NOT be.
+        mirrored = repositories.get(target)
+        if mirrored is None:
+            refuse(f"the target {target} is not a repository the site's map carries")
+        if target_user != MIRROR_USERNAME:
+            refuse(
+                f"the target URL for {target} authenticates as {target_user!r}; this job "
+                f"pushes as {MIRROR_USERNAME!r}, which is the class the git service's hook "
+                "admits to `main`"
+            )
+        if target_user == mirrored["credentialUsername"]:
+            refuse(
+                f"the site's map gives a session {target_user!r} at {target}, so the mirror's "
+                "class and the worker's have become one credential"
+            )
+
+    # 8. The target helper is one file for every entry, and it is the mirror's.
+    helper = "target-askpass.sh"
+    if helper not in scripts:
+        refuse(f"the sync ConfigMap carries no {helper}")
+    literal = CREDENTIAL_PATH.findall(scripts[helper])
+    if len(literal) != 1:
+        refuse(f"{helper} names {len(literal)} credential files, wanted one")
+    served = projected_path(container, volumes, literal[0], JOB)
     if served != MIRROR_SECRET:
         refuse(
-            f"{helper} reads {wanted}, which this pod fills from {served}; the mirror pushes "
-            f"with {MIRROR_SECRET[0]}/{MIRROR_SECRET[1]} and nothing else"
+            f"{helper} reads {literal[0]}, which this pod fills from {served}; the mirror "
+            f"pushes with {MIRROR_SECRET[0]}/{MIRROR_SECRET[1]} and nothing else"
         )
     # Every credential a worker or session pod can hold is a mount the scheduler
     # declares, so this is the whole of "no other pod in this namespace holds
@@ -377,6 +421,48 @@ def main():
                 f"the scheduler mounts {MIRROR_SECRET[0]}/{MIRROR_SECRET[1]} as {name}, so every "
                 "worker and session pod holds the mirror's credential too"
             )
+
+    # 9. Every repository a project's configuration is pinned from is one this
+    #    job follows. A mirror kept equal to some other tree is #554 with a
+    #    different URL in it; a repository imported and not followed is #554
+    #    itself.
+    importer = one(documents, "CronJob", IMPORTER, CONTROL)
+    importing = sole_container(
+        importer["spec"]["jobTemplate"]["spec"]["template"]["spec"], IMPORTER
+    )
+    imported = {
+        row["repository"]
+        for row in rows(
+            variable(importing, IMPORT_REPOSITORIES_VARIABLE, "the importer"),
+            ("repository", "credential"),
+            IMPORT_REPOSITORIES_VARIABLE,
+        )
+    }
+    missing = sorted(imported - followed)
+    if missing:
+        refuse(f"the importer pins revisions from {missing}, which this job does not follow")
+
+    # 10. The branch. The importer resolves it inside a shell script, so this
+    #     one assertion is a text comparison: there is nothing structural to
+    #     hold it against, and what it buys is that the two cannot name
+    #     different branches.
+    branch = variable(container, BRANCH_VARIABLE, JOB)
+    import_script = one(documents, "ConfigMap", IMPORTER, CONTROL)["data"]["import.sh"]
+    if f"refs/heads/{branch}" not in import_script:
+        refuse(f"this job keeps {branch} equal; the importer's script resolves another branch")
+
+    # 11. The deadline covers every entry's two remotes refusing to answer,
+    #     read out of the retry window this script actually declares.
+    attempts = only_number(r'"\$attempt" -ge ([0-9]+)', sync, "its attempt ceiling")
+    timeout = only_number(r"timeout ([0-9]+)s", sync, "its per-attempt timeout")
+    backoff = only_number(r"sleep ([0-9]+)", sync, "its backoff")
+    window = attempts * timeout + (attempts - 1) * backoff
+    deadline = job["spec"]["jobTemplate"]["spec"]["activeDeadlineSeconds"]
+    if deadline <= 2 * len(entries) * window:
+        refuse(
+            f"{len(entries)} repositories are followed and each remote's window is {window}s, "
+            f"so a run reaching none of them outlives activeDeadlineSeconds: {deadline}"
+        )
 
 
 main()

@@ -1,7 +1,22 @@
 # Repository declarations become available without a browser action. This is
 # deliberately separate from the host-local Git mirror writer: the importer
-# can read one repository and write configuration history, but it cannot move
-# a ref in either the internal repository or GitHub.
+# can read the repositories it is given and write configuration history, but it
+# cannot move a ref in either the internal repository or GitHub.
+#
+# ONE RUN A REPOSITORY, OVER A LIST, AND TODAY THAT LIST HAS ONE ENTRY. Each
+# entry is a repository and the file its GitHub token is read from; the run
+# resolves that repository's own head and imports at it, so two repositories
+# are two commits rather than one commit asserted of both.
+#
+# WHY THE LIST IS SHORTER THAN `repositories.nix`. The command takes one commit
+# for every partition it is given and resolves each partition's repository from
+# that project's binding, so a project bound to two repositories has no commit
+# that means both -- and a second entry here would resolve the wrong tree for
+# whichever partition it is not. kasofsk/chuggy's step, the importer taking a
+# repository with the commit, is what makes a second entry correct; the entry
+# and the roster's `imported` beside it are the whole of that follow-up.
+# `tests/github-repository-transition.py` holds this list equal to the
+# repositories the roster marks imported, so neither can move without the other.
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -11,54 +26,112 @@ metadata:
 data:
   askpass.sh: |
     #!/bin/sh
+    # The password file is the run's, not the prompt's: import.sh names the
+    # repository's own token before it invokes git, and unset is a failure
+    # rather than an empty password.
     case "$1" in
-      *Username*) printf '%s\n' x-access-token ;;
-      *Password*) cat /var/run/chuggy/repository-credentials/chuggy-github ;;
+      *Username*) printf '%s\n' x-access-token; exit 0 ;;
+      *Password*) ;;
       *) exit 1 ;;
     esac
+    : "${CHUG_CONFIGURATION_IMPORT_CREDENTIAL:?no credential is named for this run}"
+    exec cat "$CHUG_CONFIGURATION_IMPORT_CREDENTIAL"
   import.sh: |
     #!/bin/sh
     set -eu
 
-    repository=https://github.com/kasofsk/chuggy.git
+    : "${CHUG_CONFIGURATION_IMPORT_REPOSITORIES:?the repositories to import are unset}"
+
+    credentials=/var/run/chuggy/repository-credentials
     export GIT_CONFIG_GLOBAL=/dev/null
     export GIT_CONFIG_NOSYSTEM=1
     export GIT_TERMINAL_PROMPT=0
     export GIT_ASKPASS=/opt/chuggy-configuration-importer/askpass.sh
 
-    for i in $(seq 1 15); do
-      timeout 3s git ls-remote --exit-code "$repository" refs/heads/main >/dev/null 2>&1 && break
-      [ "$i" -lt 15 ] || exit 1
-      sleep 2
-    done
+    # One entry: wait for the repository to answer, resolve its own head, and
+    # import that repository's declarations at it. Every failure is returned
+    # rather than left to `set -e`, because the caller below tests this
+    # function's status and that runs its body with errexit ignored.
+    import_one() {
+      repository="$1"
+      CHUG_CONFIGURATION_IMPORT_CREDENTIAL="$credentials/$2"
+      export CHUG_CONFIGURATION_IMPORT_CREDENTIAL
+      if [ ! -r "$CHUG_CONFIGURATION_IMPORT_CREDENTIAL" ]; then
+        echo "configuration importer: $repository has no readable credential at $CHUG_CONFIGURATION_IMPORT_CREDENTIAL" >&2
+        return 2
+      fi
 
-    commit="$(git ls-remote --exit-code "$repository" refs/heads/main | awk 'NR == 1 { print $1 }')"
-    case "$commit" in
-      [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
-      *) echo "configuration importer: GitHub main did not resolve to one full SHA-1" >&2; exit 2 ;;
-    esac
+      for i in $(seq 1 15); do
+        timeout 3s git ls-remote --exit-code "$repository" refs/heads/main >/dev/null 2>&1 && break
+        [ "$i" -lt 15 ] || return 1
+        sleep 2
+      done
 
-    export CHUG_CONFIGURATION_IMPORT_COMMIT="$commit"
-    CHUG_CONFIGURATION_IMPORT_CONFIG="$(node -e '
-      const repository = process.env.CHUG_CONFIGURATION_IMPORT_REPOSITORY;
-      process.stdout.write(JSON.stringify({
-        database: { url: process.env.CHUG_CONFIGURATION_IMPORT_DATABASE_URL },
-        git: {
-          scratchDirectory: "/var/lib/chuggy/git",
-          credentialSources: [{
-            repository,
-            path: "/var/run/chuggy/repository-credentials/chuggy-github",
-          }],
-          credentialUsername: "x-access-token",
-          localTimeoutSecsMax: 120,
-          remoteTimeoutSecsMax: 120,
-        },
-        commit: process.env.CHUG_CONFIGURATION_IMPORT_COMMIT,
-        partitions: [{ tenant: "vteng", project: "chuggy" }],
-      }));
-    ')"
-    export CHUG_CONFIGURATION_IMPORT_CONFIG
-    exec node --experimental-strip-types src/roots/configurationImporter.ts
+      commit="$(git ls-remote --exit-code "$repository" refs/heads/main | awk 'NR == 1 { print $1 }')" || return 1
+      case "$commit" in
+        [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+        *) echo "configuration importer: $repository main did not resolve to one full SHA-1" >&2; return 2 ;;
+      esac
+
+      CHUG_CONFIGURATION_IMPORT_REPOSITORY="$repository"
+      CHUG_CONFIGURATION_IMPORT_COMMIT="$commit"
+      export CHUG_CONFIGURATION_IMPORT_REPOSITORY CHUG_CONFIGURATION_IMPORT_COMMIT
+      CHUG_CONFIGURATION_IMPORT_CONFIG="$(node -e '
+        process.stdout.write(JSON.stringify({
+          database: { url: process.env.CHUG_CONFIGURATION_IMPORT_DATABASE_URL },
+          git: {
+            scratchDirectory: "/var/lib/chuggy/git",
+            credentialSources: [{
+              repository: process.env.CHUG_CONFIGURATION_IMPORT_REPOSITORY,
+              path: process.env.CHUG_CONFIGURATION_IMPORT_CREDENTIAL,
+            }],
+            credentialUsername: "x-access-token",
+            localTimeoutSecsMax: 120,
+            remoteTimeoutSecsMax: 120,
+          },
+          commit: process.env.CHUG_CONFIGURATION_IMPORT_COMMIT,
+          partitions: [{ tenant: "vteng", project: "chuggy" }],
+        }));
+      ')" || return 1
+      export CHUG_CONFIGURATION_IMPORT_CONFIG
+      node --experimental-strip-types src/roots/configurationImporter.ts || return 1
+    }
+
+    list=/var/lib/chuggy/git/repositories
+    printf '%s\n' "$CHUG_CONFIGURATION_IMPORT_REPOSITORIES" > "$list"
+
+    entries=0
+    failed=0
+    malformed=0
+    while read -r repository credential surplus; do
+      [ -n "$repository" ] || continue
+      entries=$((entries + 1))
+      if [ -z "$credential" ] || [ -n "$surplus" ]; then
+        echo "configuration importer: '$repository $credential $surplus' is not a repository and a credential" >&2
+        malformed=1
+        continue
+      fi
+      case "$credential" in
+        */*|..|.)
+          echo "configuration importer: $repository names $credential, which is not a file in $credentials" >&2
+          malformed=1
+          continue
+          ;;
+      esac
+      import_one "$repository" "$credential" < /dev/null || failed=1
+    done < "$list"
+
+    # A list this run could not read and an import that ran and failed are told
+    # apart the way the rest of this rig tells them apart: 2 is a run that never
+    # happened, 1 is a run that did and failed.
+    if [ "$entries" -eq 0 ]; then
+      echo "configuration importer: no repositories are configured, so nothing is imported" >&2
+      exit 2
+    fi
+    if [ "$malformed" -ne 0 ]; then
+      exit 2
+    fi
+    exit "$failed"
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -128,8 +201,11 @@ spec:
                       key: configuration-importer-password
                 - name: CHUG_CONFIGURATION_IMPORT_DATABASE_URL
                   value: postgres://chuggy_configuration_importer_login:$(CHUG_CONFIGURATION_IMPORTER_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy
-                - name: CHUG_CONFIGURATION_IMPORT_REPOSITORY
-                  value: https://github.com/kasofsk/chuggy.git
+                # One line a repository: the repository, and the file
+                # under the credential root its GitHub token is read from.
+                - name: CHUG_CONFIGURATION_IMPORT_REPOSITORIES
+                  value: |
+                    https://github.com/kasofsk/chuggy.git chuggy-github
               volumeMounts:
                 - name: scripts
                   mountPath: /opt/chuggy-configuration-importer

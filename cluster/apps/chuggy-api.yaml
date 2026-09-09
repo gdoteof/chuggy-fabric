@@ -315,6 +315,11 @@ spec:
               value: /var/lib/chuggy/artifacts
             - name: CHUG_API_GIT_SCRATCH_ROOT
               value: /var/lib/chuggy/git
+            # Two entries a repository, and every repository
+            # `repositories.nix` carries: the in-cluster mirror, whose
+            # credential is the git service's own and is one file however many
+            # repositories it serves, and the forge, whose credential is that
+            # repository's own GitHub App token.
             - name: CHUG_API_REPOSITORY_CREDENTIAL_SOURCES
               value: |
                 [
@@ -325,6 +330,14 @@ spec:
                   {
                     "repository": "https://github.com/kasofsk/chuggy.git",
                     "path": "/var/run/chuggy/repository-credentials/chuggy-github"
+                  },
+                  {
+                    "repository": "http://git.chuggy-git.svc.cluster.local./chuggy-fabric.git",
+                    "path": "/var/run/chuggy/repository-credentials/chuggy-git"
+                  },
+                  {
+                    "repository": "https://github.com/gdoteof/chuggy-fabric.git",
+                    "path": "/var/run/chuggy/repository-credentials/chuggy-fabric-github"
                   }
                 ]
             # The image already sets this. Repeated because the source default
@@ -474,6 +487,11 @@ spec:
                   items:
                     - key: token
                       path: chuggy-github
+              - secret:
+                  name: chuggy-fabric-github-reader-token
+                  items:
+                    - key: token
+                      path: chuggy-fabric-github
 ---
 apiVersion: v1
 kind: Service
