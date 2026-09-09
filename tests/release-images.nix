@@ -7,39 +7,66 @@ pkgs.runCommand "chuggy-release-images" {
   cp -R ${../cluster/apps} manifests
   chmod -R u+w manifests
   check=${../scripts/check-release-consistency}
-  run_check() {
-    python3 "$check" "$1"
+
+  # A refusal exits the script's own REFUSAL code and nothing else does, which
+  # is what lets `.chug/tasks/ci.sh` tell a refused release from a script it
+  # could not run. The code is as much of the contract as the message.
+  refused() {
+    set +e
+    python3 "$check" "$1" 2>"$1-error"
+    got=$?
+    set -e
+    if [ "$got" != 3 ]; then
+      echo "$1: expected the refusal exit 3, got $got" >&2
+      cat "$1-error" >&2
+      exit 1
+    fi
+    grep -F "$2" "$1-error"
   }
 
-  run_check manifests
+  python3 "$check" manifests
   test "$(grep -Fc 'credentialReference:' manifests/chuggy-ticket-service.yaml || true)" -eq 0
+
+  set +e
+  python3 "$check" 2>usage-error
+  got=$?
+  set -e
+  if [ "$got" != 3 ]; then
+    echo "no manifest directory: expected the refusal exit 3, got $got" >&2
+    cat usage-error >&2
+    exit 1
+  fi
+  grep -F 'usage: check-release-consistency APP_MANIFEST_DIRECTORY' usage-error
+
+  # Retiring or renaming a component is how a manifest the check names stops
+  # being in the directory, and the check has to say so rather than raise: a
+  # traceback reaches the caller as a script it could not run.
+  cp -R manifests retired-component
+  rm retired-component/chuggy-selector.yaml
+  refused retired-component 'the release does not carry retired-component/chuggy-selector.yaml'
+
+  # Every value the check compares is read through one_match, which refuses a
+  # manifest naming its image or its commit twice rather than taking the first.
+  cp -R manifests duplicate-image
+  duplicate=$(grep -E '^[ \t]*image: registry\.chuggy\.internal/chuggy/api@sha256:' \
+    duplicate-image/chuggy-api.yaml)
+  printf '%s\n' "$duplicate" >>duplicate-image/chuggy-api.yaml
+  refused duplicate-image 'chuggy-api.yaml image: expected one match, found 2'
 
   cp -R manifests mixed-digest
   sed -i '0,/sha256:/s/sha256:[0-9a-f]*/sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/' \
     mixed-digest/chuggy-api.yaml
-  if run_check mixed-digest 2>mixed-digest-error; then
-    echo "accepted mixed control-plane image digests" >&2
-    exit 1
-  fi
-  grep -F 'control-plane manifests do not select one API image digest' mixed-digest-error
+  refused mixed-digest 'control-plane manifests do not select one API image digest'
 
   cp -R manifests mixed-source
   sed -i '0,/source-commit:/s/source-commit: .*/source-commit: abcdef0/' \
     mixed-source/chuggy-web.yaml
-  if run_check mixed-source 2>mixed-source-error; then
-    echo "accepted mixed release source commits" >&2
-    exit 1
-  fi
-  grep -F 'release manifests do not identify one source commit' mixed-source-error
+  refused mixed-source 'release manifests do not identify one source commit'
 
   cp -R manifests mixed-console-source
   sed -i '0,/source-commit:/s/source-commit: .*/source-commit: abcdef0/' \
     mixed-console-source/chuggy-ui.yaml
-  if run_check mixed-console-source 2>mixed-console-source-error; then
-    echo "accepted a second console at another source commit" >&2
-    exit 1
-  fi
-  grep -F 'release manifests do not identify one source commit' mixed-console-source-error
+  refused mixed-console-source 'release manifests do not identify one source commit'
 
   cp -R manifests shared-console-digest
   shared=sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -47,21 +74,14 @@ pkgs.runCommand "chuggy-release-images" {
     sed -i "0,/chuggy\/web@sha256:/s|chuggy/web@sha256:[0-9a-f]*|chuggy/web@$shared|" \
       "shared-console-digest/$console.yaml"
   done
-  if run_check shared-console-digest 2>shared-console-digest-error; then
-    echo "accepted one web image digest serving both consoles" >&2
-    exit 1
-  fi
-  grep -F 'console manifests select one web image digest for both consoles' \
-    shared-console-digest-error
+  refused shared-console-digest \
+    'console manifests select one web image digest for both consoles'
 
   cp -R manifests stale-migration
   sed -i '0,/name: chuggy-migrate-/s/name: chuggy-migrate-[a-z0-9-]*/name: chuggy-migrate-abcdef0-registry/' \
     stale-migration/chuggy-migrate.yaml
-  if run_check stale-migration 2>stale-migration-error; then
-    echo "accepted a stale migration Job identity" >&2
-    exit 1
-  fi
-  grep -F 'migration Job identity does not match the release source commit' stale-migration-error
+  refused stale-migration \
+    'migration Job identity does not match the release source commit'
 
   touch "$out"
 ''

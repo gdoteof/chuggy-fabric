@@ -21,8 +21,15 @@ DIGEST = r"sha256:[0-9a-f]{64}"
 SOURCE_COMMIT = r"[0-9a-f]{7,40}"
 
 
+# A refusal exits REFUSAL rather than 1, which is also what an uncaught
+# exception here exits with. A caller that cannot tell the two apart reports a
+# script it could not run as a release inconsistency.
+REFUSAL = 3
+
+
 def refuse(message):
-    raise SystemExit(message)
+    print(message, file=sys.stderr)
+    raise SystemExit(REFUSAL)
 
 
 def one_match(pattern, content, description):
@@ -33,6 +40,11 @@ def one_match(pattern, content, description):
 
 
 def manifest_values(path, repository):
+    # Retiring or renaming a component leaves the lists above naming a file the
+    # tree no longer carries, which is a fact about the release rather than a
+    # script that could not run.
+    if not path.is_file():
+        refuse(f"the release does not carry {path}")
     content = path.read_text()
     digest = one_match(
         rf"^[ \t]*image: registry\.chuggy\.internal/chuggy/{repository}@({DIGEST})[ \t]*$",

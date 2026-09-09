@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "name": "fabric-change",
+  "configuration": {
+    "version": 1,
+    "image": "registry.chuggy.internal/chuggy/worker@sha256:7d9397bad9d1174314a83be8d5aaad1a0e2aa83af767b7892aa789d23ced2362",
+    "authority": {
+      "tools": ["claude-code", "shell"],
+      "credentials": ["chuggy-github-worker", "claude-code"],
+      "network": true,
+      "filesystem": "WriteWorkspace",
+      "mayCompleteTask": false
+    },
+    "worker": {
+      "mode": {
+        "type": "SingleAgent",
+        "agent": "Claude",
+        "arguments": ["--allowedTools=Bash,Edit,Read,Write,Glob,Grep"]
+      },
+      "setup": [],
+      "files": []
+    },
+    "brief": {
+      "motivation": [
+        "Change the fabric that runs Chuggy by hand: its NixOS hosts and modules, its cluster declarations, and the scripts that generate the rest."
+      ],
+      "acceptanceCriteria": [
+        "The ticket-specific acceptance criteria are satisfied, and the release manifests still identify one source."
+      ],
+      "constraints": [
+        "Read AGENTS.md and .chug/tasks/review-change.md before changing the repository.",
+        "Generate build requests and image deployment changes with the scripts in scripts/; never edit one in place.",
+        "Do not rebuild or switch a host, reconcile Flux, apply manifests, restart infrastructure, reset data, or deploy."
+      ]
+    },
+    "practices": ["RegressionCoverage", "AcceptanceCriteria"],
+    "work": {
+      "instructions": [
+        "Implement the requested change and extend the fabric's own checks to cover what it adds.",
+        "Run .chug/tasks/ci.sh, and report which nix flake check entries the change still needs run: that command does not run them."
+      ]
+    },
+    "review": { "instructions": [] },
+    "evaluations": [
+      {
+        "purpose": "Check",
+        "checks": [".chug/tasks/ci.sh"]
+      },
+      {
+        "purpose": "Review",
+        "instructions": [
+          "Read .chug/tasks/review-change.md and review the change exactly as that brief requires."
+        ],
+        "practices": ["ChangedCallPaths", "AcceptanceCriteria"]
+      }
+    ]
+  }
+}

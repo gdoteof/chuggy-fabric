@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "name": "fabric-rollout",
+  "configuration": {
+    "version": 1,
+    "image": "registry.chuggy.internal/chuggy/worker@sha256:7d9397bad9d1174314a83be8d5aaad1a0e2aa83af767b7892aa789d23ced2362",
+    "authority": {
+      "tools": ["claude-code", "shell"],
+      "credentials": ["chuggy-github-worker", "claude-code"],
+      "network": true,
+      "filesystem": "WriteWorkspace",
+      "mayCompleteTask": false
+    },
+    "worker": {
+      "mode": {
+        "type": "SingleAgent",
+        "agent": "Claude",
+        "arguments": ["--allowedTools=Bash,Edit,Read,Write,Glob,Grep"]
+      },
+      "setup": [],
+      "files": []
+    },
+    "brief": {
+      "motivation": [
+        "Land a rollout the release scripts generated: image digests, source-commit annotations, and the migrate Job named for that commit."
+      ],
+      "acceptanceCriteria": [
+        "The diff is script output and nothing else, and every manifest in it names one source."
+      ],
+      "constraints": [
+        "Regenerate manifest content with the scripts in scripts/; do not hand-write it.",
+        "Do not reconcile Flux, apply manifests, restart infrastructure, reset data, or deploy."
+      ]
+    },
+    "practices": ["AcceptanceCriteria"],
+    "work": {
+      "instructions": [
+        "Produce the rollout with the release scripts, and change nothing they did not write."
+      ]
+    },
+    "review": { "instructions": [] },
+    "evaluations": [
+      {
+        "purpose": "Check",
+        "checks": [".chug/tasks/ci.sh"]
+      }
+    ]
+  }
+}
