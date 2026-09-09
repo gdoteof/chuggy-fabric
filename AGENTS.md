@@ -8,6 +8,9 @@ ownership boundaries, deployment sequence, recovery path, and required checks.
 
 - `hosts/` contains facts specific to a machine. Shared host behaviour and Nix
   options belong in `modules/`.
+- `repositories.nix` declares the repositories this site carries. A repository
+  is added there once; the `github-repository-transition` check is what holds
+  every manifest and the host's tokens to it.
 - `cluster/` is Flux-managed Kubernetes state. `main` is live, so merging a
   manifest change is a deployment action.
 - `builds/` contains immutable Shipwright requests pinned to full source commits.
@@ -21,13 +24,17 @@ ownership boundaries, deployment sequence, recovery path, and required checks.
 
 Two GitHub Apps divide control-plane authority from workload authority:
 
-- **Chuggy Portal** is the control-plane App. It issues repository-scoped tokens
-  used for read-only source access and finalization. The `Finalizer owns main`
-  repository ruleset reserves updates to protected `main` branches for this App;
-  a human administrator token is intentionally not a substitute.
+- **Chuggy Portal** is the control-plane App. It issues repository-scoped
+  tokens used for read-only source access and finalization. A repository
+  ruleset reserves updates to each carried repository's protected `main`
+  branch to this App and repository admins -- `Finalizer owns main` on
+  gdoteof/chuggy-fabric admits only those two; `chuggy portal + admins own
+  main` on kasofsk/chuggy also admits its organization admins -- and a human
+  administrator token is intentionally not a substitute for any of them.
 - **Chuggy Worker** is the execution-plane App. Workers use its scoped tokens for
   ticket branches and handoff work. It must not receive finalizer authority or
-  update protected `main` branches.
+  update a protected `main` branch on any carried repository -- the ruleset
+  above is what refuses it if it tries.
 
 `modules/github-app-token.nix` mints short-lived installation tokens from
 root-only host key files and projects them into narrowly scoped Kubernetes

@@ -229,6 +229,11 @@ spec:
                     "key": "token",
                     "mountPath": "/var/run/chuggy/credentials/chuggy-github-worker"
                   },
+                  "chuggy-fabric-github-worker": {
+                    "secretName": "chuggy-fabric-github-worker-token",
+                    "key": "token",
+                    "mountPath": "/var/run/chuggy/credentials/chuggy-fabric-github-worker"
+                  },
                   "claude-code": {
                     "secretName": "claude-code",
                     "key": "oauth-token",
@@ -238,7 +243,7 @@ spec:
             - name: CHUG_SCHEDULER_WORKER_ENVIRONMENT
               value: |
                 {
-                  "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\",\"credential\":\"chuggy-git-worker\",\"credentialUsername\":\"worker\"},\"https://github.com/kasofsk/chuggy.git\":{\"url\":\"https://github.com/kasofsk/chuggy.git\",\"credential\":\"chuggy-github-worker\",\"credentialUsername\":\"x-access-token\"}}",
+                  "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\",\"credential\":\"chuggy-git-worker\",\"credentialUsername\":\"worker\"},\"https://github.com/kasofsk/chuggy.git\":{\"url\":\"https://github.com/kasofsk/chuggy.git\",\"credential\":\"chuggy-github-worker\",\"credentialUsername\":\"x-access-token\"},\"http://git.chuggy-git.svc.cluster.local./chuggy-fabric.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy-fabric.git\",\"credential\":\"chuggy-git-worker\",\"credentialUsername\":\"worker\"},\"https://github.com/gdoteof/chuggy-fabric.git\":{\"url\":\"https://github.com/gdoteof/chuggy-fabric.git\",\"credential\":\"chuggy-fabric-github-worker\",\"credentialUsername\":\"x-access-token\"}}",
                   "CHUG_WORKER_WORKSPACE": "/workspace",
                   "CHUG_PG_WORKERS": "4"
                 }
@@ -444,7 +449,7 @@ spec:
                     "runtimeVersion": "claude-code-latest",
                     "grant": {
                       "tools": ["claude-code", "shell"],
-                      "credentials": ["chuggy-git-worker", "chuggy-github-worker", "claude-code"],
+                      "credentials": ["chuggy-git-worker", "chuggy-github-worker", "chuggy-fabric-github-worker", "claude-code"],
                       "network": true,
                       "filesystem": "WriteWorkspace",
                       "mayCompleteTask": false
@@ -455,7 +460,7 @@ spec:
                     "runtimeVersion": "claude-code-latest",
                     "grant": {
                       "tools": ["claude-code", "shell"],
-                      "credentials": ["chuggy-git-worker", "chuggy-github-worker", "claude-code"],
+                      "credentials": ["chuggy-git-worker", "chuggy-github-worker", "chuggy-fabric-github-worker", "claude-code"],
                       "network": true,
                       "filesystem": "WriteWorkspace",
                       "mayCompleteTask": false
@@ -602,7 +607,7 @@ spec:
             - name: CHUG_SCHEDULER_SESSION_ENVIRONMENT
               value: |
                 {
-                  "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\",\"credential\":\"chuggy-git-worker\",\"credentialUsername\":\"worker\"},\"https://github.com/kasofsk/chuggy.git\":{\"url\":\"https://github.com/kasofsk/chuggy.git\",\"credential\":\"chuggy-github-worker\",\"credentialUsername\":\"x-access-token\"}}"
+                  "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\",\"credential\":\"chuggy-git-worker\",\"credentialUsername\":\"worker\"},\"https://github.com/kasofsk/chuggy.git\":{\"url\":\"https://github.com/kasofsk/chuggy.git\",\"credential\":\"chuggy-github-worker\",\"credentialUsername\":\"x-access-token\"},\"http://git.chuggy-git.svc.cluster.local./chuggy-fabric.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy-fabric.git\",\"credential\":\"chuggy-git-worker\",\"credentialUsername\":\"worker\"},\"https://github.com/gdoteof/chuggy-fabric.git\":{\"url\":\"https://github.com/gdoteof/chuggy-fabric.git\",\"credential\":\"chuggy-fabric-github-worker\",\"credentialUsername\":\"x-access-token\"}}"
                 }
             # How many session attempts one Claude account may have live at
             # once. The published default is written for a site whose only
@@ -646,7 +651,9 @@ spec:
             # admitted as `0.20` above; a session and an attempt on this site run
             # the same binary, and this is the only variable that says so twice.
             #
-            # `credentials` is two of the execution policy's three.
+            # `credentials` keeps the execution policy's in-cluster git
+            # credential and model credential, and drops every per-repository
+            # forge credential that grant carries.
             # `kubernetesSessionPodRequest` denies a credential slot this list
             # does not name, so it is the list and not the mounts above that
             # decides what a session can authenticate as.
@@ -658,24 +665,26 @@ spec:
             # the git credentials would be a grant it never uses, was true and
             # is not.
             #
-            # `chuggy-github-worker` STAYS OUT, and it is the interesting half.
+            # NO FORGE CREDENTIAL IS GRANTED, and it is the interesting half.
             # A lead reads the mirror; it has no branch to push and no forge
             # call to make, and the map above resolving a GitHub reference is
-            # not the same as this granting one.
+            # not the same as this granting one. That is why the map's growth
+            # by a repository does not grow this list: a second forge token is
+            # one more credential a lead does not hold.
             #
             # `mirrors` IS WHAT MAKES THAT EXCLUSION SURVIVABLE, and it is the
             # third of the three ways it could have been. `vteng/chuggy` binds
-            # `https://github.com/kasofsk/chuggy.git`, which the map above
-            # resolves to `chuggy-github-worker` -- a credential this grant does
-            # not name, so a session would be placed with no tree. Granting the
-            # forge credential would reverse the paragraph above; repointing the
-            # binding would also move where the finalizer opens pull requests,
-            # because it reads the same row. This moves neither: the scheduler
-            # rewrites the reference to the mirror as it composes the placement,
-            # so the binding still says github.com to everything that promotes
-            # and the session still clones in-cluster with the credential it
-            # holds. A binding this map does not carry is passed through
-            # unchanged, so the general case is unaffected by the one entry.
+            # the forge URLs the map above resolves to a forge credential --
+            # credentials this grant does not name, so a session would be
+            # placed with no tree. Granting them would reverse the paragraph
+            # above; repointing a binding would also move where the finalizer
+            # opens pull requests, because it reads the same row. This moves
+            # neither: the scheduler rewrites the reference to the mirror as it
+            # composes the placement, so a binding still says github.com to
+            # everything that promotes and the session still clones in-cluster
+            # with the credential it holds. A binding this map does not carry
+            # is passed through unchanged, so the general case is unaffected by
+            # the entries.
             #
             # THE KEY IS THE BINDING AND THE VALUE IS WHAT IS CLONED, in that
             # order, and each is checked against a different thing. The key is
@@ -683,7 +692,7 @@ spec:
             # so an entry that does not spell that row is an entry that never
             # fires and says nothing when it does not. The value is resolved by
             # the image against `CHUG_WORKER_REPOSITORIES` above, so it must be
-            # a key of that map -- this one is, and it resolves to
+            # a key of that map -- each one is, and each resolves to
             # `chuggy-git-worker`, which is the credential this grant names.
             #
             # THIS LIST IS THE WHOLE OF THAT BOUND, and the network is not the
@@ -716,7 +725,8 @@ spec:
                     "mayCompleteTask": false
                   },
                   "mirrors": {
-                    "https://github.com/kasofsk/chuggy.git": "http://git.chuggy-git.svc.cluster.local./chuggy.git"
+                    "https://github.com/kasofsk/chuggy.git": "http://git.chuggy-git.svc.cluster.local./chuggy.git",
+                    "https://github.com/gdoteof/chuggy-fabric.git": "http://git.chuggy-git.svc.cluster.local./chuggy-fabric.git"
                   }
                 }
             # THE RELEASE COMMIT REWRITES THE VALUE ABOVE, and it rewrites the
@@ -726,7 +736,7 @@ spec:
             # is the part of it that is easy to drop on the way past, and
             # dropping `chuggy-git-worker` places a session that starts, takes
             # its turns and silently has no checkout. `mirrors` is the same
-            # hazard one step further out: a rewrite that drops the entry places
+            # hazard one step further out: a rewrite that drops an entry places
             # a session against the forge with a credential it does not hold.
             # `tests/session-placement.py` is what makes the first loud rather
             # than silent: it refuses a grant naming a credential the mounts

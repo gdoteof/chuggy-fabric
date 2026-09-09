@@ -2,6 +2,60 @@
 
 let
   cfg = config.chuggy.githubAppTokens;
+  appModule = lib.types.submodule {
+    options = {
+      appId = lib.mkOption { type = lib.types.str; };
+      privateKeyFile = lib.mkOption { type = lib.types.str; };
+    };
+  };
+  repositoryModule = lib.types.submodule {
+    options = {
+      repository = lib.mkOption { type = lib.types.str; };
+      portalInstallationId = lib.mkOption { type = lib.types.str; };
+      workerInstallationId = lib.mkOption { type = lib.types.str; };
+      readerSecret = lib.mkOption { type = lib.types.str; };
+      finalizerSecret = lib.mkOption { type = lib.types.str; };
+      buildReaderSecret = lib.mkOption { type = lib.types.str; };
+      workerSecret = lib.mkOption { type = lib.types.str; };
+    };
+  };
+  # The four tokens one repository needs, which is what makes a second
+  # repository's credentials an entry rather than four copies of a block. Which
+  # App mints which is the split AGENTS.md states and is not a per-repository
+  # choice: Portal reads and finalizes, Worker executes, and neither is ever
+  # given the other's authority.
+  repositoryTokens = name: repository:
+    let
+      portal = permission: {
+        inherit (cfg.apps.portal) appId privateKeyFile;
+        installationId = repository.portalInstallationId;
+        inherit (repository) repository;
+        inherit permission;
+      };
+    in
+    {
+      "reader-${name}" = portal "read" // {
+        secretName = repository.readerSecret;
+        namespaces = [ "chuggy" ];
+      };
+      "finalizer-${name}" = portal "write" // {
+        secretName = repository.finalizerSecret;
+        namespaces = [ "chuggy" ];
+      };
+      "build-reader-${name}" = portal "read" // {
+        secretName = repository.buildReaderSecret;
+        namespaces = [ "chuggy-build" ];
+        secretFormat = "git-basic-auth";
+      };
+      "worker-${name}" = {
+        inherit (cfg.apps.worker) appId privateKeyFile;
+        installationId = repository.workerInstallationId;
+        inherit (repository) repository;
+        permission = "write";
+        secretName = repository.workerSecret;
+        namespaces = [ "chuggy-work" ];
+      };
+    };
   tokenModule = lib.types.submodule {
     options = {
       appId = lib.mkOption { type = lib.types.str; };
@@ -133,6 +187,24 @@ in
 {
   options.chuggy.githubAppTokens = {
     enable = lib.mkEnableOption "GitHub App installation-token delivery";
+    # The two Apps, by the role AGENTS.md gives each, and where this machine
+    # keeps their keys. The key paths are the host's fact; which App mints what
+    # is not.
+    apps = lib.mkOption {
+      type = lib.types.attrsOf appModule;
+      default = { };
+    };
+    # The repositories this host mints tokens for. One entry is four tokens,
+    # which is the whole reason this option exists beside `tokens` below: a
+    # second repository under a second owner differs in two installation ids,
+    # four Secret names, and the repository each rendered script requests.
+    repositories = lib.mkOption {
+      type = lib.types.attrsOf repositoryModule;
+      default = { };
+    };
+    # What is actually delivered. A host may write one directly -- a token that
+    # is not one of a repository's four -- and every entry of `repositories`
+    # above arrives here.
     tokens = lib.mkOption {
       type = lib.types.attrsOf tokenModule;
       default = { };
@@ -168,7 +240,12 @@ in
   config = lib.mkIf cfg.enable {
     assertions = [
       { assertion = cfg.tokens != { }; message = "chuggy.githubAppTokens.tokens is empty"; }
+      {
+        assertion = cfg.repositories == { } || (cfg.apps ? portal && cfg.apps ? worker);
+        message = "chuggy.githubAppTokens.apps does not name both portal and worker";
+      }
     ];
+    chuggy.githubAppTokens.tokens = lib.concatMapAttrs repositoryTokens cfg.repositories;
     systemd.services = services;
     systemd.timers = timers;
   };

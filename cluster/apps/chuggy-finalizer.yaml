@@ -237,6 +237,14 @@ spec:
                   {
                     "repository": "https://github.com/kasofsk/chuggy.git",
                     "path": "/var/run/chuggy/credentials/chuggy-github"
+                  },
+                  {
+                    "repository": "http://git.chuggy-git.svc.cluster.local./chuggy-fabric.git",
+                    "path": "/var/run/chuggy/credentials/chuggy-git"
+                  },
+                  {
+                    "repository": "https://github.com/gdoteof/chuggy-fabric.git",
+                    "path": "/var/run/chuggy/credentials/chuggy-fabric-github"
                   }
                 ]
             # git writes into HOME, and the root filesystem below refuses
@@ -324,3 +332,8 @@ spec:
                   items:
                     - key: token
                       path: chuggy-github
+              - secret:
+                  name: chuggy-fabric-github-finalizer-token
+                  items:
+                    - key: token
+                      path: chuggy-fabric-github

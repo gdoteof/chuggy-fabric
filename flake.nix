@@ -173,11 +173,16 @@
         # of which reads correctly while the other is wrong.
         selector-reach = selectorReach;
 
-        # Which two repositories the mirror sync keeps equal, held against the
-        # map that decides what a session reads and the job that decides what
-        # its tickets are pinned to. A sync pointed at the wrong pair is green
+        # Which repositories the mirror sync keeps equal, held against the map
+        # that decides what a session reads and the job that decides what its
+        # tickets are pinned to. A sync pointed at the wrong pair is green
         # forever, which is what #554 looked like with nothing there at all.
         git-mirror = gitMirror;
+
+        # Every repository `repositories.nix` declares, in every place a
+        # repository has to appear. It is what makes a second one configuration:
+        # an entry there fails this until the manifests carry it, and the
+        # refusal names the manifest, the variable and the value.
         github-repository-transition = githubRepositoryTransition;
         github-app-token = githubAppToken;
 
@@ -229,6 +234,21 @@
           refuses "without-flux-repository"
             { chuggy.flux.repositoryUrl = lib.mkForce null; }
             "chuggy.flux.repositoryUrl is unset";
+
+        # A host that names repositories to mint tokens for and not the Apps
+        # that mint them. Without the refusal the expansion reads an attribute
+        # that is not there, and a thrown evaluation says nothing about which
+        # input was left out.
+        refuses-without-github-apps =
+          refuses "without-github-apps"
+            {
+              chuggy.githubAppTokens = {
+                enable = true;
+                repositories =
+                  lib.mapAttrs (_: repository: repository.tokens) (import ./repositories.nix);
+              };
+            }
+            "chuggy.githubAppTokens.apps does not name both portal and worker";
 
         # An empty list is not the same omission and needs its own check: it
         # satisfies `!= null`, so the refusal above would have passed a host

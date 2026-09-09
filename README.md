@@ -16,6 +16,7 @@ only by their own directory.
 
     flake.nix                       one nixosConfiguration per host, and the checks
     flake.lock                      the pin — commit every change to it
+    repositories.nix                the repositories this site carries, declared once
 
     modules/common.nix              identity, access, packages, nix settings
     modules/node-prep.nix           k8s prerequisites, workstation teardown
@@ -402,24 +403,21 @@ whole map in one place.
 ### Staged GitHub App credentials
 
 `chuggy.githubAppTokens` mints repository-scoped installation tokens into
-managed Kubernetes Secrets. Gtr stages a read-only token for Chuggy, a separate
-read-only Git basic-auth credential for Shipwright, a Worker App credential for
-ticket branches, and a Portal App credential reserved for finalization. Their
-private keys remain root-only host state outside this repository and the Nix
-store.
+managed Kubernetes Secrets. It mints for the repositories `repositories.nix`
+declares, four to an entry: a read-only token for Chuggy, a separate read-only
+Git basic-auth credential for Shipwright, a Worker App credential for ticket
+branches, and a Portal App credential reserved for finalization. A host says
+which Apps mint them and where their keys are; the keys remain root-only host
+state outside this repository and the Nix store.
 
 The Chuggy service credentials remain staged until their consumers switch to
 them; Shipwright consumes only the dedicated build-reader projection. After
-switching the host configuration, verify all refreshers and Secrets:
+switching the host configuration, verify the refreshers and Secrets — the unit
+is named for its role and its repository, and the Secret carries the label the
+module puts on everything it manages:
 
-    systemctl is-active chuggy-github-app-token-reader-refresh
-    systemctl is-active chuggy-github-app-token-build-reader-refresh
-    systemctl is-active chuggy-github-app-token-finalizer-refresh
-    systemctl is-active chuggy-github-app-token-worker-refresh
-    kubectl -n chuggy get secret chuggy-github-reader-token
-    kubectl -n chuggy-build get secret chuggy-build-source-read
-    kubectl -n chuggy get secret chuggy-github-finalizer-token
-    kubectl -n chuggy-work get secret chuggy-github-worker-token
+    systemctl list-units --all 'chuggy-github-app-token-*-refresh.service'
+    kubectl get secret --all-namespaces -l chuggy.dev/managed-by=github-app-token
 
 **`chuggy-pg-role-env` is on `PATH` only after a `nixos-rebuild switch` carrying
 this module.** Before that switch it is in the built system and not on the box's
@@ -926,6 +924,65 @@ derived from their content — and a kustomization applies what it enumerates an
 nothing else. A manifest that is in the directory and not in that list is not
 applied, and `prune` then deletes it if it was there before. There is no check
 for this; the list and `ls` have to agree, and a reviewer is what makes them.
+
+### Adding a repository
+
+Add an entry to `repositories.nix` and rebuild the host. That is the whole of
+the host side: the entry mints the four Secrets it names, and the ids in it are
+the App installations on that repository's GitHub owner.
+
+The manifests under `cluster/apps/` are plain YAML that kustomize applies with
+no templating, so nothing generates their entries from that file. The check is
+what closes the gap:
+
+    nix build .#checks.x86_64-linux.github-repository-transition
+
+It fails until every credential list, the scheduler's maps, mounts and grants,
+and the mirror job's list carry the repository -- the importer's only once the
+entry marks it imported -- and each refusal names the manifest, the variable
+and the value still missing.
+
+**Merging before the host is rebuilt breaks the running cluster.**
+`chuggy-ticket-service` and `chuggy-finalizer` are `strategy: Recreate`,
+`replicas: 1`, and project the new entry's Secrets as non-optional, and the
+mirror CronJob projects the new worker token too; merge first and those pods
+come down and sit in `FailedMount` until the Secrets exist, and the mirror
+stops. Do this in order:
+
+1. Push the branch. It need not be merged yet -- the flake reference below
+   works from any pushed commit.
+2. `nixos-rebuild switch` gtr from that pushed SHA:
+
+       sudo nixos-rebuild switch --flake github:gdoteof/chuggy-fabric/<full-commit-sha>#gtr
+
+3. Verify the four Secrets exist:
+
+       systemctl list-units --all 'chuggy-github-app-token-*-refresh.service'
+       kubectl get secret --all-namespaces -l chuggy.dev/managed-by=github-app-token
+
+4. Create the bare repository on the rig's git service and give it its ref
+   wall, per `deploy/rig/git/` in kasofsk/chuggy.
+5. Merge to `main`. Flux reconciles `cluster/apps` from `main` within its
+   interval, and gdoteof/chuggy-fabric is itself the repository Flux reconciles
+   this cluster from, so this same merge is what Flux then applies.
+
+Three things are not this repository's to do. The owner's repository needs a
+ruleset that reserves updates to its default branch to the portal App
+integration and repository admins, because the worker token an entry mints is
+`contents: write` and reaches every agent-executed pod that can reach
+github.com. The list endpoint omits `bypass_actors` and `rules`, so resolve
+each ruleset by id; a reader should see rules covering `update`, `deletion`
+and `non_fast_forward`, and bypass actors naming only repository admins and
+the portal App integration, nothing else:
+
+    gh api repos/<owner>/<name>/rulesets --jq '.[].id' \
+      | xargs -I{} gh api repos/<owner>/<name>/rulesets/{} \
+          --jq '{name, enforcement, rules: [.rules[].type], bypass_actors}'
+
+The bare repository is created above; until it exists the mirror job ends its
+run saying so. And a repository is imported only once Chuggy's importer takes
+a repository with the commit; until then the entry says `imported = false` and
+the importer's list does not carry it.
 
 ### Verified
 

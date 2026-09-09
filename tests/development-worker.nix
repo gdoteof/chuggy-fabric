@@ -35,7 +35,15 @@ pkgs.runCommand "chuggy-development-worker" {
   grep -F 'registry.chuggy.internal/chuggy/worker@sha256:0f728b620c5e35fa5872fe9642ee90d75b49c5b33f822999926f17f2b00e4009' "$scheduler" >/dev/null
   grep -F 'registry.chuggy.internal/chuggy/worker@sha256:528b60992328f9076fc97a731027f2aef38e23c42f1261067ef417e03b06bb27' "$scheduler" >/dev/null
   grep -F 'registry.chuggy.internal/chuggy/worker@sha256:7d9397bad9d1174314a83be8d5aaad1a0e2aa83af767b7892aa789d23ced2362' "$scheduler" >/dev/null
-  grep -F '"credentials": ["chuggy-git-worker", "chuggy-github-worker", "claude-code"]' "$scheduler" >/dev/null
+  # An attempt's grant has one shape: the in-cluster git credential, one forge
+  # credential per repository, then the model credential. Which forge
+  # credentials sit in the middle, and that each repository's stays there, is
+  # what tests/github-repository-transition.py holds against the site's roster.
+  grant_count="$(grep -Ec '"credentials": \["chuggy-git-worker", ("[a-z0-9-]+-github-worker", )+"claude-code"\]' "$scheduler" || true)"
+  if [ "$grant_count" != 2 ]; then
+    echo "development-worker: expected both attempt grants to be the in-cluster git credential, one forge credential per repository, then the model credential \"claude-code\", found $grant_count" >&2
+    exit 1
+  fi
   grep -F '"secretName": "claude-code"' "$scheduler" >/dev/null
   grep -F '"CHUG_WORKER_WORKSPACE": "/workspace"' "$scheduler" >/dev/null
   grep -F '"ephemeralStorageLimit": "20Gi"' "$scheduler" >/dev/null
