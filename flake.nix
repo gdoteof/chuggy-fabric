@@ -112,6 +112,7 @@
       firewallRules = host: import ./tests/firewall-rules.nix { inherit pkgs lib host; };
       registryWiring = host: import ./tests/registry-wiring.nix { inherit pkgs host; };
       releaseImages = import ./tests/release-images.nix { inherit pkgs; };
+      chugCi = import ./tests/chug-ci.nix { inherit pkgs; };
       fluxWiring = host: expectSecretRef:
         import ./tests/flux-wiring.nix { inherit pkgs host expectSecretRef; };
       buildPlatform = import ./tests/build-platform.nix { inherit pkgs; };
@@ -267,6 +268,10 @@
         registry-wiring-gtr = registryWiring self.nixosConfigurations.gtr;
         registry-wiring-example = registryWiring self.nixosConfigurations.example;
         release-images = releaseImages;
+
+        # The evaluator command a Chuggy ticket runs, and the only check that
+        # reads .chug/tasks/ci.sh.
+        chug-ci = chugCi;
 
         # The bootstrap check proves no in-cluster credential is required before
         # Kubernetes exists. The cutover check changes URL, branch, and Secret
