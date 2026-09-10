@@ -36,7 +36,7 @@ only by their own directory.
 
     cluster/flux-system/            the vendored Flux install
     cluster/apps/                   the cluster state this repo declares
-    cluster/apps/kustomization.yaml the enumeration of that state, and two
+    cluster/apps/kustomization.yaml the enumeration of that state, and the
                                     generated ConfigMaps
     cluster/apps/ory/               config documents those ConfigMaps carry --
                                     not manifests, and not in `resources`
@@ -938,7 +938,7 @@ If the app needs to be public it also needs a hostname in
 removals in git are silently ignored.
 
 **Add the file to `cluster/apps/kustomization.yaml` as well.** That directory
-carries its own kustomization now — needed so two Ory ConfigMaps get a name
+carries its own kustomization now — needed so the Ory ConfigMaps get a name
 derived from their content — and a kustomization applies what it enumerates and
 nothing else. A manifest that is in the directory and not in that list is not
 applied, and `prune` then deletes it if it was there before. There is no check
