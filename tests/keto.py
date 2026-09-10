@@ -15,12 +15,15 @@ bare podSelector opening the write port would leave the first reading exactly
 as it does now, and a second policy is what ory-network-policy.yaml tells the
 next author to admit a scrape with.
 
-THE PORT IS WRITTEN THREE TIMES AND ONLY ONE OF THEM IS WHAT THE KERNEL
-MATCHES. A NetworkPolicy names the pod's port; a Service names its own and
-targets the container's by name; the container declares it. So every assertion
-below resolves a Service's `targetPort` against the containers that Service
-selects, and checks the policy against that number rather than against the
-number in the Service or in a URL.
+THE PORT IS WRITTEN FOUR TIMES AND EACH COPY DECIDES SOMETHING DIFFERENT. A
+NetworkPolicy names the pod's port, which is what the kernel matches; a Service
+names its own and targets the container's by name; the container declares it,
+which resolves those names and nothing else; and the config document says what
+the process binds. So every assertion below resolves a Service's `targetPort`
+against the containers that Service selects and checks the policy against that
+number rather than against the number in the Service or in a URL -- and the
+config document is held equal to it, because a port reasoned about in three
+objects that the process does not serve on is a rule about nothing.
 
 THE PROBE IS THE OTHER HALF OF THE SAME QUESTION. A kubelet probe arrives from
 the node and matches no podSelector, so a probe on a namespace-local port is
@@ -44,7 +47,7 @@ httpGet are each legal and each outside what is evaluated here.
 """
 
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
 import yaml
@@ -69,7 +72,12 @@ API_CONTAINER = "api"
 API_VARIABLE = "CHUG_API_KETO_READ_URL"
 
 CLUSTER_SUFFIX = ".svc.cluster.local"
-POD_TEMPLATE_KINDS = ("Deployment", "StatefulSet", "DaemonSet", "Job", "ReplicaSet")
+
+# The flag whose value names the file the server actually reads, and the keys
+# inside that file that decide what it binds.
+CONFIG_FLAG = "--config"
+SERVE = "serve"
+SERVED = {"read": READ_SERVICE, "write": WRITE_SERVICE}
 
 
 def refuse(message):
@@ -101,28 +109,52 @@ def container(deployment, name):
     refuse(f"{deployment['metadata']['name']} has no container {name}")
 
 
-def pod_templates(documents):
-    """Every pod this directory declares, as (namespace, labels, containers)."""
-    found = []
-    for document in documents:
-        if document.get("kind") in POD_TEMPLATE_KINDS:
-            template = document["spec"]["template"]
-            found.append(
-                (
-                    document["metadata"].get("namespace"),
-                    template["metadata"].get("labels", {}),
-                    template["spec"].get("containers", []),
-                )
+def served_ports(documents, deployment, entry):
+    """`serve.<name>.port` out of the config document the server is told to read.
+
+    The chain is the kubelet's: the `--config` value names a path, a volumeMount
+    covers the directory it is in, that mount names a volume, the volume names a
+    ConfigMap -- the generated one, whose name carries a hash of its content and
+    is therefore not something this file could hardcode -- and one key of that
+    ConfigMap is the file. Every step is refused rather than guessed at.
+    """
+    args = entry.get("args") or []
+    if args.count(CONFIG_FLAG) != 1 or args.index(CONFIG_FLAG) + 1 >= len(args):
+        refuse(f"the {entry['name']} container does not name one {CONFIG_FLAG} and its value")
+    path = PurePosixPath(args[args.index(CONFIG_FLAG) + 1])
+
+    mounts = [
+        mount
+        for mount in entry.get("volumeMounts") or []
+        if mount.get("mountPath") == str(path.parent)
+    ]
+    if len(mounts) != 1:
+        refuse(f"{len(mounts)} volumeMounts cover {path.parent}, which {CONFIG_FLAG} reads from")
+    volumes = [
+        volume
+        for volume in deployment["spec"]["template"]["spec"].get("volumes") or []
+        if volume["name"] == mounts[0]["name"]
+    ]
+    if len(volumes) != 1 or "configMap" not in volumes[0]:
+        refuse(f"the volume {mounts[0]['name']!r} is not one ConfigMap this gate can open")
+
+    data = one(documents, "ConfigMap", volumes[0]["configMap"]["name"], ORY).get("data") or {}
+    if path.name not in data:
+        refuse(f"the ConfigMap mounted at {path.parent} carries no {path.name}")
+    try:
+        document = yaml.safe_load(data[path.name])
+    except yaml.YAMLError as failure:
+        refuse(f"{path.name} is not YAML: {failure}")
+
+    found = {}
+    for name in SERVED:
+        port = ((document or {}).get(SERVE) or {}).get(name, {}).get("port")
+        if isinstance(port, bool) or not isinstance(port, int):
+            refuse(
+                f"{path.name} does not give {SERVE}.{name}.port as a number, so what the "
+                "server binds is not something this gate read"
             )
-        elif document.get("kind") == "Pod":
-            metadata = document["metadata"]
-            found.append(
-                (
-                    metadata.get("namespace"),
-                    metadata.get("labels", {}),
-                    document["spec"].get("containers", []),
-                )
-            )
+        found[name] = port
     return found
 
 
@@ -296,6 +328,20 @@ def main():
     #    the Service or a URL publishes.
     read_published, read_port = resolved_port(one(documents, "Service", READ_SERVICE, ORY), deployment)
     _, write_port = resolved_port(one(documents, "Service", WRITE_SERVICE, ORY), deployment)
+    resolved = {"read": read_port, "write": write_port}
+
+    # 2b. And what the process binds, which is none of those. `containerPort`
+    #     resolves a named `targetPort` and a named probe port and decides
+    #     nothing else, so an edit to the config document alone moves an API
+    #     onto another port while every object above still reads correctly.
+    bound = served_ports(documents, deployment, container(deployment, SERVER))
+    for name, service in SERVED.items():
+        if bound[name] != resolved[name]:
+            refuse(
+                f"the config document binds {SERVE}.{name}.port to {bound[name]} while "
+                f"{service} lands on container port {resolved[name]}: what the process serves "
+                "there is not what the elements below are reasoned about"
+            )
 
     elements = admission(policies)
 

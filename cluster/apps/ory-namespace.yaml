@@ -50,7 +50,10 @@
 # inside a transaction block -- so the roles land or none of them do, and the
 # databases are a separate, idempotent step.
 #
-# RUN AS A SUPERUSER, ONCE, BEFORE ANYTHING STARTS.
+# RUN AS A SUPERUSER, ONCE, BEFORE ANYTHING STARTS. On an installation where
+# Hydra and Kratos already run, run the `keto` lines alone: the `ALTER ROLE ...
+# PASSWORD` statements set fresh passwords, and the Secrets those two are
+# already using hold the old ones.
 #
 # THE ASSIGNMENTS ARE SEPARATE STATEMENTS AND HAVE TO BE. A prefix
 # assignment on the same command as `kubectl` is applied after the argument
