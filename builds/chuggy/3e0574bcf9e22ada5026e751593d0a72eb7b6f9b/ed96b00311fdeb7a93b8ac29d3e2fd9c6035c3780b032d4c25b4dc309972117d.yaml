@@ -1,0 +1,64 @@
+apiVersion: shipwright.io/v1beta1
+kind: Build
+metadata:
+  name: build-ed96b00311fdeb7a93b8ac29d3e2fd9c6035c378
+  namespace: chuggy-build
+  annotations:
+    fabric.chuggy.dev/source-repository-id: chuggy
+    fabric.chuggy.dev/request-digest: sha256:ed96b00311fdeb7a93b8ac29d3e2fd9c6035c3780b032d4c25b4dc309972117d
+    fabric.chuggy.dev/source-commit: 3e0574bcf9e22ada5026e751593d0a72eb7b6f9b
+    fabric.chuggy.dev/target-image-repository: "registry.chuggy-registry.svc.cluster.local:5000/chuggy/api"
+    fabric.chuggy.dev/renderer: shipwright-build-request/v1
+    fabric.chuggy.dev/profile: shipwright-buildkit-rootless-mini/v1
+    fabric.chuggy.dev/profile-digest: sha256:b4d3bb9e36544a6bb1b51bdda3021fd628cb343960d2f0139a3cf1bb5fe5f0c5
+    fabric.chuggy.dev/shipwright-version: v0.18.4
+spec:
+  source:
+    type: Git
+    git:
+      url: "https://github.com/kasofsk/chuggy.git"
+      revision: 3e0574bcf9e22ada5026e751593d0a72eb7b6f9b
+      cloneSecret: chuggy-build-source-read
+    contextDir: "."
+  strategy:
+    kind: ClusterBuildStrategy
+    name: buildkit-rootless-v1
+  paramValues:
+    - name: dockerfile
+      value: "images/api/Dockerfile"
+    - name: cache
+      value: registry
+  output:
+    image: "registry.chuggy-registry.svc.cluster.local:5000/chuggy/api:request-ed96b00311fdeb7a93b8ac29d3e2fd9c6035c3780b032d4c25b4dc309972117d"
+    pushSecret: chuggy-registry-build-push
+    insecure: true
+  timeout: 1h
+---
+apiVersion: shipwright.io/v1beta1
+kind: BuildRun
+metadata:
+  name: build-ed96b00311fdeb7a93b8ac29d3e2fd9c6035c378-a1
+  namespace: chuggy-build
+  labels:
+    fabric.chuggy.dev/provenance: required
+  annotations:
+    fabric.chuggy.dev/source-repository-id: chuggy
+    fabric.chuggy.dev/request-digest: sha256:ed96b00311fdeb7a93b8ac29d3e2fd9c6035c3780b032d4c25b4dc309972117d
+    fabric.chuggy.dev/source-commit: 3e0574bcf9e22ada5026e751593d0a72eb7b6f9b
+    fabric.chuggy.dev/target-image-repository: "registry.chuggy-registry.svc.cluster.local:5000/chuggy/api"
+    fabric.chuggy.dev/renderer: shipwright-build-request/v1
+    fabric.chuggy.dev/profile: shipwright-buildkit-rootless-mini/v1
+    fabric.chuggy.dev/profile-digest: sha256:b4d3bb9e36544a6bb1b51bdda3021fd628cb343960d2f0139a3cf1bb5fe5f0c5
+    fabric.chuggy.dev/shipwright-version: v0.18.4
+    fabric.chuggy.dev/attempt-ordinal: "1"
+  finalizers:
+    - fabric.chuggy.dev/provenance-required
+spec:
+  build:
+    name: build-ed96b00311fdeb7a93b8ac29d3e2fd9c6035c378
+  serviceAccount: builder
+  nodeSelector:
+    chuggy.dev/node-role: builder
+    kubernetes.io/os: linux
+    kubernetes.io/arch: amd64
+
