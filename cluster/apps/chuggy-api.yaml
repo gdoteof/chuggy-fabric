@@ -295,6 +295,11 @@ spec:
             # written here.
             - name: CHUG_API_OIDC_ALGORITHMS
               value: RS256
+            # Keto's read port, which is the only one of its two this pod may
+            # reach: ory-network-policy.yaml admits the write port from `ory`
+            # alone. Nothing in the image above reads this name yet.
+            - name: CHUG_API_KETO_READ_URL
+              value: http://keto-read.ory.svc.cluster.local:4466
             # The named credential mount a member's thread speaks to the model
             # through, written on the API because the API is what opens a
             # thread's session. It is not free: `kubernetesSessionPodRequest`

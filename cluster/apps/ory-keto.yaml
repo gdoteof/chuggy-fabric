@@ -1,0 +1,154 @@
+# Ory Keto: what a principal may do, held as relationships rather than as
+# columns. Hydra says who a caller is and Kratos holds the person; this answers
+# whether that subject may administer, dispatch or read a project, and the
+# chuggy API is what asks it.
+#
+# The model is `ory/namespaces.ts` -- object types, the relations a tuple may
+# state, and the permits computed from them. It is configuration for the reason
+# Kratos's identity schema is, it is in the same generated ConfigMap as the
+# server config, and the volume below names the unhashed name: ory-hydra.yaml
+# argues each of those.
+#
+# ----------------------------------------------------------- the write port ----
+#
+# 4467 IS UNAUTHENTICATED AND IT GRANTS PERMISSION. One PUT there makes any
+# subject an administrator of any project. ory-network-policy.yaml admits it
+# from the `ory` namespace and nothing else, and carries the argument for what
+# that does and does not cover -- `keto-read` and `keto-write` are separate
+# objects for the reason `hydra-admin` is one.
+#
+# ------------------------------------------------------------ the read port ----
+#
+# 4466 answers checks and expansions, and serves both health endpoints. That is
+# why the probes below are on it: ory-kratos.yaml states what probing a port the
+# policy admits from the namespace alone would cost, and it applies unchanged.
+#
+# Two further listeners: 4468 serves `/metrics/prometheus`, and 4469 serves
+# Keto's OPL syntax check. No Service names either and no policy admits either,
+# so a scrape is the element ory-network-policy.yaml declines to widen for.
+#
+# ------------------------------------------------------------ the migration ----
+#
+# An initContainer, for the reasons ory-hydra.yaml gives. Unlike Hydra's it
+# mounts the config: `keto migrate` has no `-e`, and without `--config` it
+# exits before it reads DSN at all. The DDL/DML split is the same and the
+# environment variable is what carries it -- `migrate-dsn` here, `dsn` on the
+# server. See ory-namespace.yaml for the roles.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keto
+  namespace: ory
+  labels: { app: keto }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: keto }
+  template:
+    metadata:
+      labels:
+        app: keto
+        chuggy.dev/postgres-client: "true"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        # The image's user is named `ory`, and a name is not something the
+        # kubelet can check against runAsNonRoot.
+        runAsUser: 100
+        runAsGroup: 101
+      initContainers:
+        - name: migrate
+          image: oryd/keto:v26.2.0@sha256:bfdb8b9e283aedbd9e1d005c44eb1bbefd2096b2cb5b5aa0b7360b6e39c178d2
+          args: [migrate, up, --yes, --config, /etc/config/keto.yaml]
+          env:
+            # The owning role, and the only place it is used.
+            - name: DSN
+              valueFrom:
+                secretKeyRef: { name: keto, key: migrate-dsn }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/config
+              readOnly: true
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      containers:
+        - name: keto
+          image: oryd/keto:v26.2.0@sha256:bfdb8b9e283aedbd9e1d005c44eb1bbefd2096b2cb5b5aa0b7360b6e39c178d2
+          # By digest, not by tag alone: a tag is a mutable pointer, and what
+          # this pod answers is who may administer a project.
+          #
+          # Telemetry off. Keto's configuration schema has no `sqa` key, so the
+          # opt-out hydra.yaml makes in its config file is this flag.
+          args: [serve, --config, /etc/config/keto.yaml, --sqa-opt-out]
+          ports:
+            - name: read
+              containerPort: 4466
+            - name: write
+              containerPort: 4467
+          env:
+            - name: DSN
+              valueFrom:
+                secretKeyRef: { name: keto, key: dsn }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/config
+              readOnly: true
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          # The readiness and liveness split is Hydra's, and ory-hydra.yaml
+          # states it. Both endpoints are on the read port here, which is the
+          # port a kubelet probe can reach without the CNI exemption.
+          readinessProbe:
+            httpGet: { path: /health/ready, port: read }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: { path: /health/alive, port: read }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: config
+          configMap: { name: keto-config }
+---
+# Read: checks and expansions. No Ingress -- the chuggy API is the caller, from
+# inside the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: keto-read
+  namespace: ory
+spec:
+  selector: { app: keto }
+  ports:
+    - name: read
+      port: 4466
+      targetPort: read
+---
+# Write. A separate object for the reason hydra-admin is one: no Ingress can
+# name a port that is not in the Service it points at.
+apiVersion: v1
+kind: Service
+metadata:
+  name: keto-write
+  namespace: ory
+spec:
+  selector: { app: keto }
+  ports:
+    - name: write
+      port: 4467
+      targetPort: write

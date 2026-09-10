@@ -201,6 +201,12 @@
         # forever, which is what #554 looked like with nothing there at all.
         git-mirror = gitMirror;
 
+        # Which of Keto's two ports is reachable from where. The write port
+        # grants permission and authenticates nobody, and the way it comes open
+        # is a pod that no policy in `ory` selects -- which denies nothing and
+        # looks correct in every file separately.
+        keto = import ./tests/keto.nix { inherit pkgs; };
+
         # Every repository `repositories.nix` declares, in every place a
         # repository has to appear. It is what makes a second one configuration:
         # an entry there fails this until the manifests carry it, and the

@@ -48,9 +48,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# Every manifest in this directory, and nothing else. `ory/` holds the two
-# config documents the generator below reads; they are not manifests and must
-# not be listed here.
+# Every manifest in this directory, and nothing else. `ory/` holds the config
+# documents the generator below reads; they are not manifests and must not be
+# listed here.
 resources:
   - chuggy-api.yaml
   - chuggy-artifacts.yaml
@@ -71,6 +71,7 @@ resources:
   - logging.yaml
   - monitoring.yaml
   - ory-hydra.yaml
+  - ory-keto.yaml
   - ory-kratos.yaml
   - ory-namespace.yaml
   - ory-network-policy.yaml
@@ -112,6 +113,14 @@ configMapGenerator:
     namespace: ory
     files:
       - hydra.yaml=ory/hydra.yaml
+  # Both files, because the permission model is what Keto answers from and a
+  # change to it that did not reach the running pod would leave Keto deciding
+  # from the model this directory says it replaced.
+  - name: keto-config
+    namespace: ory
+    files:
+      - keto.yaml=ory/keto.yaml
+      - namespaces.ts=ory/namespaces.ts
   - name: kratos-config
     namespace: ory
     files:

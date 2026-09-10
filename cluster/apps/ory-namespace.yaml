@@ -1,17 +1,18 @@
-# The namespace Ory runs in, and by implication the three Secrets and the two
+# The namespace Ory runs in, and by implication the four Secrets and the three
 # databases inside it. Same arrangement as sirdocalot-namespace.yaml: none of
 # these values can live in a public repo, so the commands that create them are
 # recorded here, beside the Namespace whose deletion takes the Secrets with it.
 #
-# Hydra is the OIDC issuer; Kratos is the identity store; the self-service UI
-# serves Kratos's flows and Hydra's consent screen. They are split across
-# ory-hydra.yaml, ory-kratos.yaml and ory-ui.yaml, each arguing for itself.
+# Hydra is the OIDC issuer; Kratos is the identity store; Keto holds what a
+# principal may do; the self-service UI serves Kratos's flows and Hydra's
+# consent screen. They are split across ory-hydra.yaml, ory-kratos.yaml,
+# ory-keto.yaml and ory-ui.yaml, each arguing for itself.
 #
 # ----------------------------------------------------------- the databases ----
 #
-# Hydra and Kratos get a database each on the existing server. Not `chuggy`:
-# these are somebody else's migrations, and a schema chuggy does not own has no
-# business in the database chuggy's journal lives in.
+# Hydra, Kratos and Keto get a database each on the existing server. Not
+# `chuggy`: these are somebody else's migrations, and a schema chuggy does not
+# own has no business in the database chuggy's journal lives in.
 #
 # SEPARATE DATABASES, ONE SERVER, AND THE SERVER IS THE BOUNDARY THAT ISN'T.
 # postgres-network-policy.yaml records that `kubectl exec` into postgres-0
@@ -36,12 +37,12 @@
 # owner may in fact create them and this is not strictly required. It removes a
 # first-boot failure mode that depends on a property of the server rather than
 # of this deployment, which is the kind of coupling worth spending three
-# statements on.
+# statements on. Keto's migrations ask for no extension.
 #
-# The two `GRANT CONNECT` lines below are documentation and not a bound: PUBLIC
+# The `GRANT CONNECT` lines below are documentation and not a bound: PUBLIC
 # holds CONNECT on a new database until it is revoked, and nothing revokes it
-# here. The `chuggy` database is the same, so tightening one of the three alone
-# would leave the tree claiming a boundary two thirds of it does not have.
+# here. The `chuggy` database is the same, so tightening one of them alone would
+# leave the tree claiming a boundary the rest of it does not have.
 #
 # Passwords come from the environment for the reason kasofsk/chuggy's
 # postgres-roles.sql gives: an argument to psql is in the process table. The
@@ -49,9 +50,12 @@
 # inside a transaction block -- so the roles land or none of them do, and the
 # databases are a separate, idempotent step.
 #
-# RUN AS A SUPERUSER, ONCE, BEFORE ANYTHING STARTS.
+# RUN AS A SUPERUSER, ONCE, BEFORE ANYTHING STARTS. On an installation where
+# Hydra and Kratos already run, run the `keto` lines alone: the `ALTER ROLE ...
+# PASSWORD` statements set fresh passwords, and the Secrets those two are
+# already using hold the old ones.
 #
-# THE FOUR ASSIGNMENTS ARE SEPARATE STATEMENTS AND HAVE TO BE. A prefix
+# THE ASSIGNMENTS ARE SEPARATE STATEMENTS AND HAVE TO BE. A prefix
 # assignment on the same command as `kubectl` is applied after the argument
 # words are expanded, so `env NAME="$NAME"` would carry the empty string: every
 # `ALTER ROLE ... PASSWORD` below would set an empty password. A prefix
@@ -67,47 +71,59 @@
 #   export ORY_PG_HYDRA_APP_PASSWORD=$(openssl rand -hex 24)
 #   export ORY_PG_KRATOS_OWNER_PASSWORD=$(openssl rand -hex 24)
 #   export ORY_PG_KRATOS_APP_PASSWORD=$(openssl rand -hex 24)
+#   export ORY_PG_KETO_OWNER_PASSWORD=$(openssl rand -hex 24)
+#   export ORY_PG_KETO_APP_PASSWORD=$(openssl rand -hex 24)
 #
 #   kubectl exec -i -n chuggy postgres-0 -- env \
 #     ORY_PG_HYDRA_OWNER_PASSWORD="$ORY_PG_HYDRA_OWNER_PASSWORD" \
 #     ORY_PG_HYDRA_APP_PASSWORD="$ORY_PG_HYDRA_APP_PASSWORD" \
 #     ORY_PG_KRATOS_OWNER_PASSWORD="$ORY_PG_KRATOS_OWNER_PASSWORD" \
 #     ORY_PG_KRATOS_APP_PASSWORD="$ORY_PG_KRATOS_APP_PASSWORD" \
+#     ORY_PG_KETO_OWNER_PASSWORD="$ORY_PG_KETO_OWNER_PASSWORD" \
+#     ORY_PG_KETO_APP_PASSWORD="$ORY_PG_KETO_APP_PASSWORD" \
 #     psql -U postgres -d postgres -f - <<'SQL'
 #   \set ON_ERROR_STOP on
 #   \getenv hydra_owner_password ORY_PG_HYDRA_OWNER_PASSWORD
 #   \getenv hydra_app_password ORY_PG_HYDRA_APP_PASSWORD
 #   \getenv kratos_owner_password ORY_PG_KRATOS_OWNER_PASSWORD
 #   \getenv kratos_app_password ORY_PG_KRATOS_APP_PASSWORD
+#   \getenv keto_owner_password ORY_PG_KETO_OWNER_PASSWORD
+#   \getenv keto_app_password ORY_PG_KETO_APP_PASSWORD
 #
 #   BEGIN;
 #   SELECT format('CREATE ROLE %I NOLOGIN', r)
-#     FROM unnest(ARRAY['hydra_app','kratos_app']) AS r
+#     FROM unnest(ARRAY['hydra_app','kratos_app','keto_app']) AS r
 #    WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = r)
 #   \gexec
 #   SELECT format('CREATE ROLE %I LOGIN', r)
-#     FROM unnest(ARRAY['hydra_owner','hydra_app_login','kratos_owner','kratos_app_login']) AS r
+#     FROM unnest(ARRAY['hydra_owner','hydra_app_login','kratos_owner','kratos_app_login','keto_owner','keto_app_login']) AS r
 #    WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = r)
 #   \gexec
 #
 #   ALTER ROLE hydra_app        WITH NOLOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT -1 PASSWORD NULL VALID UNTIL 'infinity';
 #   ALTER ROLE kratos_app       WITH NOLOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT -1 PASSWORD NULL VALID UNTIL 'infinity';
+#   ALTER ROLE keto_app         WITH NOLOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT -1 PASSWORD NULL VALID UNTIL 'infinity';
 #   ALTER ROLE hydra_owner      WITH LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT -1 VALID UNTIL 'infinity';
 #   ALTER ROLE hydra_app_login  WITH LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT -1 VALID UNTIL 'infinity';
 #   ALTER ROLE kratos_owner     WITH LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT -1 VALID UNTIL 'infinity';
 #   ALTER ROLE kratos_app_login WITH LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT -1 VALID UNTIL 'infinity';
+#   ALTER ROLE keto_owner       WITH LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT -1 VALID UNTIL 'infinity';
+#   ALTER ROLE keto_app_login   WITH LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT -1 VALID UNTIL 'infinity';
 #
 #   ALTER ROLE hydra_owner      PASSWORD :'hydra_owner_password';
 #   ALTER ROLE hydra_app_login  PASSWORD :'hydra_app_password';
 #   ALTER ROLE kratos_owner     PASSWORD :'kratos_owner_password';
 #   ALTER ROLE kratos_app_login PASSWORD :'kratos_app_password';
+#   ALTER ROLE keto_owner       PASSWORD :'keto_owner_password';
+#   ALTER ROLE keto_app_login   PASSWORD :'keto_app_password';
 #
 #   GRANT hydra_app  TO hydra_app_login,  hydra_owner;
 #   GRANT kratos_app TO kratos_app_login, kratos_owner;
+#   GRANT keto_app   TO keto_app_login,   keto_owner;
 #   COMMIT;
 #
 #   SELECT format('CREATE DATABASE %I OWNER %I', d.name, d.owner)
-#     FROM (VALUES ('hydra','hydra_owner'), ('kratos','kratos_owner')) AS d(name, owner)
+#     FROM (VALUES ('hydra','hydra_owner'), ('kratos','kratos_owner'), ('keto','keto_owner')) AS d(name, owner)
 #    WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = d.name)
 #   \gexec
 #
@@ -138,6 +154,19 @@
 #     GRANT USAGE, SELECT ON SEQUENCES TO kratos_app;
 #   GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO kratos_app;
 #   GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO kratos_app;
+#   COMMIT;
+#
+#   \c keto
+#   BEGIN;
+#   GRANT CONNECT ON DATABASE keto TO keto_owner, keto_app_login;
+#   GRANT USAGE, CREATE ON SCHEMA public TO keto_owner;
+#   GRANT USAGE ON SCHEMA public TO keto_app;
+#   ALTER DEFAULT PRIVILEGES FOR ROLE keto_owner IN SCHEMA public
+#     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO keto_app;
+#   ALTER DEFAULT PRIVILEGES FOR ROLE keto_owner IN SCHEMA public
+#     GRANT USAGE, SELECT ON SEQUENCES TO keto_app;
+#   GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO keto_app;
+#   GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO keto_app;
 #   COMMIT;
 #   SQL
 #
@@ -172,6 +201,18 @@
 # `secrets-cipher` must be exactly 32 characters -- it is an AES-256 key and
 # Kratos refuses to start on any other length. `openssl rand -hex 16` is how
 # that length is guaranteed rather than hoped for.
+#
+#   kubectl create secret generic keto -n ory \
+#     --from-literal=dsn="postgres://keto_app_login:$ORY_PG_KETO_APP_PASSWORD@postgres.chuggy.svc.cluster.local:5432/keto?sslmode=disable" \
+#     --from-literal=migrate-dsn="postgres://keto_owner:$ORY_PG_KETO_OWNER_PASSWORD@postgres.chuggy.svc.cluster.local:5432/keto?sslmode=disable"
+#
+# NO SYSTEM, COOKIE OR CIPHER SECRET. Keto issues nothing and sets no cookie,
+# so it has none of those to rotate -- what it holds is relationships, and the
+# DSNs are the whole of its configuration that cannot be public.
+#
+# THIS SECRET COMES BEFORE THE MERGE THAT DEPLOYS KETO. The `apps` Kustomization
+# sets `wait: true`, so a Keto pod that cannot resolve `keto` stalls the whole
+# reconcile rather than only itself.
 #
 #   kubectl create secret generic ory-ui -n ory \
 #     --from-literal=cookie-secret="$(openssl rand -hex 24)" \

@@ -1,0 +1,25 @@
+# No `dsn` here -- this object is public. It arrives as an environment variable
+# from the `keto` Secret, and both containers in ory-keto.yaml load this same
+# file with the DSN of their own role.
+#
+# Keto's schema has no `sqa` key, so the telemetry opt-out that is a line in
+# hydra.yaml is a flag on the server's command in ory-keto.yaml.
+namespaces:
+  location: file:///etc/config/namespaces.ts
+
+serve:
+  # Checks, expansions, and both health endpoints. ory-network-policy.yaml
+  # admits this port from anywhere on the pod network, which is what lets the
+  # probes in ory-keto.yaml use it.
+  read:
+    host: 0.0.0.0
+    port: 4466
+  # Writes relationships, and authenticates nobody. Namespace-local in that
+  # same policy.
+  write:
+    host: 0.0.0.0
+    port: 4467
+
+log:
+  level: info
+  format: json
