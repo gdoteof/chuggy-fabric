@@ -1,0 +1,36 @@
+{
+  "provenanceRecordDigest": "sha256:f65dd143a920a0b534aea999d8419cae3bf7ce262251a3ea431dc49959e71041",
+  "result": {
+    "attempt": {
+      "name": "build-e0beb4061de43d15a6aa807304bd2d106082a9a2-a1",
+      "ordinal": 1
+    },
+    "controller": "v0.18.4",
+    "output": {
+      "digest": "sha256:81d07361d28b45086c39bda89718637ed992fede629c741e05a2bce20862df3d",
+      "repository": "registry.chuggy-registry.svc.cluster.local:5000/chuggy/worker"
+    },
+    "profile": {
+      "digest": "sha256:b4d3bb9e36544a6bb1b51bdda3021fd628cb343960d2f0139a3cf1bb5fe5f0c5",
+      "name": "shipwright-buildkit-rootless-mini/v1"
+    },
+    "renderer": "shipwright-build-request/v1",
+    "requestDigest": "sha256:e0beb4061de43d15a6aa807304bd2d106082a9a2083a3d744bd3075a9f66c9ee",
+    "source": {
+      "observedCommit": "d6e8a5c9634ae018ecd237b7f52dc51b34a38153",
+      "repositoryId": "chuggy",
+      "requestedCommit": "d6e8a5c9634ae018ecd237b7f52dc51b34a38153"
+    },
+    "terminalCondition": {
+      "lastTransitionTime": "2026-08-30T22:54:46Z",
+      "message": "All Steps have completed executing",
+      "reason": "Succeeded",
+      "status": "True",
+      "type": "Succeeded"
+    },
+    "timestamps": {
+      "completed": "2026-08-30T22:54:46Z",
+      "started": "2026-08-30T22:53:10Z"
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "provenanceRecordDigest": "sha256:6284d93466a0685adc482201dc01c5aff4a8fd857a93292cb2987f2f69b919f3",
+  "result": {
+    "attempt": {
+      "name": "build-7bdc52d77f9d80de53dfd2b55b4413849749e8c0-a1",
+      "ordinal": 1
+    },
+    "controller": "v0.18.4",
+    "output": {
+      "digest": null,
+      "repository": "registry.chuggy-registry.svc.cluster.local:5000/chuggy/web"
+    },
+    "profile": {
+      "digest": "sha256:b4d3bb9e36544a6bb1b51bdda3021fd628cb343960d2f0139a3cf1bb5fe5f0c5",
+      "name": "shipwright-buildkit-rootless-mini/v1"
+    },
+    "renderer": "shipwright-build-request/v1",
+    "requestDigest": "sha256:7bdc52d77f9d80de53dfd2b55b4413849749e8c0ef1bdc14a39f4ace9533893c",
+    "source": {
+      "observedCommit": null,
+      "repositoryId": "chuggy",
+      "requestedCommit": "1649518a10d342bf612e429efa068e0027780c3b"
+    },
+    "terminalCondition": {
+      "lastTransitionTime": "2026-08-27T02:09:25Z",
+      "message": "\"step-image-processing\" exited with code 1: Error",
+      "reason": "StepFailed",
+      "status": "False",
+      "type": "Succeeded"
+    },
+    "timestamps": {
+      "completed": "2026-08-27T02:09:25Z",
+      "started": "2026-08-27T02:08:57Z"
+    }
+  }
+}
