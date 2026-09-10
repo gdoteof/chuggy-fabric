@@ -15,8 +15,9 @@ ownership boundaries, deployment sequence, recovery path, and required checks.
   manifest change is a deployment action.
 - `builds/` contains immutable Shipwright requests pinned to full source commits.
   Generate them with `scripts/render-build-request`; never edit one in place.
-- `results/` records immutable build provenance. Image deployment changes are
-  generated with `scripts/render-image-promotion` from a verified result.
+- `results/` records immutable build provenance, published by the host that
+  recorded it. Image deployment changes are generated with
+  `scripts/render-image-promotion` from a verified result.
 - Credentials remain outside Git. Commit references, projections, and delivery
   mechanisms, but never private keys or token values.
 

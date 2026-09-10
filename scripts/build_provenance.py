@@ -63,8 +63,11 @@ def manifest_identities(content):
     }
 
 
-def verify(results_path, identities):
-    record = results_path / identities["request"] / f'{identities["attempt"]}.json'
+def verify_record(record, identities):
+    """The verified result at an arbitrary path. Split from `verify` below
+    because the host's directory is not the only place a record lives: `results/`
+    in this repository holds the same bytes under a path that names the request's
+    repository and commit too, and one verifier decides both."""
     verifier = Path(__file__).with_name("verify-build-provenance")
     command = [str(verifier), str(record)]
     for name, value in identities.items():
@@ -73,3 +76,9 @@ def verify(results_path, identities):
     if completed.returncode != 0:
         raise SystemExit(completed.stderr.strip() or "provenance verification failed")
     return json.loads(completed.stdout)
+
+
+def verify(results_path, identities):
+    return verify_record(
+        results_path / identities["request"] / f'{identities["attempt"]}.json', identities
+    )

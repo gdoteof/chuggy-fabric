@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+# Copy every durable build result this host holds and the fabric repository does
+# not into that repository, under
+# `results/<repository-id>/<source-commit>/<request-digest>/<attempt>.json`.
+#
+# WHY GIT AND NOT THE HOST DIRECTORY. `scripts/render-image-promotion` consumes
+# one checksummed result and nothing else, and the pod that would run it is a
+# worker with a checkout and no path to /var/lib on this box. A result that
+# exists only here is a result only this box can promote from.
+#
+# THE LAYOUT MIRRORS `builds/`. The same three components name the same request
+# -- `builds/<repository-id>/<source-commit>/<request-digest>.yaml` -- so a
+# result and the request it answers sit at one path apart, and the digest is
+# spelled the way that file spells it: the bare hash, not the `sha256:` form the
+# host directory uses, because that form is a filename no Windows checkout can
+# create and `builds/` already made the choice.
+#
+# THE RULES, WHICH ARE WHAT THIS FILE ENFORCES:
+#
+# - Nothing is rewritten and nothing is deleted. The only paths ever staged are
+#   the two files of a record Git does not carry, so a publication is additions
+#   and nothing else.
+# - A record Git already carries is compared, never overwritten. Two different
+#   bytes claiming one attempt is a finding: it is reported and the run fails,
+#   with everything else still published.
+# - A record whose own checksum fails is not published at all, for the same
+#   reason `record-build-provenance` refuses to replace one.
+# - A record whose request this branch does not declare is reported and skipped.
+#   That is retirement, which is an operator's act and not this unit's failure;
+#   `tests/build-results.py` is what refuses a tree carrying such a result.
+# - A record whose checksum file is not there yet is skipped silently. The
+#   recorder renames the record into place and the checksum after it, so the
+#   pair is briefly incomplete by design, and a pair that stays incomplete is
+#   reported by the recorder rather than twice.
+# - A run with nothing to publish commits nothing.
+# - The clone is reset to the branch's remote tip at the start of every run and
+#   swept of anything untracked, so a failed push leaves nothing half-done: the
+#   next activation rebuilds the same commit from the same records, or finds
+#   them already pushed. The sweep is the half that matters after a crash
+#   between a record and its checksum -- a stray copy left in the clone would
+#   otherwise read as a record Git already carries and differ from it forever.
+#
+# THE TOKEN IS READ FROM THE SECRET THE REFRESHER MAINTAINS and reaches Git
+# through an askpass port, never a URL and never a file inside the clone. The
+# push is to a protected branch whose ruleset admits the portal App and
+# repository admins, which is why it is the finalizer's token and not the
+# worker's.
+set -o errexit -o nounset -o pipefail
+
+: "${RESULTS_PATH:?RESULTS_PATH is required}"
+: "${REPOSITORY_URL:?REPOSITORY_URL is required}"
+: "${BRANCH:?BRANCH is required}"
+: "${TOKEN_SECRET:?TOKEN_SECRET is required}"
+: "${TOKEN_NAMESPACE:?TOKEN_NAMESPACE is required}"
+: "${AUTHOR_NAME:?AUTHOR_NAME is required}"
+: "${AUTHOR_EMAIL:?AUTHOR_EMAIL is required}"
+
+clone=${CLONE_PATH:-${STATE_DIRECTORY:-}}
+[[ -n $clone ]] || { echo "CLONE_PATH or STATE_DIRECTORY is required" >&2; exit 1; }
+kubeconfig=${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}
+kubectl_command=("${KUBECTL:-kubectl}" --kubeconfig "$kubeconfig")
+git_command=${GIT:-git}
+
+umask 077
+run=${RUNTIME_DIRECTORY:-}
+if [[ -z $run ]]; then
+  run=$(mktemp -d)
+  trap 'rm -rf "$run"' EXIT
+fi
+
+"${kubectl_command[@]}" --namespace "$TOKEN_NAMESPACE" get secret "$TOKEN_SECRET" \
+  -o jsonpath='{.data.token}' | base64 -d | tr -d '\r\n' > "$run/token"
+[[ -s $run/token ]] ||
+  { echo "$TOKEN_NAMESPACE/$TOKEN_SECRET carries no token" >&2; exit 1; }
+
+cat > "$run/askpass" <<'PORT'
+#!/bin/sh
+case "$1" in
+  *[Uu]sername*) printf '%s\n' x-access-token ;;
+  *) cat "$PUBLISH_TOKEN_FILE" ;;
+esac
+PORT
+chmod 0700 "$run/askpass"
+export GIT_ASKPASS="$run/askpass"
+export PUBLISH_TOKEN_FILE="$run/token"
+export GIT_TERMINAL_PROMPT=0
+
+if [[ ! -d $clone/.git ]]; then
+  rm -rf "${clone:?}"
+  "$git_command" clone --quiet --depth 1 --no-tags --branch "$BRANCH" "$REPOSITORY_URL" "$clone"
+fi
+git=("$git_command" -C "$clone" -c "user.name=$AUTHOR_NAME" -c "user.email=$AUTHOR_EMAIL")
+"${git[@]}" remote set-url origin "$REPOSITORY_URL"
+"${git[@]}" fetch --quiet --depth 1 --no-tags origin "$BRANCH"
+"${git[@]}" reset --quiet --hard FETCH_HEAD
+"${git[@]}" clean --quiet -fdx
+
+status=0
+published=()
+shopt -s nullglob
+for record in "$RESULTS_PATH"/*/*.json; do
+  checksum="$record.sha256"
+  [[ -f $checksum ]] || continue
+
+  name=$(basename "$record" .json)
+  directory=$(basename "$(dirname "$record")")
+  request=${directory#sha256:}
+  [[ $directory == "sha256:$request" && $request =~ ^[0-9a-f]{64}$ ]] ||
+    { echo "$directory: not a request digest directory" >&2; status=1; continue; }
+
+  stored=$(<"$checksum")
+  computed=$(sha256sum "$record" | awk '{print "sha256:" $1}')
+  [[ $computed == "$stored" ]] ||
+    { echo "$name: durable record checksum mismatch" >&2; status=1; continue; }
+
+  recorded=$(jq -r '.result.requestDigest // empty' "$record")
+  attempt=$(jq -r '.result.attempt.name // empty' "$record")
+  repository=$(jq -r '.result.source.repositoryId // empty' "$record")
+  commit=$(jq -r '.result.source.requestedCommit // empty' "$record")
+  [[ $recorded == "sha256:$request" ]] ||
+    { echo "$name: the record's request digest is not its directory" >&2; status=1; continue; }
+  [[ $attempt == "$name" ]] ||
+    { echo "$name: the record names attempt $attempt" >&2; status=1; continue; }
+  [[ $name =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]] ||
+    { echo "$name: invalid attempt name" >&2; status=1; continue; }
+  [[ $repository =~ ^[a-z0-9]([a-z0-9.-]{0,61}[a-z0-9])?$ ]] ||
+    { echo "$name: invalid source repository id" >&2; status=1; continue; }
+  [[ $commit =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] ||
+    { echo "$name: invalid requested commit" >&2; status=1; continue; }
+
+  manifest="builds/$repository/$commit/$request.yaml"
+  [[ -f $clone/$manifest ]] ||
+    { echo "$name: $BRANCH does not declare $manifest" >&2; continue; }
+
+  destination="results/$repository/$commit/$request"
+  target="$clone/$destination/$name.json"
+  if [[ -e $target || -e $target.sha256 ]]; then
+    if ! cmp -s "$record" "$target" || ! cmp -s "$checksum" "$target.sha256"; then
+      echo "$name: $destination/$name.json differs from this host's record" >&2
+      status=1
+    fi
+    continue
+  fi
+
+  mkdir -p "$clone/$destination"
+  cp -- "$record" "$target"
+  cp -- "$checksum" "$target.sha256"
+  "${git[@]}" add -- "$destination/$name.json" "$destination/$name.json.sha256"
+  published+=("$name")
+done
+
+(( ${#published[@]} )) || exit "$status"
+
+{
+  printf 'publish build results\n\n'
+  printf '%s\n' "${published[@]}"
+} > "$run/message"
+"${git[@]}" commit --quiet --file "$run/message"
+"${git[@]}" push --quiet origin "HEAD:refs/heads/$BRANCH" ||
+  { echo "push to $BRANCH failed; the next activation retries from origin" >&2; exit 1; }
+exit "$status"

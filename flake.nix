@@ -109,6 +109,26 @@
           ''
         );
 
+      # A host that publishes its build results, with the one token it pushes
+      # with declared inline. The overrides below vary that token so a refusal
+      # can name which property of it was wrong; `repositories.nix` produces the
+      # real ones, and none of them belongs to the documentation host.
+      publishing = token: {
+        chuggy.buildProvenance.publish = { enable = true; tokenName = "publisher"; };
+        chuggy.githubAppTokens = {
+          enable = true;
+          tokens.publisher = {
+            appId = "1";
+            installationId = "1";
+            repository = "owner/repository";
+            permission = "write";
+            privateKeyFile = "/var/lib/chuggy/secrets/github-app/example.pem";
+            secretName = "example-github-finalizer-token";
+            namespaces = [ "chuggy" ];
+          } // token;
+        };
+      };
+
       firewallRules = host: import ./tests/firewall-rules.nix { inherit pkgs lib host; };
       registryWiring = host: import ./tests/registry-wiring.nix { inherit pkgs host; };
       releaseImages = import ./tests/release-images.nix { inherit pkgs; };
@@ -116,6 +136,8 @@
       fluxWiring = host: expectSecretRef:
         import ./tests/flux-wiring.nix { inherit pkgs host expectSecretRef; };
       buildPlatform = import ./tests/build-platform.nix { inherit pkgs; };
+      buildResults = import ./tests/build-results.nix { inherit pkgs; };
+      buildResultsPublish = import ./tests/build-results-publish.nix { inherit pkgs; };
       imagePromotion = import ./tests/image-promotion.nix { inherit pkgs; };
       configurationImporter = import ./tests/configuration-importer.nix { inherit pkgs; };
       developmentWorker = import ./tests/development-worker.nix { inherit pkgs; };
@@ -225,6 +247,40 @@
             chuggy.state.buildResults.path = lib.mkForce null;
           };
 
+        # The five ways a host can say it publishes and not be able to. Each is
+        # an eval-time refusal because the alternative is a timer that fails
+        # every few minutes against a Secret that was never going to be there.
+        refuses-publishing-without-token =
+          refuses "publishing-without-token"
+            { chuggy.buildProvenance.publish.enable = true; }
+            "chuggy.buildProvenance.publish.tokenName is unset";
+
+        refuses-publishing-with-unminted-token =
+          refuses "publishing-with-unminted-token"
+            { chuggy.buildProvenance.publish = { enable = true; tokenName = "absent"; }; }
+            "does not mint the token";
+
+        refuses-publishing-with-read-token =
+          refuses "publishing-with-read-token"
+            (publishing { permission = "read"; })
+            "names a read token";
+
+        refuses-publishing-with-shared-token =
+          refuses "publishing-with-shared-token"
+            (publishing { namespaces = [ "chuggy" "chuggy-work" ]; })
+            "more than one namespace";
+
+        refuses-publishing-without-flux-repository =
+          refuses "publishing-without-flux-repository"
+            (lib.recursiveUpdate (publishing { })
+              { chuggy.flux.repositoryUrl = lib.mkForce null; })
+            "publish.enable is on but chuggy.flux.repositoryUrl";
+
+        # And the host those five are the negative space of: a publisher whose
+        # token is minted, writable and delivered to one namespace is accepted,
+        # which is what makes the five above about their own property.
+        accepts-publishing = accepts "publishing" (publishing { });
+
         refuses-without-api-allowed-sources =
           refuses "without-api-allowed-sources"
             { chuggy.k3s.apiAllowedSources = lib.mkForce null; }
@@ -308,6 +364,15 @@
           })
           "fabric-source-auth";
         build-platform = buildPlatform;
+
+        # Every record `results/` carries, against the request in `builds/` it
+        # answers. The records are what a rollout promotes an image from, and
+        # one filed under the wrong request verifies against itself perfectly.
+        build-results = buildResults;
+
+        # And what puts them there: the only unattended push this tree makes to
+        # the branch Flux follows, run against a real repository.
+        build-results-publish = buildResultsPublish;
         image-promotion = imagePromotion;
         configuration-importer = configurationImporter;
       };
