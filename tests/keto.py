@@ -65,8 +65,10 @@ WRITE_SERVICE = "keto-write"
 POSTGRES_POLICY = "postgres-admits-labelled-clients"
 POSTGRES_CLIENT = ("chuggy.dev/postgres-client", "true")
 
-# The one place outside `ory` that names Keto: the API is told where the read
-# port is, and that URL is a second copy of the Service's own number.
+# The API is told where the read port is, and that URL is a second copy of the
+# Service's own number. The selector holds a copy of its own, and
+# tests/selector-reach.py resolves that one against this Service and against the
+# selector's egress arm; this gate reads the API's.
 API_DEPLOYMENT = "chuggy-api"
 API_CONTAINER = "api"
 API_VARIABLE = "CHUG_API_KETO_READ_URL"
@@ -401,9 +403,9 @@ def main():
     if not any(selects(peer.get("podSelector") or {}, labels, POSTGRES_POLICY) for peer in arms):
         refuse(f"no `{ORY}` arm of {POSTGRES_POLICY} selects the {DEPLOYMENT} pod")
 
-    # 7. And the one place outside `ory` that names Keto agrees with the Service
-    #    it names. The URL is a second copy of a number, and a Service that
-    #    renumbered would leave the API reaching for the old one.
+    # 7. And the API's copy of the read port agrees with the Service it names.
+    #    The URL is a second copy of a number, and a Service that renumbered
+    #    would leave the API reaching for the old one.
     api = one(documents, "Deployment", API_DEPLOYMENT, CONTROL)
     values = [
         item.get("value")

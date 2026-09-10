@@ -274,6 +274,20 @@ spec:
             # the bound that runs. A deployment writes it to go LOWER; this one
             # has no reason to.
             #
+            # `access` IS KETO'S READ PORT AND NOTHING ELSE. What a principal
+            # may do on a project is a relation in Keto rather than a row beside
+            # the project, so this process asks the read port itself instead of
+            # reading the answer through the API; the arm that permits that is
+            # in chuggy-control-plane-network-policy.yaml, and the write port is
+            # not admitted to anything outside `ory`. `requestTimeoutMs` is
+            # optional and unset is the code's own default, which is why it is
+            # not written -- the same reason `selector` is omitted above.
+            #
+            # It is required and the schema is strict, so an image built before
+            # kasofsk/chuggy#635 refuses a document carrying it: this block and
+            # the digest above are one release, exactly as `credentialSlot` and
+            # the swap before it were.
+            #
             # `identity.principal` is not what gets this workload past the
             # API -- the token is, and the HTTP client discards this value on
             # every call, so nothing observable turns on what is written here
@@ -296,6 +310,9 @@ spec:
                   "runtime": {
                     "idleIntervalMilliseconds": 1000,
                     "shutdownDrainMilliseconds": 15000
+                  },
+                  "access": {
+                    "readUrl": "http://keto-read.ory.svc.cluster.local:4466/"
                   },
                   "identity": {
                     "principal": "21:https://auth.vteng.iochuggy-selector",

@@ -19,9 +19,9 @@ permitted, and every arm but DNS must be claimed by a URL.
 THE PORT IS THE POD'S AND THE URL'S IS THE SERVICE'S. A NetworkPolicy is matched
 against the destination pod after the ClusterIP has been translated away, so an
 arm is checked against the container port the Service's `targetPort` resolves to
--- by name where it is a name -- and never against the number in the URL. Two of
-the three targets here are named ports, so an arm copied from a URL would be
-wrong for both.
+-- by name where it is a name -- and never against the number in the URL. Most
+targets here publish a named port, so what an arm may say is the pod's to
+resolve and not the URL's to copy, however often the two numbers coincide.
 
 THE RETIREMENT IS A SWAP AND BOTH HALVES ARE HELD. The configuration schema is
 strict, so a leftover `policy` block and a missing `lead` block refuse the
