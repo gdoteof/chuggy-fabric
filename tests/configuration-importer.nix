@@ -16,11 +16,23 @@ pkgs.runCommand "chuggy-configuration-importer" {
   grep -F 'commit: process.env.CHUG_CONFIGURATION_IMPORT_COMMIT' "$manifest" >/dev/null
   test "$(grep -Fc 'commit="$(git ls-remote' "$manifest")" -eq 1
 
+  # The configuration says which repository the commit is in, and the credential
+  # source says which repository the token opens. Both are the entry the run is
+  # for, so they are the same string: a commit read against the other
+  # repository's tree is a configuration imported from the wrong declarations.
+  test "$(grep -Ec '^ {10}repository: process\.env\.CHUG_CONFIGURATION_IMPORT_REPOSITORY,' "$manifest")" -eq 1
+  test "$(grep -Ec '^ {14}repository: process\.env\.CHUG_CONFIGURATION_IMPORT_REPOSITORY,' "$manifest")" -eq 1
+
   # The pod has only reader Git material and its own database login. Which
   # repositories it reads, and which Secret fills each one's file, are held
   # against the site's roster by tests/github-repository-transition.py; what is
-  # here is that a reader token is the only Git material the pod carries.
-  grep -F 'secretName: chuggy-github-reader-token' "$manifest" >/dev/null
+  # here is that a reader token is the only Git material the pod carries --
+  # every Secret its credential volume projects is one, whatever the roster
+  # grows to.
+  grep -F 'projected:' "$manifest" >/dev/null
+  sources="$(grep -Ec '^ *- secret:$' "$manifest")"
+  test "$sources" -ge 1
+  test "$(grep -Ec '^ *name: [a-z0-9-]+-github-reader-token$' "$manifest")" -eq "$sources"
   grep -F 'path: chuggy-github' "$manifest" >/dev/null
   grep -F 'credentialUsername: "x-access-token"' "$manifest" >/dev/null
   test "$(grep -c 'finalizer-token\|worker-token\|git-operator\|chuggy-git-sync' "$manifest" || true)" -eq 0
@@ -36,18 +48,20 @@ pkgs.runCommand "chuggy-configuration-importer" {
   grep -F 'pg_isready -h postgres.chuggy.svc.cluster.local -U chuggy_configuration_importer_login -t 2' "$manifest" >/dev/null
   test "$(grep -Fc 'for i in $(seq 1 15)' "$manifest")" -eq 2
   grep -F 'timeout 3s git ls-remote --exit-code "$repository" refs/heads/main >/dev/null 2>&1 && break' "$manifest" >/dev/null
-  grep -F 'activeDeadlineSeconds: 420' "$manifest" >/dev/null
 
   # The deadline is one Job's and the waiting is per repository, so the sum
   # grows with the configured list. A run killed by the deadline reports
   # DeadlineExceeded rather than which repository it could not reach, which is
-  # the failure this arithmetic is here to keep out of the tree.
+  # the failure this arithmetic is here to keep out of the tree. Both sides are
+  # read out of the manifest, so a list that outgrows the deadline fails here
+  # rather than in the cluster.
   entries="$(grep -Ec '^[[:space:]]+https://[^[:space:]]+\.git [A-Za-z0-9._-]+$' "$manifest")"
   test "$entries" -ge 1
+  outer_deadline="$(sed -n 's/^[[:space:]]*activeDeadlineSeconds:[[:space:]]*\([0-9]\{1,\}\)$/\1/p' "$manifest")"
+  test "$(printf '%s\n' "$outer_deadline" | grep -c .)" -eq 1
   postgres_wait=$((15 * (2 + 2)))
   repository_wait=$((entries * 15 * (3 + 2)))
   import_remote_timeout=$((entries * 120))
-  outer_deadline=420
   test "$outer_deadline" -gt "$((postgres_wait + repository_wait + import_remote_timeout))"
 
   # Overlap is refused and failed runs remain visible for inspection.

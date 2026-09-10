@@ -53,20 +53,11 @@ let
     # IT IS ALSO THE FLUX SOURCE: `hosts/gtr/default.nix`'s
     # `chuggy.flux.repositoryUrl` names this same repository, so a finalized
     # fabric ticket is a change Flux applies to this cluster once it merges.
-    #
-    # `imported = false` IS THE ONE THING THIS SITE CANNOT YET DO, and it is
-    # not a manifest that was forgotten. The configuration importer takes one
-    # commit for every partition it is given and resolves each partition's
-    # repository from its binding, so a project bound to two repositories has
-    # no commit that means both. kasofsk/chuggy's own step -- the importer
-    # taking a repository with the commit -- is what makes this `true`, and
-    # that is the whole of the follow-up: this line, and the entry
-    # cluster/apps/chuggy-configuration-importer.yaml's list then accepts.
     chuggy-fabric = {
       owner = "gdoteof";
       portalInstallationId = "156334058";
       workerInstallationId = "156791042";
-      imported = false;
+      imported = true;
     };
   };
 in

@@ -980,9 +980,14 @@ the portal App integration, nothing else:
           --jq '{name, enforcement, rules: [.rules[].type], bypass_actors}'
 
 The bare repository is created above; until it exists the mirror job ends its
-run saying so. And a repository is imported only once Chuggy's importer takes
-a repository with the commit; until then the entry says `imported = false` and
-the importer's list does not carry it.
+run saying so. And a repository is imported only once the project a partition
+names is bound to it: the importer resolves each partition's repository from
+that binding and refuses one that has none, so an entry marked `imported` ahead
+of its bind fails every run until the bind is made. The run also needs the
+api image the CronJob pins to be one whose importer takes a repository beside
+the commit: an older image refuses the configuration it is handed outright,
+for every entry at once, so an entry marked `imported` is released with, or
+after, that image and never ahead of it.
 
 ### Verified
 
