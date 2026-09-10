@@ -22,14 +22,15 @@
     },
     "brief": {
       "motivation": [
-        "Land a rollout the release scripts generated: image digests, source-commit annotations, and the migrate Job named for that commit."
+        "Land a rollout the release scripts generated: image digests, source-commit annotations, and the migrate Job named for that commit. A rollout deploys what is on chuggy main; nothing in a brief names a commit or a digest."
       ],
       "acceptanceCriteria": [
-        "The diff is script output and nothing else, and every manifest in it names one source."
+        "The diff is script output and nothing else, every manifest in it names one source commit, and scripts/check-release-consistency accepts cluster/apps."
       ],
       "constraints": [
-        "Regenerate manifest content with the scripts in scripts/; do not hand-write it.",
-        "Do not reconcile Flux, apply manifests, restart infrastructure, reset data, or deploy."
+        "Resolve chuggy main yourself at run time: git ls-remote https://github.com/kasofsk/chuggy.git refs/heads/main. The brief cannot know it.",
+        "Digests come only from recorded build results under results/<repository>/<commit>/<request>/, rendered with scripts/render-image-promotion --build-result; never from a registry read or a hand edit. A commit with no result under results/ is a rollout that cannot be produced yet: say so and stop.",
+        "Do not reconcile Flux, apply manifests, restart infrastructure, reset data, or deploy. main is live; the pull request you open is the deployment decision and it is the owner's."
       ]
     },
     "practices": ["AcceptanceCriteria"],
