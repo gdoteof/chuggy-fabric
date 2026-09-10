@@ -37,9 +37,10 @@ initContainer cannot reach the database it exists to migrate, which under
 WHAT THIS GATE CANNOT RESOLVE IT REFUSES rather than passes: an ingress element
 whose `from` is neither absent nor a bare podSelector, an element naming
 `endPort` -- a range this reads one port at a time, so a range that reached the
-write port would read here as the number it starts at -- a podSelector this
-cannot evaluate, a Service publishing other than one port, and a probe that is
-not an httpGet are each legal and each outside what is evaluated here.
+write port would read here as the number it starts at -- an element whose port
+is a name or is absent rather than a number, a podSelector this cannot
+evaluate, a Service publishing other than one port, and a probe that is not an
+httpGet are each legal and each outside what is evaluated here.
 """
 
 import sys
@@ -216,8 +217,16 @@ def admission(policies):
                         "this gate reads a port at a time and would see only the number the "
                         "range starts at"
                     )
+                number = port.get("port")
+                if isinstance(number, bool) or not isinstance(number, int):
+                    refuse(
+                        f"an ingress element on {name} names the port {number!r}, which is not "
+                        "a number: a name is resolved against the selected pod's own containers "
+                        "and an absent port admits every one of them, and this gate reads "
+                        "neither"
+                    )
                 if port.get("protocol", "TCP") == "TCP":
-                    ports.add(port["port"])
+                    ports.add(number)
             if not ports:
                 refuse(
                     f"an ingress element on {name} names no TCP port, so it admits every "
