@@ -101,6 +101,16 @@
     buildResults.path = "/var/lib/chuggy/build-results";
   };
 
+  # What this box builds is recorded on that path and committed to the
+  # repository it follows, so a rollout renders its promotion from a checkout
+  # rather than from this filesystem. The push carries the finalizer's token
+  # because `Finalizer owns main` on that repository admits the portal App and
+  # repository admins; the entry the token comes from is repositories.nix's.
+  chuggy.buildProvenance.publish = {
+    enable = true;
+    tokenName = "finalizer-chuggy-fabric";
+  };
+
   # One task at a time, sized against the box in the header above and against
   # what already runs on it: the control plane, PostgreSQL, Ory and the
   # monitoring stack. These say what a single work pod may take, not what the

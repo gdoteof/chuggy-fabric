@@ -47,7 +47,7 @@ The live retention policy is operator-driven rather than time-driven:
 | Material | Retention and collection |
 |---|---|
 | request and attempt declarations | live until ordered retirement; retained in Git history |
-| durable result | retained with installation backups after live-resource removal |
+| durable result | retained with installation backups after live-resource removal, and in `results/` once published |
 | Build, BuildRun, TaskRun, pod, and cluster log | pruned only after the result is durable and the Git declaration is retired |
 | registry digest | retained until a selected-digest inventory can prove it unselected immediately before collection |
 
@@ -58,6 +58,13 @@ Retirement is ordered:
 3. commit and push the removal;
 4. verify the `builds` Kustomization applied that revision and the BuildRun and
    Build disappeared through Flux pruning.
+
+Retirement and publication do not compose yet. `results/` carries a record for
+every request the publisher has reached, and `tests/build-results.py` resolves
+each of them against the declaration in `builds/` it answers, so removing a
+declaration whose result is published makes that gate a finding. Nothing has
+been retired here; the first retirement is what decides whether the gate learns
+to read history or a published result is retired with its request.
 
 Git retains request and attempt declarations. The installation backup retains
 `/var/lib/chuggy/build-results`, including attempt-to-request-to-digest records.

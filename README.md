@@ -703,6 +703,25 @@ ownership, and only then delete the resource. The result directory is
 installation state and needs the same backup treatment as the registry and
 journal.
 
+A recorded result is also published into this repository, which is what makes
+selection runnable anywhere: the command below takes a record path, and the pod
+that would run it has a checkout and no path to the host's disk.
+`chuggy-build-results-publish.timer` runs after the recorder on a host carrying
+`chuggy.buildProvenance.publish`, copies every record Git does not yet hold to
+`results/<repository-id>/<source-commit>/<request-digest>/<attempt>.json` beside
+its `.sha256`, and pushes to the branch `chuggy.flux` names. The bytes are the
+recorder's and the layout is `builds/`'s with the attempt added, so a result and
+the request it answers are one path apart. The push carries the GitHub App token
+`chuggy.buildProvenance.publish.tokenName` selects -- the finalizer's, because
+that branch's ruleset admits the portal App and repository admins. Nothing is
+rewritten and nothing is deleted: a record already in Git is compared and a
+mismatch reported rather than overwritten, and a run with nothing new commits
+nothing. `results/` is outside `cluster/`, so Flux applies none of it; a
+publication reaches the live branch and changes no object.
+`tests/build-results.nix` holds every committed record against the request in
+`builds/` it answers, and `tests/build-results-publish.nix` runs the publisher
+against a real repository.
+
 Image selection is a separate Git change. `scripts/render-image-promotion`
 consumes one checksummed successful result, verifies that the registry still
 serves its exact digest, and writes a configured workload patch. The repository
@@ -710,7 +729,7 @@ binding, target ref, environment path, workload identity and container are all
 inputs; the renderer assumes no project or environment name:
 
     scripts/render-image-promotion \
-      --build-result /var/lib/chuggy/build-results/<request>/<attempt>.json \
+      --build-result results/<repository-id>/<commit>/<request>/<attempt>.json \
       --repository-id example-service \
       --repository-url https://git.example.com/platform/environments.git \
       --target-ref refs/heads/staging \
