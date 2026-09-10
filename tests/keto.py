@@ -8,6 +8,13 @@ goes wrong is silent -- a pod whose `app` is not in the list is selected by no
 policy in the namespace, which is not a denial but the whole pod network on
 every port it listens on, with every file still reading correctly on its own.
 
+NETWORKPOLICIES ARE ADDITIVE, so the question is what the namespace admits and
+not what one object says. Reachability below is folded over every policy in
+`ory` that selects this pod and isolates it for ingress: a second policy with a
+bare podSelector opening the write port would leave the first reading exactly
+as it does now, and a second policy is what ory-network-policy.yaml tells the
+next author to admit a scrape with.
+
 THE PORT IS WRITTEN THREE TIMES AND ONLY ONE OF THEM IS WHAT THE KERNEL
 MATCHES. A NetworkPolicy names the pod's port; a Service names its own and
 targets the container's by name; the container declares it. So every assertion
@@ -28,7 +35,9 @@ initContainer cannot reach the database it exists to migrate, which under
 `wait: true` stalls the reconcile rather than one workload.
 
 WHAT THIS GATE CANNOT RESOLVE IT REFUSES rather than passes: an ingress element
-whose `from` is neither absent nor a bare podSelector, a podSelector this
+whose `from` is neither absent nor a bare podSelector, an element naming
+`endPort` -- a range this reads one port at a time, so a range that reached the
+write port would read here as the number it starts at -- a podSelector this
 cannot evaluate, a Service publishing other than one port, and a probe that is
 not an httpGet are each legal and each outside what is evaluated here.
 """
@@ -46,7 +55,6 @@ DEPLOYMENT = "keto"
 SERVER = "keto"
 MIGRATE = "migrate"
 
-POLICY = "ory-admin-apis-are-namespace-local"
 READ_SERVICE = "keto-read"
 WRITE_SERVICE = "keto-write"
 
@@ -173,8 +181,13 @@ def resolved_port(service, deployment):
     return port["port"], numbers.pop()
 
 
-def admission(policy):
-    """Each ingress element as ('anywhere' | 'namespace', the TCP ports it admits).
+def admission(policies):
+    """Every ingress element as ('anywhere' | 'namespace', the TCP ports it admits).
+
+    Across all of them, because NetworkPolicies are additive: a port is
+    reachable from wherever ANY policy selecting the pod admits it, and a
+    second object admitting the write port would leave the first one reading
+    exactly as it does now.
 
     An element with no `from` admits every pod on the network; the one this
     directory uses to mean "inside `ory`" is a single bare podSelector, which
@@ -182,24 +195,35 @@ def admission(policy):
     shape whose reach this gate would have to guess at.
     """
     found = []
-    for element in policy["spec"].get("ingress", []):
-        peers = element.get("from")
-        if peers is None:
-            reach = "anywhere"
-        elif peers == [{"podSelector": {}}]:
-            reach = "namespace"
-        else:
-            refuse(
-                f"an ingress element on {policy['metadata']['name']} names a `from` that is "
-                "neither absent nor a bare podSelector, and this gate cannot resolve its reach"
-            )
-        ports = {port["port"] for port in element.get("ports", []) if port.get("protocol", "TCP") == "TCP"}
-        if not ports:
-            refuse(
-                f"an ingress element on {policy['metadata']['name']} names no TCP port, so it "
-                "admits every port on every selected pod"
-            )
-        found.append((reach, ports))
+    for policy in policies:
+        name = policy["metadata"]["name"]
+        for element in policy["spec"].get("ingress") or []:
+            peers = element.get("from")
+            if peers is None:
+                reach = "anywhere"
+            elif peers == [{"podSelector": {}}]:
+                reach = "namespace"
+            else:
+                refuse(
+                    f"an ingress element on {name} names a `from` that is neither absent nor "
+                    "a bare podSelector, and this gate cannot resolve its reach"
+                )
+            ports = set()
+            for port in element.get("ports") or []:
+                if "endPort" in port:
+                    refuse(
+                        f"an ingress element on {name} names endPort, which admits a range: "
+                        "this gate reads a port at a time and would see only the number the "
+                        "range starts at"
+                    )
+                if port.get("protocol", "TCP") == "TCP":
+                    ports.add(port["port"])
+            if not ports:
+                refuse(
+                    f"an ingress element on {name} names no TCP port, so it admits every "
+                    "port on every pod it selects"
+                )
+            found.append((reach, ports))
     return found
 
 
@@ -239,15 +263,24 @@ def main():
     template = deployment["spec"]["template"]
     labels = template["metadata"].get("labels", {})
 
-    # 1. The pod is selected by the policy at all. Everything below is a
-    #    statement about which of Keto's ports are admitted from where, and a
-    #    pod no policy selects is admitted everything from everywhere.
-    policy = one(documents, "NetworkPolicy", POLICY, ORY)
-    if not selects(policy["spec"]["podSelector"], labels, POLICY):
+    # 1. Some policy in `ory` isolates the pod for ingress at all. Everything
+    #    below is a statement about which of Keto's ports are admitted from
+    #    where, and a pod no such policy selects is admitted everything from
+    #    everywhere.
+    policies = [
+        document
+        for document in documents
+        if document.get("kind") == "NetworkPolicy"
+        and document["metadata"].get("namespace") == ORY
+        and "Ingress" in (document["spec"].get("policyTypes") or ["Ingress"])
+        and selects(document["spec"]["podSelector"], labels, document["metadata"]["name"])
+    ]
+    if not policies:
         refuse(
-            f"{POLICY} does not select the {DEPLOYMENT} pod, so no policy in {ORY} does and "
-            "every port it listens on is open to the whole cluster"
+            f"no NetworkPolicy in {ORY} isolates the {DEPLOYMENT} pod for ingress, so every "
+            "port it listens on is open to the whole cluster"
         )
+    named = ", ".join(sorted(policy["metadata"]["name"] for policy in policies))
 
     # 2. The two ports, resolved the way the kernel resolves them: through each
     #    Service's `targetPort` onto the container port, never off the number
@@ -255,14 +288,14 @@ def main():
     read_published, read_port = resolved_port(one(documents, "Service", READ_SERVICE, ORY), deployment)
     _, write_port = resolved_port(one(documents, "Service", WRITE_SERVICE, ORY), deployment)
 
-    elements = admission(policy)
+    elements = admission(policies)
 
     # 3. The write port grants permission, so it is admitted from inside `ory`
     #    and from nowhere else.
     reach = admitted_by(elements, write_port)
     if reach != {"namespace"}:
         refuse(
-            f"{WRITE_SERVICE} lands on container port {write_port}, which {POLICY} admits "
+            f"{WRITE_SERVICE} lands on container port {write_port}, which {named} admits "
             f"from {sorted(reach) or ['nowhere']} rather than from `{ORY}` alone -- that port "
             "makes any subject an administrator of any project"
         )
@@ -271,7 +304,7 @@ def main():
     #    health endpoints, so it is admitted from anywhere on the pod network.
     if "anywhere" not in admitted_by(elements, read_port):
         refuse(
-            f"{READ_SERVICE} lands on container port {read_port}, which {POLICY} does not "
+            f"{READ_SERVICE} lands on container port {read_port}, which {named} does not "
             "admit from anywhere on the pod network"
         )
 
@@ -281,7 +314,7 @@ def main():
     for probed in sorted(probe_ports(container(deployment, SERVER))):
         if "anywhere" not in admitted_by(elements, probed):
             refuse(
-                f"the {SERVER} container probes port {probed}, which {POLICY} does not admit "
+                f"the {SERVER} container probes port {probed}, which {named} does not admit "
                 "from anywhere, so the kubelet reaches it only through the CNI exemption"
             )
 

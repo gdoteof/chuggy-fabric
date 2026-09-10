@@ -23,9 +23,9 @@
 # why the probes below are on it: ory-kratos.yaml states what probing a port the
 # policy admits from the namespace alone would cost, and it applies unchanged.
 #
-# A third listener on 4468 serves `/metrics/prometheus`. No Service names it and
-# no policy admits it, so a scrape is the element ory-network-policy.yaml
-# declines to widen for.
+# Two further listeners: 4468 serves `/metrics/prometheus`, and 4469 serves
+# Keto's OPL syntax check. No Service names either and no policy admits either,
+# so a scrape is the element ory-network-policy.yaml declines to widen for.
 #
 # ------------------------------------------------------------ the migration ----
 #
