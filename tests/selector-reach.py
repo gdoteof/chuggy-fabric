@@ -230,10 +230,10 @@ def selected(templates, namespace, selector):
 def pod_port(service, pods):
     """The container port a Service's published port resolves to.
 
-    `targetPort` is a name in two of the three cases here, and a name is the
-    pod's: it is looked up on the containers of the pods the Service selects,
-    and a name no selected container publishes is refused rather than passed
-    through as a string.
+    `targetPort` is a name in most cases here, and a name is the pod's: it is
+    looked up on the containers of the pods the Service selects, and a name no
+    selected container publishes is refused rather than passed through as a
+    string.
     """
     published = [entry for entry in service["spec"].get("ports", [])]
     if len(published) != 1:

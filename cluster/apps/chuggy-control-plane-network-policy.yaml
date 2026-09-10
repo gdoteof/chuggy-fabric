@@ -227,9 +227,10 @@ spec:
 #
 # KETO IS ON ITS READ PORT AND NOT ITS WRITE ONE, for the same shape of reason:
 # the selector checks what a principal may do, and the tuples it checks are
-# written out of band by the owner CLI. `ory-network-policy.yaml` admits 4466
-# from anywhere on the pod network and 4467 from `ory` alone, so an arm for the
-# write port would be permitted at this end and refused at the other.
+# written out of band by kasofsk/chuggy's `src/roots/provisionProjectAccess.ts`
+# and never by this pod. `ory-network-policy.yaml` admits 4466 from anywhere on
+# the pod network and 4467 from `ory` alone, so an arm for the write port would
+# be permitted at this end and refused at the other.
 #
 # POSTGRESQL IS ALSO WHERE ITS DECISIONS COME FROM, which is why the rule did
 # not change when the policy did. The selector asks the project's lead for a
