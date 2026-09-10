@@ -29,7 +29,9 @@
       ],
       "constraints": [
         "Read AGENTS.md and .chug/tasks/review-change.md before changing the repository.",
-        "Generate build requests and image deployment changes with the scripts in scripts/; never edit one in place.",
+        "A build request is rendered with scripts/render-build-request from the previous request's arguments for the same image; never hand-written. The source commit is chuggy main at run time unless the brief names another.",
+        "Generate image deployment changes with the scripts in scripts/; never edit one in place.",
+        "main is live: Flux applies cluster/ and builds/, so a merged request starts a build and a merged manifest deploys; results/ it does not apply. Open a pull request; do not merge it.",
         "Do not rebuild or switch a host, reconcile Flux, apply manifests, restart infrastructure, reset data, or deploy."
       ]
     },
