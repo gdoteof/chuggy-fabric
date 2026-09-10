@@ -3,20 +3,24 @@
 # can read the repositories it is given and write configuration history, but it
 # cannot move a ref in either the internal repository or GitHub.
 #
-# ONE RUN A REPOSITORY, OVER A LIST, AND TODAY THAT LIST HAS ONE ENTRY. Each
-# entry is a repository and the file its GitHub token is read from; the run
-# resolves that repository's own head and imports at it, so two repositories
-# are two commits rather than one commit asserted of both.
+# ONE RUN A REPOSITORY, OVER A LIST. Each entry is a repository and the file
+# its GitHub token is read from; the run resolves that repository's own head
+# and imports the declarations it finds there, so each repository is imported
+# at its own commit rather than one commit asserted of all of them. The run
+# names that repository in the configuration beside the commit, which is what
+# tells the command which repository the commit is in.
 #
-# WHY THE LIST IS SHORTER THAN `repositories.nix`. The command takes one commit
-# for every partition it is given and resolves each partition's repository from
-# that project's binding, so a project bound to two repositories has no commit
-# that means both -- and a second entry here would resolve the wrong tree for
-# whichever partition it is not. kasofsk/chuggy's step, the importer taking a
-# repository with the commit, is what makes a second entry correct; the entry
-# and the roster's `imported` beside it are the whole of that follow-up.
+# WHAT AN ENTRY NEEDS. `repositories.nix` marks the repository `imported`, and
+# the pod projects that repository's reader Secret at the file the entry names;
+# the run refuses an entry whose credential file it cannot read, so the entry
+# and the projection arrive together or not at all.
 # `tests/github-repository-transition.py` holds this list equal to the
-# repositories the roster marks imported, so neither can move without the other.
+# repositories the roster marks imported and each entry's file to the Secret the
+# site mints, so neither can move without the other.
+#
+# AND THE PROJECT MUST BE BOUND TO THE REPOSITORY. The command resolves each
+# partition's binding and refuses a repository the partition is not bound to, so
+# an entry added before that bind exists fails every run until it is made.
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -89,6 +93,7 @@ data:
             localTimeoutSecsMax: 120,
             remoteTimeoutSecsMax: 120,
           },
+          repository: process.env.CHUG_CONFIGURATION_IMPORT_REPOSITORY,
           commit: process.env.CHUG_CONFIGURATION_IMPORT_COMMIT,
           partitions: [{ tenant: "vteng", project: "chuggy" }],
         }));
@@ -150,7 +155,7 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 0
-      activeDeadlineSeconds: 420
+      activeDeadlineSeconds: 600
       template:
         metadata:
           labels:
@@ -206,6 +211,7 @@ spec:
                 - name: CHUG_CONFIGURATION_IMPORT_REPOSITORIES
                   value: |
                     https://github.com/kasofsk/chuggy.git chuggy-github
+                    https://github.com/gdoteof/chuggy-fabric.git chuggy-fabric-github
               volumeMounts:
                 - name: scripts
                   mountPath: /opt/chuggy-configuration-importer
@@ -231,10 +237,20 @@ spec:
                 defaultMode: 0555
             - name: scratch
               emptyDir: {}
+            # One source a repository, because the token is per repository: a
+            # second owner is a second App installation and therefore a second
+            # Secret. Each file is the one its entry above names.
             - name: repository-credentials
-              secret:
-                secretName: chuggy-github-reader-token
+              projected:
                 defaultMode: 0444
-                items:
-                  - key: token
-                    path: chuggy-github
+                sources:
+                  - secret:
+                      name: chuggy-github-reader-token
+                      items:
+                        - key: token
+                          path: chuggy-github
+                  - secret:
+                      name: chuggy-fabric-github-reader-token
+                      items:
+                        - key: token
+                          path: chuggy-fabric-github
