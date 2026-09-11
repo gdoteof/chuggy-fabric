@@ -167,6 +167,26 @@
 # strands every row that names it -- those retries stop being recognised as
 # retries and are executed again.
 #
+# THE PORTAL APP'S PRIVATE KEY IS THE OPERATOR'S OWN FILE, and it is not the
+# token module's to mint. `modules/github-app-token.nix` reads the key on the
+# host to mint the per-repository tokens below and projects the tokens alone,
+# so this Secret carries no `chuggy.dev/managed-by` label and a host rebuild
+# neither creates it nor refreshes it:
+#
+#   kubectl -n chuggy create secret generic chuggy-github-app-portal \
+#     --from-file=private-key=/var/lib/chuggy/secrets/github-app/chuggy-portal.pem
+#
+# Run on the node as root: the source is root-only host state, named by
+# `chuggy.githubAppTokens.apps.portal.privateKeyFile` in hosts/gtr, and the
+# command is the only thing that copies it into the cluster. The Secret is
+# there on this rig.
+#
+# WHAT IT WIDENS IS WORTH READING BEFORE THE MOUNT BELOW. A GitHub token file in
+# the credential list below is one repository for one hour; the key mints for
+# every repository the portal App is installed on, for as long as the key stands.
+# What bounds it is the App's own permission set and the ruleset on each
+# repository's protected branch, which AGENTS.md states.
+#
 # --------------------------------------------------------------- the OIDC ----
 #
 # The issuer string is compared for equality against the one the discovery
@@ -300,6 +320,15 @@ spec:
             # alone. Nothing in the image above reads this name yet.
             - name: CHUG_API_KETO_READ_URL
               value: http://keto-read.ory.svc.cluster.local:4466
+            # The portal App this process mints its own installation tokens
+            # from, in place of reading the per-repository token files below.
+            # The id is the same one hosts/gtr gives
+            # `chuggy.githubAppTokens.apps.portal`, whose minting is unchanged
+            # by this. Nothing in the image above reads either name yet.
+            - name: CHUG_API_FORGE_APP_ID
+              value: "4708055"
+            - name: CHUG_API_FORGE_APP_KEY_FILE
+              value: /var/run/chuggy/forge-app/private-key
             # The named credential mount a member's thread speaks to the model
             # through, written on the API because the API is what opens a
             # thread's session. It is not free: `kubernetesSessionPodRequest`
@@ -422,6 +451,9 @@ spec:
             - name: repository-credentials
               mountPath: /var/run/chuggy/repository-credentials
               readOnly: true
+            - name: forge-app
+              mountPath: /var/run/chuggy/forge-app
+              readOnly: true
           resources:
             requests: { cpu: 100m, memory: 128Mi }
             limits: { memory: 512Mi }
@@ -497,6 +529,21 @@ spec:
                   items:
                     - key: token
                       path: chuggy-fabric-github
+        - name: forge-app
+          secret:
+            secretName: chuggy-github-app-portal
+            # 0444 rather than 0400, for the reason chuggy-finalizer.yaml argues
+            # in full: the kubelet writes a Secret volume's files owned by uid 0,
+            # this pod declares no `fsGroup`, and a mode without the world bit
+            # leaves a file the process it is for cannot open.
+            defaultMode: 0444
+            # Naming the key is what makes a Secret without it a refusal rather
+            # than an empty directory. Either absence leaves this pod in
+            # `ContainerCreating` on a `FailedMount`: an API that mints from
+            # this key must not start without it.
+            items:
+              - key: private-key
+                path: private-key
 ---
 apiVersion: v1
 kind: Service

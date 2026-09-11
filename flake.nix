@@ -146,6 +146,10 @@
       gitMirror = import ./tests/git-mirror.nix { inherit pkgs; };
       githubRepositoryTransition = import ./tests/github-repository-transition.nix { inherit pkgs; };
       githubAppToken = import ./tests/github-app-token.nix { inherit pkgs; };
+      forgeAppKey = import ./tests/forge-app-key.nix {
+        inherit pkgs;
+        apps = self.nixosConfigurations.gtr.config.chuggy.githubAppTokens.apps;
+      };
     in
     {
       nixosConfigurations = {
@@ -213,6 +217,12 @@
         # refusal names the manifest, the variable and the value.
         github-repository-transition = githubRepositoryTransition;
         github-app-token = githubAppToken;
+
+        # An App id, a file a process opens and a projection that puts a key
+        # there. The host mints from the same Apps, so the id in a manifest is a
+        # copy of the host's, and a key file nothing projects is an error at the
+        # first mint rather than at start-up.
+        forge-app-key = forgeAppKey;
 
         # D30 and D14 in a form a check can hold: an enabled host that has not
         # said what a task may cost, or who may reach its API, is refused rather

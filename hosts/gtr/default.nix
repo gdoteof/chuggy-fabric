@@ -184,10 +184,15 @@
     branch = "main";
   };
 
-  # The two Apps' keys, which are files on this box and nowhere else. Which
-  # repositories they mint for is not a fact about this machine: it is
-  # `repositories.nix`, and a repository added there arrives here as its four
-  # tokens without this file changing.
+  # The two Apps' keys, which are files on this box. Which repositories they
+  # mint for is not a fact about this machine: it is `repositories.nix`, and a
+  # repository added there arrives here as its four tokens without this file
+  # changing.
+  #
+  # The portal key is also copied by hand into the Secret
+  # `chuggy/chuggy-github-app-portal`, so rotating or revoking it is two places
+  # and not one; `cluster/apps/chuggy-api.yaml` holds that command and says what
+  # the pod that mounts it can mint.
   chuggy.githubAppTokens = {
     enable = true;
     apps = {
