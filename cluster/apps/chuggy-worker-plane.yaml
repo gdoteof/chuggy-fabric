@@ -5,7 +5,7 @@ metadata:
   namespace: chuggy
   labels: { app: chuggy-worker-plane }
   annotations:
-    fabric.chuggy.dev/source-commit: 3e0574bc
+    fabric.chuggy.dev/source-commit: 3be38c30
 spec:
   replicas: 1
   strategy: { type: Recreate }
@@ -24,7 +24,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: worker-plane
-          image: registry.chuggy.internal/chuggy/api@sha256:494e74f21cf378d14e445dd96e8268456f9219f63d802b2feac26c1bd37b7c02
+          image: registry.chuggy.internal/chuggy/api@sha256:3fd613066954e747c6996f87ee848b690d95ff1bffd7824d17381a69f2d5effd
           imagePullPolicy: IfNotPresent
           command: [node, --experimental-strip-types, src/roots/workerPlane.ts]
           env:
