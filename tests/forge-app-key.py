@@ -45,7 +45,7 @@ MINTERS = (
     ("chuggy-api", "portal", "CHUG_API_FORGE_APP_ID", "CHUG_API_FORGE_APP_KEY_FILE"),
     (
         "chuggy-worker-plane",
-        "portal",
+        "worker",
         "CHUG_WORKER_PLANE_FORGE_APP_ID",
         "CHUG_WORKER_PLANE_FORGE_APP_KEY_FILE",
     ),
