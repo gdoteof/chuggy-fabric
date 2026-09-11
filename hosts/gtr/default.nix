@@ -205,10 +205,12 @@
       portal = {
         appId = "4708055";
         privateKeyFile = "/var/lib/chuggy/secrets/github-app/chuggy-portal.pem";
+        keySecret = "chuggy-github-app-portal";
       };
       worker = {
         appId = "4728465";
         privateKeyFile = "/var/lib/chuggy/secrets/github-app/chuggy-worker.pem";
+        keySecret = "chuggy-github-app-worker";
       };
     };
     repositories =

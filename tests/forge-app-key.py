@@ -31,25 +31,33 @@ from the other side, and one the process itself cannot catch, because reading a
 key file proves only that it is a key. So two rows of one workload naming
 different Apps must resolve to different (Secret, key) projections.
 
+AND THE SECRET IS THE APP'S, NOT MERELY A SECRET. The two keys arrive in two
+Secrets, one an App, and a volume that names the other one projects a key that
+reads and signs and is refused by GitHub -- the failure at the top of this file
+again, reached from the mount rather than from the id. So `keySecret` sits
+beside `appId` on the host, the same second declaration that makes an id a copy
+rather than a literal, and a minter's volume must name the Secret of the App
+whose id it writes.
+
 AND ONE REMOTE IS NOT MINTED FOR AT ALL, WHICH IS THE SAME DEFECT INVERTED. The
 finalizer promotes to `rig.git` on this cluster's own git service, which no App
 key covers, so that one credential is a file the operator made and a path this
 pod opens -- the shape above with a hand-made Secret in place of a key. It is
 held here because a manifest that lost it renders, starts, mints for every forge
 repository as designed, and fails every promotion to the tree Flux reconciles
-this cluster from, which is the quietest failure in this file.
+this cluster from, which is the quietest failure in this file. The api and the
+ticket service can be told to authenticate from a file the same way and today
+are not, so what is held of them is that same rule over however many entries
+there are: none is the shape they are in, and an entry that appears is an
+in-cluster remote at a path something projects, or it is a credential nobody
+can account for. The importer's list is held at empty by its own gate, which is
+where the reason it stays a present key is written.
 
-WHAT THIS GATE CANNOT SEE. Which Secret the key comes from, because a hand-made
-Secret has no second declaration to be held against: nothing but the manifest
-and the README's prerequisite 5 names it, and a gate over the manifest's own
-literal would agree with it however it changed. The rule above closes part of
-that where a workload carries two rows -- a volume that borrowed the other App's
-`secretName` puts both rows on one projection, which the render alone decides --
-and a workload with a single row is blind to its `secretName` as before. Nor
-whether that Secret exists or holds the App's key, which is the operator's step
-and no render's business. Nor whether the image reads either variable: that is
-the release's, and the manifests carry both before the image that reads them is
-pinned.
+WHAT THIS GATE CANNOT SEE. Whether a named Secret exists or holds the App's
+key, which is the operator's prerequisite 5 and no render's business: what is
+held here is that the manifest, the host and the App agree on which Secret that
+is. Nor whether the image reads either variable: that is the release's, and the
+manifests carry both before the image that reads them is pinned.
 """
 
 import json
@@ -103,11 +111,28 @@ MINTERS = (
 )
 
 
-# Where a pod is told to find a credential no App mints, and the remote that
-# credential is for. One row a workload: the list is the whole of what a pod
-# authenticates as without minting, and an entry is added to it only for a host
-# the App keys above do not cover.
-SOURCES = (("chuggy-finalizer", "CHUG_FINALIZER_CREDENTIAL_SOURCES"),)
+# Where a pod is told to find a credential no App mints, and how many such
+# credentials it is to have. One row a workload, naming a variable or a field
+# of one as MINTERS does: the list is the whole of what a pod authenticates as
+# without minting, and an entry is added to it only for a host the App keys
+# above do not cover.
+#
+# A COUNT IS HELD ONLY WHERE THE CREDENTIAL IS LOAD-BEARING. The finalizer's
+# one entry is the promotion path this cluster is reconciled from and its loss
+# is silent, so that row is held at exactly one. The other two mint everything
+# they present; `None` is what says so, and it permits an absent variable and
+# an empty list alike -- adding a static credential to one of these is a
+# decision, not a defect, and what this refuses is an entry nobody can account
+# for rather than the entry itself.
+SOURCES = (
+    ("chuggy-finalizer", "CHUG_FINALIZER_CREDENTIAL_SOURCES", 1),
+    ("chuggy-api", "CHUG_API_REPOSITORY_CREDENTIAL_SOURCES", None),
+    (
+        "chuggy-ticket-service",
+        ("CHUG_TICKET_SERVICE_CONFIG", ("source", "sources")),
+        None,
+    ),
+)
 
 # A host the worker plane and these pods mint for is a forge, and everything
 # else on this site is addressed inside the cluster. So an in-cluster address is
@@ -200,6 +225,33 @@ def field(container, spec, owner):
             f"{owner} writes {name}'s {'.'.join(path)} as a JSON "
             f"{type(value).__name__} rather than a string"
         )
+    return value
+
+
+def listed(container, spec, owner):
+    """The static credentials a row names, or None when the manifest names none.
+
+    Absence is the whole difference from `field` above: a row of MINTERS names
+    a value a pod cannot work without, and a row here names one three of these
+    four are correct to leave out. So a variable that is not declared and a
+    field the configuration document does not carry are both None, and every
+    rule below is over the entries there are."""
+    if isinstance(spec, str):
+        if not any(entry["name"] == spec for entry in container.get("env", [])):
+            return None
+        document = variable(container, spec, owner)
+        name, path = spec, ()
+    else:
+        name, path = spec
+        document = variable(container, name, owner)
+    try:
+        value = json.loads(document)
+    except json.JSONDecodeError as error:
+        refuse(f"{owner} writes {name}, which is not JSON: {error}")
+    for step in path:
+        if not isinstance(value, dict) or step not in value:
+            return None
+        value = value[step]
     return value
 
 
@@ -356,6 +408,12 @@ def main():
                 f"{apps[app]['appId']}, so that JWT is signed with the wrong key"
             )
         source = projected(pod, container, field(container, file_variable, name), name)
+        if source[0] != apps[app]["keySecret"]:
+            refuse(
+                f"{name} mints as the {app} App and reads its key from {source[0]}; the host "
+                f"hands that App's key over in {apps[app]['keySecret']}, so what this pod signs "
+                "with is another App's key"
+            )
         held_app, held_variable = read_as.setdefault((name, source), (app, file_variable))
         if held_app != app:
             refuse(
@@ -365,24 +423,24 @@ def main():
                 "App whose key that is not"
             )
 
-    for name, variable_name in SOURCES:
+    for name, spec, wanted_rows in SOURCES:
         pod, container = workload(documents, name)
-        raw = variable(container, variable_name, name)
-        try:
-            sources = json.loads(raw)
-        except json.JSONDecodeError as error:
-            refuse(f"{name} writes {variable_name}, which is not JSON: {error}")
-        if not isinstance(sources, list) or len(sources) != 1:
+        sources = listed(container, spec, name)
+        if sources is None:
+            sources = []
+        if not isinstance(sources, list):
+            refuse(f"{name} names {spelled(spec)} as something other than a list of credentials")
+        if wanted_rows is not None and len(sources) != wanted_rows:
             refuse(
-                f"{name} names {variable_name} as something other than one credential; the one "
+                f"{name} names {spelled(spec)} as something other than one credential; the one "
                 "remote no App key mints for is this cluster's own git service, and a second "
                 "entry is a credential that does not expire where a mint belongs"
             )
         for source in sources:
-            remote = source.get("repository")
-            path = source.get("path")
+            remote = source.get("repository") if isinstance(source, dict) else None
+            path = source.get("path") if isinstance(source, dict) else None
             if not isinstance(remote, str) or not isinstance(path, str):
-                refuse(f"{name}'s {variable_name} entry names no repository and path")
+                refuse(f"{name}'s {spelled(spec)} entry names no repository and path")
             host = (urlsplit(remote).hostname or "").rstrip(".")
             if not host.endswith(IN_CLUSTER):
                 refuse(

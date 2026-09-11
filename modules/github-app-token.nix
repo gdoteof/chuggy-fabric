@@ -6,6 +6,14 @@ let
     options = {
       appId = lib.mkOption { type = lib.types.str; };
       privateKeyFile = lib.mkOption { type = lib.types.str; };
+      # The Secret the key file above is copied into by hand, for the pods that
+      # mint for themselves. Nothing here writes it -- prerequisite 5 of
+      # `deploy/rig/forge/README.md` is what creates it, and this is the second
+      # declaration that makes the name in a manifest a copy of a value rather
+      # than a literal that agrees with itself. Which App a pod mounts is then
+      # decided by its `secretName` as well as by the id it writes, and
+      # `tests/forge-app-key.py` holds the two together.
+      keySecret = lib.mkOption { type = lib.types.str; };
     };
   };
   repositoryModule = lib.types.submodule {
@@ -163,9 +171,10 @@ in
   options.chuggy.githubAppTokens = {
     enable = lib.mkEnableOption "GitHub App installation-token delivery";
     # The Apps this machine holds keys for, by the role AGENTS.md gives each,
-    # and where it keeps them. This module mints under the portal App alone;
-    # the worker App is declared here because a pod that mounts its key names
-    # its id, and `tests/forge-app-key.py` holds that id against this.
+    # where it keeps them and which Secret each is handed to a pod through.
+    # This module mints under the portal App alone; the worker App is declared
+    # here because a pod that mounts its key names its id and the Secret that
+    # key arrives in, and `tests/forge-app-key.py` holds both against this.
     apps = lib.mkOption {
       type = lib.types.attrsOf appModule;
       default = { };
