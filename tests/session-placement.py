@@ -591,7 +591,7 @@ def main():
     sessions_map = environment_map(scheduled, SESSION_ENVIRONMENT_VARIABLE)
     workers_map = environment_map(scheduled, WORKER_ENVIRONMENT_VARIABLE)
     if (sessions_map is None) != (workers_map is None):
-        named = SESSION_ENVIRONMENT_VARIABLE if workers_map is None else WORKER_ENVIRONMENT_VARIABLE
+        named = WORKER_ENVIRONMENT_VARIABLE if workers_map is None else SESSION_ENVIRONMENT_VARIABLE
         refuse(
             f"{named} carries no {REPOSITORIES_VARIABLE} and the other does, so the two kinds "
             "of pod resolve one binding to two addresses"
