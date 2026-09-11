@@ -491,7 +491,15 @@ def public_https(documents, name, labels):
             "written for the internet, or is refused a forge it is not"
         )
     # An absent `ports` admits every port, so the list is compared whole rather
-    # than searched for the one that should be in it.
+    # than searched for the one that should be in it; and an entry carrying
+    # endPort admits a range that starts at the number read here, so it is
+    # refused before that number is.
+    for port in arm.get("ports") or []:
+        if "endPort" in port:
+            refuse(
+                f"the public arm of {policy} names endPort, which admits a range: this "
+                f"gate reads one port and would see only the number the range starts at"
+            )
     admitted = [
         (port.get("protocol", "TCP"), port.get("port"))
         for port in arm.get("ports") or []
