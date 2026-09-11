@@ -206,6 +206,10 @@ spec:
                     "maxStages": 4
                   },
                   "owner": "$(CHUG_POD_NAME)",
+                  "forge": {
+                    "appId": "4708055",
+                    "keyFile": "/var/run/chuggy/forge-app/private-key"
+                  },
                   "source": {
                     "scratchDirectory": "/var/lib/chuggy/git",
                     "identity": {
@@ -216,32 +220,14 @@ spec:
                       "HOME": "/var/lib/chuggy/git",
                       "TMPDIR": "/var/lib/chuggy/git"
                     },
-                    "sources": [
-                      {
-                        "repository": "http://git.chuggy-git.svc.cluster.local./chuggy.git",
-                        "path": "/var/run/chuggy/repository-credentials/chuggy-git"
-                      },
-                      {
-                        "repository": "https://github.com/kasofsk/chuggy.git",
-                        "path": "/var/run/chuggy/repository-credentials/chuggy-github"
-                      },
-                      {
-                        "repository": "http://git.chuggy-git.svc.cluster.local./chuggy-fabric.git",
-                        "path": "/var/run/chuggy/repository-credentials/chuggy-git"
-                      },
-                      {
-                        "repository": "https://github.com/gdoteof/chuggy-fabric.git",
-                        "path": "/var/run/chuggy/repository-credentials/chuggy-fabric-github"
-                      }
-                    ],
-                    "credentialUsername": "chuggy"
+                    "credentialUsername": "x-access-token"
                   }
                 }
           volumeMounts:
             - name: git-scratch
               mountPath: /var/lib/chuggy/git
-            - name: repository-credentials
-              mountPath: /var/run/chuggy/repository-credentials
+            - name: forge-app
+              mountPath: /var/run/chuggy/forge-app
               readOnly: true
           resources:
             requests: { cpu: 50m, memory: 128Mi }
@@ -261,22 +247,17 @@ spec:
       volumes:
         - name: git-scratch
           emptyDir: {}
-        - name: repository-credentials
-          projected:
+        # THE PORTAL APP'S KEY, WHICH THIS POD MINTS ITS OWN SOURCE READS FROM.
+        # chuggy-api.yaml holds the command that makes the Secret and argues
+        # the mode; what this mount widens is this pod, which can now read any
+        # repository on an account a tenant claimed the portal App under,
+        # where it previously read the repositories whose reader tokens it
+        # mounted. The command refuses to start on a key it cannot sign with,
+        # so the Secret is this pod's start-up dependency.
+        - name: forge-app
+          secret:
+            secretName: chuggy-github-app-portal
             defaultMode: 0444
-            sources:
-              - secret:
-                  name: chuggy-git-sync
-                  items:
-                    - key: password
-                      path: chuggy-git
-              - secret:
-                  name: chuggy-github-reader-token
-                  items:
-                    - key: token
-                      path: chuggy-github
-              - secret:
-                  name: chuggy-fabric-github-reader-token
-                  items:
-                    - key: token
-                      path: chuggy-fabric-github
+            items:
+              - key: private-key
+                path: private-key

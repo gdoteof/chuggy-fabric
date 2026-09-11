@@ -1,142 +1,20 @@
-# Repository declarations become available without a browser action. This is
-# deliberately separate from the host-local Git mirror writer: the importer
-# can read the repositories it is given and write configuration history, but it
-# cannot move a ref in either the internal repository or GitHub.
+# Repository declarations become available without a browser action. The
+# importer reads the repositories a project is bound to and writes configuration
+# history; it cannot move a ref on the forge or on the internal repository.
 #
-# ONE RUN A REPOSITORY, OVER A LIST. Each entry is a repository and the file
-# its GitHub token is read from; the run resolves that repository's own head
-# and imports the declarations it finds there, so each repository is imported
-# at its own commit rather than one commit asserted of all of them. The run
-# names that repository in the configuration beside the commit, which is what
-# tells the command which repository the commit is in.
+# THE RUN IS THE ESTATE AND NOT A LIST. A binding is what says a project takes
+# its declarations from a repository, so the bindings in the database are the
+# list and this file names no repository, no commit and no partition. The
+# command refuses a configuration that names one, which is what keeps a second
+# copy of the estate from growing back here. Each repository is imported at its
+# own head, one binding's failure stops no other, and a run that filled its
+# listing bound leaves non-zero saying so.
 #
-# WHAT AN ENTRY NEEDS. `repositories.nix` marks the repository `imported`, and
-# the pod projects that repository's reader Secret at the file the entry names;
-# the run refuses an entry whose credential file it cannot read, so the entry
-# and the projection arrive together or not at all.
-# `tests/github-repository-transition.py` holds this list equal to the
-# repositories the roster marks imported and each entry's file to the Secret the
-# site mints, so neither can move without the other.
-#
-# AND THE PROJECT MUST BE BOUND TO THE REPOSITORY. The command resolves each
-# partition's binding and refuses a repository the partition is not bound to, so
-# an entry added before that bind exists fails every run until it is made.
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: chuggy-configuration-importer
-  namespace: chuggy
-data:
-  askpass.sh: |
-    #!/bin/sh
-    # The password file is the run's, not the prompt's: import.sh names the
-    # repository's own token before it invokes git, and unset is a failure
-    # rather than an empty password.
-    case "$1" in
-      *Username*) printf '%s\n' x-access-token; exit 0 ;;
-      *Password*) ;;
-      *) exit 1 ;;
-    esac
-    : "${CHUG_CONFIGURATION_IMPORT_CREDENTIAL:?no credential is named for this run}"
-    exec cat "$CHUG_CONFIGURATION_IMPORT_CREDENTIAL"
-  import.sh: |
-    #!/bin/sh
-    set -eu
-
-    : "${CHUG_CONFIGURATION_IMPORT_REPOSITORIES:?the repositories to import are unset}"
-
-    credentials=/var/run/chuggy/repository-credentials
-    export GIT_CONFIG_GLOBAL=/dev/null
-    export GIT_CONFIG_NOSYSTEM=1
-    export GIT_TERMINAL_PROMPT=0
-    export GIT_ASKPASS=/opt/chuggy-configuration-importer/askpass.sh
-
-    # One entry: wait for the repository to answer, resolve its own head, and
-    # import that repository's declarations at it. Every failure is returned
-    # rather than left to `set -e`, because the caller below tests this
-    # function's status and that runs its body with errexit ignored.
-    import_one() {
-      repository="$1"
-      CHUG_CONFIGURATION_IMPORT_CREDENTIAL="$credentials/$2"
-      export CHUG_CONFIGURATION_IMPORT_CREDENTIAL
-      if [ ! -r "$CHUG_CONFIGURATION_IMPORT_CREDENTIAL" ]; then
-        echo "configuration importer: $repository has no readable credential at $CHUG_CONFIGURATION_IMPORT_CREDENTIAL" >&2
-        return 2
-      fi
-
-      for i in $(seq 1 15); do
-        timeout 3s git ls-remote --exit-code "$repository" refs/heads/main >/dev/null 2>&1 && break
-        [ "$i" -lt 15 ] || return 1
-        sleep 2
-      done
-
-      commit="$(git ls-remote --exit-code "$repository" refs/heads/main | awk 'NR == 1 { print $1 }')" || return 1
-      case "$commit" in
-        [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
-        *) echo "configuration importer: $repository main did not resolve to one full SHA-1" >&2; return 2 ;;
-      esac
-
-      CHUG_CONFIGURATION_IMPORT_REPOSITORY="$repository"
-      CHUG_CONFIGURATION_IMPORT_COMMIT="$commit"
-      export CHUG_CONFIGURATION_IMPORT_REPOSITORY CHUG_CONFIGURATION_IMPORT_COMMIT
-      CHUG_CONFIGURATION_IMPORT_CONFIG="$(node -e '
-        process.stdout.write(JSON.stringify({
-          database: { url: process.env.CHUG_CONFIGURATION_IMPORT_DATABASE_URL },
-          git: {
-            scratchDirectory: "/var/lib/chuggy/git",
-            credentialSources: [{
-              repository: process.env.CHUG_CONFIGURATION_IMPORT_REPOSITORY,
-              path: process.env.CHUG_CONFIGURATION_IMPORT_CREDENTIAL,
-            }],
-            credentialUsername: "x-access-token",
-            localTimeoutSecsMax: 120,
-            remoteTimeoutSecsMax: 120,
-          },
-          repository: process.env.CHUG_CONFIGURATION_IMPORT_REPOSITORY,
-          commit: process.env.CHUG_CONFIGURATION_IMPORT_COMMIT,
-          partitions: [{ tenant: "vteng", project: "chuggy" }],
-        }));
-      ')" || return 1
-      export CHUG_CONFIGURATION_IMPORT_CONFIG
-      node --experimental-strip-types src/roots/configurationImporter.ts || return 1
-    }
-
-    list=/var/lib/chuggy/git/repositories
-    printf '%s\n' "$CHUG_CONFIGURATION_IMPORT_REPOSITORIES" > "$list"
-
-    entries=0
-    failed=0
-    malformed=0
-    while read -r repository credential surplus; do
-      [ -n "$repository" ] || continue
-      entries=$((entries + 1))
-      if [ -z "$credential" ] || [ -n "$surplus" ]; then
-        echo "configuration importer: '$repository $credential $surplus' is not a repository and a credential" >&2
-        malformed=1
-        continue
-      fi
-      case "$credential" in
-        */*|..|.)
-          echo "configuration importer: $repository names $credential, which is not a file in $credentials" >&2
-          malformed=1
-          continue
-          ;;
-      esac
-      import_one "$repository" "$credential" < /dev/null || failed=1
-    done < "$list"
-
-    # A list this run could not read and an import that ran and failed are told
-    # apart the way the rest of this rig tells them apart: 2 is a run that never
-    # happened, 1 is a run that did and failed.
-    if [ "$entries" -eq 0 ]; then
-      echo "configuration importer: no repositories are configured, so nothing is imported" >&2
-      exit 2
-    fi
-    if [ "$malformed" -ne 0 ]; then
-      exit 2
-    fi
-    exit "$failed"
+# WHAT IT READS WITH. The portal App key below, minted per repository as it is
+# read, so a repository reaches this run by being bound rather than by anything
+# arriving in this file. A repository the key does not cover would need an entry
+# in `credentialSources` and a Secret projected at the file it names; there is
+# none on this site.
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -197,29 +75,44 @@ spec:
             - name: importer
               image: registry.chuggy.internal/chuggy/api@sha256:4d14bcaa10b6d648f98ddc28eabde9a6fc86939ca13c4e230560202890ede2b3
               imagePullPolicy: IfNotPresent
-              command: [/opt/chuggy-configuration-importer/import.sh]
+              command:
+                [
+                  node,
+                  --experimental-strip-types,
+                  src/roots/configurationImporter.ts,
+                ]
               env:
                 - name: CHUG_CONFIGURATION_IMPORTER_PASSWORD
                   valueFrom:
                     secretKeyRef:
                       name: chuggy-postgres-credentials
                       key: configuration-importer-password
-                - name: CHUG_CONFIGURATION_IMPORT_DATABASE_URL
-                  value: postgres://chuggy_configuration_importer_login:$(CHUG_CONFIGURATION_IMPORTER_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy
-                # One line a repository: the repository, and the file
-                # under the credential root its GitHub token is read from.
-                - name: CHUG_CONFIGURATION_IMPORT_REPOSITORIES
+                # `credentialSources` is empty and stays a key: there is no
+                # repository on this site the App key does not cover, and a run
+                # naming neither is refused before the database is opened.
+                - name: CHUG_CONFIGURATION_IMPORT_CONFIG
                   value: |
-                    https://github.com/kasofsk/chuggy.git chuggy-github
-                    https://github.com/gdoteof/chuggy-fabric.git chuggy-fabric-github
+                    {
+                      "database": {
+                        "url": "postgres://chuggy_configuration_importer_login:$(CHUG_CONFIGURATION_IMPORTER_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy"
+                      },
+                      "git": {
+                        "scratchDirectory": "/var/lib/chuggy/git",
+                        "credentialSources": [],
+                        "credentialUsername": "x-access-token",
+                        "localTimeoutSecsMax": 120,
+                        "remoteTimeoutSecsMax": 120
+                      },
+                      "forge": {
+                        "appId": "4708055",
+                        "keyFile": "/var/run/chuggy/forge-app/private-key"
+                      }
+                    }
               volumeMounts:
-                - name: scripts
-                  mountPath: /opt/chuggy-configuration-importer
-                  readOnly: true
                 - name: scratch
                   mountPath: /var/lib/chuggy/git
-                - name: repository-credentials
-                  mountPath: /var/run/chuggy/repository-credentials
+                - name: forge-app
+                  mountPath: /var/run/chuggy/forge-app
                   readOnly: true
               resources:
                 requests: { cpu: 25m, memory: 64Mi }
@@ -231,26 +124,18 @@ spec:
                   drop: [ALL]
                 seccompProfile: { type: RuntimeDefault }
           volumes:
-            - name: scripts
-              configMap:
-                name: chuggy-configuration-importer
-                defaultMode: 0555
             - name: scratch
               emptyDir: {}
-            # One source a repository, because the token is per repository: a
-            # second owner is a second App installation and therefore a second
-            # Secret. Each file is the one its entry above names.
-            - name: repository-credentials
-              projected:
+            # THE PORTAL APP'S KEY, WHICH EVERY READ THIS RUN MAKES IS MINTED
+            # FROM. chuggy-api.yaml holds the command that makes the Secret and
+            # argues the mode; what this mount widens is this pod, which can
+            # now read any repository on an account a tenant claimed the portal
+            # App under, where it previously read the two whose reader tokens
+            # it projected.
+            - name: forge-app
+              secret:
+                secretName: chuggy-github-app-portal
                 defaultMode: 0444
-                sources:
-                  - secret:
-                      name: chuggy-github-reader-token
-                      items:
-                        - key: token
-                          path: chuggy-github
-                  - secret:
-                      name: chuggy-fabric-github-reader-token
-                      items:
-                        - key: token
-                          path: chuggy-fabric-github
+                items:
+                  - key: private-key
+                    path: private-key

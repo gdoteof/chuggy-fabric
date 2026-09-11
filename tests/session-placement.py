@@ -52,14 +52,18 @@ literal either:
     after the ClusterIP is translated away, so an arm copied from the URL's own
     number is wrong for a Service that renames its port.
   * A checkout takes a reach, a credential and a repository map, and this file
-    already holds the reach. So the map a session resolves against must be the
-    map a worker resolves against -- one site, one statement of which
-    repositories exist -- every credential the session policy grants must be one
-    the credential mounts carry, or the placement is denied, and at least one
-    repository in that map must have its credential granted, or the arm above is
-    a permission for a clone that cannot authenticate. A mirror is that same
-    pairing once more: it is what a session clones in place of the binding, so
-    it must be in that map and its credential must be granted.
+    already holds the reach. Every credential the session policy grants must be
+    one the credential mounts carry, or the placement is denied. The map is
+    read only where the worker plane minted nothing -- it mints for a forge, so
+    what is left is this cluster's own git service -- and that is the whole of
+    what the map is for: one row, on this cluster, whose credential every arm
+    that places a pod grants. A forge row would be a second answer to which
+    repositories exist, kept by hand beside the mint; an empty map is a mounted
+    credential no placement can resolve a reference with; and a map on one kind
+    of pod alone leaves a session unable to resolve a binding the API accepted,
+    so the two are held equal. A mirror is that same pairing once more: it is
+    what a session clones in place of the binding, so it must be in that map and
+    its credential must be granted.
   * A CREDENTIAL SLOT IS NAMED WHERE A SESSION IS OPENED AND ENFORCED WHERE ONE
     IS PLACED, and those are three manifests. The api names the slot a member's
     thread speaks through and the selector names the slot a lead it opens speaks
@@ -105,6 +109,7 @@ SESSION_ENVIRONMENT_VARIABLE = "CHUG_SCHEDULER_SESSION_ENVIRONMENT"
 SESSION_POLICY_VARIABLE = "CHUG_SCHEDULER_SESSION_POLICY"
 ADMITTED_IMAGES_VARIABLE = "CHUG_SCHEDULER_ADMITTED_IMAGES"
 WORKER_ENVIRONMENT_VARIABLE = "CHUG_SCHEDULER_WORKER_ENVIRONMENT"
+EXECUTION_POLICY_VARIABLE = "CHUG_SCHEDULER_EXECUTION_POLICY"
 CREDENTIAL_MOUNTS_VARIABLE = "CHUG_SCHEDULER_WORKER_CREDENTIAL_MOUNTS"
 REPOSITORIES_VARIABLE = "CHUG_WORKER_REPOSITORIES"
 
@@ -266,6 +271,21 @@ def json_variable(entry, name):
         refuse(f"the scheduler names no {name}")
     try:
         return json.loads(raw)
+    except json.JSONDecodeError as error:
+        refuse(f"{name} is not JSON: {error}")
+
+
+def environment_map(entry, name):
+    """The repositories map one launch environment carries, or None.
+
+    The variable itself is optional -- an absent one is the launcher's own empty
+    default -- so an absent variable and a variable naming no map are one
+    answer here."""
+    raw = variable(entry, name)
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw).get(REPOSITORIES_VARIABLE)
     except json.JSONDecodeError as error:
         refuse(f"{name} is not JSON: {error}")
 
@@ -555,11 +575,13 @@ def main():
             f"{len(permitted)} chuggy-sessions arms permit; exactly one must"
         )
 
-    # 7. A checkout is a reach, a credential and a map, and step 2 holds only the
-    #    reach. The map is the worker's -- one site, one statement of which
-    #    repositories exist here -- every credential granted is one the mounts
-    #    carry, since the launcher denies a slot they do not, and something in
-    #    that map is clonable, or the git arm above permits a clone that cannot
+    # 7. A checkout is a reach, a credential and a map, and step 2 holds only
+    #    the reach. Every credential granted is one the mounts carry, since the
+    #    launcher denies a slot they do not. The map is what a pod resolves a
+    #    reference through when the plane minted nothing for it, so it carries
+    #    the one host the plane mints nothing for -- this cluster's own git
+    #    service -- and every arm that places a pod grants that row's
+    #    credential, or the git arm above permits a clone that cannot
     #    authenticate.
     policy = json_variable(scheduled, SESSION_POLICY_VARIABLE)
     granted = set(policy.get("grant", {}).get("credentials", []))
@@ -570,29 +592,64 @@ def main():
             f"{SESSION_POLICY_VARIABLE} grants {sorted(ungrantable)}, which "
             f"{CREDENTIAL_MOUNTS_VARIABLE} does not mount, so every placement is denied"
         )
-    sessions_map = json_variable(scheduled, SESSION_ENVIRONMENT_VARIABLE).get(REPOSITORIES_VARIABLE)
-    workers_map = json_variable(scheduled, WORKER_ENVIRONMENT_VARIABLE).get(REPOSITORIES_VARIABLE)
-    if sessions_map is None:
+    sessions_map = environment_map(scheduled, SESSION_ENVIRONMENT_VARIABLE)
+    workers_map = environment_map(scheduled, WORKER_ENVIRONMENT_VARIABLE)
+    if (sessions_map is None) != (workers_map is None):
+        named = WORKER_ENVIRONMENT_VARIABLE if workers_map is None else SESSION_ENVIRONMENT_VARIABLE
         refuse(
-            f"{SESSION_ENVIRONMENT_VARIABLE} carries no {REPOSITORIES_VARIABLE}, so a session "
-            "placed with a repository refuses to resolve it"
+            f"{named} carries no {REPOSITORIES_VARIABLE} and the other does, so the two kinds "
+            "of pod resolve one binding to two addresses"
         )
-    if workers_map is None:
-        refuse(f"{WORKER_ENVIRONMENT_VARIABLE} carries no {REPOSITORIES_VARIABLE}")
     # Parsed rather than compared as text: the two are JSON documents inside JSON
     # strings, and a difference in their whitespace is not a difference in what
     # they say.
-    repositories = json.loads(sessions_map)
-    if repositories != json.loads(workers_map):
+    repositories = {} if sessions_map is None else json.loads(sessions_map)
+    if sessions_map is not None and repositories != json.loads(workers_map):
         refuse(
             f"the session's {REPOSITORIES_VARIABLE} is not the worker's, so the two kinds of pod "
             "answer differently which repositories exist on this site"
         )
-    if not any(entry.get("credential") in granted for entry in repositories.values()):
+    if len(repositories) != 1:
         refuse(
-            f"{SESSION_POLICY_VARIABLE} grants the credential of no repository in "
-            f"{REPOSITORIES_VARIABLE}, so no checkout can authenticate"
+            f"{REPOSITORIES_VARIABLE} carries {len(repositories)} repositories, wanted the one "
+            "this site mounts a credential for: an empty map leaves the mounted arm unable to "
+            "resolve anything, and a second row is an address kept by hand beside the mint"
         )
+    # Every arm that places a pod, because the slot is denied per placement: the
+    # two attempt arms and the session's are three grants, and a row whose
+    # credential one of them omits is a checkout that fails only on that arm.
+    arms = {
+        f"{EXECUTION_POLICY_VARIABLE}.{name}": set(
+            arm.get("grant", {}).get("credentials", [])
+        )
+        for name, arm in json_variable(scheduled, EXECUTION_POLICY_VARIABLE).items()
+    }
+    arms[SESSION_POLICY_VARIABLE] = granted
+    for reference, entry in repositories.items():
+        if entry.get("url") != reference:
+            refuse(
+                f"{REPOSITORIES_VARIABLE} maps {reference} to {entry.get('url')}, which is a "
+                "rewrite and not an override of one address"
+            )
+        # THE PLANE MINTS FOR A FORGE AND FOR NOTHING ELSE, so a row is for a
+        # host it mints nothing for. A pod handed a minted credential resolves
+        # its reference itself and never reads this map, so a forge row here is
+        # a second answer to which repositories exist, kept by hand beside the
+        # mint -- and the mounted credential it names would be presented to
+        # github.com instead of a token that expires.
+        host = urlsplit(reference).hostname or ""
+        if not host.rstrip(".").endswith(".svc.cluster.local"):
+            refuse(
+                f"{REPOSITORIES_VARIABLE} carries {reference}, which is not on this cluster; a "
+                "pod's credential for a forge is minted per act and needs no row"
+            )
+        for owner, credentials in sorted(arms.items()):
+            if entry.get("credential") not in credentials:
+                refuse(
+                    f"{REPOSITORIES_VARIABLE} clones {reference} with "
+                    f"{entry.get('credential')!r}, which {owner} does not grant, so a pod placed "
+                    "there cannot authenticate"
+                )
 
     # 8. A mirror is the third half of the same reach: what a session clones is
     #    the binding put through this map, so a value the map above does not

@@ -113,8 +113,9 @@ in
         assertion = !cfg.publish.enable || cfg.publish.tokenName == null || publishToken != null;
         message = ''
           chuggy.githubAppTokens does not mint the token
-          chuggy.buildProvenance.publish.tokenName names. Declare it there, or
-          name one of the entries repositories.nix already produces.
+          chuggy.buildProvenance.publish.tokenName names. Declare it in
+          chuggy.githubAppTokens.tokens; a publication is a write and the
+          repositories there mint a read.
         '';
       }
       {

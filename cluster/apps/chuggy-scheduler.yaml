@@ -224,26 +224,27 @@ spec:
                     "key": "password",
                     "mountPath": "/var/run/chuggy/credentials/chuggy-git-worker"
                   },
-                  "chuggy-github-worker": {
-                    "secretName": "chuggy-github-worker-token",
-                    "key": "token",
-                    "mountPath": "/var/run/chuggy/credentials/chuggy-github-worker"
-                  },
-                  "chuggy-fabric-github-worker": {
-                    "secretName": "chuggy-fabric-github-worker-token",
-                    "key": "token",
-                    "mountPath": "/var/run/chuggy/credentials/chuggy-fabric-github-worker"
-                  },
                   "claude-code": {
                     "secretName": "claude-code",
                     "key": "oauth-token",
                     "mountPath": "/var/run/chuggy/credentials/claude-code"
                   }
                 }
+            # `CHUG_WORKER_REPOSITORIES` IS ONE ROW, AND IT IS THE ONE
+            # REPOSITORY THIS FABRIC STILL MOUNTS A CREDENTIAL FOR. A pod asks
+            # the plane to mint for the reference it was given; the plane mints
+            # for a forge and answers 404 for anything else, and a pod with no
+            # minted credential falls back to the mounted arm -- which resolves
+            # the reference through this map and refuses a reference the map
+            # does not carry. So a checkout from this cluster's own git service
+            # needs a row here, its credential granted below and the egress
+            # `chuggy-work.yaml` permits; a GitHub repository needs none of the
+            # three, and adding one would be a second answer to which
+            # repositories exist, kept by hand.
             - name: CHUG_SCHEDULER_WORKER_ENVIRONMENT
               value: |
                 {
-                  "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\",\"credential\":\"chuggy-git-worker\",\"credentialUsername\":\"worker\"},\"https://github.com/kasofsk/chuggy.git\":{\"url\":\"https://github.com/kasofsk/chuggy.git\",\"credential\":\"chuggy-github-worker\",\"credentialUsername\":\"x-access-token\"},\"http://git.chuggy-git.svc.cluster.local./chuggy-fabric.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy-fabric.git\",\"credential\":\"chuggy-git-worker\",\"credentialUsername\":\"worker\"},\"https://github.com/gdoteof/chuggy-fabric.git\":{\"url\":\"https://github.com/gdoteof/chuggy-fabric.git\",\"credential\":\"chuggy-fabric-github-worker\",\"credentialUsername\":\"x-access-token\"}}",
+                  "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\",\"credential\":\"chuggy-git-worker\",\"credentialUsername\":\"worker\"}}",
                   "CHUG_WORKER_WORKSPACE": "/workspace",
                   "CHUG_PG_WORKERS": "4"
                 }
@@ -473,7 +474,7 @@ spec:
                     "runtimeVersion": "claude-code-latest",
                     "grant": {
                       "tools": ["claude-code", "shell"],
-                      "credentials": ["chuggy-git-worker", "chuggy-github-worker", "chuggy-fabric-github-worker", "claude-code"],
+                      "credentials": ["chuggy-git-worker", "claude-code"],
                       "network": true,
                       "filesystem": "WriteWorkspace",
                       "mayCompleteTask": false
@@ -484,7 +485,7 @@ spec:
                     "runtimeVersion": "claude-code-latest",
                     "grant": {
                       "tools": ["claude-code", "shell"],
-                      "credentials": ["chuggy-git-worker", "chuggy-github-worker", "chuggy-fabric-github-worker", "claude-code"],
+                      "credentials": ["chuggy-git-worker", "claude-code"],
                       "network": true,
                       "filesystem": "WriteWorkspace",
                       "mayCompleteTask": false
@@ -608,22 +609,23 @@ spec:
             # times out, with nothing saying why.
             - name: CHUG_SCHEDULER_SESSION_API_URL
               value: http://chuggy-api.chuggy.svc.cluster.local:3000
-            # The site's map of the repositories that exist here, which a
-            # session resolves its project's binding against exactly as a worker
-            # resolves its input bundle's reference: same variable, same parser,
-            # same grant check. It is read only where the placement bound a
-            # repository, so a project with no binding places a session that
-            # never looks at it.
+            # The site's map, which a session resolves its project's binding
+            # against exactly as a worker resolves its input bundle's reference:
+            # same variable, same parser, same grant check. It is read only
+            # where the placement bound a repository, and only where the plane
+            # minted nothing for it -- so the one row it carries is the one
+            # repository this fabric mounts a credential for, and a session
+            # bound to a GitHub repository never looks at it.
             #
             # IT IS THE WORKER'S MAP AND MUST STAY IT. There is one git service
-            # and one forge on this site, and two kinds of pod that read them; a
-            # second, narrower map here would be a second answer to which
-            # repositories exist, and the first entry added for a worker would
-            # leave a session unable to resolve a binding the API accepted.
-            # `tests/session-placement.py` holds the two equal so the copy is
-            # checked rather than remembered. What differs between the two kinds
-            # of pod is not the map: it is which credential the grant below
-            # names and which destination chuggy-work.yaml permits.
+            # on this site and two kinds of pod that read it; a second, narrower
+            # map here would be a second answer to which repositories exist, and
+            # the first entry added for a worker would leave a session unable to
+            # resolve a binding the API accepted. `tests/session-placement.py`
+            # holds the two equal so the copy is checked rather than remembered.
+            # What differs between the two kinds of pod is not the map: it is
+            # which credential the grant below names and which destination
+            # chuggy-work.yaml permits.
             #
             # `CHUG_WORKER_WORKSPACE` is deliberately NOT repeated here. It is
             # one of `kubernetesSessionReservedVariables`, which the launcher
@@ -631,7 +633,7 @@ spec:
             - name: CHUG_SCHEDULER_SESSION_ENVIRONMENT
               value: |
                 {
-                  "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\",\"credential\":\"chuggy-git-worker\",\"credentialUsername\":\"worker\"},\"https://github.com/kasofsk/chuggy.git\":{\"url\":\"https://github.com/kasofsk/chuggy.git\",\"credential\":\"chuggy-github-worker\",\"credentialUsername\":\"x-access-token\"},\"http://git.chuggy-git.svc.cluster.local./chuggy-fabric.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy-fabric.git\",\"credential\":\"chuggy-git-worker\",\"credentialUsername\":\"worker\"},\"https://github.com/gdoteof/chuggy-fabric.git\":{\"url\":\"https://github.com/gdoteof/chuggy-fabric.git\",\"credential\":\"chuggy-fabric-github-worker\",\"credentialUsername\":\"x-access-token\"}}"
+                  "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\",\"credential\":\"chuggy-git-worker\",\"credentialUsername\":\"worker\"}}"
                 }
             # How many session attempts one Claude account may have live at
             # once. The published default is written for a site whose only
@@ -668,56 +670,39 @@ spec:
             # spends this much in one pod is a runaway this site wants stopped.
             - name: CHUG_SCHEDULER_SESSION_BOUNDS
               value: '{"budgetUsd":1000}'
-            # The one image, profile, grant and mirror map every session here
-            # runs under. Its image is the worker built from the same commit
+            # The one image, profile and grant every session here runs under.
+            # Its image is the worker built from the same commit
             # this release pins everywhere else, requested by
             # `builds/chuggy/8c3ee90b750fc1d141be928ef2950042a90cc1b7/` and
             # admitted as `0.20` above; a session and an attempt on this site run
             # the same binary, and this is the only variable that says so twice.
             #
-            # `credentials` keeps the execution policy's in-cluster git
-            # credential and model credential, and drops every per-repository
-            # forge credential that grant carries.
-            # `kubernetesSessionPodRequest` denies a credential slot this list
-            # does not name, so it is the list and not the mounts above that
-            # decides what a session can authenticate as.
+            # `credentials` is the execution policy's list, which is now the
+            # same two slots. `kubernetesSessionPodRequest` denies a credential
+            # slot this list does not name, so it is the list and not the mounts
+            # above that decides what a session can authenticate as.
             #
             # `claude-code` is what the runtime speaks to the model with.
-            # `chuggy-git-worker` is what it clones the in-cluster mirror with,
-            # and it is here because a session now takes a checkout -- the
-            # sentence this comment used to carry, that a session takes none and
-            # the git credentials would be a grant it never uses, was true and
-            # is not.
+            # `chuggy-git-worker` is what it clones this cluster's own git
+            # service with, and it is here because a session bound there takes
+            # a checkout: the plane mints for a forge and answers 404 for that
+            # host, so the pod takes the mounted arm, which needs this slot, the
+            # one row of the map above and the `chuggy-git` arm chuggy-work.yaml
+            # permits. A session bound to a GitHub repository uses none of the
+            # three.
             #
-            # NO FORGE CREDENTIAL IS GRANTED, and it is the interesting half.
-            # A lead reads the mirror; it has no branch to push and no forge
-            # call to make, and the map above resolving a GitHub reference is
-            # not the same as this granting one. That is why the map's growth
-            # by a repository does not grow this list: a second forge token is
-            # one more credential a lead does not hold.
+            # NO FORGE CREDENTIAL IS GRANTED, and a session needs none: the
+            # plane mints what a pod presents to the forge, and a slot is what
+            # this list is about. A lead reads a binding; it has no branch to
+            # push and no forge call to make.
             #
-            # `mirrors` IS WHAT MAKES THAT EXCLUSION SURVIVABLE, and it is the
-            # third of the three ways it could have been. `vteng/chuggy` binds
-            # the forge URLs the map above resolves to a forge credential --
-            # credentials this grant does not name, so a session would be
-            # placed with no tree. Granting them would reverse the paragraph
-            # above; repointing a binding would also move where the finalizer
-            # opens pull requests, because it reads the same row. This moves
-            # neither: the scheduler rewrites the reference to the mirror as it
-            # composes the placement, so a binding still says github.com to
-            # everything that promotes and the session still clones in-cluster
-            # with the credential it holds. A binding this map does not carry
-            # is passed through unchanged, so the general case is unaffected by
-            # the entries.
-            #
-            # THE KEY IS THE BINDING AND THE VALUE IS WHAT IS CLONED, in that
-            # order, and each is checked against a different thing. The key is
-            # matched against the project's `repository_binding` row verbatim,
-            # so an entry that does not spell that row is an entry that never
-            # fires and says nothing when it does not. The value is resolved by
-            # the image against `CHUG_WORKER_REPOSITORIES` above, so it must be
-            # a key of that map -- each one is, and each resolves to
-            # `chuggy-git-worker`, which is the credential this grant names.
+            # `mirrors` IS GONE WITH THE MIRROR ITSELF. It rewrote a GitHub
+            # binding to an in-cluster copy as the placement was composed, which
+            # is what let a session clone with the git service's credential
+            # rather than a forge one; there is no sync keeping those copies
+            # equal any more, so a binding is now placed as it stands. An entry
+            # written here again would have to name a row of the map above, and
+            # `tests/session-placement.py` refuses one that does not.
             #
             # THIS LIST IS THE WHOLE OF THAT BOUND, and the network is not the
             # other half of it: `chuggy-sessions`' public-443 arm cannot name a
@@ -747,10 +732,6 @@ spec:
                     "network": true,
                     "filesystem": "WriteWorkspace",
                     "mayCompleteTask": false
-                  },
-                  "mirrors": {
-                    "https://github.com/kasofsk/chuggy.git": "http://git.chuggy-git.svc.cluster.local./chuggy.git",
-                    "https://github.com/gdoteof/chuggy-fabric.git": "http://git.chuggy-git.svc.cluster.local./chuggy-fabric.git"
                   }
                 }
             # THE RELEASE COMMIT REWRITES THE VALUE ABOVE, and it rewrites the
@@ -759,14 +740,11 @@ spec:
             # means writing the grant out again beside it. The credential list
             # is the part of it that is easy to drop on the way past, and
             # dropping `chuggy-git-worker` places a session that starts, takes
-            # its turns and silently has no checkout. `mirrors` is the same
-            # hazard one step further out: a rewrite that drops an entry places
-            # a session against the forge with a credential it does not hold.
-            # `tests/session-placement.py` is what makes the first loud rather
-            # than silent: it refuses a grant naming a credential the mounts
-            # above do not carry, and one leaving no repository in the map above
-            # clonable at all. It does not hold the mirror map against any
-            # project's binding, because no binding is declared in this tree.
+            # its turns and silently has no checkout of the one repository this
+            # fabric holds a credential for.
+            # `tests/session-placement.py` is what makes that loud rather than
+            # silent: it refuses a grant naming a credential the mounts above do
+            # not carry.
             #
             # CHUG_SCHEDULER_SESSION_POD_NAME_PREFIX and _ANNOTATIONS are unset
             # on purpose. Each has a published default in

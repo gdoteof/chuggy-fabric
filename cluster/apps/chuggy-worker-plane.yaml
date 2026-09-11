@@ -79,9 +79,9 @@ spec:
           persistentVolumeClaim:
             claimName: chuggy-artifacts
         # THE WORKER APP'S PRIVATE KEY IS THE OPERATOR'S OWN FILE, and it is not
-        # the token module's to mint. `modules/github-app-token.nix` reads the
-        # key on the host to mint the per-repository worker tokens the scheduler
-        # projects and projects the tokens alone, so this Secret carries no
+        # the token module's to mint. `modules/github-app-token.nix` reads a key
+        # on the host to mint the tokens it mints -- none of them this App's,
+        # and none of them projected into a pod -- so this Secret carries no
         # `chuggy.dev/managed-by` label and a host rebuild neither creates it
         # nor refreshes it:
         #
@@ -94,22 +94,23 @@ spec:
         # Secret is there on this rig.
         #
         # THE WORKER APP AND NOT THE PORTAL ONE, because this plane mints
-        # `contents: write` for a work attempt and repositories.nix requires
-        # every carried owner's default branch to reserve `main` to the portal
-        # App integration and repository admins. A ruleset bypass is per
+        # `contents: write` for a work attempt and a bound repository's owner is
+        # required to reserve its default branch to the portal App integration
+        # and repository admins -- README's "Adding a repository" states the
+        # requirement and AGENTS.md states the division. A ruleset bypass is per
         # integration rather than per token, so the portal App's key here would
         # put a token that can update `main` in an agent-executed pod, whatever
         # permission set it was minted with.
         #
-        # WHAT THE MOUNT WIDENS is what the pods this plane serves hold. A
-        # worker pod carries a token file per repository, projected by the
-        # scheduler and good for that repository alone. A session pod carries no
-        # forge credential at all -- it reaches the forge through the in-cluster
-        # mirror -- and can now be handed a read token of its own. The key here
-        # mints for every repository the worker App is installed on, for as long
-        # as the key stands, and what bounds it is the App's own permission set:
-        # at a protected `main` the ruleset refuses this integration, which is
-        # the division AGENTS.md states.
+        # WHAT THE MOUNT WIDENS is what the pods this plane serves hold. Both
+        # kinds of pod now get their forge credential from here, minted for the
+        # act and expiring with it: the fabric projects no per-repository token
+        # into either, and the one credential the scheduler still mounts is
+        # `chuggy-git-worker`, for this cluster's own git service, which is not
+        # a forge and is not minted for. The key here mints for every repository
+        # the worker App is installed on, for as long as the key stands, and
+        # what bounds it is the App's own permission set: at a protected `main`
+        # the ruleset refuses this integration.
         - name: forge-app
           secret:
             secretName: chuggy-github-app-worker

@@ -103,9 +103,9 @@
 
   # What this box builds is recorded on that path and committed to the
   # repository it follows, so a rollout renders its promotion from a checkout
-  # rather than from this filesystem. The push carries the finalizer's token
+  # rather than from this filesystem. The push carries a portal App token
   # because `Finalizer owns main` on that repository admits the portal App and
-  # repository admins; the entry the token comes from is repositories.nix's.
+  # repository admins; the token is declared below.
   chuggy.buildProvenance.publish = {
     enable = true;
     tokenName = "finalizer-chuggy-fabric";
@@ -184,10 +184,10 @@
     branch = "main";
   };
 
-  # The two Apps' keys, which are files on this box. Which repositories they
-  # mint for is not a fact about this machine: it is `repositories.nix`, and a
-  # repository added there arrives here as its four tokens without this file
-  # changing.
+  # The two Apps' keys, which are files on this box. Which repositories this
+  # box builds images for is not a fact about this machine: it is
+  # `repositories.nix`, and a repository added there arrives here as its clone
+  # credential without this file changing.
   #
   # Both keys are also copied by hand into Secrets, so rotating or revoking
   # either is two places and not one: the portal key into
@@ -205,13 +205,29 @@
       portal = {
         appId = "4708055";
         privateKeyFile = "/var/lib/chuggy/secrets/github-app/chuggy-portal.pem";
+        keySecret = "chuggy-github-app-portal";
       };
       worker = {
         appId = "4728465";
         privateKeyFile = "/var/lib/chuggy/secrets/github-app/chuggy-worker.pem";
+        keySecret = "chuggy-github-app-worker";
       };
     };
     repositories =
       lib.mapAttrs (_: repository: repository.tokens) (import ../../repositories.nix);
+    # The token the provenance publisher above pushes with. It is written here
+    # rather than derived from `repositories.nix` because it is this host's own
+    # path into the repository Flux follows and no pod's credential: nothing in
+    # `cluster/apps` mounts it, and this site builds no image from the fabric.
+    # The installation is the portal App's on `gdoteof`, the owner of
+    # `chuggy.flux.repositoryUrl` above.
+    tokens.finalizer-chuggy-fabric = {
+      inherit (config.chuggy.githubAppTokens.apps.portal) appId privateKeyFile;
+      installationId = "156334058";
+      repository = "chuggy-fabric";
+      permission = "write";
+      secretName = "chuggy-fabric-github-finalizer-token";
+      namespaces = [ "chuggy" ];
+    };
   };
 }

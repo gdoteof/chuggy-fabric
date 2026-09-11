@@ -113,11 +113,9 @@
 # finalizer mounts the same claim writable, and that asymmetry is the whole
 # division of labour between the two.
 #
-# Repository configuration imports use a separate empty Git scratch and the
-# read-only `chuggy-git-sync` Secret. That Secret is host-local and copies the
-# password from `chuggy-git/git-sync`; the Git service also admits the adapter's
-# fixed `chuggy` username as a reader. No repository credential belongs in this
-# public tree.
+# Repository configuration imports use a separate empty Git scratch and a
+# credential this pod mints for itself under the portal App. No repository
+# credential belongs in this public tree, and none is mounted here any more.
 #
 # THE PV PINS THIS POD. Its node affinity is `chuggy.dev/durable=true`, so this
 # Deployment is now schedulable on the durable node alone -- which it already
@@ -366,31 +364,9 @@ spec:
               value: /var/lib/chuggy/artifacts
             - name: CHUG_API_GIT_SCRATCH_ROOT
               value: /var/lib/chuggy/git
-            # Two entries a repository, and every repository
-            # `repositories.nix` carries: the in-cluster mirror, whose
-            # credential is the git service's own and is one file however many
-            # repositories it serves, and the forge, whose credential is that
-            # repository's own GitHub App token.
-            - name: CHUG_API_REPOSITORY_CREDENTIAL_SOURCES
-              value: |
-                [
-                  {
-                    "repository": "http://git.chuggy-git.svc.cluster.local./chuggy.git",
-                    "path": "/var/run/chuggy/repository-credentials/chuggy-git"
-                  },
-                  {
-                    "repository": "https://github.com/kasofsk/chuggy.git",
-                    "path": "/var/run/chuggy/repository-credentials/chuggy-github"
-                  },
-                  {
-                    "repository": "http://git.chuggy-git.svc.cluster.local./chuggy-fabric.git",
-                    "path": "/var/run/chuggy/repository-credentials/chuggy-git"
-                  },
-                  {
-                    "repository": "https://github.com/gdoteof/chuggy-fabric.git",
-                    "path": "/var/run/chuggy/repository-credentials/chuggy-fabric-github"
-                  }
-                ]
+            # `CHUG_API_REPOSITORY_CREDENTIAL_SOURCES` is unset: this pod mints
+            # every repository credential it presents from the portal key
+            # above, so it is told to read no file.
             # The image already sets this. Repeated because the source default
             # is loopback and a container's loopback is its own namespace's --
             # an inherited value that no manifest states is one an image rebuild
@@ -465,9 +441,6 @@ spec:
               readOnly: true
             - name: git-scratch
               mountPath: /var/lib/chuggy/git
-            - name: repository-credentials
-              mountPath: /var/run/chuggy/repository-credentials
-              readOnly: true
             - name: forge-app
               mountPath: /var/run/chuggy/forge-app
               readOnly: true
@@ -530,25 +503,6 @@ spec:
             readOnly: true
         - name: git-scratch
           emptyDir: {}
-        - name: repository-credentials
-          projected:
-            defaultMode: 0444
-            sources:
-              - secret:
-                  name: chuggy-git-sync
-                  items:
-                    - key: password
-                      path: chuggy-git
-              - secret:
-                  name: chuggy-github-reader-token
-                  items:
-                    - key: token
-                      path: chuggy-github
-              - secret:
-                  name: chuggy-fabric-github-reader-token
-                  items:
-                    - key: token
-                      path: chuggy-fabric-github
         - name: forge-app
           secret:
             secretName: chuggy-github-app-portal
