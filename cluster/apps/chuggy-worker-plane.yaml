@@ -43,12 +43,23 @@ spec:
               value: "3001"
             - name: CHUG_WORKER_PLANE_HEARTBEAT_LEASE_SECS
               value: "300"
+            # The portal App this process mints an attempt's or a session's git
+            # credential from. The id is the same one hosts/gtr gives
+            # `chuggy.githubAppTokens.apps.portal`, whose minting is unchanged
+            # by this. Nothing in the image above reads either name yet.
+            - name: CHUG_WORKER_PLANE_FORGE_APP_ID
+              value: "4708055"
+            - name: CHUG_WORKER_PLANE_FORGE_APP_KEY_FILE
+              value: /var/run/chuggy/forge-app/private-key
           ports:
             - name: http
               containerPort: 3001
           volumeMounts:
             - name: artifacts
               mountPath: /var/lib/chuggy/artifacts
+            - name: forge-app
+              mountPath: /var/run/chuggy/forge-app
+              readOnly: true
           resources:
             requests: { cpu: 100m, memory: 128Mi }
             limits: { memory: 512Mi }
@@ -65,6 +76,28 @@ spec:
         - name: artifacts
           persistentVolumeClaim:
             claimName: chuggy-artifacts
+        # THE PORTAL APP'S KEY, MOUNTED A SECOND TIME. chuggy-api.yaml holds the
+        # command that copies it into this Secret, and it is the same key file
+        # on the same host: nothing new is created for this pod.
+        #
+        # What this mount widens is what the pods this plane serves hold. A
+        # worker or session pod carries a token file per repository, projected
+        # by the scheduler and good for that repository alone; the key here
+        # mints for every repository the portal App is installed on, for as long
+        # as the key stands. What bounds it is the App's own permission set and
+        # the ruleset on each repository's protected branch, which AGENTS.md
+        # states.
+        - name: forge-app
+          secret:
+            secretName: chuggy-github-app-portal
+            # 0444 rather than 0400, and the key named rather than the whole
+            # Secret projected: chuggy-api.yaml argues both in full over this
+            # same Secret. This pod declares no `fsGroup` either, so a mode
+            # without the world bit is a file its own uid cannot open.
+            defaultMode: 0444
+            items:
+              - key: private-key
+                path: private-key
 ---
 apiVersion: v1
 kind: Service
@@ -138,3 +171,20 @@ spec:
             matchLabels: { app: postgres }
       ports:
         - { protocol: TCP, port: 5432 }
+    # `api.github.com`, where a mint request goes. It is the finalizer's public
+    # arm copied whole, for the reason chuggy-control-plane-network-policy.yaml
+    # argues over that one: a NetworkPolicy cannot name a host, so the narrowest
+    # thing expressible is public HTTPS with the private, loopback,
+    # carrier-grade NAT and link-local ranges excepted.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - { protocol: TCP, port: 443 }

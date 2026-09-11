@@ -1601,9 +1601,11 @@ not after it.
    Secret and the label `chuggy.dev/managed-by=github-app-token` is not on it.
    The command is on the node, as root, because the source is root-only host
    state; `chuggy-api.yaml` holds it and says what mounting the key widens.
-   **It is there on this rig.** The API that mints from it is
-   kasofsk/chuggy's next release, and until that image is pinned the pod mounts
-   the key and reads nothing from it.
+   **It is there on this rig.** The API mounts it, and so does the worker
+   plane, which mints an attempt's or a session's git credential from it;
+   `chuggy-worker-plane.yaml` says what that second mount widens. Both mint
+   only in kasofsk/chuggy's next release, and until those images are pinned
+   each pod mounts the key and reads nothing from it.
 6. **Establish the first recovery epoch**, as a Secret and a row that carry the
    same value. `chuggy-recovery-epoch` is read by both the scheduler and the
    finalizer, and the row is what they fence against; no migration writes it,

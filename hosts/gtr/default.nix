@@ -191,8 +191,8 @@
   #
   # The portal key is also copied by hand into the Secret
   # `chuggy/chuggy-github-app-portal`, so rotating or revoking it is two places
-  # and not one; `cluster/apps/chuggy-api.yaml` holds that command and says what
-  # the pod that mounts it can mint.
+  # and not one; `cluster/apps/chuggy-api.yaml` holds that command, and each
+  # manifest that mounts the Secret says what that pod can mint.
   chuggy.githubAppTokens = {
     enable = true;
     apps = {
