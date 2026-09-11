@@ -1563,10 +1563,11 @@ not after it.
 
    It must print `t`. The importer connects as the login role; it does not use
    `SET ROLE`, so this inherited membership is the capability boundary.
-5. **Create `chuggy-selector`, `chuggy-finalizer-credentials` and
-   `chuggy-github-app-portal`** by hand — the selector's OAuth2 client secret
-   and policy token, the finalizer's git credential, and the portal App's
-   private key. Values never go in this repository; it is public. A pod whose
+5. **Create `chuggy-selector`, `chuggy-finalizer-credentials`,
+   `chuggy-github-app-portal` and `chuggy-github-app-worker`** by hand — the
+   selector's OAuth2 client secret and policy token, the finalizer's git
+   credential, and the two Apps' private keys. Values never go in this
+   repository; it is public. A pod whose
    Secret is missing is never built, under one of two names: a `secretKeyRef`
    env gives `CreateContainerConfigError`, a mounted secret gives
    `ContainerCreating` on a `FailedMount`.
@@ -1595,15 +1596,26 @@ not after it.
    repository is a later thing and wants D31's short-lived minting, not a static
    token on a rig.
 
-   The portal App's is **the host's own key file, copied rather than minted**.
-   `chuggy.githubAppTokens` reads it on the host to mint the per-repository
-   tokens and projects the tokens alone, so nothing a rebuild does creates this
-   Secret and the label `chuggy.dev/managed-by=github-app-token` is not on it.
-   The command is on the node, as root, because the source is root-only host
-   state; `chuggy-api.yaml` holds it and says what mounting the key widens.
-   **It is there on this rig.** The API that mints from it is
-   kasofsk/chuggy's next release, and until that image is pinned the pod mounts
-   the key and reads nothing from it.
+   Both Apps' are **the host's own key files, copied rather than minted**.
+   `chuggy.githubAppTokens` reads them on the host to mint the per-repository
+   tokens and projects the tokens alone, so nothing a rebuild does creates these
+   Secrets and the label `chuggy.dev/managed-by=github-app-token` is not on
+   either. The commands are on the node, as root, because the sources are
+   root-only host state. **Both are there on this rig.** The manifest that
+   mounts each holds its command and says what that mount widens:
+
+   - `chuggy-github-app-portal`, the portal App's, in `chuggy-api.yaml`. The
+     API mints its own installation tokens from it, and the image pinned there
+     refuses to start on a key it cannot sign with — so this one is a start-up
+     dependency of a pod that is running now, not an inert mount.
+   - `chuggy-github-app-worker`, the worker App's, in
+     `chuggy-worker-plane.yaml`. The plane mints an attempt's or a session's
+     git credential from it. The worker App and not the portal one because the
+     ruleset `repositories.nix` requires admits the portal App integration to a
+     protected `main`, and a work attempt's credential is `contents: write`.
+     The image pinned there reads neither of its two names, so until
+     kasofsk/chuggy's next release is pinned the plane mounts the key and reads
+     nothing from it.
 6. **Establish the first recovery epoch**, as a Secret and a row that carry the
    same value. `chuggy-recovery-epoch` is read by both the scheduler and the
    finalizer, and the row is what they fence against; no migration writes it,

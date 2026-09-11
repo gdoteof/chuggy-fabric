@@ -324,7 +324,9 @@ spec:
             # from, in place of reading the per-repository token files below.
             # The id is the same one hosts/gtr gives
             # `chuggy.githubAppTokens.apps.portal`, whose minting is unchanged
-            # by this. Nothing in the image above reads either name yet.
+            # by this. The image above reads both at start-up and refuses to
+            # start on a key it cannot sign with, so the Secret below is this
+            # pod's start-up dependency and not an inert mount.
             - name: CHUG_API_FORGE_APP_ID
               value: "4708055"
             - name: CHUG_API_FORGE_APP_KEY_FILE

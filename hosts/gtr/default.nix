@@ -189,10 +189,13 @@
   # repository added there arrives here as its four tokens without this file
   # changing.
   #
-  # The portal key is also copied by hand into the Secret
-  # `chuggy/chuggy-github-app-portal`, so rotating or revoking it is two places
-  # and not one; `cluster/apps/chuggy-api.yaml` holds that command and says what
-  # the pod that mounts it can mint.
+  # Both keys are also copied by hand into Secrets, so rotating or revoking
+  # either is two places and not one: the portal key into
+  # `chuggy/chuggy-github-app-portal`, which the api mints its own installation
+  # tokens from, and the worker key into `chuggy/chuggy-github-app-worker`,
+  # which the worker plane mints an agent-executed pod's git credential from.
+  # `cluster/apps/chuggy-api.yaml` and `cluster/apps/chuggy-worker-plane.yaml`
+  # hold the two commands and say what each pod may mint.
   chuggy.githubAppTokens = {
     enable = true;
     apps = {
