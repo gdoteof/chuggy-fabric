@@ -194,9 +194,11 @@
   # `chuggy/chuggy-github-app-portal`, which the api mints its own installation
   # tokens from, and the worker key into `chuggy/chuggy-github-app-worker`,
   # which the worker plane mints an agent-executed pod's git credential from and
-  # the api reads an installation with. `cluster/apps/chuggy-api.yaml` holds the
-  # first command and `cluster/apps/chuggy-worker-plane.yaml` the second, and
-  # every manifest that mounts a key says what that pod may mint.
+  # the api reads a claimed installation as, minting an installation-wide read
+  # token to enumerate its repositories and nothing for an act.
+  # `cluster/apps/chuggy-api.yaml` holds the first command and
+  # `cluster/apps/chuggy-worker-plane.yaml` the second, and every manifest that
+  # mounts a key says what that pod may mint.
   chuggy.githubAppTokens = {
     enable = true;
     apps = {

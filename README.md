@@ -1615,8 +1615,11 @@ not after it.
      credential from it — the worker App and not the portal one because the
      ruleset `repositories.nix` requires admits the portal App integration to a
      protected `main`, and a work attempt's credential is `contents: write`.
-     The API holds it to verify a tenant's claim of a worker-App installation,
-     which it does by reading that installation as the App. Neither pinned
+     The API holds it to verify a tenant's claim of a worker-App installation:
+     it reads that installation as the App and mints an installation-wide
+     `read` token to enumerate the installation's repositories. Nothing for an
+     act there — no clone, no push, no proposal — and a bind proves against the
+     portal claim. Neither pinned
      image reads the names that point at this key, so until kasofsk/chuggy's
      next release is pinned each pod mounts it and reads nothing from it.
 6. **Establish the first recovery epoch**, as a Secret and a row that carry the
