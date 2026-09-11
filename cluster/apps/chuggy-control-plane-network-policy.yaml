@@ -30,9 +30,9 @@
 # checked against the API server, and their selectors were checked against the
 # labels the cluster actually carries -- Traefik's, CoreDNS's, PostgreSQL's --
 # but nothing here has been applied to the running rig, so no probe has been run
-# through them. Two are worth watching on the first reconcile: the ingress rule
-# on chuggy-api, which is the only rule here that stands in front of something
-# that already works, and the egress rule on chuggy-migrate, which stands in
+# through them. Three are worth watching on the first reconcile: the two rules
+# on chuggy-api, which are the rules here that stand in front of something that
+# already works, and the egress rule on chuggy-migrate, which stands in
 # front of something that has to work before anything else does -- and whose
 # failure mode, a database the Job cannot reach, is one chuggy-migrate.yaml
 # reports as a could-not-run rather than as a policy.
@@ -149,6 +149,81 @@ spec:
       ports:
         - protocol: TCP
           port: 3000
+---
+# The API reaches the resolver, the database, Keto's read port and public
+# HTTPS. Every other pod on this cluster, the rig's own git service and the
+# house LAN are outside what it admits, and a destination missing from the list
+# below is an outage on the one workload the internet reaches rather than a
+# loop that stalls.
+#
+# THE PUBLIC ARM IS THREE DESTINATIONS AND NOT ONE, and NetworkPolicy can name
+# none of them: the finalizer's rule below argues why a hostname is not
+# expressible here, and this arm has that arm's shape and that arm's reach.
+# `auth.vteng.io` for OIDC discovery and JWKS, which leaves the cluster for the
+# Cloudflare edge and comes back through the tunnel rather than reaching
+# hydra-public over the pod network, as chuggy-api.yaml argues; `api.github.com`
+# for the installation tokens this pod mints and the installations it claims;
+# and `github.com` for the `ls-remote` and `fetch` of a repository being bound.
+#
+# KETO IS ON ITS READ PORT AND NOT ITS WRITE ONE, for the reason the selector's
+# rule below states.
+#
+# The rig's own git service is not among its destinations: this pod's
+# configuration names no repository on it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-api-egress
+  namespace: chuggy
+spec:
+  podSelector:
+    matchLabels:
+      app: chuggy-api
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ory
+          podSelector:
+            matchLabels:
+              app: keto
+      ports:
+        - protocol: TCP
+          port: 4466
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
 ---
 # The ticket service reaches the database and public HTTPS, which is where it
 # both mints and reads a source. NetworkPolicy cannot name GitHub as a

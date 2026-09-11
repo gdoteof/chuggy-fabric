@@ -201,18 +201,15 @@
 # serve itself. So the hostname's tunnel route is a start-up dependency of this
 # workload, not only of anyone's browser.
 #
-# WHAT NO RULE HERE BOUNDS. Nothing restricts this pod's egress. The namespace
-# has no default-deny, and postgres-denies-egress selects the database and not
-# this, so the API may open a connection to anywhere -- the issuer above is
-# where it is pointed, not where it is confined. Every other pod in this
-# namespace carries an egress rule, the migration Job included; this one does
-# not, because narrowing the egress of
-# the only service the internet reaches is a change whose failure mode is an
-# outage, and nothing in this repository can rehearse it before it lands.
+# WHERE THIS POD MAY GO is chuggy-api-egress in
+# chuggy-control-plane-network-policy.yaml: the resolver, the database, Keto's
+# read port, and public HTTPS -- which is how the issuer above is reached,
+# since discovery leaves the cluster. Everything else is refused, the rest of
+# the pod network and the house LAN included, so a destination this process
+# gains needs an arm there before it can be opened.
 #
-# What IS bounded now is the other direction:
-# chuggy-control-plane-network-policy.yaml admits Traefik and the selector to
-# port 3000 and refuses every other pod on the cluster.
+# The other direction is bounded by the same file: it admits Traefik and the
+# selector to port 3000 and refuses every other pod on the cluster.
 ---
 apiVersion: apps/v1
 kind: Deployment
