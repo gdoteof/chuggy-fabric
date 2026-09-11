@@ -68,10 +68,12 @@ POSTGRES_CLIENT = ("chuggy.dev/postgres-client", "true")
 # The API is told where the read port is, and that URL is a second copy of the
 # Service's own number. The selector holds a copy of its own, and
 # tests/selector-reach.py resolves that one against this Service and against the
-# selector's egress arm; this gate reads the API's.
+# selector's egress arm; this gate reads the API's, and the arm the API's own
+# policy has to carry for that URL to be openable at all.
 API_DEPLOYMENT = "chuggy-api"
 API_CONTAINER = "api"
 API_VARIABLE = "CHUG_API_KETO_READ_URL"
+API_EGRESS = "chuggy-api-egress"
 
 CLUSTER_SUFFIX = ".svc.cluster.local"
 
@@ -419,6 +421,52 @@ def main():
         refuse(f"{API_VARIABLE} names {parts.hostname}, which is not {READ_SERVICE} in `{ORY}`")
     if parts.port != read_published:
         refuse(f"{API_VARIABLE} reaches port {parts.port}, and {READ_SERVICE} publishes {read_published}")
+
+    # 8. And the API's own egress admits that pod on the port the kernel
+    #    matches, which is the container's and not the one the URL publishes.
+    #    That policy isolates the API for egress, so a destination it does not
+    #    admit is refused however correctly the URL above reads.
+    #
+    #    WHICH IS A CLAIM ABOUT THE OBJECT'S IDENTITY BEFORE IT IS ONE ABOUT
+    #    ITS ARMS, and both halves of that identity are one line to get wrong.
+    #    `policyTypes` is authoritative when present, so an object naming
+    #    `Ingress` there isolates nothing for egress and every arm below is
+    #    inert; a `podSelector` naming another workload confines that one and
+    #    leaves the API reaching anything anywhere. Each reads as correct on
+    #    the page and neither touches an arm.
+    egress = one(documents, "NetworkPolicy", API_EGRESS, CONTROL)
+    if "Egress" not in (egress["spec"].get("policyTypes") or []):
+        refuse(
+            f"{API_EGRESS} does not name Egress in its policyTypes, so it isolates the "
+            f"{API_DEPLOYMENT} pod for egress not at all and its arms admit nothing and "
+            "refuse nothing"
+        )
+    api_labels = api["spec"]["template"]["metadata"].get("labels", {})
+    if not selects(egress["spec"]["podSelector"], api_labels, API_EGRESS):
+        refuse(
+            f"the podSelector on {API_EGRESS} does not select the {API_DEPLOYMENT} pod, so "
+            "its arms bound some other workload and this one may open any connection anywhere"
+        )
+    reaching = any(
+        any(
+            port["port"] == read_port and port.get("protocol", "TCP") == "TCP"
+            for port in arm.get("ports") or []
+        )
+        and any(
+            (peer.get("namespaceSelector") or {}).get("matchLabels", {}).get(
+                "kubernetes.io/metadata.name"
+            )
+            == ORY
+            and selects(peer.get("podSelector") or {}, labels, API_EGRESS)
+            for peer in arm.get("to") or []
+        )
+        for arm in egress["spec"].get("egress") or []
+    )
+    if not reaching:
+        refuse(
+            f"{API_EGRESS} has no arm reaching the {DEPLOYMENT} pod in `{ORY}` on container "
+            f"port {read_port}, so {API_VARIABLE} names a destination this pod is refused"
+        )
 
 
 if __name__ == "__main__":

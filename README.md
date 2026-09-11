@@ -1359,21 +1359,27 @@ Kubernetes, and closing that needs a health listener in chuggy itself.
 
 ### The network boundary around them
 
-`cluster/apps/chuggy-control-plane-network-policy.yaml` holds seven
-NetworkPolicies: one that admits nothing to the five pods with no listener, one
-that admits the API from Traefik and from the selector alone, and five egress
-rules that each state completely where one workload may go. The widest is the
+`cluster/apps/chuggy-control-plane-network-policy.yaml` holds nine
+NetworkPolicies: one that admits nothing to the five processes with no listener
+or to the migration Job, one that admits the API from Traefik and from the
+selector alone, and seven egress rules that each state completely where one
+workload may go. The widest is the
 scheduler's, which needs the Kubernetes API server at an address that is a DHCP
 lease, so it permits everything but the pod and service networks; the file
 argues why and what would narrow it.
 
-**`chuggy-api` has no egress rule, deliberately.** It is the only one of these
-the internet reaches, and it leaves the cluster for OIDC discovery against
-`auth.vteng.io`, so a rule that got its destinations wrong would be an outage on
-the one thing that works — and nothing here can rehearse it before it lands.
-The issuer is where the pod is pointed, not where it is confined.
+**`chuggy-api` is bounded in both directions.** `chuggy-api-egress` admits the
+resolver, PostgreSQL, Keto's read port and public HTTPS on 443, and refuses the
+rest: every other pod on the cluster, the rig's own git service, and the house
+LAN, which the public arm excepts along with the pod and service networks. That
+443 arm is three destinations no rule here can name as hostnames — OIDC
+discovery and JWKS against `auth.vteng.io`, which leaves the cluster and comes
+back through the tunnel, `api.github.com` for the installation tokens the pod
+mints, and `github.com` for a bound repository's `ls-remote` and `fetch`. It is
+the only one of these the internet reaches, so it is the one whose rule fails as
+an outage rather than as a loop that stalls.
 
-**`chuggy-web` is selected by none of the seven, in either direction**, and that
+**`chuggy-web` is selected by none of the nine, in either direction**, and that
 is the state this PR leaves it in rather than a decision it argues. It is the
 console: nginx serving static files, reached from Traefik, with no `proxy_pass`
 in it — the browser reaches the API through Traefik and this pod opens no
@@ -1384,10 +1390,10 @@ either; bounding both is one change.
 
 **No probe has been run through any of these.** They were built against the API
 server and their selectors checked against the labels the cluster carries, but
-none has been applied to the running rig. Two are worth watching on the first
-reconcile: the ingress rule on `chuggy-api`, the only one standing in front of
-something that already works, and the egress rule on `chuggy-migrate`, standing
-in front of the one thing that has to work before anything else does.
+none has been applied to the running rig. Three are worth watching on the first
+reconcile: both rules on `chuggy-api`, the ones standing in front of something
+that already works, and the egress rule on `chuggy-migrate`, standing in front
+of the one thing that has to work before anything else does.
 
 ### Before any of it runs
 
