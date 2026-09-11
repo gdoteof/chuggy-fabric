@@ -1359,10 +1359,11 @@ Kubernetes, and closing that needs a health listener in chuggy itself.
 
 ### The network boundary around them
 
-`cluster/apps/chuggy-control-plane-network-policy.yaml` holds eight
-NetworkPolicies: one that admits nothing to the five pods with no listener, one
-that admits the API from Traefik and from the selector alone, and six egress
-rules that each state completely where one workload may go. The widest is the
+`cluster/apps/chuggy-control-plane-network-policy.yaml` holds nine
+NetworkPolicies: one that admits nothing to the five processes with no listener
+or to the migration Job, one that admits the API from Traefik and from the
+selector alone, and seven egress rules that each state completely where one
+workload may go. The widest is the
 scheduler's, which needs the Kubernetes API server at an address that is a DHCP
 lease, so it permits everything but the pod and service networks; the file
 argues why and what would narrow it.
@@ -1378,7 +1379,7 @@ mints, and `github.com` for a bound repository's `ls-remote` and `fetch`. It is
 the only one of these the internet reaches, so it is the one whose rule fails as
 an outage rather than as a loop that stalls.
 
-**`chuggy-web` is selected by none of the eight, in either direction**, and that
+**`chuggy-web` is selected by none of the nine, in either direction**, and that
 is the state this PR leaves it in rather than a decision it argues. It is the
 console: nginx serving static files, reached from Traefik, with no `proxy_pass`
 in it — the browser reaches the API through Traefik and this pod opens no

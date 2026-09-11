@@ -53,16 +53,17 @@
 # one place that fails is the Kubernetes API server, and that is argued where
 # the scheduler's rule is.
 ---
-# Nothing may open a connection to the four loop processes or to the migration
-# Job, because none of them listens. They have no port, no Service and no probe;
-# a rule that admitted anything would be admitting it to a closed port.
+# Nothing may open a connection to the five processes named below or to the
+# migration Job, because none of the six listens. They have no port, no Service
+# and no probe; a rule that admitted anything would be admitting it to a closed
+# port.
 #
 # This is the cheapest half of D14's "internal control ports remain
 # cluster-internal": there are no internal control ports, and this is what says
 # so in a form a negative probe can fail against rather than in a comment.
 #
-# The five are named rather than carrying a shared label. A label would have to
-# be added to five pod templates and could be dropped from one of them silently;
+# The six are named rather than carrying a shared label. A label would have to
+# be added to six pod templates and could be dropped from one of them silently;
 # the list is the record, the same choice as enumerating tunnel hostnames. The
 # Job's entry is its `app` label and not its name, which carries the image tag
 # and changes with it.
@@ -165,8 +166,9 @@ spec:
 # for the installation tokens this pod mints and the installations it claims;
 # and `github.com` for the `ls-remote` and `fetch` of a repository being bound.
 #
-# KETO IS ON ITS READ PORT AND NOT ITS WRITE ONE, for the reason the selector's
-# rule below states.
+# KETO IS ON ITS READ PORT AND NOT ITS WRITE ONE. `ory-network-policy.yaml`
+# admits 4466 from anywhere on the pod network and 4467 from `ory` alone, so a
+# write arm here would be permitted at this end and refused at the other.
 #
 # The rig's own git service is not among its destinations: this pod's
 # configuration names no repository on it.

@@ -426,7 +426,27 @@ def main():
     #    matches, which is the container's and not the one the URL publishes.
     #    That policy isolates the API for egress, so a destination it does not
     #    admit is refused however correctly the URL above reads.
+    #
+    #    WHICH IS A CLAIM ABOUT THE OBJECT'S IDENTITY BEFORE IT IS ONE ABOUT
+    #    ITS ARMS, and both halves of that identity are one line to get wrong.
+    #    `policyTypes` is authoritative when present, so an object naming
+    #    `Ingress` there isolates nothing for egress and every arm below is
+    #    inert; a `podSelector` naming another workload confines that one and
+    #    leaves the API reaching anything anywhere. Each reads as correct on
+    #    the page and neither touches an arm.
     egress = one(documents, "NetworkPolicy", API_EGRESS, CONTROL)
+    if "Egress" not in (egress["spec"].get("policyTypes") or []):
+        refuse(
+            f"{API_EGRESS} does not name Egress in its policyTypes, so it isolates the "
+            f"{API_DEPLOYMENT} pod for egress not at all and its arms admit nothing and "
+            "refuse nothing"
+        )
+    api_labels = api["spec"]["template"]["metadata"].get("labels", {})
+    if not selects(egress["spec"]["podSelector"], api_labels, API_EGRESS):
+        refuse(
+            f"the podSelector on {API_EGRESS} does not select the {API_DEPLOYMENT} pod, so "
+            "its arms bound some other workload and this one may open any connection anywhere"
+        )
     reaching = any(
         any(
             port["port"] == read_port and port.get("protocol", "TCP") == "TCP"

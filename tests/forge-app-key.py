@@ -53,6 +53,15 @@ in-cluster remote at a path something projects, or it is a credential nobody
 can account for. The importer's list is held at empty by its own gate, which is
 where the reason it stays a present key is written.
 
+AND A MINTER THAT CANNOT REACH THE FORGE CANNOT MINT, which is the last of the
+three things a mint needs and the only one that is not in the pod. A key, an id
+and a route: the pod's egress policy is the route, and every defect in it is one
+this file's subject already owns -- an arm on port 80 refuses every mint, an arm
+with no `ports` admits every port on the internet, and an arm on `0.0.0.0/1` is
+half of it, the half GitHub is not addressed in. So the arm is READ here rather
+than counted: a grep over the manifest can say a range occurs somewhere in it
+and cannot say what any one arm admits.
+
 WHAT THIS GATE CANNOT SEE. Whether a named Secret exists or holds the App's
 key, which is the operator's prerequisite 5 and no render's business: what is
 held here is that the manifest, the host and the App agree on which Secret that
@@ -140,17 +149,42 @@ SOURCES = (
 # token that does not expire standing where a mint belongs.
 IN_CLUSTER = ".svc.cluster.local"
 
+# The arm every minter above reaches the forge through. A mint is an HTTPS
+# request to `api.github.com`, and a NetworkPolicy matches addresses rather than
+# names, so the narrowest arm expressible is public HTTPS with this site's own
+# ranges taken back out of it --
+# cluster/apps/chuggy-control-plane-network-policy.yaml argues that at length
+# over the finalizer's rule and every arm here is that one's shape.
+PUBLIC = "0.0.0.0/0"
+PUBLIC_PORT = 443
+
+# The ranges that come out, each because this site addresses something of its
+# own inside it: an arm that reached one of them would be reaching a neighbour
+# on the strength of a rule written for the internet.
+EXCEPTED = {
+    "10.0.0.0/8",  # RFC 1918, and the pod and service networks are inside it
+    "100.64.0.0/10",  # carrier-grade NAT
+    "127.0.0.0/8",  # loopback
+    "169.254.0.0/16",  # link-local, and the metadata address inside it
+    "172.16.0.0/12",  # RFC 1918
+    "192.168.0.0/16",  # RFC 1918, and this site's own LAN
+}
+
 
 def refuse(message):
     raise SystemExit(f"forge app key: {message}")
 
 
 def workload(documents, name):
-    """The pod and container of a workload in the control namespace.
+    """The pod labels, pod and container of a workload in the control namespace.
 
     A CronJob is one of these as much as a Deployment is: the importer mints
     from the same key on a schedule, and a pod that never runs until 02:00 is
-    the one whose broken mount is discovered latest."""
+    the one whose broken mount is discovered latest.
+
+    The labels come back with the rest because a NetworkPolicy is matched
+    against them and against nothing else: the workload's name is not what any
+    policy below names."""
     found = [
         document
         for document in documents
@@ -161,15 +195,16 @@ def workload(documents, name):
     if len(found) != 1:
         refuse(f"the render carries {len(found)} workloads named {name} in {CONTROL}, wanted one")
     document = found[0]
-    pod = (
-        document["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    template = (
+        document["spec"]["jobTemplate"]["spec"]["template"]
         if document["kind"] == "CronJob"
-        else document["spec"]["template"]["spec"]
+        else document["spec"]["template"]
     )
+    pod = template["spec"]
     containers = pod["containers"]
     if len(containers) != 1:
         refuse(f"{name} declares {len(containers)} containers, wanted one")
-    return pod, containers[0]
+    return template["metadata"].get("labels", {}), pod, containers[0]
 
 
 def variable(container, name, owner):
@@ -386,6 +421,89 @@ def projected(pod, container, wanted, owner):
     return name, key
 
 
+def selects(selector, labels, described):
+    """Whether a podSelector matches one pod's labels.
+
+    Only `matchLabels` is evaluated, which is what every egress policy in the
+    control namespace selects a workload by; an expression is refused rather
+    than guessed at, because a selector this gate misread would report an arm
+    as another workload's."""
+    if selector.get("matchExpressions"):
+        refuse(f"{described} selects by matchExpressions, which this gate cannot evaluate")
+    matched = selector.get("matchLabels") or {}
+    return all(labels.get(key) == value for key, value in matched.items())
+
+
+def public_https(documents, name, labels):
+    """The one arm a minter reaches the forge through, held against what it admits.
+
+    A minter whose egress cannot reach public HTTPS cannot mint: every App key
+    above buys its tokens from `api.github.com` and nothing else does. So the
+    arm is parsed here rather than grepped for. What the arm is FOUND by is its
+    shape -- a `to` that is one `ipBlock` -- and what is then held of it is
+    every term that decides its reach, so that a port, a cidr or a missing
+    exception is a refusal here rather than a rule that reads correctly and
+    lands a pod on the wrong half of the internet.
+
+    NETWORKPOLICIES ARE ADDITIVE, so the arms are folded across every policy in
+    the namespace that selects this pod for egress rather than read off one
+    object: a second policy carrying a wider ipBlock would leave the first
+    reading exactly as it does now."""
+    policies = [
+        document
+        for document in documents
+        if document.get("kind") == "NetworkPolicy"
+        and document["metadata"].get("namespace") == CONTROL
+        and "Egress" in (document["spec"].get("policyTypes") or [])
+        and selects(document["spec"]["podSelector"], labels, document["metadata"]["name"])
+    ]
+    if not policies:
+        refuse(
+            f"no NetworkPolicy in {CONTROL} isolates the {name} pod for egress, so nothing "
+            "states where a pod holding an App key may go"
+        )
+    named = ", ".join(sorted(document["metadata"]["name"] for document in policies))
+
+    arms = [
+        (document["metadata"]["name"], arm)
+        for document in policies
+        for arm in document["spec"].get("egress") or []
+        if len(arm.get("to") or []) == 1 and "ipBlock" in arm["to"][0]
+    ]
+    if len(arms) != 1:
+        refuse(
+            f"{named} carries {len(arms)} arms reaching an ipBlock, wanted one: {name} mints "
+            f"from {PUBLIC}:{PUBLIC_PORT} and an arm nothing here resolved is a reach nothing "
+            "here bounds"
+        )
+    policy, arm = arms[0]
+
+    block = arm["to"][0]["ipBlock"]
+    if block.get("cidr") != PUBLIC:
+        refuse(
+            f"the public arm of {policy} names cidr {block.get('cidr')!r} rather than {PUBLIC}, "
+            f"so the addresses {name} mints from are half the internet at most"
+        )
+    if set(block.get("except") or []) != EXCEPTED:
+        refuse(
+            f"the public arm of {policy} excepts {sorted(block.get('except') or [])} rather "
+            f"than {sorted(EXCEPTED)}, so {name} reaches this site's own addresses on a rule "
+            "written for the internet, or is refused a forge it is not"
+        )
+    # An absent `ports` admits every port, so the list is compared whole rather
+    # than searched for the one that should be in it.
+    admitted = [
+        (port.get("protocol", "TCP"), port.get("port"))
+        for port in arm.get("ports") or []
+    ]
+    if admitted != [("TCP", PUBLIC_PORT)]:
+        refuse(
+            f"the public arm of {policy} admits {admitted} rather than TCP {PUBLIC_PORT} "
+            f"alone, so {name} either cannot open HTTPS to the forge it mints from or may "
+            "open every port on the internet"
+        )
+
+
 def main():
     if len(sys.argv) != 3:
         refuse("usage: forge-app-key.py APPS RENDERED_MANIFEST")
@@ -400,7 +518,7 @@ def main():
     for name, app, id_variable, file_variable in MINTERS:
         if app not in apps:
             refuse(f"{name} mints as the {app} App, which the host does not declare")
-        pod, container = workload(documents, name)
+        _, pod, container = workload(documents, name)
         declared = field(container, id_variable, name)
         if declared != apps[app]["appId"]:
             refuse(
@@ -423,8 +541,15 @@ def main():
                 "App whose key that is not"
             )
 
+    # And every one of those workloads can reach the forge it mints from. One
+    # visit a pod rather than one a row: the API holds two Apps' keys and has
+    # one egress policy, and the arm is the pod's.
+    for name in dict.fromkeys(row[0] for row in MINTERS):
+        labels, _, _ = workload(documents, name)
+        public_https(documents, name, labels)
+
     for name, spec, wanted_rows in SOURCES:
-        pod, container = workload(documents, name)
+        _, pod, container = workload(documents, name)
         sources = listed(container, spec, name)
         if sources is None:
             sources = []
