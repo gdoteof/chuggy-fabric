@@ -1607,8 +1607,12 @@ not after it.
    `chuggy.githubAppTokens` reads them on the host to mint the tokens it mints
    and projects those tokens alone, so nothing a rebuild does creates these
    Secrets and the label `chuggy.dev/managed-by=github-app-token` is not on
-   either. The commands are on the node, as root, because the sources are
-   root-only host state. **Both are there on this rig.** One of the manifests
+   either. What the host does declare is the name: `keySecret` sits beside each
+   App's `appId` and `privateKeyFile`, so the `secretName` a manifest mounts is
+   held against the host by `tests/forge-app-key.py` rather than being a
+   literal that agrees with itself. The commands are on the node, as root,
+   because the sources are root-only host state. **Both are there on this
+   rig.** One of the manifests
    that mounts each holds its command, and every manifest that mounts one says
    what that mount widens:
 

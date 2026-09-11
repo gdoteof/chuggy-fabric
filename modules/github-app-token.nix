@@ -7,12 +7,13 @@ let
       appId = lib.mkOption { type = lib.types.str; };
       privateKeyFile = lib.mkOption { type = lib.types.str; };
       # The Secret the key file above is copied into by hand, for the pods that
-      # mint for themselves. Nothing here writes it -- prerequisite 5 of
-      # `deploy/rig/forge/README.md` is what creates it, and this is the second
-      # declaration that makes the name in a manifest a copy of a value rather
-      # than a literal that agrees with itself. Which App a pod mounts is then
-      # decided by its `secretName` as well as by the id it writes, and
-      # `tests/forge-app-key.py` holds the two together.
+      # mint for themselves. Nothing here writes it -- the README's
+      # prerequisite 5 is the operator making it by hand from the file above,
+      # and this option is the second declaration that makes the name in a
+      # manifest a copy of a value rather than a literal that agrees with
+      # itself. Which App a pod mounts is then decided by its `secretName` as
+      # well as by the id it writes, and `tests/forge-app-key.py` holds the two
+      # together.
       keySecret = lib.mkOption { type = lib.types.str; };
     };
   };
