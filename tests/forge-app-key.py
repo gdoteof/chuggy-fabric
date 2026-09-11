@@ -9,6 +9,14 @@ and neither wrong one is visible until the pod is running -- a path nothing
 projects is an `ENOENT` at the first mint, and an id belonging to the other App
 is a JWT signed with the wrong key, which GitHub refuses and nothing here can.
 
+AND THE PROJECTION ITSELF IS THREE MORE OF THE SAME. Read-only, required, and a
+mode the container's own uid can open: a Secret volume's files are written owned
+by uid 0 and only an `fsGroup` moves their group, so a mode with no world read
+bit is a key the process it is for cannot read -- `0400` looks like the careful
+value for a private key and is the one that fails. `optional: true` is the other:
+it turns a missing key from a pod that never starts into a pod that starts and
+cannot mint, which is the opposite of what a required credential is for.
+
 THE ID IS HELD AGAINST THE HOST AND NOT AGAINST A LITERAL. `chuggy.githubAppTokens`
 on the host is where an App's id and its key file are declared together, and the
 Secret a pod mounts is made by hand from that key file. So the id written in a
@@ -67,6 +75,22 @@ def variable(container, name, owner):
     return value
 
 
+def readable(pod, spec, wanted, owner):
+    """The kubelet writes a Secret volume's files owned by uid 0 and applies
+    `fsGroup` to the group and nothing else, so without one a mode with no world
+    read bit is a file the container's own uid cannot open. Unset is the
+    kubelet's own 0644 and is readable."""
+    mode = spec.get("defaultMode")
+    if mode is None or mode & 0o004:
+        return
+    if pod.get("securityContext", {}).get("fsGroup") is not None:
+        return
+    refuse(
+        f"{owner} projects its App key at {wanted} with mode {mode:04o} and declares no "
+        "`fsGroup`, so the file is uid 0's alone and the process it is for cannot open it"
+    )
+
+
 def projected(pod, container, wanted, owner):
     """The (secret, key) a container serves at an absolute path, or a refusal."""
     mounts = [
@@ -85,6 +109,9 @@ def projected(pod, container, wanted, owner):
         refuse(f"{owner} mounts {mount['name']}, which the pod declares {len(volume)} times")
     projection = volume[0].get("projected")
     sources = projection["sources"] if projection else [{"secret": volume[0].get("secret", {})}]
+    # A projected volume carries the mode once for the whole projection; a plain
+    # Secret volume carries it beside the Secret it serves.
+    readable(pod, projection or volume[0].get("secret", {}), wanted, owner)
     served = {}
     for source in sources:
         secret = source.get("secret")
@@ -94,10 +121,20 @@ def projected(pod, container, wanted, owner):
         # that has lost the key mounts an empty directory and the pod starts
         # without it. Naming the key is what makes the absence a FailedMount.
         for item in secret.get("items") or []:
-            served[item["path"]] = (secret.get("name") or secret.get("secretName"), item["key"])
+            served[item["path"]] = (
+                secret.get("name") or secret.get("secretName"),
+                item["key"],
+                bool(secret.get("optional")),
+            )
     if relative not in served:
         refuse(f"{owner} reads its App key from {wanted}, which its pod projects from no Secret key")
-    return served[relative]
+    name, key, optional = served[relative]
+    if optional:
+        refuse(
+            f"{owner} projects {name}/{key} optionally, so a pod with no App key starts and "
+            "cannot mint rather than not starting"
+        )
+    return name, key
 
 
 def main():

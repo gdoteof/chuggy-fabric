@@ -169,7 +169,7 @@
 #
 # THE PORTAL APP'S PRIVATE KEY IS THE OPERATOR'S OWN FILE, and it is not the
 # token module's to mint. `modules/github-app-token.nix` reads the key on the
-# host to mint the per-repository tokens above and projects the tokens alone,
+# host to mint the per-repository tokens below and projects the tokens alone,
 # so this Secret carries no `chuggy.dev/managed-by` label and a host rebuild
 # neither creates it nor refreshes it:
 #
@@ -182,7 +182,7 @@
 # there on this rig.
 #
 # WHAT IT WIDENS IS WORTH READING BEFORE THE MOUNT BELOW. A token file in the
-# credential list above is one repository for one hour; the key mints for every
+# credential list below is one repository for one hour; the key mints for every
 # repository the portal App is installed on, for as long as the key stands.
 # What bounds it is the App's own permission set and the ruleset on each
 # repository's protected branch, which AGENTS.md states.
@@ -321,7 +321,7 @@ spec:
             - name: CHUG_API_KETO_READ_URL
               value: http://keto-read.ory.svc.cluster.local:4466
             # The portal App this process mints its own installation tokens
-            # from, in place of reading the per-repository token files above.
+            # from, in place of reading the per-repository token files below.
             # The id is the same one hosts/gtr gives
             # `chuggy.githubAppTokens.apps.portal`, whose minting is unchanged
             # by this. Nothing in the image above reads either name yet.
