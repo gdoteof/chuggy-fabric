@@ -150,10 +150,12 @@ spec:
         - protocol: TCP
           port: 3000
 ---
-# The ticket service reaches the database, the internal repository and public
-# HTTPS. NetworkPolicy cannot name GitHub as a hostname, so the public rule
-# excludes private, loopback, carrier-grade NAT and link-local destinations but
-# cannot distinguish GitHub from another public HTTPS host.
+# The ticket service reaches the database and public HTTPS, which is where it
+# both mints and reads a source. NetworkPolicy cannot name GitHub as a
+# hostname, so the public rule excludes private, loopback, carrier-grade NAT
+# and link-local destinations but cannot distinguish GitHub from another public
+# HTTPS host. The rig's own git service is not among its destinations: this
+# pod's configuration names no repository on it.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -185,16 +187,6 @@ spec:
       ports:
         - protocol: TCP
           port: 5432
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: chuggy-git
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: git
-      ports:
-        - protocol: TCP
-          port: 8080
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

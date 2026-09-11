@@ -54,6 +54,11 @@ CONTROL = "chuggy"
 # Every (workload, App) pair a manifest names a key for; a workload holding two
 # Apps' keys is two rows. A pod that grows a key mount and is not added here is
 # unchecked, and this file is where that is noticed or nowhere.
+#
+# AN ID AND A FILE ARE EACH A VARIABLE OR A FIELD OF ONE. Three of these
+# commands read a whole configuration document out of one variable, so a row
+# names either the variable or the variable and the path to the value inside it;
+# what is held of the value is the same either way.
 MINTERS = (
     ("chuggy-api", "portal", "CHUG_API_FORGE_APP_ID", "CHUG_API_FORGE_APP_KEY_FILE"),
     (
@@ -68,6 +73,24 @@ MINTERS = (
         "CHUG_WORKER_PLANE_FORGE_APP_ID",
         "CHUG_WORKER_PLANE_FORGE_APP_KEY_FILE",
     ),
+    (
+        "chuggy-finalizer",
+        "portal",
+        "CHUG_FINALIZER_FORGE_APP_ID",
+        "CHUG_FINALIZER_FORGE_APP_KEY_FILE",
+    ),
+    (
+        "chuggy-ticket-service",
+        "portal",
+        ("CHUG_TICKET_SERVICE_CONFIG", ("forge", "appId")),
+        ("CHUG_TICKET_SERVICE_CONFIG", ("forge", "keyFile")),
+    ),
+    (
+        "chuggy-configuration-importer",
+        "portal",
+        ("CHUG_CONFIGURATION_IMPORT_CONFIG", ("forge", "appId")),
+        ("CHUG_CONFIGURATION_IMPORT_CONFIG", ("forge", "keyFile")),
+    ),
 )
 
 
@@ -76,16 +99,26 @@ def refuse(message):
 
 
 def workload(documents, name):
+    """The pod and container of a workload in the control namespace.
+
+    A CronJob is one of these as much as a Deployment is: the importer mints
+    from the same key on a schedule, and a pod that never runs until 02:00 is
+    the one whose broken mount is discovered latest."""
     found = [
         document
         for document in documents
-        if document.get("kind") == "Deployment"
+        if document.get("kind") in ("Deployment", "CronJob")
         and document["metadata"]["name"] == name
         and document["metadata"].get("namespace") == CONTROL
     ]
     if len(found) != 1:
-        refuse(f"the render carries {len(found)} Deployment/{name} in {CONTROL}, wanted one")
-    pod = found[0]["spec"]["template"]["spec"]
+        refuse(f"the render carries {len(found)} workloads named {name} in {CONTROL}, wanted one")
+    document = found[0]
+    pod = (
+        document["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+        if document["kind"] == "CronJob"
+        else document["spec"]["template"]["spec"]
+    )
     containers = pod["containers"]
     if len(containers) != 1:
         refuse(f"{name} declares {len(containers)} containers, wanted one")
@@ -108,6 +141,42 @@ def variable(container, name, owner):
             f"{owner} writes {name} unquoted, so it renders as a YAML "
             f"{type(value).__name__} rather than the string `EnvVar.value` takes, and the "
             "API server refuses the manifest"
+        )
+    return value
+
+
+def spelled(spec):
+    """How a row names a value, for a refusal to print."""
+    return spec if isinstance(spec, str) else f"{spec[0]}'s {'.'.join(spec[1])}"
+
+
+def field(container, spec, owner):
+    """The value a row names: a whole variable, or one field inside the JSON
+    document a variable carries.
+
+    A configuration document is a literal like any other, so what is wrong with
+    it is wrong in the same two ways -- an id that is not the host's, and a path
+    nothing projects -- and the refusals below are the ones written for a bare
+    variable, reached through the document."""
+    if isinstance(spec, str):
+        return variable(container, spec, owner)
+    name, path = spec
+    document = variable(container, name, owner)
+    try:
+        value = json.loads(document)
+    except json.JSONDecodeError as error:
+        refuse(f"{owner} writes {name}, which is not JSON: {error}")
+    for step in path:
+        if not isinstance(value, dict) or step not in value:
+            refuse(f"{owner}'s {name} names no {'.'.join(path)}")
+        value = value[step]
+    # The same defect as an unquoted `EnvVar.value`, one level in: an App id
+    # written as a JSON number is a number the command reads as a string or
+    # refuses, and either way it is not the host's id spelled the host's way.
+    if not isinstance(value, str):
+        refuse(
+            f"{owner} writes {name}'s {'.'.join(path)} as a JSON "
+            f"{type(value).__name__} rather than a string"
         )
     return value
 
@@ -206,20 +275,20 @@ def main():
         if app not in apps:
             refuse(f"{name} mints as the {app} App, which the host does not declare")
         pod, container = workload(documents, name)
-        declared = variable(container, id_variable, name)
+        declared = field(container, id_variable, name)
         if declared != apps[app]["appId"]:
             refuse(
                 f"{name} mints as App {declared}; the host holds the {app} App's key under "
                 f"{apps[app]['appId']}, so that JWT is signed with the wrong key"
             )
-        source = projected(pod, container, variable(container, file_variable, name), name)
+        source = projected(pod, container, field(container, file_variable, name), name)
         held_app, held_variable = read_as.setdefault((name, source), (app, file_variable))
         if held_app != app:
             refuse(
                 f"{name} reads the {held_app} App's key and the {app} App's from one "
-                f"projection: {held_variable} and {file_variable} both resolve to "
-                f"{source[0]}/{source[1]}, so one of the two signs its JWT as an App whose "
-                "key that is not"
+                f"projection: {spelled(held_variable)} and {spelled(file_variable)} both "
+                f"resolve to {source[0]}/{source[1]}, so one of the two signs its JWT as an "
+                "App whose key that is not"
             )
 
 

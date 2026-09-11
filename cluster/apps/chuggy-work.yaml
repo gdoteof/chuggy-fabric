@@ -100,10 +100,7 @@ spec:
         - { protocol: TCP, port: 443 }
 ---
 # The other kind of pod the SCHEDULER places here: an agent session, which is
-# one long-lived conversation rather than one ticket's attempt. It is not the
-# last kind of pod in this namespace -- chuggy-git-mirror.yaml declares a third,
-# whose policy is in that file beside the pod template that carries its label,
-# for the reason the next paragraph but one gives.
+# one long-lived conversation rather than one ticket's attempt.
 #
 # IT CARRIES ITS OWN LABEL RATHER THAN THE WORKER'S, and the label is the whole
 # of what decides which policy above selects it. Reusing `chuggy.dev/worker`
@@ -172,15 +169,15 @@ spec:
             matchLabels: { app: chuggy-api }
       ports:
         - { protocol: TCP, port: 3000 }
-    # The in-cluster git mirror, which a session clones its project's repository
-    # from so the agent runtime reads the tree's own working notes. Same
-    # destination the worker's rule above names and written the same way,
-    # because there is one git service here and two kinds of pod that read it.
+    # This cluster's own git service, which a session clones a repository bound
+    # to one of its addresses from. Same destination the worker's rule above
+    # names and written the same way, because there is one git service here and
+    # two kinds of pod that read it.
     #
     # THE PORT IS THE POD'S AND NOT THE SERVICE'S. A NetworkPolicy is evaluated
-    # after the ClusterIP has been translated away, and the URL in the
-    # repositories map carries no port at all -- so an arm written from that URL
-    # would name the Service's and permit nothing. 8080 is the worker's number
+    # after the ClusterIP has been translated away, and such an address carries
+    # no port at all -- so an arm written from that URL would name the Service's
+    # and permit nothing. 8080 is the worker's number
     # for the same destination, directly above, and `chuggy-git` is a
     # hand-bootstrapped fixture this directory declares no object for, which is
     # why the two arms rather than a Service are what hold it.

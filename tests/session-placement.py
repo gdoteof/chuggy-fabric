@@ -51,15 +51,16 @@ literal either:
     destination no arm permits is a tool that hangs, and NetworkPolicy is matched
     after the ClusterIP is translated away, so an arm copied from the URL's own
     number is wrong for a Service that renames its port.
-  * A checkout takes a reach, a credential and a repository map, and this file
-    already holds the reach. So the map a session resolves against must be the
-    map a worker resolves against -- one site, one statement of which
-    repositories exist -- every credential the session policy grants must be one
-    the credential mounts carry, or the placement is denied, and at least one
-    repository in that map must have its credential granted, or the arm above is
-    a permission for a clone that cannot authenticate. A mirror is that same
-    pairing once more: it is what a session clones in place of the binding, so
-    it must be in that map and its credential must be granted.
+  * A checkout takes a reach, a credential and -- where a deployment overrides
+    an address -- a repository map, and this file already holds the reach. Every
+    credential the session policy grants must be one the credential mounts
+    carry, or the placement is denied. The map is optional now that a pod mints
+    its own forge credential, and what is held is that it is the same on both
+    kinds of pod: one site, one statement of which addresses are overridden, so
+    a map written for a worker alone is refused rather than leaving a session
+    unable to resolve a binding the API accepted. A mirror is that same pairing
+    once more: it is what a session clones in place of the binding, so it must
+    be in that map and its credential must be granted.
   * A CREDENTIAL SLOT IS NAMED WHERE A SESSION IS OPENED AND ENFORCED WHERE ONE
     IS PLACED, and those are three manifests. The api names the slot a member's
     thread speaks through and the selector names the slot a lead it opens speaks
@@ -266,6 +267,21 @@ def json_variable(entry, name):
         refuse(f"the scheduler names no {name}")
     try:
         return json.loads(raw)
+    except json.JSONDecodeError as error:
+        refuse(f"{name} is not JSON: {error}")
+
+
+def environment_map(entry, name):
+    """The repositories map one launch environment carries, or None.
+
+    The variable itself is optional -- an absent one is the launcher's own empty
+    default -- so an absent variable and a variable naming no map are one
+    answer here."""
+    raw = variable(entry, name)
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw).get(REPOSITORIES_VARIABLE)
     except json.JSONDecodeError as error:
         refuse(f"{name} is not JSON: {error}")
 
@@ -555,12 +571,14 @@ def main():
             f"{len(permitted)} chuggy-sessions arms permit; exactly one must"
         )
 
-    # 7. A checkout is a reach, a credential and a map, and step 2 holds only the
-    #    reach. The map is the worker's -- one site, one statement of which
-    #    repositories exist here -- every credential granted is one the mounts
-    #    carry, since the launcher denies a slot they do not, and something in
-    #    that map is clonable, or the git arm above permits a clone that cannot
-    #    authenticate.
+    # 7. A checkout is a reach, a credential and -- where an address is
+    #    overridden -- a map, and step 2 holds only the reach. Every credential
+    #    granted is one the mounts carry, since the launcher denies a slot they
+    #    do not. The map is optional, because a pod mints its own forge
+    #    credential and resolves an unnamed repository at its own address; what
+    #    is held is that both kinds of pod are given the same one, and that
+    #    anything it does name is clonable, or the git arm above permits a clone
+    #    that cannot authenticate.
     policy = json_variable(scheduled, SESSION_POLICY_VARIABLE)
     granted = set(policy.get("grant", {}).get("credentials", []))
     mounts = set(json_variable(scheduled, CREDENTIAL_MOUNTS_VARIABLE))
@@ -570,25 +588,26 @@ def main():
             f"{SESSION_POLICY_VARIABLE} grants {sorted(ungrantable)}, which "
             f"{CREDENTIAL_MOUNTS_VARIABLE} does not mount, so every placement is denied"
         )
-    sessions_map = json_variable(scheduled, SESSION_ENVIRONMENT_VARIABLE).get(REPOSITORIES_VARIABLE)
-    workers_map = json_variable(scheduled, WORKER_ENVIRONMENT_VARIABLE).get(REPOSITORIES_VARIABLE)
-    if sessions_map is None:
+    sessions_map = environment_map(scheduled, SESSION_ENVIRONMENT_VARIABLE)
+    workers_map = environment_map(scheduled, WORKER_ENVIRONMENT_VARIABLE)
+    if (sessions_map is None) != (workers_map is None):
+        named = SESSION_ENVIRONMENT_VARIABLE if workers_map is None else WORKER_ENVIRONMENT_VARIABLE
         refuse(
-            f"{SESSION_ENVIRONMENT_VARIABLE} carries no {REPOSITORIES_VARIABLE}, so a session "
-            "placed with a repository refuses to resolve it"
+            f"{named} carries no {REPOSITORIES_VARIABLE} and the other does, so the two kinds "
+            "of pod resolve one binding to two addresses"
         )
-    if workers_map is None:
-        refuse(f"{WORKER_ENVIRONMENT_VARIABLE} carries no {REPOSITORIES_VARIABLE}")
     # Parsed rather than compared as text: the two are JSON documents inside JSON
     # strings, and a difference in their whitespace is not a difference in what
     # they say.
-    repositories = json.loads(sessions_map)
-    if repositories != json.loads(workers_map):
+    repositories = {} if sessions_map is None else json.loads(sessions_map)
+    if sessions_map is not None and repositories != json.loads(workers_map):
         refuse(
             f"the session's {REPOSITORIES_VARIABLE} is not the worker's, so the two kinds of pod "
             "answer differently which repositories exist on this site"
         )
-    if not any(entry.get("credential") in granted for entry in repositories.values()):
+    if repositories and not any(
+        entry.get("credential") in granted for entry in repositories.values()
+    ):
         refuse(
             f"{SESSION_POLICY_VARIABLE} grants the credential of no repository in "
             f"{REPOSITORIES_VARIABLE}, so no checkout can authenticate"

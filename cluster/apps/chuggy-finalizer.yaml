@@ -98,11 +98,12 @@
 # below refuses writes. Without it git fails on a home directory it cannot use,
 # with a message about configuration rather than about permissions.
 #
-# THE REMOTES ARE THIS CLUSTER'S OWN GIT AND NOT HOSTS ON THE INTERNET. `rig.git`
-# is the tree Flux reconciles this cluster from, and `chuggy.git` is the
-# authoritative development repository for the `vteng/chuggy` project. Nothing
-# here can reach kasofsk/chuggy, and nothing here holds a credential that could
-# write to it.
+# TWO KINDS OF REMOTE, AND ONLY ONE OF THEM IS MOUNTED. `rig.git` is the tree
+# Flux reconciles this cluster from, it is on this cluster's own git service,
+# and its credential is the Secret below. Every other remote is on the forge
+# and is minted per act from the portal App key -- which is the short-lived
+# minting D31 asks for, arriving in place of the per-repository tokens this pod
+# used to project.
 #
 # WHY THAT IS THE TARGET RATHER THAN A CONVENIENCE. D34 says only the finalizer
 # may advance the deployed revision, and what enforces it is that no other
@@ -110,9 +111,7 @@
 # kasofsk/chuggy divides the rig's git credentials into a reader the Flux
 # `GitRepository` uses and an operator break-glass that may push, and nginx
 # validates a push against the writers file on `/git-receive-pack` alone. The
-# finalizer is given the pushing one. Loading an EXTERNAL repository is a later
-# thing and wants the short-lived minting D31 asks for, not a static token in a
-# Secret on a rig.
+# finalizer is given the pushing one.
 #
 # The Secret, out of band, because this repository is public. The value is the
 # operator credential the rig's git service already validates, so it is copied
@@ -121,10 +120,10 @@
 #   password="$(kubectl -n chuggy-git get secret git-operator \
 #     -o jsonpath='{.data.password}' | base64 -d)"
 #   kubectl -n chuggy create secret generic chuggy-finalizer-credentials \
-#     --from-literal=rig-git="$password" --from-literal=chuggy-git="$password"
+#     --from-literal=rig-git="$password"
 #
-# Each served repository is another key and another entry in the sources below,
-# and nothing structural.
+# Each further repository the git service serves is another key and another
+# entry in the sources below, and nothing structural.
 #
 # THE USERNAME IS PART OF THE CREDENTIAL AND IS NOT A SECRET.
 # `CHUG_FINALIZER_GIT_CREDENTIAL_USERNAME` is `operator`, which is the name the
@@ -223,30 +222,28 @@ spec:
             # drift apart.
             - name: CHUG_FINALIZER_GIT_CREDENTIAL_USERNAME
               value: operator
+            # One entry, and it is the rig's own git service: `rig.git` is the
+            # only repository this process promotes to that it cannot mint for.
+            # Every repository on the forge is minted under the portal App
+            # below, so a repository is added to this list only when it is on
+            # something the key does not cover.
             - name: CHUG_FINALIZER_CREDENTIAL_SOURCES
               value: |
                 [
                   {
                     "repository": "http://git.chuggy-git.svc.cluster.local./rig.git",
                     "path": "/var/run/chuggy/credentials/rig-git"
-                  },
-                  {
-                    "repository": "http://git.chuggy-git.svc.cluster.local./chuggy.git",
-                    "path": "/var/run/chuggy/credentials/chuggy-git"
-                  },
-                  {
-                    "repository": "https://github.com/kasofsk/chuggy.git",
-                    "path": "/var/run/chuggy/credentials/chuggy-github"
-                  },
-                  {
-                    "repository": "http://git.chuggy-git.svc.cluster.local./chuggy-fabric.git",
-                    "path": "/var/run/chuggy/credentials/chuggy-git"
-                  },
-                  {
-                    "repository": "https://github.com/gdoteof/chuggy-fabric.git",
-                    "path": "/var/run/chuggy/credentials/chuggy-fabric-github"
                   }
                 ]
+            # The portal App this process pushes and proposes under. The id is
+            # the same one hosts/gtr gives `chuggy.githubAppTokens.apps.portal`,
+            # and the ruleset that reserves a protected `main` admits that App:
+            # a promotion and a proposal both need it. The command refuses to
+            # start on a key it cannot sign with.
+            - name: CHUG_FINALIZER_FORGE_APP_ID
+              value: "4708055"
+            - name: CHUG_FINALIZER_FORGE_APP_KEY_FILE
+              value: /var/run/chuggy/forge-app/private-key
             # git writes into HOME, and the root filesystem below refuses
             # writes. The scratch is the one writable place this process has
             # that is not the artifact store, which git has no business in.
@@ -274,6 +271,9 @@ spec:
               mountPath: /var/lib/chuggy/git
             - name: credentials
               mountPath: /var/run/chuggy/credentials
+              readOnly: true
+            - name: forge-app
+              mountPath: /var/run/chuggy/forge-app
               readOnly: true
           resources:
             # More than the other loops: a promotion forks git, which clones a
@@ -327,13 +327,17 @@ spec:
             sources:
               - secret:
                   name: chuggy-finalizer-credentials
-              - secret:
-                  name: chuggy-github-finalizer-token
-                  items:
-                    - key: token
-                      path: chuggy-github
-              - secret:
-                  name: chuggy-fabric-github-finalizer-token
-                  items:
-                    - key: token
-                      path: chuggy-fabric-github
+        # THE PORTAL APP'S KEY, WHICH THIS POD MINTS ITS FORGE WRITES FROM.
+        # chuggy-api.yaml holds the command that makes the Secret; what this
+        # mount widens is this pod, which can now push to and propose on any
+        # repository on an account a tenant claimed the portal App under, where
+        # it previously reached the repositories whose finalizer tokens it
+        # mounted. The mode is the volume above's, for the reason that volume
+        # argues in full.
+        - name: forge-app
+          secret:
+            secretName: chuggy-github-app-portal
+            defaultMode: 0444
+            items:
+              - key: private-key
+                path: private-key

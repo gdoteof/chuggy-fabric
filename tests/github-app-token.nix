@@ -96,22 +96,28 @@ pkgs.testers.runNixOSTest {
       retrySeconds = 1;
       retryWindowSeconds = 30;
       retryBurst = 6;
-      tokens.worker = {
+      # These three are the module's shapes and not the site's roster: a write
+      # token in more than one namespace, a read token in one, and a read token
+      # in the Kubernetes basic-auth form Shipwright clones with. The site
+      # declares the last of these per repository and one write token by hand,
+      # so a fixture named after a per-repository token would be the only place
+      # such a name still lived.
+      tokens.write = {
         appId = "4728465";
         installationId = "156786211";
         repository = "chuggy";
         permission = "write";
         privateKeyFile = "${testKey}";
-        secretName = "chuggy-github-worker-token";
+        secretName = "chuggy-example-write-token";
         namespaces = [ "chuggy" "chuggy-work" ];
       };
-      tokens.reader = {
+      tokens.read = {
         appId = "4708055";
         installationId = "156333284";
         repository = "chuggy";
         permission = "read";
         privateKeyFile = "${testKey}";
-        secretName = "chuggy-github-reader-token";
+        secretName = "chuggy-example-read-token";
         namespaces = [ "chuggy" ];
       };
       tokens.build-reader = {
@@ -136,11 +142,11 @@ pkgs.testers.runNixOSTest {
     import json
     import time
 
-    service = "chuggy-github-app-token-worker-refresh.service"
-    timer = "chuggy-github-app-token-worker-refresh.timer"
-    reader_service = "chuggy-github-app-token-reader-refresh.service"
+    service = "chuggy-github-app-token-write-refresh.service"
+    timer = "chuggy-github-app-token-write-refresh.timer"
+    read_service = "chuggy-github-app-token-read-refresh.service"
     build_reader_service = "chuggy-github-app-token-build-reader-refresh.service"
-    secret = "chuggy-github-worker-token.json"
+    secret = "chuggy-example-write-token.json"
 
     def object_in(namespace):
         return "${clusterStore}/" + namespace + "/" + secret
@@ -157,7 +163,7 @@ pkgs.testers.runNixOSTest {
         assert machine.succeed("systemctl show -p RestartUSec --value " + service).strip() == "1s"
         assert machine.succeed("systemctl show -p StartLimitBurst --value " + service).strip() == "6"
         assert machine.succeed("systemctl show -p Persistent --value " + timer).strip() == "yes"
-        assert machine.succeed("systemctl show -p LoadState --value " + reader_service).strip() == "loaded"
+        assert machine.succeed("systemctl show -p LoadState --value " + read_service).strip() == "loaded"
         assert machine.succeed("systemctl show -p LoadState --value " + build_reader_service).strip() == "loaded"
 
     with subtest("a first refresh creates labelled Secrets in every namespace"):

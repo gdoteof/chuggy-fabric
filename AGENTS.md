@@ -8,9 +8,12 @@ ownership boundaries, deployment sequence, recovery path, and required checks.
 
 - `hosts/` contains facts specific to a machine. Shared host behaviour and Nix
   options belong in `modules/`.
-- `repositories.nix` declares the repositories this site carries. A repository
-  is added there once; the `github-repository-transition` check is what holds
-  every manifest and the host's tokens to it.
+- `repositories.nix` declares the repositories whose images this site builds,
+  and nothing else is per repository here: a repository a run works on is bound
+  from the console, and every credential an act needs is minted from a GitHub
+  App key by the pod performing it. The `github-repository-transition` check
+  holds the build requests to that roster and refuses a pod carrying a
+  per-repository token.
 - `cluster/` is Flux-managed Kubernetes state. `main` is live, so merging a
   manifest change is a deployment action.
 - `builds/` contains immutable Shipwright requests pinned to full source commits.
@@ -25,15 +28,17 @@ ownership boundaries, deployment sequence, recovery path, and required checks.
 
 Two GitHub Apps divide control-plane authority from workload authority:
 
-- **Chuggy Portal** is the control-plane App. It issues repository-scoped
-  tokens used for read-only source access and finalization. A repository
-  ruleset reserves updates to each carried repository's protected `main`
-  branch to this App and repository admins -- `Finalizer owns main` on
+- **Chuggy Portal** is the control-plane App. The api, the ticket service, the
+  finalizer and the importer each mount its private key and mint their own
+  repository-scoped tokens from it, and the host mints the build-reader token
+  Shipwright clones with. A repository ruleset reserves updates to each carried
+  repository's protected `main` branch to this App and repository admins -- `Finalizer owns main` on
   gdoteof/chuggy-fabric admits only those two; `chuggy portal + admins own
   main` on kasofsk/chuggy also admits its organization admins -- and a human
   administrator token is intentionally not a substitute for any of them.
-- **Chuggy Worker** is the execution-plane App. Workers use its scoped tokens for
-  ticket branches and handoff work. It must not receive finalizer authority or
+- **Chuggy Worker** is the execution-plane App. The worker plane mounts its key
+  and mints an attempt's or a session's credential from it for ticket branches
+  and handoff work. It must not receive finalizer authority or
   update a protected `main` branch on any carried repository -- the ruleset
   above is what refuses it if it tries.
 

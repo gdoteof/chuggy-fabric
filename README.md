@@ -16,7 +16,7 @@ only by their own directory.
 
     flake.nix                       one nixosConfiguration per host, and the checks
     flake.lock                      the pin — commit every change to it
-    repositories.nix                the repositories this site carries, declared once
+    repositories.nix                the repositories whose images this site builds
 
     modules/common.nix              identity, access, packages, nix settings
     modules/node-prep.nix           k8s prerequisites, workstation teardown
@@ -25,7 +25,7 @@ only by their own directory.
 
     modules/chuggy-state.nix        retained host directories, chuggy.state.*
     modules/chuggy-secrets.nix      generated credentials, chuggy.secrets.*
-    modules/github-app-token.nix    rotating repository credentials, chuggy.githubAppTokens.*
+    modules/github-app-token.nix    rotating App tokens, chuggy.githubAppTokens.*
     modules/chuggy-images.nix       bootstrap image delivery, chuggy.images.*
     modules/chuggy-work.nix         what one task may cost, chuggy.work.*
     modules/mini-chuggy.nix         complete co-located single-node role
@@ -400,20 +400,22 @@ first boot is retried rather than left as a permanently failed unit with a
 Secret the cluster never received. `modules/chuggy-secrets.nix` carries the
 whole map in one place.
 
-### Staged GitHub App credentials
+### GitHub App credentials
 
 `chuggy.githubAppTokens` mints repository-scoped installation tokens into
-managed Kubernetes Secrets. It mints for the repositories `repositories.nix`
-declares, four to an entry: a read-only token for Chuggy, a separate read-only
-Git basic-auth credential for Shipwright, a Worker App credential for ticket
-branches, and a Portal App credential reserved for finalization. A host says
-which Apps mint them and where their keys are; the keys remain root-only host
-state outside this repository and the Nix store.
+managed Kubernetes Secrets. Two things are minted here and only one of them is
+per repository: `repositories.nix` gives an entry one token, the read-only Git
+basic-auth credential Shipwright clones that repository's source with, and a
+host declares by hand whatever further tokens it needs for what it does itself
+— the publish token `chuggy.buildProvenance.publish` pushes build results under
+is the only one. A host says which Apps mint them and where their keys are; the
+keys remain root-only host state outside this repository and the Nix store.
 
-The Chuggy service credentials remain staged until their consumers switch to
-them; Shipwright consumes only the dedicated build-reader projection. After
-switching the host configuration, verify the refreshers and Secrets — the unit
-is named for its role and its repository, and the Secret carries the label the
+No pod is handed a repository's credential: the api, the ticket service, the
+finalizer and the importer each mount a GitHub App's private key and mint for
+the act they are performing, and a work pod's credential is minted for it by the
+worker plane. After switching the host configuration, verify the refreshers and
+Secrets — the unit is named for its entry, and the Secret carries the label the
 module puts on everything it manages:
 
     systemctl list-units --all 'chuggy-github-app-token-*-refresh.service'
@@ -946,67 +948,69 @@ for this; the list and `ls` have to agree, and a reviewer is what makes them.
 
 ### Adding a repository
 
-Add an entry to `repositories.nix` and rebuild the host. That is the whole of
-the host side: the entry mints the four Secrets it names, and the ids in it are
-the App installations on that repository's GitHub owner.
+A repository is bound to a project from the console, and nothing here changes:
+the binding lives in the database, and every credential a run needs is minted
+for the act that needs it from a GitHub App key the pod mounts. The one thing
+this repository still carries per repository is a build-reader token, and only
+for a repository whose images this site builds — the Git basic-auth Secret a
+Shipwright request clones its source with. kasofsk/chuggy is the only one.
 
-The manifests under `cluster/apps/` are plain YAML that kustomize applies with
-no templating, so nothing generates their entries from that file. The check is
-what closes the gap:
+So what follows is for adding a repository *this site builds images for*. Add
+an entry to `repositories.nix` and rebuild the host; the entry mints one Secret,
+`<name>-build-source-read`, and the installation id in it is the portal App's
+installation on that repository's owner.
+
+The build requests under `builds/` are generated and immutable, and nothing
+derives one from the roster, so a request naming a repository the roster does
+not declare, or cloning with another repository's Secret, is what the check
+refuses:
 
     nix build .#checks.x86_64-linux.github-repository-transition
 
-It fails until every credential list, the scheduler's maps, mounts and grants,
-and the mirror job's list carry the repository -- the importer's only once the
-entry marks it imported -- and each refusal names the manifest, the variable
-and the value still missing.
+It holds the requests to the roster in that direction only — an entry with no
+request yet is admissible — and it refuses a rendered cluster in which any pod
+projects a per-repository token at all, which is the subtraction above staying
+subtracted.
 
-**Merging before the host is rebuilt breaks the running cluster.**
-`chuggy-ticket-service` and `chuggy-finalizer` are `strategy: Recreate`,
-`replicas: 1`, and project the new entry's Secrets as non-optional, and the
-mirror CronJob projects the new worker token too; merge first and those pods
-come down and sit in `FailedMount` until the Secrets exist, and the mirror
-stops. Do this in order:
+**Rebuild the host before the first request that clones the new repository.**
+A `cloneSecret` no Secret answers is a BuildRun that fails at its source step,
+and the Secret is the host's to mint:
 
-1. Push the branch. It need not be merged yet -- the flake reference below
-   works from any pushed commit.
+1. Push the branch. It need not be merged yet — the flake reference below works
+   from any pushed commit.
 2. `nixos-rebuild switch` gtr from that pushed SHA:
 
        sudo nixos-rebuild switch --flake github:gdoteof/chuggy-fabric/<full-commit-sha>#gtr
 
-3. Verify the four Secrets exist:
+3. Verify the Secret exists:
 
        systemctl list-units --all 'chuggy-github-app-token-*-refresh.service'
        kubectl get secret --all-namespaces -l chuggy.dev/managed-by=github-app-token
 
-4. Create the bare repository on the rig's git service and give it its ref
-   wall, per `deploy/rig/git/` in kasofsk/chuggy.
-5. Merge to `main`. Flux reconciles `cluster/apps` from `main` within its
+4. Merge to `main`. Flux reconciles `cluster/apps` from `main` within its
    interval, and gdoteof/chuggy-fabric is itself the repository Flux reconciles
    this cluster from, so this same merge is what Flux then applies.
 
-Three things are not this repository's to do. The owner's repository needs a
-ruleset that reserves updates to its default branch to the portal App
-integration and repository admins, because the worker token an entry mints is
-`contents: write` and reaches every agent-executed pod that can reach
-github.com. The list endpoint omits `bypass_actors` and `rules`, so resolve
-each ruleset by id; a reader should see rules covering `update`, `deletion`
-and `non_fast_forward`, and bypass actors naming only repository admins and
-the portal App integration, nothing else:
+One thing is not this repository's to do. The owner's repository needs a ruleset
+that reserves updates to its default branch to the portal App integration and
+repository admins, because the credential a work pod is given is the worker
+App's, it is `contents: write`, and it reaches every agent-executed pod that can
+reach github.com. The list endpoint omits `bypass_actors` and `rules`, so
+resolve each ruleset by id; a reader should see rules covering `update`,
+`deletion` and `non_fast_forward`, and bypass actors naming only repository
+admins and the portal App integration, nothing else:
 
     gh api repos/<owner>/<name>/rulesets --jq '.[].id' \
       | xargs -I{} gh api repos/<owner>/<name>/rulesets/{} \
           --jq '{name, enforcement, rules: [.rules[].type], bypass_actors}'
 
-The bare repository is created above; until it exists the mirror job ends its
-run saying so. And a repository is imported only once the project a partition
-names is bound to it: the importer resolves each partition's repository from
-that binding and refuses one that has none, so an entry marked `imported` ahead
-of its bind fails every run until the bind is made. The run also needs the
-api image the CronJob pins to be one whose importer takes a repository beside
-the commit: an older image refuses the configuration it is handed outright,
-for every entry at once, so an entry marked `imported` is released with, or
-after, that image and never ahead of it.
+**The mirror role and its bare copies are unused.** Nothing here copies a
+repository into the rig's git service any more and no pod reads one of those
+copies: the mirror CronJob, its ConfigMap and its NetworkPolicy are deleted,
+and a work pod clones from GitHub with a credential the worker plane mints for
+it. The bare repositories on that service and the `mirror` credential class
+its `pre-receive` hook admits are the rig's own — `deploy/rig/git/` in
+kasofsk/chuggy is where both are made — and retiring them is the rig's to do.
 
 ### Verified
 
@@ -1597,18 +1601,27 @@ not after it.
    token on a rig.
 
    Both Apps' are **the host's own key files, copied rather than minted**.
-   `chuggy.githubAppTokens` reads them on the host to mint the per-repository
-   tokens and projects the tokens alone, so nothing a rebuild does creates these
+   `chuggy.githubAppTokens` reads them on the host to mint the tokens it mints
+   and projects those tokens alone, so nothing a rebuild does creates these
    Secrets and the label `chuggy.dev/managed-by=github-app-token` is not on
    either. The commands are on the node, as root, because the sources are
    root-only host state. **Both are there on this rig.** One of the manifests
    that mounts each holds its command, and every manifest that mounts one says
    what that mount widens:
 
-   - `chuggy-github-app-portal`, the portal App's, in `chuggy-api.yaml`. The
-     API mints its own installation tokens from it, and the image pinned there
-     refuses to start on a key it cannot sign with — so this one is a start-up
-     dependency of a pod that is running now, not an inert mount.
+   - `chuggy-github-app-portal`, the portal App's, in `chuggy-api.yaml`, which
+     holds its command, and in `chuggy-ticket-service.yaml`,
+     `chuggy-finalizer.yaml` and `chuggy-configuration-importer.yaml`. Each of
+     the four mints the installation token for the act it is performing: the
+     API's is a bind and an enumeration, the ticket service reads a
+     repository's tree, the finalizer proposes and merges, and the importer
+     reads a bound repository's configuration. The API's image refuses to start
+     on a key it cannot sign with, so that mount is a start-up dependency of a
+     pod running now; the other three are pinned to images from before they
+     minted anything, and the release that rolls them is what makes those
+     mounts live — merging a manifest that takes their old credentials away
+     ahead of that release leaves each with a configuration its running image
+     refuses.
    - `chuggy-github-app-worker`, the worker App's, in
      `chuggy-worker-plane.yaml`, which holds its command, and in
      `chuggy-api.yaml`. The plane mints an attempt's or a session's git
