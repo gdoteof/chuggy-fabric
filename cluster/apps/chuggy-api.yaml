@@ -331,6 +331,21 @@ spec:
               value: "4708055"
             - name: CHUG_API_FORGE_APP_KEY_FILE
               value: /var/run/chuggy/forge-app/private-key
+            # The worker App this process verifies a worker-App installation
+            # claim as: it reads the installation as that App and mints an
+            # installation-wide `read` token to enumerate the installation's
+            # repositories. Nothing for an act -- no clone, no push, no
+            # proposal -- and a bind proves against the portal claim. The id is
+            # the same one hosts/gtr gives
+            # `chuggy.githubAppTokens.apps.worker`, whose minting is unchanged
+            # by this. The pair is written whole or not at all, the way the
+            # portal pair above is, and the release that reads it refuses to
+            # start on a key it cannot sign with. The image above reads neither
+            # of these names; the release that carries the claim reads both.
+            - name: CHUG_API_FORGE_WORKER_APP_ID
+              value: "4728465"
+            - name: CHUG_API_FORGE_WORKER_APP_KEY_FILE
+              value: /var/run/chuggy/forge-app-worker/private-key
             # The named credential mount a member's thread speaks to the model
             # through, written on the API because the API is what opens a
             # thread's session. It is not free: `kubernetesSessionPodRequest`
@@ -456,6 +471,9 @@ spec:
             - name: forge-app
               mountPath: /var/run/chuggy/forge-app
               readOnly: true
+            - name: forge-app-worker
+              mountPath: /var/run/chuggy/forge-app-worker
+              readOnly: true
           resources:
             requests: { cpu: 100m, memory: 128Mi }
             limits: { memory: 512Mi }
@@ -543,6 +561,34 @@ spec:
             # than an empty directory. Either absence leaves this pod in
             # `ContainerCreating` on a `FailedMount`: an API that mints from
             # this key must not start without it.
+            items:
+              - key: private-key
+                path: private-key
+        # THE WORKER APP'S KEY, MOUNTED A SECOND TIME. chuggy-worker-plane.yaml
+        # holds the command that copies it into this Secret, and it is the same
+        # key file on the same host: nothing new is created for this pod.
+        #
+        # It is here because a tenant administrator may claim an installation of
+        # either App, and this process verifies a claim by reading the
+        # installation as the App it names, which is a JWT signed with that
+        # App's key.
+        #
+        # WHAT IT WIDENS is this pod: it can now mint as the worker App for
+        # every repository that App is installed on, for as long as the key
+        # stands. What the image does with it is narrower and is still a mint --
+        # an installation-wide `read` token, to enumerate a claimed
+        # installation's repositories -- and nothing for an act: no clone, no
+        # push, no proposal, and a bind proves against the portal claim. What
+        # bounds the key itself is the App's own permission set and the ruleset
+        # that refuses this integration at a protected `main`, which
+        # chuggy-worker-plane.yaml argues over the same key.
+        - name: forge-app-worker
+          secret:
+            secretName: chuggy-github-app-worker
+            # 0444 rather than 0400, and the key named rather than the whole
+            # Secret projected, for the reasons the portal volume above argues
+            # in full over its own Secret.
+            defaultMode: 0444
             items:
               - key: private-key
                 path: private-key

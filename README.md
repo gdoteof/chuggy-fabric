@@ -1601,21 +1601,27 @@ not after it.
    tokens and projects the tokens alone, so nothing a rebuild does creates these
    Secrets and the label `chuggy.dev/managed-by=github-app-token` is not on
    either. The commands are on the node, as root, because the sources are
-   root-only host state. **Both are there on this rig.** The manifest that
-   mounts each holds its command and says what that mount widens:
+   root-only host state. **Both are there on this rig.** One of the manifests
+   that mounts each holds its command, and every manifest that mounts one says
+   what that mount widens:
 
    - `chuggy-github-app-portal`, the portal App's, in `chuggy-api.yaml`. The
      API mints its own installation tokens from it, and the image pinned there
      refuses to start on a key it cannot sign with — so this one is a start-up
      dependency of a pod that is running now, not an inert mount.
    - `chuggy-github-app-worker`, the worker App's, in
-     `chuggy-worker-plane.yaml`. The plane mints an attempt's or a session's
-     git credential from it. The worker App and not the portal one because the
+     `chuggy-worker-plane.yaml`, which holds its command, and in
+     `chuggy-api.yaml`. The plane mints an attempt's or a session's git
+     credential from it — the worker App and not the portal one because the
      ruleset `repositories.nix` requires admits the portal App integration to a
      protected `main`, and a work attempt's credential is `contents: write`.
-     The image pinned there reads neither of its two names, so until
-     kasofsk/chuggy's next release is pinned the plane mounts the key and reads
-     nothing from it.
+     The API holds it to verify a tenant's claim of a worker-App installation:
+     it reads that installation as the App and mints an installation-wide
+     `read` token to enumerate the installation's repositories. Nothing for an
+     act there — no clone, no push, no proposal — and a bind proves against the
+     portal claim. Neither pinned
+     image reads the names that point at this key, so until kasofsk/chuggy's
+     next release is pinned each pod mounts it and reads nothing from it.
 6. **Establish the first recovery epoch**, as a Secret and a row that carry the
    same value. `chuggy-recovery-epoch` is read by both the scheduler and the
    finalizer, and the row is what they fence against; no migration writes it,

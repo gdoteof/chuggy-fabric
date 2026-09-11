@@ -22,13 +22,26 @@ on the host is where an App's id and its key file are declared together, and the
 Secret a pod mounts is made by hand from that key file. So the id written in a
 manifest is a second copy of the host's, and this is what makes them one value.
 
+AND TWO APPS IN ONE POD MUST NOT READ ONE PROJECTION. A workload holding two
+Apps' keys can name one App's id beside the other App's key file and everything
+above still passes: the path resolves to a mount, the mount and its volume are
+sound, and each id is the host's. What that pod would sign is a JWT claiming one
+App under the other App's key -- the failure at the top of this file, reached
+from the other side, and one the process itself cannot catch, because reading a
+key file proves only that it is a key. So two rows of one workload naming
+different Apps must resolve to different (Secret, key) projections.
+
 WHAT THIS GATE CANNOT SEE. Which Secret the key comes from, because a hand-made
 Secret has no second declaration to be held against: nothing but the manifest
 and the README's prerequisite 5 names it, and a gate over the manifest's own
-literal would agree with it however it changed. Nor whether that Secret exists
-or holds the App's key, which is the operator's step and no render's business.
-Nor whether the image reads either variable: that is the release's, and the
-manifests carry both before the image that reads them is pinned.
+literal would agree with it however it changed. The rule above closes part of
+that where a workload carries two rows -- a volume that borrowed the other App's
+`secretName` puts both rows on one projection, which the render alone decides --
+and a workload with a single row is blind to its `secretName` as before. Nor
+whether that Secret exists or holds the App's key, which is the operator's step
+and no render's business. Nor whether the image reads either variable: that is
+the release's, and the manifests carry both before the image that reads them is
+pinned.
 """
 
 import json
@@ -38,11 +51,17 @@ import yaml
 
 CONTROL = "chuggy"
 
-# Every workload told to mint, and which App it mints as. A pod that grows a key
-# mount and is not added here is unchecked, and this file is where that is
-# noticed or nowhere.
+# Every (workload, App) pair a manifest names a key for; a workload holding two
+# Apps' keys is two rows. A pod that grows a key mount and is not added here is
+# unchecked, and this file is where that is noticed or nowhere.
 MINTERS = (
     ("chuggy-api", "portal", "CHUG_API_FORGE_APP_ID", "CHUG_API_FORGE_APP_KEY_FILE"),
+    (
+        "chuggy-api",
+        "worker",
+        "CHUG_API_FORGE_WORKER_APP_ID",
+        "CHUG_API_FORGE_WORKER_APP_KEY_FILE",
+    ),
     (
         "chuggy-worker-plane",
         "worker",
@@ -180,6 +199,9 @@ def main():
     with open(sys.argv[2], encoding="utf-8") as handle:
         documents = [document for document in yaml.safe_load_all(handle) if document]
 
+    # Which App each (workload, projection) is read as, so that a second row
+    # landing on the first's Secret and key is the collision below.
+    read_as = {}
     for name, app, id_variable, file_variable in MINTERS:
         if app not in apps:
             refuse(f"{name} mints as the {app} App, which the host does not declare")
@@ -190,7 +212,15 @@ def main():
                 f"{name} mints as App {declared}; the host holds the {app} App's key under "
                 f"{apps[app]['appId']}, so that JWT is signed with the wrong key"
             )
-        projected(pod, container, variable(container, file_variable, name), name)
+        source = projected(pod, container, variable(container, file_variable, name), name)
+        held_app, held_variable = read_as.setdefault((name, source), (app, file_variable))
+        if held_app != app:
+            refuse(
+                f"{name} reads the {held_app} App's key and the {app} App's from one "
+                f"projection: {held_variable} and {file_variable} both resolve to "
+                f"{source[0]}/{source[1]}, so one of the two signs its JWT as an App whose "
+                "key that is not"
+            )
 
 
 main()
