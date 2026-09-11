@@ -19,9 +19,9 @@ permitted, and every arm but DNS must be claimed by a URL.
 THE PORT IS THE POD'S AND THE URL'S IS THE SERVICE'S. A NetworkPolicy is matched
 against the destination pod after the ClusterIP has been translated away, so an
 arm is checked against the container port the Service's `targetPort` resolves to
--- by name where it is a name -- and never against the number in the URL. Two of
-the three targets here are named ports, so an arm copied from a URL would be
-wrong for both.
+-- by name where it is a name -- and never against the number in the URL. Most
+targets here publish a named port, so what an arm may say is the pod's to
+resolve and not the URL's to copy, however often the two numbers coincide.
 
 THE RETIREMENT IS A SWAP AND BOTH HALVES ARE HELD. The configuration schema is
 strict, so a leftover `policy` block and a missing `lead` block refuse the
@@ -230,10 +230,10 @@ def selected(templates, namespace, selector):
 def pod_port(service, pods):
     """The container port a Service's published port resolves to.
 
-    `targetPort` is a name in two of the three cases here, and a name is the
-    pod's: it is looked up on the containers of the pods the Service selects,
-    and a name no selected container publishes is refused rather than passed
-    through as a string.
+    `targetPort` is a name in most cases here, and a name is the pod's: it is
+    looked up on the containers of the pods the Service selects, and a name no
+    selected container publishes is refused rather than passed through as a
+    string.
     """
     published = [entry for entry in service["spec"].get("ports", [])]
     if len(published) != 1:
