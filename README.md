@@ -411,10 +411,13 @@ host declares by hand whatever further tokens it needs for what it does itself
 is the only one. A host says which Apps mint them and where their keys are; the
 keys remain root-only host state outside this repository and the Nix store.
 
-No pod is handed a repository's credential: the api, the ticket service, the
-finalizer and the importer each mount a GitHub App's private key and mint for
-the act they are performing, and a work pod's credential is minted for it by the
-worker plane. After switching the host configuration, verify the refreshers and
+No pod is handed a repository's credential on a forge: the api, the ticket
+service, the finalizer and the importer each mount a GitHub App's private key
+and mint for the act they are performing, and a work pod's is minted for it by
+the worker plane. The exception is this cluster's own git service, which no App
+covers — `chuggy-git-worker` is mounted into work and session pods and named in
+the one row of the scheduler's repositories map, and `chuggy-finalizer-credentials`
+is the finalizer's for `rig.git`. Both are made by hand. After switching the host configuration, verify the refreshers and
 Secrets — the unit is named for its entry, and the Secret carries the label the
 module puts on everything it manages:
 
@@ -1626,8 +1629,9 @@ not after it.
      `chuggy-worker-plane.yaml`, which holds its command, and in
      `chuggy-api.yaml`. The plane mints an attempt's or a session's git
      credential from it — the worker App and not the portal one because the
-     ruleset `repositories.nix` requires admits the portal App integration to a
-     protected `main`, and a work attempt's credential is `contents: write`.
+     ruleset a bound repository's owner must set, which "Adding a repository"
+     above states, admits the portal App integration to a protected `main`, and
+     a work attempt's credential is `contents: write`.
      The API holds it to verify a tenant's claim of a worker-App installation:
      it reads that installation as the App and mints an installation-wide
      `read` token to enumerate the installation's repositories. Nothing for an

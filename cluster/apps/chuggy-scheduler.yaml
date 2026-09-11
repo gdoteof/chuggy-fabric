@@ -230,16 +230,21 @@ spec:
                     "mountPath": "/var/run/chuggy/credentials/claude-code"
                   }
                 }
-            # `CHUG_WORKER_REPOSITORIES` is deliberately absent, from here and
-            # from the session environment below. The plane mints a pod's forge
-            # credential, and a repository the map does not name is cloned at
-            # its own address -- so a site that named every repository here
-            # would be a second answer to which repositories exist, kept by
-            # hand. The map is still what overrides an address, which is the
-            # only thing it would be written for now.
+            # `CHUG_WORKER_REPOSITORIES` IS ONE ROW, AND IT IS THE ONE
+            # REPOSITORY THIS FABRIC STILL MOUNTS A CREDENTIAL FOR. A pod asks
+            # the plane to mint for the reference it was given; the plane mints
+            # for a forge and answers 404 for anything else, and a pod with no
+            # minted credential falls back to the mounted arm -- which resolves
+            # the reference through this map and refuses a reference the map
+            # does not carry. So a checkout from this cluster's own git service
+            # needs a row here, its credential granted below and the egress
+            # `chuggy-work.yaml` permits; a GitHub repository needs none of the
+            # three, and adding one would be a second answer to which
+            # repositories exist, kept by hand.
             - name: CHUG_SCHEDULER_WORKER_ENVIRONMENT
               value: |
                 {
+                  "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\",\"credential\":\"chuggy-git-worker\",\"credentialUsername\":\"worker\"}}",
                   "CHUG_WORKER_WORKSPACE": "/workspace",
                   "CHUG_PG_WORKERS": "4"
                 }
@@ -604,19 +609,32 @@ spec:
             # times out, with nothing saying why.
             - name: CHUG_SCHEDULER_SESSION_API_URL
               value: http://chuggy-api.chuggy.svc.cluster.local:3000
-            # A SESSION IS GIVEN NO ENVIRONMENT OF ITS OWN, so the variable is
-            # absent rather than empty. What it held was the site's repository
-            # map, which is the worker's and must stay it: a second, narrower
+            # The site's map, which a session resolves its project's binding
+            # against exactly as a worker resolves its input bundle's reference:
+            # same variable, same parser, same grant check. It is read only
+            # where the placement bound a repository, and only where the plane
+            # minted nothing for it -- so the one row it carries is the one
+            # repository this fabric mounts a credential for, and a session
+            # bound to a GitHub repository never looks at it.
+            #
+            # IT IS THE WORKER'S MAP AND MUST STAY IT. There is one git service
+            # on this site and two kinds of pod that read it; a second, narrower
             # map here would be a second answer to which repositories exist, and
             # the first entry added for a worker would leave a session unable to
-            # resolve a binding the API accepted. Neither kind of pod is given
-            # one now -- see `CHUG_SCHEDULER_WORKER_ENVIRONMENT` above -- and
-            # `tests/session-placement.py` refuses one written here alone.
+            # resolve a binding the API accepted. `tests/session-placement.py`
+            # holds the two equal so the copy is checked rather than remembered.
+            # What differs between the two kinds of pod is not the map: it is
+            # which credential the grant below names and which destination
+            # chuggy-work.yaml permits.
             #
-            # `CHUG_WORKER_WORKSPACE` is one of
-            # `kubernetesSessionReservedVariables`, which the launcher writes
-            # itself and refuses to have supplied, so it would not go here
-            # either.
+            # `CHUG_WORKER_WORKSPACE` is deliberately NOT repeated here. It is
+            # one of `kubernetesSessionReservedVariables`, which the launcher
+            # writes itself and refuses to have supplied.
+            - name: CHUG_SCHEDULER_SESSION_ENVIRONMENT
+              value: |
+                {
+                  "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\",\"credential\":\"chuggy-git-worker\",\"credentialUsername\":\"worker\"}}"
+                }
             # How many session attempts one Claude account may have live at
             # once. The published default is written for a site whose only
             # session is a lead; this site is about to have a lead and a thread
@@ -665,24 +683,26 @@ spec:
             # above that decides what a session can authenticate as.
             #
             # `claude-code` is what the runtime speaks to the model with.
-            # `chuggy-git-worker` is what it clones a repository on this
-            # cluster's own git service with, and it is here because a session
-            # now takes a checkout -- the sentence this comment used to carry,
-            # that a session takes none and the git credentials would be a grant
-            # it never uses, was true and is not.
+            # `chuggy-git-worker` is what it clones this cluster's own git
+            # service with, and it is here because a session bound there takes
+            # a checkout: the plane mints for a forge and answers 404 for that
+            # host, so the pod takes the mounted arm, which needs this slot, the
+            # one row of the map above and the `chuggy-git` arm chuggy-work.yaml
+            # permits. A session bound to a GitHub repository uses none of the
+            # three.
             #
             # NO FORGE CREDENTIAL IS GRANTED, and a session needs none: the
             # plane mints what a pod presents to the forge, and a slot is what
             # this list is about. A lead reads a binding; it has no branch to
             # push and no forge call to make.
             #
-            # `mirrors` IS GONE WITH THE MIRROR ITSELF. It rewrote a binding to
-            # the in-cluster copy as the placement was composed, which is what
-            # let a session clone with the git service's credential rather than
-            # a forge one; there is no sync keeping those copies equal any more,
-            # so a binding is now placed as it stands. An entry written here
-            # again would need the map this file no longer carries, and
-            # `tests/session-placement.py` refuses one that does.
+            # `mirrors` IS GONE WITH THE MIRROR ITSELF. It rewrote a GitHub
+            # binding to an in-cluster copy as the placement was composed, which
+            # is what let a session clone with the git service's credential
+            # rather than a forge one; there is no sync keeping those copies
+            # equal any more, so a binding is now placed as it stands. An entry
+            # written here again would have to name a row of the map above, and
+            # `tests/session-placement.py` refuses one that does not.
             #
             # THIS LIST IS THE WHOLE OF THAT BOUND, and the network is not the
             # other half of it: `chuggy-sessions`' public-443 arm cannot name a
@@ -720,7 +740,8 @@ spec:
             # means writing the grant out again beside it. The credential list
             # is the part of it that is easy to drop on the way past, and
             # dropping `chuggy-git-worker` places a session that starts, takes
-            # its turns and silently has no checkout.
+            # its turns and silently has no checkout of the one repository this
+            # fabric holds a credential for.
             # `tests/session-placement.py` is what makes that loud rather than
             # silent: it refuses a grant naming a credential the mounts above do
             # not carry.

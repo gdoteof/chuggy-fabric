@@ -31,6 +31,14 @@ from the other side, and one the process itself cannot catch, because reading a
 key file proves only that it is a key. So two rows of one workload naming
 different Apps must resolve to different (Secret, key) projections.
 
+AND ONE REMOTE IS NOT MINTED FOR AT ALL, WHICH IS THE SAME DEFECT INVERTED. The
+finalizer promotes to `rig.git` on this cluster's own git service, which no App
+key covers, so that one credential is a file the operator made and a path this
+pod opens -- the shape above with a hand-made Secret in place of a key. It is
+held here because a manifest that lost it renders, starts, mints for every forge
+repository as designed, and fails every promotion to the tree Flux reconciles
+this cluster from, which is the quietest failure in this file.
+
 WHAT THIS GATE CANNOT SEE. Which Secret the key comes from, because a hand-made
 Secret has no second declaration to be held against: nothing but the manifest
 and the README's prerequisite 5 names it, and a gate over the manifest's own
@@ -46,6 +54,7 @@ pinned.
 
 import json
 import sys
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -92,6 +101,19 @@ MINTERS = (
         ("CHUG_CONFIGURATION_IMPORT_CONFIG", ("forge", "keyFile")),
     ),
 )
+
+
+# Where a pod is told to find a credential no App mints, and the remote that
+# credential is for. One row a workload: the list is the whole of what a pod
+# authenticates as without minting, and an entry is added to it only for a host
+# the App keys above do not cover.
+SOURCES = (("chuggy-finalizer", "CHUG_FINALIZER_CREDENTIAL_SOURCES"),)
+
+# A host the worker plane and these pods mint for is a forge, and everything
+# else on this site is addressed inside the cluster. So an in-cluster address is
+# what a static credential is admissible for, and a public one in that list is a
+# token that does not expire standing where a mint belongs.
+IN_CLUSTER = ".svc.cluster.local"
 
 
 def refuse(message):
@@ -181,7 +203,7 @@ def field(container, spec, owner):
     return value
 
 
-def readable(pod, mode, wanted, owner):
+def readable(pod, mode, wanted, owner, subject):
     """The kubelet writes a Secret volume's files owned by uid 0 and applies
     `fsGroup` to the group and nothing else, so without one a mode with no world
     read bit is a file the container's own uid cannot open. Unset is the
@@ -191,13 +213,13 @@ def readable(pod, mode, wanted, owner):
     if pod.get("securityContext", {}).get("fsGroup") is not None:
         return
     refuse(
-        f"{owner} projects its App key at {wanted} with mode {mode:04o} and declares no "
+        f"{owner} projects {subject} at {wanted} with mode {mode:04o} and declares no "
         "`fsGroup`, so the file is uid 0's alone and the process it is for cannot open it"
     )
 
 
-def projected(pod, container, wanted, owner):
-    """The (secret, key) a container serves at an absolute path, or a refusal."""
+def standing_over(container, wanted, owner, subject):
+    """The one mount a container serves an absolute path from, or a refusal."""
     # The path itself as well as a directory over it: mounting one key as a file
     # is a shape a manifest can take, and a gate that saw only the directory
     # would tell its author to add a mount that is already there.
@@ -211,7 +233,7 @@ def projected(pod, container, wanted, owner):
         refuse(f"{len(mounts)} of {owner}'s volume mounts stand over {wanted}, wanted one")
     mount = mounts[0]
     if not mount.get("readOnly"):
-        refuse(f"{owner} mounts its App key writable at {mount['mountPath']}")
+        refuse(f"{owner} mounts {subject} writable at {mount['mountPath']}")
     # A subPath is resolved once when the container is created and never
     # afterwards, so a rotated Secret does not reach a pod through one --
     # hosts/gtr already says rotating this key is two places, and this would
@@ -219,20 +241,72 @@ def projected(pod, container, wanted, owner):
     # that holds nothing, which no prefix match below would see.
     if mount.get("subPath") or mount.get("subPathExpr"):
         refuse(
-            f"{owner} mounts its App key at {mount['mountPath']} through a subPath, which is "
+            f"{owner} mounts {subject} at {mount['mountPath']} through a subPath, which is "
             "resolved once and never follows the Secret afterwards"
         )
-    relative = wanted[len(mount["mountPath"].rstrip("/")) + 1 :]
+    return mount
+
+
+def volume_of(pod, mount, owner):
     volume = [entry for entry in pod.get("volumes", []) if entry["name"] == mount["name"]]
     if len(volume) != 1:
         refuse(f"{owner} mounts {mount['name']}, which the pod declares {len(volume)} times")
-    projection = volume[0].get("projected")
-    sources = projection["sources"] if projection else [{"secret": volume[0].get("secret", {})}]
+    return volume[0]
+
+
+def secret_sources(volume, mount, owner):
+    projection = volume.get("projected")
+    sources = projection["sources"] if projection else [{"secret": volume.get("secret", {})}]
+    for source in sources:
+        if source.get("secret") is None:
+            refuse(f"{owner}'s {mount['name']} volume projects something other than a Secret")
+    return projection, sources
+
+
+def carried(pod, container, wanted, owner):
+    """The Secret a container serves a hand-made credential file from.
+
+    Unlike an App key this file does not require the key to be named: the
+    credential is one the operator creates by hand, a whole Secret projected
+    serves every key it has at its own name, and naming the keys here would be
+    this gate agreeing with a manifest it copied. What is held is that the path
+    the process opens stands under a mount, that the mount serves a Secret and
+    that the file is readable -- a path under no mount is an `ENOENT` on the
+    first push, and that is the failure this catches."""
+    mount = standing_over(container, wanted, owner, "a credential")
+    relative = wanted[len(mount["mountPath"].rstrip("/")) + 1 :]
+    volume = volume_of(pod, mount, owner)
+    projection, sources = secret_sources(volume, mount, owner)
+    for source in sources:
+        secret = source["secret"]
+        items = secret.get("items")
+        if items is not None and not any(item["path"] == relative for item in items):
+            continue
+        if secret.get("optional"):
+            refuse(
+                f"{owner} projects the Secret behind {wanted} optionally, so a pod without it "
+                "starts and cannot authenticate rather than not starting"
+            )
+        mode = next(
+            (item.get("mode") for item in items or [] if item["path"] == relative),
+            None,
+        )
+        if mode is None:
+            mode = (projection or secret).get("defaultMode")
+        readable(pod, mode, wanted, owner, "a credential")
+        return secret.get("name") or secret.get("secretName")
+    refuse(f"{owner} reads {wanted}, which no Secret its pod projects serves")
+
+
+def projected(pod, container, wanted, owner):
+    """The (secret, key) a container serves at an absolute path, or a refusal."""
+    mount = standing_over(container, wanted, owner, "its App key")
+    relative = wanted[len(mount["mountPath"].rstrip("/")) + 1 :]
+    volume = volume_of(pod, mount, owner)
+    projection, sources = secret_sources(volume, mount, owner)
     served = {}
     for source in sources:
-        secret = source.get("secret")
-        if secret is None:
-            refuse(f"{owner}'s {mount['name']} volume projects something other than a Secret")
+        secret = source["secret"]
         # A whole Secret projected serves every key at its own name, so a Secret
         # that has lost the key mounts an empty directory and the pod starts
         # without it. Naming the key is what makes the absence a FailedMount.
@@ -250,8 +324,8 @@ def projected(pod, container, wanted, owner):
     # it is the one place this key's mode is decided -- and the place a `0400`
     # gets written while the `0444` beside it goes on looking right.
     if mode is None:
-        mode = (projection or volume[0].get("secret", {})).get("defaultMode")
-    readable(pod, mode, wanted, owner)
+        mode = (projection or volume.get("secret", {})).get("defaultMode")
+    readable(pod, mode, wanted, owner, "its App key")
     if optional:
         refuse(
             f"{owner} projects {name}/{key} optionally, so a pod with no App key starts and "
@@ -290,6 +364,32 @@ def main():
                 f"resolve to {source[0]}/{source[1]}, so one of the two signs its JWT as an "
                 "App whose key that is not"
             )
+
+    for name, variable_name in SOURCES:
+        pod, container = workload(documents, name)
+        raw = variable(container, variable_name, name)
+        try:
+            sources = json.loads(raw)
+        except json.JSONDecodeError as error:
+            refuse(f"{name} writes {variable_name}, which is not JSON: {error}")
+        if not isinstance(sources, list) or len(sources) != 1:
+            refuse(
+                f"{name} names {variable_name} as something other than one credential; the one "
+                "remote no App key mints for is this cluster's own git service, and a second "
+                "entry is a credential that does not expire where a mint belongs"
+            )
+        for source in sources:
+            remote = source.get("repository")
+            path = source.get("path")
+            if not isinstance(remote, str) or not isinstance(path, str):
+                refuse(f"{name}'s {variable_name} entry names no repository and path")
+            host = (urlsplit(remote).hostname or "").rstrip(".")
+            if not host.endswith(IN_CLUSTER):
+                refuse(
+                    f"{name} authenticates to {remote} from a file; a repository on a forge is "
+                    "minted for per act from the App key this pod mounts"
+                )
+            carried(pod, container, path, name)
 
 
 main()

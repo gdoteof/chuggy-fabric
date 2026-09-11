@@ -169,10 +169,9 @@ spec:
             matchLabels: { app: chuggy-api }
       ports:
         - { protocol: TCP, port: 3000 }
-    # This cluster's own git service, which a session clones a repository bound
-    # to one of its addresses from. Same destination the worker's rule above
-    # names and written the same way, because there is one git service here and
-    # two kinds of pod that read it.
+    # This cluster's own git service, which a session bound to it clones from.
+    # Same destination the worker's rule above names and written the same way,
+    # because there is one git service here and two kinds of pod that read it.
     #
     # THE PORT IS THE POD'S AND NOT THE SERVICE'S. A NetworkPolicy is evaluated
     # after the ClusterIP has been translated away, and such an address carries
@@ -187,6 +186,12 @@ spec:
     # and the map to resolve the reference against, which
     # `CHUG_SCHEDULER_SESSION_ENVIRONMENT` carries. Any one of the three alone
     # is a clone that fails, so all three are written in one change.
+    #
+    # IT IS THIS HOST AND NO OTHER. The map carries the one repository this
+    # fabric still mounts a credential for, because the worker plane mints for
+    # a forge and answers nothing for a host it does not serve. A session bound
+    # to GitHub is minted for, needs no row, no slot and none of this arm: it
+    # goes out over the public one below.
     - to:
         - namespaceSelector:
             matchLabels:
