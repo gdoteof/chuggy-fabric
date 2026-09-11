@@ -72,15 +72,24 @@ def variable(container, name, owner):
     value = found[0].get("value")
     if value is None:
         refuse(f"{owner} takes {name} from somewhere other than a literal")
+    # `EnvVar.value` is a string, and an App id is all digits, so dropping its
+    # quotes renders a YAML number that kustomize is happy to emit and the API
+    # server refuses: `cannot unmarshal number into Go struct field
+    # EnvVar.value of type string`.
+    if not isinstance(value, str):
+        refuse(
+            f"{owner} writes {name} unquoted, so it renders as a YAML "
+            f"{type(value).__name__} rather than the string `EnvVar.value` takes, and the "
+            "API server refuses the manifest"
+        )
     return value
 
 
-def readable(pod, spec, wanted, owner):
+def readable(pod, mode, wanted, owner):
     """The kubelet writes a Secret volume's files owned by uid 0 and applies
     `fsGroup` to the group and nothing else, so without one a mode with no world
     read bit is a file the container's own uid cannot open. Unset is the
     kubelet's own 0644 and is readable."""
-    mode = spec.get("defaultMode")
     if mode is None or mode & 0o004:
         return
     if pod.get("securityContext", {}).get("fsGroup") is not None:
@@ -93,25 +102,36 @@ def readable(pod, spec, wanted, owner):
 
 def projected(pod, container, wanted, owner):
     """The (secret, key) a container serves at an absolute path, or a refusal."""
+    # The path itself as well as a directory over it: mounting one key as a file
+    # is a shape a manifest can take, and a gate that saw only the directory
+    # would tell its author to add a mount that is already there.
     mounts = [
         mount
         for mount in container.get("volumeMounts", [])
-        if wanted.startswith(mount["mountPath"].rstrip("/") + "/")
+        if mount["mountPath"].rstrip("/") == wanted
+        or wanted.startswith(mount["mountPath"].rstrip("/") + "/")
     ]
     if len(mounts) != 1:
         refuse(f"{len(mounts)} of {owner}'s volume mounts stand over {wanted}, wanted one")
     mount = mounts[0]
     if not mount.get("readOnly"):
         refuse(f"{owner} mounts its App key writable at {mount['mountPath']}")
+    # A subPath is resolved once when the container is created and never
+    # afterwards, so a rotated Secret does not reach a pod through one --
+    # hosts/gtr already says rotating this key is two places, and this would
+    # make it three. It is also where a mount can name a path inside the volume
+    # that holds nothing, which no prefix match below would see.
+    if mount.get("subPath") or mount.get("subPathExpr"):
+        refuse(
+            f"{owner} mounts its App key at {mount['mountPath']} through a subPath, which is "
+            "resolved once and never follows the Secret afterwards"
+        )
     relative = wanted[len(mount["mountPath"].rstrip("/")) + 1 :]
     volume = [entry for entry in pod.get("volumes", []) if entry["name"] == mount["name"]]
     if len(volume) != 1:
         refuse(f"{owner} mounts {mount['name']}, which the pod declares {len(volume)} times")
     projection = volume[0].get("projected")
     sources = projection["sources"] if projection else [{"secret": volume[0].get("secret", {})}]
-    # A projected volume carries the mode once for the whole projection; a plain
-    # Secret volume carries it beside the Secret it serves.
-    readable(pod, projection or volume[0].get("secret", {}), wanted, owner)
     served = {}
     for source in sources:
         secret = source.get("secret")
@@ -125,10 +145,17 @@ def projected(pod, container, wanted, owner):
                 secret.get("name") or secret.get("secretName"),
                 item["key"],
                 bool(secret.get("optional")),
+                item.get("mode"),
             )
     if relative not in served:
         refuse(f"{owner} reads its App key from {wanted}, which its pod projects from no Secret key")
-    name, key, optional = served[relative]
+    name, key, optional, mode = served[relative]
+    # An item's own mode overrides the volume's default for that file alone, so
+    # it is the one place this key's mode is decided -- and the place a `0400`
+    # gets written while the `0444` beside it goes on looking right.
+    if mode is None:
+        mode = (projection or volume[0].get("secret", {})).get("defaultMode")
+    readable(pod, mode, wanted, owner)
     if optional:
         refuse(
             f"{owner} projects {name}/{key} optionally, so a pod with no App key starts and "

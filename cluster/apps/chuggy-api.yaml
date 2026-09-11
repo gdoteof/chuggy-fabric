@@ -181,9 +181,9 @@
 # command is the only thing that copies it into the cluster. The Secret is
 # there on this rig.
 #
-# WHAT IT WIDENS IS WORTH READING BEFORE THE MOUNT BELOW. A token file in the
-# credential list below is one repository for one hour; the key mints for every
-# repository the portal App is installed on, for as long as the key stands.
+# WHAT IT WIDENS IS WORTH READING BEFORE THE MOUNT BELOW. A GitHub token file in
+# the credential list below is one repository for one hour; the key mints for
+# every repository the portal App is installed on, for as long as the key stands.
 # What bounds it is the App's own permission set and the ruleset on each
 # repository's protected branch, which AGENTS.md states.
 #
