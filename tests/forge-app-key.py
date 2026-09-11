@@ -38,11 +38,17 @@ import yaml
 
 CONTROL = "chuggy"
 
-# Every workload told to mint, and which App it mints as. A pod that grows a key
-# mount and is not added here is unchecked, and this file is where that is
-# noticed or nowhere.
+# Every (workload, App) pair a manifest names a key for; a workload holding two
+# Apps' keys is two rows. A pod that grows a key mount and is not added here is
+# unchecked, and this file is where that is noticed or nowhere.
 MINTERS = (
     ("chuggy-api", "portal", "CHUG_API_FORGE_APP_ID", "CHUG_API_FORGE_APP_KEY_FILE"),
+    (
+        "chuggy-api",
+        "worker",
+        "CHUG_API_FORGE_WORKER_APP_ID",
+        "CHUG_API_FORGE_WORKER_APP_KEY_FILE",
+    ),
     (
         "chuggy-worker-plane",
         "worker",
