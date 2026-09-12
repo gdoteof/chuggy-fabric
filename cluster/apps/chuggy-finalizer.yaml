@@ -137,7 +137,7 @@ metadata:
   name: chuggy-finalizer
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: e7a18e8f
+    fabric.chuggy.dev/source-commit: 9c233e3b
   labels: { app: chuggy-finalizer }
 spec:
   replicas: 1
