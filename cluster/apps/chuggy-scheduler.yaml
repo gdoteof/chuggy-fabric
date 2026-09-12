@@ -453,17 +453,21 @@ spec:
                     "capabilities": ["Agent:Claude", "Agent:Codex"]
                   }
                 ]
-            # PR 5's, provisional. D30 says the adopting machine must supply
-            # these and that the shared module provides no guessed defaults;
-            # these are a guess, and they are here because the command will not
-            # parse without them.
+            # The memory limit is what chuggy's own `ci.sh` needs: Node sizes
+            # its heap from the container's limit, and the typed lint stage of
+            # `check-source` over the whole tree outgrew the limit this used to
+            # carry, dying on heap exhaustion inside an evaluation. The rest is
+            # PR 5's, provisional: D30 says the adopting machine must supply
+            # these and that the shared module provides no guessed defaults,
+            # and they are here because the command will not parse without
+            # them.
             - name: CHUG_SCHEDULER_WORKER_RESOURCES
               value: |
                 {
                   "cpuRequest": "250m",
                   "cpuLimit": "1",
-                  "memoryRequest": "512Mi",
-                  "memoryLimit": "2Gi",
+                  "memoryRequest": "1Gi",
+                  "memoryLimit": "4Gi",
                   "ephemeralStorageLimit": "20Gi"
                 }
             - name: CHUG_SCHEDULER_EXECUTION_POLICY
