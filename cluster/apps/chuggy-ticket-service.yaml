@@ -126,7 +126,7 @@ metadata:
   name: chuggy-ticket-service
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: 2445ce99
+    fabric.chuggy.dev/source-commit: e7a18e8f
   labels: { app: chuggy-ticket-service }
 spec:
   replicas: 1
