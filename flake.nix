@@ -138,7 +138,7 @@
       buildPlatform = import ./tests/build-platform.nix { inherit pkgs; };
       buildResults = import ./tests/build-results.nix { inherit pkgs; };
       buildResultsPublish = import ./tests/build-results-publish.nix { inherit pkgs; };
-      imagePromotion = import ./tests/image-promotion.nix { inherit pkgs; };
+      renderRelease = import ./tests/render-release.nix { inherit pkgs; };
       configurationImporter = import ./tests/configuration-importer.nix { inherit pkgs; };
       developmentWorker = import ./tests/development-worker.nix { inherit pkgs; };
       sessionPlacement = import ./tests/session-placement.nix { inherit pkgs; };
@@ -381,7 +381,11 @@
         # And what puts them there: the only unattended push this tree makes to
         # the branch Flux follows, run against a real repository.
         build-results-publish = buildResultsPublish;
-        image-promotion = imagePromotion;
+
+        # And what a release is made of: the manifests rendered from those
+        # records, over this repository's own `cluster/apps`, driven through
+        # every refusal the renderer states.
+        render-release = renderRelease;
         configuration-importer = configurationImporter;
       };
     };

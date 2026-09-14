@@ -47,9 +47,8 @@ in
     };
 
     # Where a verified result has to be for anything but this box to use one.
-    # `scripts/render-image-promotion` takes a checksummed record and a
-    # checkout, and the pod that runs it has the checkout and no path to this
-    # host's disk.
+    # `scripts/render-release` takes the records and a checkout, and the pod
+    # that runs it has the checkout and no path to this host's disk.
     publish = {
       enable = lib.mkEnableOption "publishing recorded build results into the fabric repository";
 
@@ -84,8 +83,7 @@ in
         default = "noreply@invalid";
         description = ''
           Address on those commits. Reserved by RFC 2606 by default, which is
-          the honest form of an address nothing reads -- the same domain
-          scripts/render-image-promotion signs a promotion under.
+          the honest form of an address nothing reads.
         '';
       };
     };

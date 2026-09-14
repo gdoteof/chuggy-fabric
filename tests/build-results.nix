@@ -1,8 +1,8 @@
 # Every record this tree carries, held against the request it answers rather
 # than against itself. The argument for each assertion is in build-results.py's
 # own header; the verifier it drives is the one the retry and retirement
-# commands drive, so what a promotion will accept and what this gate accepts
-# cannot drift apart.
+# commands drive, so what a release will select an image from and what this
+# gate accepts cannot drift apart.
 { pkgs }:
 
 pkgs.runCommand "chuggy-build-results" {

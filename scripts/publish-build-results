@@ -3,10 +3,10 @@
 # not into that repository, under
 # `results/<repository-id>/<source-commit>/<request-digest>/<attempt>.json`.
 #
-# WHY GIT AND NOT THE HOST DIRECTORY. `scripts/render-image-promotion` consumes
-# one checksummed result and nothing else, and the pod that would run it is a
+# WHY GIT AND NOT THE HOST DIRECTORY. `scripts/render-release` selects an image
+# from a checksummed result and nothing else, and the pod that runs it is a
 # worker with a checkout and no path to /var/lib on this box. A result that
-# exists only here is a result only this box can promote from.
+# exists only here is a result only this box can release from.
 #
 # THE LAYOUT MIRRORS `builds/`. The same three components name the same request
 # -- `builds/<repository-id>/<source-commit>/<request-digest>.yaml` -- so a

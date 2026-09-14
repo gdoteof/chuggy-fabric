@@ -57,8 +57,9 @@ The rules you reject by number. Each is stated elsewhere in this tree; read it
 at its home, and where this table and a home disagree, the home is right.
 
 1. **Generated files are generated.** A build request under `builds/` comes
-   from `scripts/render-build-request`, an image deployment change from
-   `scripts/render-image-promotion`. A hand-edited one is a finding whatever it
+   from `scripts/render-build-request`, a release under `cluster/apps` --
+   image digests, source-commit annotations, migrate Job name -- from
+   `scripts/render-release`. A hand-edited one is a finding whatever it
    says. Stated in `AGENTS.md`.
 2. **A build request is immutable.** It pins a full source commit, and is
    retried or retired with `scripts/retry-build-request` and

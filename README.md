@@ -709,8 +709,8 @@ installation state and needs the same backup treatment as the registry and
 journal.
 
 A recorded result is also published into this repository, which is what makes
-selection runnable anywhere: the command below takes a record path, and the pod
-that would run it has a checkout and no path to the host's disk.
+a release runnable anywhere: the command below reads the records out of a
+checkout, and the pod that runs it has no path to the host's disk.
 `chuggy-build-results-publish.timer` runs after the recorder on a host carrying
 `chuggy.buildProvenance.publish`, copies every record Git does not yet hold to
 `results/<repository-id>/<source-commit>/<request-digest>/<attempt>.json` beside
@@ -727,62 +727,49 @@ publication reaches the live branch and changes no object.
 `builds/` it answers, and `tests/build-results-publish.nix` runs the publisher
 against a real repository.
 
-Image selection is a separate Git change. `scripts/render-image-promotion`
-consumes one checksummed successful result, verifies that the registry still
-serves its exact digest, and writes a configured workload patch. The repository
-binding, target ref, environment path, workload identity and container are all
-inputs; the renderer assumes no project or environment name:
+The release is a separate Git change, and `scripts/render-release` is what
+writes it. Given the chuggy commit to release, it reads the live commit off the
+manifests' `fabric.chuggy.dev/source-commit` annotation, decides which images
+moved by diffing the paths each Dockerfile copies between those two commits,
+selects a moved image's digest from a verified result under `results/`, carries
+an unmoved image's digest forward, and rewrites `cluster/apps`: the digest where
+an image moved, the annotation on every manifest
+`scripts/check-release-consistency` names, and the migrate Job named for the
+release. It then runs that check over what it wrote and surfaces its verdict.
 
-    scripts/render-image-promotion \
-      --build-result results/<repository-id>/<commit>/<request>/<attempt>.json \
-      --repository-id example-service \
-      --repository-url https://git.example.com/platform/environments.git \
-      --target-ref refs/heads/staging \
-      --environment-path environments/staging/example-service.yaml \
-      --resource-name example-service \
-      --container-name server \
-      --namespace staging \
-      --act-root /var/lib/chuggy/promotion-acts \
-      --git-command /run/current-system/sw/bin/git \
-      --credential-command /run/credentials/git-askpass \
-      --credential-ref environment-writer \
-      --registry-client /run/current-system/sw/bin/crane \
-      --registry-credential-command /run/credentials/registry-docker-config \
-      --registry-credential-ref registry-reader
+    scripts/render-release --target-commit <the full chuggy commit to release>
 
-The selected repository's kustomization includes that patch. The renderer
-creates a private disposable bare repository for each act, fetches the configured
-target ref, constructs a deterministic commit without checking repository
-content out, and conditionally advances that ref. The credential command is an
-explicit askpass port and receives only its configured credential reference;
-every child process receives an allowlisted environment.
-Registry reads use a separate credential port. Its command receives only the
-registry credential reference and emits Docker config JSON; the renderer writes
-that into a mode-`0600` file under another disposable private directory and
-points only the registry client at it. Neither Git nor registry access inherits
-the caller's home directory or ambient secret-bearing environment.
+It commits nothing, pushes nothing, reads no registry and contacts no cluster:
+the pull request a caller opens over the edit is the deployment decision. The
+two chuggy trees it diffs come from `--source-tree`, a checkout already holding
+both commits, or -- without one -- from a blobless fetch of `--source-ref` into
+a throwaway repository, which is also what lets the abbreviated live commit
+resolve at all.
 
-This version accepts Git over public HTTPS on port 443, the existing
-`*.chuggy-git.svc` HTTP profile on port 8080, `file:`, or an absolute local
-path. SSH is refused because the direct-publication contract does not yet
-define forced noninteractive authentication and pinned host-key material.
-Repository URLs may carry neither user information nor query-string credentials.
-The patch records the source commit, build request, attempt, provenance record,
-repository binding and selected digest. Re-selecting a retained older result is
-the rollback operation and follows the same reviewable path.
+A digest comes only from a result this repository carries, held to the checksum
+and the canonical provenance digest beside it, to the request in `builds/` it
+answers, and to the path both are filed under -- the comparisons
+`tests/build-results.nix` makes, because a record answering a request filed
+under the wrong name verifies against itself perfectly. Which image a result is
+of is the Dockerfile its request names, because both consoles publish to one
+image repository and the record cannot say which of them it is.
 
-Publication reconciles the target before and after each bounded conditional
-push. The exact candidate or a descendant retaining the same promotion identity
-and selected path is success, including after a successful push response was
-lost. An unchanged base permits another conditional attempt. Any unrelated
-target advance is an operator-visible hold rather than an overwrite. Proposal
-handoffs remain outside this command until a provider-neutral proposal contract
-exists.
+What the command refuses is stated in its own header and driven by
+`tests/render-release.nix`: an image whose inputs moved with no verified result
+at that commit, two results selecting different digests for one image, a record
+or request filed under a name it does not declare, a tree the consistency check
+already refuses, and the old console -- `images/web/Dockerfile` copies the
+document root a `site` build argument names and `scripts/render-build-request`
+renders no build arguments, so no recorded result can be the old console. It
+refuses with exit 3 and reports a run it could not make -- a tool absent, a
+verifier that reached no verdict -- with exit 2, which is not a pass. A commit
+that moved `images/worker` is warned about and acted on nowhere: no manifest
+selects that image, so no release moves it.
 
-The renderer writes nothing until both provenance and registry availability
-are proven. A build result alone never changes an environment, and accepting
-the Git change means only that Flux may attempt the rollout; it is not evidence
-of deployment success.
+Re-selecting a retained older result is the rollback operation and follows the
+same reviewable path. A build result alone never changes an environment, and
+accepting the Git change means only that Flux may attempt the rollout; it is not
+evidence of deployment success.
 
 Failed and stalled attempts are reported by the host timer, and retry and
 retirement preserve the immutable request and durable provenance. The

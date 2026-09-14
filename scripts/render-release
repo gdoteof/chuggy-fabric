@@ -1,0 +1,610 @@
+#!/usr/bin/env python3
+"""Render the release of one Chuggy commit into this tree's application
+manifests, from build results this repository already carries.
+
+WHAT A RELEASE IS. Flux reconciles `cluster/apps`, so the release is those
+manifests: each names its image by registry digest and annotates the source
+commit it was built from, and the migrate Job is named after that commit.
+`scripts/check-release-consistency` is the rule they are held to, and this
+command is what writes a tree that satisfies it. It writes and nothing else:
+no commit, no push, no registry read, no cluster contact. The pull request a
+caller opens over the edit is the deployment decision, and it is not this
+command's.
+
+WHAT MOVED IS READ FROM THE SOURCE, NOT DECLARED. The manifests say which
+commit is live; an image is rebuilt when a path its Dockerfile copies changed
+between that commit and the target, and an image whose inputs did not move
+keeps the digest it is already deployed at, so a release that changed nothing
+it serves does not restart it. The map from image to input paths is below and
+is the only copy in this repository. It was taken from chuggy's
+`deploy/rig/deploy-to-gtr.sh`, which decides the same question on the node with
+docker, and checked against the COPY lines of the three Dockerfiles it names.
+
+THE TWO TREES IT DIFFS. `--source-tree` is a chuggy checkout that already holds
+both commits, and is what a caller with a checkout should pass. Without it the
+command fetches `--source-ref` from `--source-url` into a throwaway bare
+repository with `--filter=blob:none`: the whole history of that ref in trees
+and commits and no file contents, which is all a path diff reads, and which is
+also what lets the live commit -- recorded in the manifests abbreviated --
+resolve at all, since an abbreviation cannot be fetched by name. The fetch is
+anonymous and refuses to prompt; a source that needs a credential is one the
+caller clones itself and passes with `--source-tree`.
+
+A DIGEST COMES ONLY FROM A VERIFIED RESULT. For each image whose inputs moved,
+the selected digest is the one recorded under
+`results/<repository-id>/<target-commit>/<request-digest>/<attempt>.json`, held
+to the checksum and the canonical provenance digest beside it, to the request
+in `builds/` it answers, to that request's own identities, and to the path both
+are filed under -- the same verification `tests/build-results.nix` holds this
+tree to, run here through the same module and with the same comparisons rather
+than restated, because a record that answers a request filed under the wrong
+name verifies against itself perfectly. Which image a result is of is the
+Dockerfile its request names, because both consoles publish to one image
+repository and the record cannot say which of them it is.
+
+WHAT IT REFUSES, ALL OF IT BEFORE ANYTHING IS WRITTEN:
+
+  * a tree `scripts/check-release-consistency` already refuses, because what is
+    live cannot be read off manifests that do not agree on it;
+  * an image whose inputs moved and which has no verified result at the target
+    commit -- naming the image, the Dockerfile a request would have to build,
+    and the failed attempt if one is recorded there;
+  * two verified results selecting different digests for one image at that
+    commit;
+  * a result whose request this tree does not carry, which is a result nothing
+    can identify, and a result or request whose own declared digest, repository
+    or source commit is not the one its path files it under;
+  * the old console. `images/web/Dockerfile` copies the document root named by
+    a `site` build argument and refuses to build without one, and
+    `scripts/render-build-request` renders no build arguments at all -- so no
+    result under `results/` can be the old console, and its inputs moving is a
+    release this fabric cannot produce until requests can carry that argument.
+    It is refused by name rather than left to look like an image that merely
+    has no result yet.
+
+The check is then run again over the edited tree and its verdict surfaced, so a
+release that does not identify one source is refused here rather than at the
+merge that would deploy it. That is the one refusal that arrives after the
+edit, and it leaves the edit in place to be read.
+
+WHAT IT CANNOT SEE. Whether the registry still serves a digest a result names:
+nothing here reads a registry, and the pod this runs in has no client for one.
+
+WHAT IT NEEDS ON PATH: `git`, and -- through `scripts/verify-build-provenance`,
+which is what holds a record to its request -- a shell, `jq`, `sha256sum`, `awk`
+and `mktemp`. The worker image carries all of them.
+
+Exit 0 clean, 2 when it could not run, 3 when it refuses the release. Exit 2 is
+not a pass, and an uncaught exception exits 1 rather than either. A tool that is
+absent, a child that cannot be executed and a verifier that reaches no verdict
+are all 2; everything the verification decides about this tree is 3.
+"""
+
+import argparse
+import importlib.machinery
+import importlib.util
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+# Importing a sibling writes bytecode into `scripts/`, which this repository
+# tracks by hand.
+sys.dont_write_bytecode = True
+
+from build_provenance import (  # noqa: E402  (after the line above, which it needs)
+    Unrunnable,
+    load_verified_result,
+    manifest_identities,
+    validate_result,
+    verify_record,
+)
+
+REFUSAL = 3
+UNRUNNABLE = 2
+REGISTRY = "registry.chuggy.internal/chuggy"
+# The repository entry `repositories.nix` declares for chuggy, which is also
+# what every build request under `builds/` clones.
+SOURCE_URL = "https://github.com/kasofsk/chuggy.git"
+SOURCE_REF = "refs/heads/main"
+# Not one of the release's images and not out of its account either: the worker
+# is built by the fabric's own build system and the image a run uses is named in
+# a configuration rather than in a manifest, so a release cannot move it and a
+# reader would otherwise learn nothing about a commit that rebuilt it.
+# `deploy-to-gtr.sh` says so and acts on nothing, and so does this.
+WORKER_PATHS = ("images/worker",)
+COMMIT = re.compile(r"[0-9a-f]{40}")
+ATTEMPT = re.compile(r"[a-z0-9][-a-z0-9.]*-a(?P<ordinal>[1-9][0-9]*)\.json")
+DOCKERFILE = re.compile(
+    r'^[ \t]*- name: dockerfile\n[ \t]*value: "(?P<dockerfile>[^"]+)"$', re.MULTILINE
+)
+
+
+class Image:
+    """One image of the release: where its inputs are, what builds it, which
+    image repository it is published under, and which manifests select it."""
+
+    def __init__(self, name, repository, dockerfile, paths, manifests, refusal=None):
+        self.name = name
+        self.repository = repository
+        self.dockerfile = dockerfile
+        self.paths = paths
+        self.manifests = manifests
+        self.refusal = refusal
+
+
+def images(roster):
+    """The map, and the one place in this repository it lives.
+
+    The paths are `deploy-to-gtr.sh`'s, read against each Dockerfile's COPY
+    lines: `images/api` copies `package.json`, `package-lock.json` and `src`;
+    `images/chuggy-ui` copies those two, `ui/chuggy-ui`, `src/contract`, the two
+    console-policy scripts and `images/web/nginx.conf`; `images/web` copies that
+    same nginx configuration and the site directory, which for the old console
+    is `ui/console`. Each set also carries the image directory itself, because a
+    change to the Dockerfile changes the image it builds.
+
+    Which manifests select which image is `check-release-consistency`'s roster
+    rather than a second copy here, so a control-plane component added there is
+    annotated and moved by this command without a second edit. The worker image
+    is out of this command's scope: the scheduler admits it by its own change
+    and no manifest in `cluster/apps` selects it."""
+    consoles = {"chuggy-ui.yaml", "chuggy-web.yaml"}
+    if set(roster.WEB_MANIFESTS) != consoles:
+        unrunnable(
+            "check-release-consistency names console manifests this command does "
+            f"not know how to build: {sorted(roster.WEB_MANIFESTS)}"
+        )
+    return (
+        Image(
+            name="api",
+            repository="api",
+            dockerfile="images/api/Dockerfile",
+            paths=("src", "images/api", "package.json", "package-lock.json"),
+            manifests=roster.API_MANIFESTS,
+        ),
+        Image(
+            name="chuggy-ui",
+            repository="web",
+            dockerfile="images/chuggy-ui/Dockerfile",
+            paths=(
+                "ui/chuggy-ui",
+                "src/contract",
+                "scripts/console-policy.ts",
+                "scripts/check-console-policy.ts",
+                "images/chuggy-ui",
+                "images/web/nginx.conf",
+                "package.json",
+                "package-lock.json",
+            ),
+            manifests=("chuggy-ui.yaml",),
+        ),
+        Image(
+            name="web",
+            repository="web",
+            dockerfile="images/web/Dockerfile",
+            paths=("ui/console", "images/web"),
+            manifests=("chuggy-web.yaml",),
+            refusal=(
+                "images/web/Dockerfile refuses to build without the site build "
+                "argument naming its document root, and render-build-request "
+                "passes no build arguments, so no recorded result is the old "
+                "console"
+            ),
+        ),
+    )
+
+
+def refuse(message):
+    print(f"render-release: {message}", file=sys.stderr)
+    raise SystemExit(REFUSAL)
+
+
+def unrunnable(message):
+    print(f"render-release: cannot run: {message}", file=sys.stderr)
+    raise SystemExit(UNRUNNABLE)
+
+
+def run(command, description):
+    """A child process, its output captured. Git is read-only here and signs
+    nothing, so the caller's environment is kept; what is forced is a prompt
+    that cannot appear -- a pod has no terminal to answer one -- and a locale
+    that cannot rephrase what is parsed."""
+    environment = dict(os.environ, GIT_TERMINAL_PROMPT="0", LC_ALL="C")
+    try:
+        completed = subprocess.run(
+            command, env=environment, capture_output=True, text=True, check=False
+        )
+    except OSError as error:
+        unrunnable(f"{description}: {command[0]} could not be run: {error}")
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip() or "no detail"
+        unrunnable(f"{description}: {detail}")
+    return completed.stdout
+
+
+def roster_of(scripts):
+    """`check-release-consistency`'s manifest lists, read out of the check
+    itself: the release is what that script reads, and a second list here would
+    be a release that is one edit away from selecting a different set of files
+    than the check that accepts it."""
+    path = scripts / "check-release-consistency"
+    loader = importlib.machinery.SourceFileLoader("check_release_consistency", str(path))
+    spec = importlib.util.spec_from_file_location(
+        "check_release_consistency", str(path), loader=loader
+    )
+    module = importlib.util.module_from_spec(spec)
+    try:
+        loader.exec_module(module)
+    except Exception as error:  # noqa: BLE001 -- any failure here is the same verdict
+        unrunnable(f"{path} could not be read for its manifest roster: {error}")
+    return module
+
+
+def consistency(scripts, apps, description):
+    """The check's own protocol kept: it exits REFUSAL to refuse the manifests
+    and anything else non-zero is a run that did not happen."""
+    try:
+        completed = subprocess.run(
+            [sys.executable, str(scripts / "check-release-consistency"), str(apps)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as error:
+        unrunnable(f"check-release-consistency could not be run: {error}")
+    if completed.returncode == REFUSAL:
+        refuse(f"{description}: {completed.stderr.strip()}")
+    if completed.returncode != 0:
+        unrunnable(
+            f"check-release-consistency exited {completed.returncode}: "
+            f"{completed.stderr.strip() or 'no detail'}"
+        )
+
+
+def one(pattern, text, description):
+    matches = list(pattern.finditer(text))
+    if len(matches) != 1:
+        refuse(f"{description}: expected one match, found {len(matches)}")
+    return matches[0]
+
+
+def annotation_pattern():
+    """The quoting is captured and written back, because what a line is quoted
+    as is the manifest's and not this command's to change."""
+    return re.compile(
+        r"^(?P<prefix>[ \t]*fabric\.chuggy\.dev/source-commit:[ \t]*)"
+        r'(?P<quote>"?)(?P<value>[0-9a-f]{7,40})"?[ \t]*$',
+        re.MULTILINE,
+    )
+
+
+def image_pattern(repository):
+    return re.compile(
+        rf"^(?P<prefix>[ \t]*image: {re.escape(REGISTRY)}/{repository}@)"
+        rf"(?P<digest>sha256:[0-9a-f]{{64}})[ \t]*$",
+        re.MULTILINE,
+    )
+
+
+def job_pattern():
+    return re.compile(
+        r"^(?P<prefix>[ \t]*name: chuggy-migrate-)(?P<value>[a-z0-9-]*)[ \t]*$", re.MULTILINE
+    )
+
+
+def manifest_text(apps, name):
+    path = apps / name
+    if not path.is_file():
+        refuse(f"the release does not carry {path}")
+    return path.read_text()
+
+
+def source_repository(arguments, stage):
+    """The chuggy history to diff, as a directory git will answer about."""
+    if arguments.source_tree is not None:
+        tree = arguments.source_tree
+        if not tree.is_dir():
+            unrunnable(f"--source-tree {tree} is not a directory")
+        run(["git", "-C", str(tree), "rev-parse", "--git-dir"], f"{tree} is not a Git checkout")
+        return tree
+    run(["git", "init", "--quiet", "--bare", str(stage)], "the staging repository was not created")
+    run(
+        [
+            "git",
+            "-C",
+            str(stage),
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            "--filter=blob:none",
+            arguments.source_url,
+            f"+{arguments.source_ref}:refs/fabric/source",
+        ],
+        f"{arguments.source_ref} could not be fetched from {arguments.source_url}",
+    )
+    return stage
+
+
+def resolve(source, revision, description):
+    completed = subprocess.run(
+        ["git", "-C", str(source), "rev-parse", "--verify", "--quiet", f"{revision}^{{commit}}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    commit = completed.stdout.strip()
+    if completed.returncode != 0 or COMMIT.fullmatch(commit) is None:
+        unrunnable(f"{description}: {revision} is not a commit in the source")
+    return commit
+
+
+def moved_paths(source, deployed, target, paths):
+    answer = run(
+        [
+            "git",
+            "-C",
+            str(source),
+            "diff",
+            "--name-only",
+            "--no-renames",
+            deployed,
+            target,
+            "--",
+            *paths,
+        ],
+        f"the change between {deployed} and {target} could not be read",
+    )
+    return [line for line in answer.splitlines() if line]
+
+
+def verdict(description, action):
+    """One of the provenance module's checks, run under this command's exit
+    codes. Every verdict it reaches is a fact about what this tree carries, and
+    so a refusal; the one thing it can fail at without reaching a verdict is
+    running the verifier at all."""
+    try:
+        return action()
+    except Unrunnable as error:
+        unrunnable(f"{description}: {error}")
+    except SystemExit as error:
+        refuse(f"{description}: {error}")
+
+
+def selected(fabric, repository_id, commit, by_dockerfile):
+    """Every verified result this tree carries for one commit, by the Dockerfile
+    its request names. A record that is not a successful attempt is kept apart:
+    it selects nothing, and it is the account a refusal owes an image whose
+    build was tried at this commit and failed.
+
+    What each record is held to is `tests/build-results.nix`'s, because a record
+    that verifies perfectly against a request filed under the wrong name is the
+    way this goes wrong: the path says which commit and which request a record
+    answers, and a record is read against the request at that path and against
+    the path itself."""
+    recorded = {}
+    failed = {}
+    directory = fabric / "results" / repository_id / commit
+    if not directory.is_dir():
+        return recorded, failed
+    for record in sorted(directory.rglob("*.json")):
+        relative = record.relative_to(fabric)
+        attempt = ATTEMPT.fullmatch(record.name)
+        if attempt is None or record.parent.parent != directory:
+            refuse(f"{relative} is not an attempt of a request of {commit}")
+        request = record.parent.name
+        manifest = fabric / "builds" / repository_id / commit / f"{request}.yaml"
+        named = manifest.relative_to(fabric)
+        if not manifest.is_file():
+            refuse(f"{relative} answers {named}, which this tree does not carry")
+        documents, identities = verdict(
+            f"{named} is not a request", lambda: manifest_identities(manifest.read_text())
+        )
+        dockerfile = one(DOCKERFILE, documents[0], f"{named} dockerfile").group("dockerfile")
+        if dockerfile not in by_dockerfile:
+            continue
+        image = by_dockerfile[dockerfile]
+        if identities["request"] != f"sha256:{request}":
+            refuse(f"{named} declares another request digest")
+        if identities["repository"] != repository_id or identities["source_commit"] != commit:
+            refuse(f"{named} declares another repository or source commit")
+        _, result = verdict(f"{relative} is not a record", lambda: load_verified_result(record))
+        if result.get("requestDigest") != f"sha256:{request}":
+            refuse(f"{relative} records another request digest")
+        if result.get("terminalCondition", {}).get("status") != "True":
+            failed.setdefault(image.name, []).append(record.stem)
+            continue
+        identities = dict(identities)
+        identities["attempt"] = record.stem
+        identities["ordinal"] = int(attempt.group("ordinal"))
+        verdict(
+            f"{relative} is not the result of {named}",
+            lambda: verify_record(record, identities),
+        )
+        _, image_repository, digest, _, _ = verdict(
+            f"{relative} cannot be selected from", lambda: validate_result(result, repository_id)
+        )
+        if image_repository.rsplit("/", 1)[-1] != image.repository:
+            refuse(
+                f"{relative} was built from {dockerfile} and published to "
+                f"{image_repository}, which is not the {image.repository} repository"
+            )
+        recorded.setdefault(image.name, {}).setdefault(digest, relative.as_posix())
+    return recorded, failed
+
+
+def listed(paths):
+    """What moved, enough of it to recognize the change by."""
+    shown = ", ".join(paths[:3])
+    return shown if len(paths) <= 3 else f"{shown} and others"
+
+
+def rewrite(apps, name, pattern, replacement, description):
+    path = apps / name
+    text = path.read_text()
+    one(pattern, text, f"{name} {description}")
+    edited = pattern.sub(replacement, text)
+    path.write_text(edited)
+    return one(pattern, edited, f"{name} {description} after the edit")
+
+
+def parse():
+    parser = argparse.ArgumentParser(
+        description="Render a Chuggy release into cluster/apps from recorded build results."
+    )
+    parser.add_argument(
+        "--target-commit", required=True, help="the chuggy commit to release, in full"
+    )
+    parser.add_argument("--fabric-root", type=Path, default=Path("."))
+    parser.add_argument("--repository-id", default="chuggy")
+    parser.add_argument(
+        "--source-tree", type=Path, default=None, help="a chuggy checkout holding both commits"
+    )
+    parser.add_argument("--source-url", default=SOURCE_URL)
+    parser.add_argument("--source-ref", default=SOURCE_REF)
+    arguments = parser.parse_args()
+    if COMMIT.fullmatch(arguments.target_commit) is None:
+        unrunnable("--target-commit must be a full 40-character commit")
+    return arguments
+
+
+def main():
+    arguments = parse()
+    scripts = Path(__file__).resolve().parent
+    fabric = arguments.fabric_root
+    apps = fabric / "cluster" / "apps"
+    if not apps.is_dir():
+        unrunnable(f"{apps} is not a directory, so there is no release to render")
+    target = arguments.target_commit
+
+    roster = roster_of(scripts)
+    release = images(roster)
+    consistency(scripts, apps, "the fabric is not at a release this command can move")
+
+    # Any manifest of the roster answers what is live: the check above has
+    # already held every one of them to one source commit.
+    live = release[0].manifests[0]
+    deployed = one(
+        annotation_pattern(), manifest_text(apps, live), f"{live} source commit"
+    ).group("value")
+    # The label the release is annotated with is the target abbreviated to the
+    # length the live manifests already use: the tree states its own convention,
+    # and a command that had to be told what git would have abbreviated to could
+    # be told wrong.
+    label = target[: len(deployed)]
+    carried = {
+        image.name: one(
+            image_pattern(image.repository),
+            manifest_text(apps, image.manifests[0]),
+            f"{image.manifests[0]} image",
+        ).group("digest")
+        for image in release
+    }
+
+    stage = Path(tempfile.mkdtemp(prefix="render-release."))
+    try:
+        source = source_repository(arguments, stage)
+        # The live commit is compared whole rather than by its label: two
+        # commits sharing an abbreviation would otherwise be one release
+        # silently declining to render.
+        deployed_commit = resolve(source, deployed, "what is live cannot be read")
+        target_commit = resolve(source, target, "the target commit cannot be read")
+        if deployed_commit == target_commit:
+            print(f"render-release: cluster/apps is already at {deployed}; nothing to render")
+            return
+        moved = {
+            image.name: moved_paths(source, deployed_commit, target_commit, image.paths)
+            for image in release
+        }
+        worker = moved_paths(source, deployed_commit, target_commit, WORKER_PATHS)
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+
+    if worker:
+        # Flushed, because what follows may be a refusal on stderr and a reader
+        # given the two out of order reads the warning as being about that.
+        print(
+            f"render-release: WARNING -- images/worker moved since {deployed} "
+            f"({listed(worker)}), and no release moves the worker image",
+            flush=True,
+        )
+
+    recorded, failed = selected(
+        fabric, arguments.repository_id, target, {image.dockerfile: image for image in release}
+    )
+    selection = {}
+    refusals = []
+    for image in release:
+        digests = recorded.get(image.name, {})
+        if not moved[image.name]:
+            selection[image.name] = (carried[image.name], None)
+            continue
+        if len(digests) > 1:
+            refusals.append(
+                f"{image.name}: verified results at {target} select different "
+                f"digests: {', '.join(sorted(digests.values()))}"
+            )
+            continue
+        since = f"its inputs moved ({listed(moved[image.name])})"
+        if image.refusal is not None:
+            refusals.append(f"{image.name}: {since}, and {image.refusal}")
+            continue
+        if not digests:
+            attempts = failed.get(image.name)
+            account = (
+                f"; {', '.join(attempts)} was attempted there and did not succeed"
+                if attempts
+                else ""
+            )
+            refusals.append(
+                f"{image.name}: {since} and no verified result at {target} builds "
+                f"{image.dockerfile}{account}. Render a build request for it, land "
+                f"the result, and run again"
+            )
+            continue
+        digest, record = next(iter(digests.items()))
+        selection[image.name] = (digest, record)
+
+    if refusals:
+        for refusal in refusals:
+            print(f"render-release: {refusal}", file=sys.stderr)
+        raise SystemExit(REFUSAL)
+
+    for image in release:
+        digest, record = selection[image.name]
+        if record is None:
+            continue
+        for name in image.manifests:
+            rewrite(apps, name, image_pattern(image.repository), rf"\g<prefix>{digest}", "image")
+    for image in release:
+        for name in image.manifests:
+            rewrite(
+                apps,
+                name,
+                annotation_pattern(),
+                rf"\g<prefix>\g<quote>{label}\g<quote>",
+                "source commit",
+            )
+    rewrite(apps, "chuggy-migrate.yaml", job_pattern(), rf"\g<prefix>{label}-registry", "Job name")
+
+    consistency(scripts, apps, "the rendered release does not identify one source")
+
+    print(f"render-release: {deployed} -> {label} ({target})")
+    for image in release:
+        digest, record = selection[image.name]
+        if record is None:
+            state = f"unmoved, carried forward from {deployed}"
+        else:
+            state = f"moved, selected from {record}"
+        print(f"  {image.name:<10} {digest}  {state}")
+    print(
+        f"  every manifest annotated {label}, migrate Job "
+        f"chuggy-migrate-{label}-registry, check-release-consistency accepts"
+    )
+
+
+if __name__ == "__main__":
+    main()
