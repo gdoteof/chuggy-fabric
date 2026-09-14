@@ -52,10 +52,7 @@ BASE_FILES = {
     "scripts/check-console-policy.ts": "export const check = () => true\n",
     "images/api/Dockerfile": "FROM node\nCOPY src ./src\n",
     "images/chuggy-ui/Dockerfile": "FROM node\nCOPY ui/chuggy-ui ui/chuggy-ui\n",
-    "images/web/Dockerfile": "FROM nginx\nARG site\nCOPY ${site}/ /usr/share/nginx/html/\n",
-    "images/web/nginx.conf": "events {}\n",
     "ui/chuggy-ui/app/main.ts": "export const main = () => undefined\n",
-    "ui/console/index.html": "<!doctype html>\n",
     "images/worker/Dockerfile": "FROM node\nCOPY images/worker/entrypoint.mjs .\n",
     "docs/runbook.md": "# runbook\n",
 }
@@ -64,7 +61,6 @@ BASE_FILES = {
 MOVES = {
     "api": ("src/roots/nativeHttp.ts",),
     "ui": ("ui/chuggy-ui/app/main.ts",),
-    "console": ("ui/console/index.html",),
     "both": ("src/roots/nativeHttp.ts", "ui/chuggy-ui/app/main.ts"),
     "worker": ("images/worker/Dockerfile",),
     "documentation": ("docs/runbook.md",),
@@ -83,7 +79,7 @@ API_MANIFESTS = (
     "chuggy-ticket-service.yaml",
     "chuggy-worker-plane.yaml",
 )
-RELEASE_MANIFESTS = API_MANIFESTS + ("chuggy-ui.yaml", "chuggy-web.yaml")
+RELEASE_MANIFESTS = API_MANIFESTS + ("chuggy-ui.yaml",)
 
 failures = []
 
@@ -349,19 +345,16 @@ def main():
     source, commits = source_history()
     base = commits["base"]
 
-    # A console release: the realtime console's inputs moved and nothing else
-    # did, so one manifest takes a digest and every manifest takes the commit.
+    # A console release: the console's inputs moved and nothing else did, so one
+    # manifest takes a digest and every manifest takes the commit.
     case = "console-only"
     root = fabric(case, base)
     carried_api = digest_of(root, "chuggy-api.yaml", "api")
-    carried_web = digest_of(root, "chuggy-web.yaml", "web")
     selected = record(root, commits["ui"], "chuggy-ui", NEW_UI)
     if expect(case, render(root, commits["ui"], source), 0, ["moved, selected from " + selected]):
         accepts(case, root)
         if digest_of(root, "chuggy-ui.yaml", "web") != NEW_UI:
             report(case, "chuggy-ui.yaml does not select the recorded digest")
-        if digest_of(root, "chuggy-web.yaml", "web") != carried_web:
-            report(case, "the old console did not keep the digest it is deployed at")
         if digest_of(root, "chuggy-api.yaml", "api") != carried_api:
             report(case, "the api did not keep the digest it is deployed at")
         if annotations(root) != {commits["ui"][:8]}:
@@ -433,17 +426,6 @@ def main():
     root = fabric(case, base)
     record(root, commits["api"], "api", None, succeeded=False)
     expect(case, render(root, commits["api"], source), 3, ["did not succeed"])
-
-    # The old console, which no request can build until one can carry a build
-    # argument.
-    case = "old-console"
-    root = fabric(case, base)
-    expect(
-        case,
-        render(root, commits["console"], source),
-        3,
-        ["web", "site build argument", "ui/console/index.html"],
-    )
 
     # Two results for one image at one commit, selecting different digests.
     # Nothing here can know which is the release, so neither is.

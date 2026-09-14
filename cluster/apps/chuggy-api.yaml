@@ -2,7 +2,7 @@
 # thing on this cluster that holds the `chuggy_api` database role.
 #
 # It answers under `/api/v1` on chuggy.vteng.io. The Ingress that puts it there
-# is in chuggy-web.yaml, beside the console that holds `/` on the same host --
+# is in chuggy-ui.yaml, beside the console that holds `/` on the same host --
 # one origin, because the API implements no cross-origin preflight and a console
 # served from anywhere else could not read it at all.
 #

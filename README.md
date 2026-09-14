@@ -751,16 +751,14 @@ and the canonical provenance digest beside it, to the request in `builds/` it
 answers, and to the path both are filed under -- the comparisons
 `tests/build-results.nix` makes, because a record answering a request filed
 under the wrong name verifies against itself perfectly. Which image a result is
-of is the Dockerfile its request names, because both consoles publish to one
-image repository and the record cannot say which of them it is.
+of is the Dockerfile its request names, because the image repository a result
+publishes to does not identify it.
 
 What the command refuses is stated in its own header and driven by
 `tests/render-release.nix`: an image whose inputs moved with no verified result
 at that commit, two results selecting different digests for one image, a record
-or request filed under a name it does not declare, a tree the consistency check
-already refuses, and the old console -- `images/web/Dockerfile` copies the
-document root a `site` build argument names and `scripts/render-build-request`
-renders no build arguments, so no recorded result can be the old console. It
+or request filed under a name it does not declare, and a tree the consistency
+check already refuses. It
 refuses with exit 3 and reports a run it could not make -- a tool absent, a
 verifier that reached no verdict -- with exit 2, which is not a pass. A commit
 that moved `images/worker` is warned about and acted on nowhere: no manifest
@@ -1366,14 +1364,12 @@ mints, and `github.com` for a bound repository's `ls-remote` and `fetch`. It is
 the only one of these the internet reaches, so it is the one whose rule fails as
 an outage rather than as a loop that stalls.
 
-**`chuggy-web` is selected by none of the nine, in either direction**, and that
+**`chuggy-ui` is selected by none of the nine, in either direction**, and that
 is the state this PR leaves it in rather than a decision it argues. It is the
 console: nginx serving static files, reached from Traefik, with no `proxy_pass`
 in it — the browser reaches the API through Traefik and this pod opens no
 connection to it. Nothing here restricts what may reach it or where it may go.
-Bounding it is worth doing and is not this change. `chuggy-ui`, the second
-console, is the same image in the same posture and is selected by none of them
-either; bounding both is one change.
+Bounding it is worth doing and is not this change.
 
 **No probe has been run through any of these.** They were built against the API
 server and their selectors checked against the labels the cluster carries, but

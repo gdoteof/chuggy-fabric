@@ -58,24 +58,10 @@ pkgs.runCommand "chuggy-release-images" {
     mixed-digest/chuggy-api.yaml
   refused mixed-digest 'control-plane manifests do not select one API image digest'
 
-  cp -R manifests mixed-source
-  sed -i '0,/source-commit:/s/source-commit: .*/source-commit: abcdef0/' \
-    mixed-source/chuggy-web.yaml
-  refused mixed-source 'release manifests do not identify one source commit'
-
   cp -R manifests mixed-console-source
   sed -i '0,/source-commit:/s/source-commit: .*/source-commit: abcdef0/' \
     mixed-console-source/chuggy-ui.yaml
   refused mixed-console-source 'release manifests do not identify one source commit'
-
-  cp -R manifests shared-console-digest
-  shared=sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-  for console in chuggy-web chuggy-ui; do
-    sed -i "0,/chuggy\/web@sha256:/s|chuggy/web@sha256:[0-9a-f]*|chuggy/web@$shared|" \
-      "shared-console-digest/$console.yaml"
-  done
-  refused shared-console-digest \
-    'console manifests select one web image digest for both consoles'
 
   cp -R manifests stale-migration
   sed -i '0,/name: chuggy-migrate-/s/name: chuggy-migrate-[a-z0-9-]*/name: chuggy-migrate-abcdef0-registry/' \

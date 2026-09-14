@@ -39,8 +39,8 @@ are filed under -- the same verification `tests/build-results.nix` holds this
 tree to, run here through the same module and with the same comparisons rather
 than restated, because a record that answers a request filed under the wrong
 name verifies against itself perfectly. Which image a result is of is the
-Dockerfile its request names, because both consoles publish to one image
-repository and the record cannot say which of them it is.
+Dockerfile its request names, because the image repository a result publishes
+to does not identify it.
 
 WHAT IT REFUSES, ALL OF IT BEFORE ANYTHING IS WRITTEN:
 
@@ -53,14 +53,7 @@ WHAT IT REFUSES, ALL OF IT BEFORE ANYTHING IS WRITTEN:
     commit;
   * a result whose request this tree does not carry, which is a result nothing
     can identify, and a result or request whose own declared digest, repository
-    or source commit is not the one its path files it under;
-  * the old console. `images/web/Dockerfile` copies the document root named by
-    a `site` build argument and refuses to build without one, and
-    `scripts/render-build-request` renders no build arguments at all -- so no
-    result under `results/` can be the old console, and its inputs moving is a
-    release this fabric cannot produce until requests can carry that argument.
-    It is refused by name rather than left to look like an image that merely
-    has no result yet.
+    or source commit is not the one its path files it under.
 
 The check is then run again over the edited tree and its verdict surfaced, so a
 release that does not identify one source is refused here rather than at the
@@ -127,13 +120,12 @@ class Image:
     """One image of the release: where its inputs are, what builds it, which
     image repository it is published under, and which manifests select it."""
 
-    def __init__(self, name, repository, dockerfile, paths, manifests, refusal=None):
+    def __init__(self, name, repository, dockerfile, paths, manifests):
         self.name = name
         self.repository = repository
         self.dockerfile = dockerfile
         self.paths = paths
         self.manifests = manifests
-        self.refusal = refusal
 
 
 def images(roster):
@@ -141,18 +133,16 @@ def images(roster):
 
     The paths are `deploy-to-gtr.sh`'s, read against each Dockerfile's COPY
     lines: `images/api` copies `package.json`, `package-lock.json` and `src`;
-    `images/chuggy-ui` copies those two, `ui/chuggy-ui`, `src/contract`, the two
-    console-policy scripts and `images/web/nginx.conf`; `images/web` copies that
-    same nginx configuration and the site directory, which for the old console
-    is `ui/console`. Each set also carries the image directory itself, because a
-    change to the Dockerfile changes the image it builds.
+    `images/chuggy-ui` copies those two, `ui/chuggy-ui`, `src/contract` and the
+    two console-policy scripts. Each set also carries the image directory
+    itself, because a change to the Dockerfile changes the image it builds.
 
     Which manifests select which image is `check-release-consistency`'s roster
     rather than a second copy here, so a control-plane component added there is
     annotated and moved by this command without a second edit. The worker image
     is out of this command's scope: the scheduler admits it by its own change
     and no manifest in `cluster/apps` selects it."""
-    consoles = {"chuggy-ui.yaml", "chuggy-web.yaml"}
+    consoles = {"chuggy-ui.yaml"}
     if set(roster.WEB_MANIFESTS) != consoles:
         unrunnable(
             "check-release-consistency names console manifests this command does "
@@ -176,24 +166,10 @@ def images(roster):
                 "scripts/console-policy.ts",
                 "scripts/check-console-policy.ts",
                 "images/chuggy-ui",
-                "images/web/nginx.conf",
                 "package.json",
                 "package-lock.json",
             ),
             manifests=("chuggy-ui.yaml",),
-        ),
-        Image(
-            name="web",
-            repository="web",
-            dockerfile="images/web/Dockerfile",
-            paths=("ui/console", "images/web"),
-            manifests=("chuggy-web.yaml",),
-            refusal=(
-                "images/web/Dockerfile refuses to build without the site build "
-                "argument naming its document root, and render-build-request "
-                "passes no build arguments, so no recorded result is the old "
-                "console"
-            ),
         ),
     )
 
@@ -549,9 +525,6 @@ def main():
             )
             continue
         since = f"its inputs moved ({listed(moved[image.name])})"
-        if image.refusal is not None:
-            refusals.append(f"{image.name}: {since}, and {image.refusal}")
-            continue
         if not digests:
             attempts = failed.get(image.name)
             account = (
