@@ -56,6 +56,7 @@ BASE_FILES = {
     "images/web/nginx.conf": "events {}\n",
     "ui/chuggy-ui/app/main.ts": "export const main = () => undefined\n",
     "ui/console/index.html": "<!doctype html>\n",
+    "images/worker/Dockerfile": "FROM node\nCOPY images/worker/entrypoint.mjs .\n",
     "docs/runbook.md": "# runbook\n",
 }
 # One file per image, and one that belongs to no image: what a case moves is
@@ -65,6 +66,7 @@ MOVES = {
     "ui": ("ui/chuggy-ui/app/main.ts",),
     "console": ("ui/console/index.html",),
     "both": ("src/roots/nativeHttp.ts", "ui/chuggy-ui/app/main.ts"),
+    "worker": ("images/worker/Dockerfile",),
     "documentation": ("docs/runbook.md",),
 }
 DOCKERFILES = {
@@ -156,20 +158,25 @@ def fabric(name, deployed):
     for path in apps.rglob("*"):
         path.chmod(path.stat().st_mode | 0o200)
     for path in apps.glob("*.yaml"):
-        text = path.read_text()
-        text = re.sub(
-            r"^([ \t]*fabric\.chuggy\.dev/source-commit:[ \t]*).*$",
-            rf"\g<1>{deployed[:8]}",
-            text,
-            flags=re.MULTILINE,
+        path.write_text(
+            re.sub(
+                r"^([ \t]*fabric\.chuggy\.dev/source-commit:[ \t]*).*$",
+                rf"\g<1>{deployed[:8]}",
+                path.read_text(),
+                flags=re.MULTILINE,
+            )
         )
-        text = re.sub(
+    # Only where the Job is: the same name reads in the network policy beside it,
+    # and a fixture that re-seeded that one would not be this tree any more.
+    job = apps / "chuggy-migrate.yaml"
+    job.write_text(
+        re.sub(
             r"^([ \t]*name: chuggy-migrate-)[a-z0-9-]*$",
             rf"\g<1>{deployed[:8]}-registry",
-            text,
+            job.read_text(),
             flags=re.MULTILINE,
         )
-        path.write_text(text)
+    )
     return root
 
 
@@ -258,7 +265,7 @@ def record(root, commit, image, digest, succeeded=True, ordinal=1, cache="disabl
     return path.relative_to(root).as_posix()
 
 
-def render(root, target, source, *arguments):
+def render(root, target, source, *arguments, environment=None):
     return subprocess.run(
         [
             str(SCRIPTS / "render-release"),
@@ -270,6 +277,7 @@ def render(root, target, source, *arguments):
             str(source),
             *arguments,
         ],
+        env=environment,
         capture_output=True,
         text=True,
         check=False,
@@ -444,6 +452,98 @@ def main():
     record(root, commits["ui"], "chuggy-ui", NEW_UI)
     record(root, commits["ui"], "chuggy-ui", OTHER_UI, cache="registry")
     expect(case, render(root, commits["ui"], source), 3, ["select different digests"])
+
+    # A commit that rebuilds the worker image is not a release of it -- no
+    # manifest selects that image -- and the account has to say so anyway.
+    case = "worker-moved"
+    root = fabric(case, base)
+    if expect(case, render(root, commits["worker"], source), 0, ["images/worker moved since"]):
+        accepts(case, root)
+
+    # The bytes and the checksum beside them are what make a record a record,
+    # and a record that fails that is a fact about the tree: a refusal, not a
+    # crash, and not something a caller reads as "the script broke".
+    case = "checksum-mismatch"
+    root = fabric(case, base)
+    selected = record(root, commits["ui"], "chuggy-ui", NEW_UI)
+    (root / f"{selected}.sha256").write_text(f"sha256:{'0' * 64}\n")
+    expect(case, render(root, commits["ui"], source), 3, ["build result checksum mismatch"])
+
+    # The verifier is a shell script with tools of its own, and a tool it cannot
+    # find is a run that did not happen. Reported as a refusal it would read as
+    # a rollout that cannot be produced yet, which is a different instruction.
+    case = "verifier-cannot-run"
+    root = fabric(case, base)
+    record(root, commits["ui"], "chuggy-ui", NEW_UI)
+    # Everything the run needs except what the verifier reaches for: git for the
+    # path diff, and the two interpreters an unpatched checkout resolves its own
+    # shebangs through.
+    thin = WORK / "thin-path"
+    thin.mkdir(exist_ok=True)
+    missing = []
+    for command in ("git", "python3", "bash"):
+        found = shutil.which(command)
+        if found is None:
+            missing.append(command)
+            continue
+        link = thin / command
+        if not link.exists():
+            link.symlink_to(found)
+    if missing:
+        report(case, f"{', '.join(missing)} is not on PATH, so the thinned PATH proves nothing")
+    else:
+        expect(
+            case,
+            render(
+                root,
+                commits["ui"],
+                source,
+                environment=dict(os.environ, PATH=str(thin)),
+            ),
+            2,
+            ["cannot run", "sha256sum"],
+        )
+
+    # The path is an identity: a request whose annotations declare another
+    # commit verifies against its own record perfectly, and would put an image
+    # built from that other commit into this release.
+    case = "misfiled-request"
+    root = fabric(case, base)
+    stray = WORK / f"{case}-stray"
+    stray.mkdir()
+    strayed = record(stray, commits["api"], "chuggy-ui", NEW_UI)
+    request_digest = Path(strayed).parent.name
+    for source_path, destination in (
+        (
+            stray / "builds" / "chuggy" / commits["api"] / f"{request_digest}.yaml",
+            root / "builds" / "chuggy" / commits["ui"] / f"{request_digest}.yaml",
+        ),
+        (
+            stray / "results" / "chuggy" / commits["api"] / request_digest,
+            root / "results" / "chuggy" / commits["ui"] / request_digest,
+        ),
+    ):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if source_path.is_dir():
+            shutil.copytree(source_path, destination)
+        else:
+            shutil.copy(source_path, destination)
+    expect(
+        case,
+        render(root, commits["ui"], source),
+        3,
+        ["declares another repository or source commit"],
+    )
+
+    # And the other half of that identity: a record filed under a request that
+    # is not the one it answers.
+    case = "misfiled-record"
+    root = fabric(case, base)
+    answered = Path(record(root, commits["ui"], "chuggy-ui", NEW_UI)).parent
+    other = request(root, commits["ui"], "images/chuggy-ui/Dockerfile", "web", "registry")
+    shutil.copytree(root / answered, root / answered.parent / other)
+    shutil.rmtree(root / answered)
+    expect(case, render(root, commits["ui"], source), 3, ["records another request digest"])
 
     # A record whose request this tree does not carry is a record nothing can
     # identify, and identifying it is how the image it belongs to is decided.

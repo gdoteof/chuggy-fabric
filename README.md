@@ -747,16 +747,24 @@ a throwaway repository, which is also what lets the abbreviated live commit
 resolve at all.
 
 A digest comes only from a result this repository carries, held to the checksum
-and the canonical provenance digest beside it and to the request in `builds/` it
-answers. Which image a result is of is the Dockerfile its request names, because
-both consoles publish to one image repository and the record cannot say which of
-them it is. What the command refuses is stated in its own header and driven by
+and the canonical provenance digest beside it, to the request in `builds/` it
+answers, and to the path both are filed under -- the comparisons
+`tests/build-results.nix` makes, because a record answering a request filed
+under the wrong name verifies against itself perfectly. Which image a result is
+of is the Dockerfile its request names, because both consoles publish to one
+image repository and the record cannot say which of them it is.
+
+What the command refuses is stated in its own header and driven by
 `tests/render-release.nix`: an image whose inputs moved with no verified result
-at that commit, two results selecting different digests for one image, a tree
-the consistency check already refuses, and the old console --
-`images/web/Dockerfile` copies the document root a `site` build argument names
-and `scripts/render-build-request` renders no build arguments, so no recorded
-result can be the old console.
+at that commit, two results selecting different digests for one image, a record
+or request filed under a name it does not declare, a tree the consistency check
+already refuses, and the old console -- `images/web/Dockerfile` copies the
+document root a `site` build argument names and `scripts/render-build-request`
+renders no build arguments, so no recorded result can be the old console. It
+refuses with exit 3 and reports a run it could not make -- a tool absent, a
+verifier that reached no verdict -- with exit 2, which is not a pass. A commit
+that moved `images/worker` is warned about and acted on nowhere: no manifest
+selects that image, so no release moves it.
 
 Re-selecting a retained older result is the rollback operation and follows the
 same reviewable path. A build result alone never changes an environment, and

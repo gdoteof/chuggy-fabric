@@ -128,18 +128,38 @@ def manifest_identities(content):
     }
 
 
+class Unrunnable(SystemExit):
+    """The verifier reached no verdict -- a tool it needs is absent, or it could
+    not be executed at all. Uncaught this ends a run exactly as every other
+    refusal in this module does; a caller whose exit codes separate a finding
+    from a run that did not happen catches it and says which this was."""
+
+
 def verify_record(record, identities):
     """The verified result at an arbitrary path. Split from `verify` below
     because the host's directory is not the only place a record lives: `results/`
     in this repository holds the same bytes under a path that names the request's
-    repository and commit too, and one verifier decides both."""
+    repository and commit too, and one verifier decides both.
+
+    The verifier exits 1 for a record that does not answer the identities and
+    anything else for a run it could not complete -- 64 for arguments it does not
+    take, and the shell's own codes for a tool it could not find. Only the first
+    is a fact about the record."""
     verifier = Path(__file__).with_name("verify-build-provenance")
     command = [str(verifier), str(record)]
     for name, value in identities.items():
         command.extend((f"--{name.replace('_', '-')}", str(value)))
-    completed = subprocess.run(command, text=True, capture_output=True)
-    if completed.returncode != 0:
+    try:
+        completed = subprocess.run(command, text=True, capture_output=True)
+    except OSError as error:
+        raise Unrunnable(f"{verifier} could not be run: {error}")
+    if completed.returncode == 1:
         raise SystemExit(completed.stderr.strip() or "provenance verification failed")
+    if completed.returncode != 0:
+        raise Unrunnable(
+            f"{verifier} exited {completed.returncode}: "
+            f"{completed.stderr.strip() or 'no detail'}"
+        )
     return json.loads(completed.stdout)
 
 

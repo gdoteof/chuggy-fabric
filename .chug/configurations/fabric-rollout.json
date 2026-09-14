@@ -29,7 +29,7 @@
       ],
       "constraints": [
         "Resolve chuggy main yourself at run time: git ls-remote https://github.com/kasofsk/chuggy.git refs/heads/main. The brief cannot know it.",
-        "Render the rollout with scripts/render-release --target-commit <that commit>, from the repository root, and commit exactly what it wrote. It edits cluster/apps and nothing else: the image digest where an image moved, the source-commit annotation on every manifest, and the migrate Job named for the release.",
+        "Render the rollout with scripts/render-release --target-commit <that commit>, from the repository root, and commit exactly what it wrote. It edits cluster/apps and nothing else: the image digest where an image moved, the source-commit annotation on every manifest scripts/check-release-consistency names, and the migrate Job named for the release. It warns when images/worker moved, which no release moves and nothing needs done about here.",
         "Digests come only from recorded build results under results/<repository>/<commit>/<request>/; never from a registry read or a hand edit. render-release refuses a release whose images moved and have no verified result at that commit, and refuses the old console outright because no build request can carry its site argument. A refusal is a rollout that cannot be produced yet: report what it said and stop, and never edit a manifest by hand instead.",
         "Do not reconcile Flux, apply manifests, restart infrastructure, reset data, or deploy. main is live; the pull request you open is the deployment decision and it is the owner's."
       ]
