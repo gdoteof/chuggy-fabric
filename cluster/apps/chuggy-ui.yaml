@@ -1,60 +1,69 @@
-# The realtime console, and the Ingress for the host it owns.
+# The chuggy console, and the Ingress for the host it owns.
 #
-# The same image as chuggy-web -- nginx over a directory of static files, no
-# build step in the container, no server side -- built from a different document
-# root. `deploy/rig/images/build-and-import.sh` in kasofsk/chuggy builds
-# `images/web` with `CHUG_WEB_SITE=ui/chuggy-ui/dist`, so what separates the two
-# consoles is the directory that went into the image and the `/config.json`
-# mounted beside it. Everything chuggy-web.yaml argues about that image -- the
-# `alias` that serves `/config.json` from outside the document root, the
-# security headers travelling with the document rather than with the Ingress,
-# `/tmp` as the only writable path -- is true here and is not repeated.
+# nginx over the bundle `images/chuggy-ui/Dockerfile` in kasofsk/chuggy builds:
+# the install and the bundle happen inside that image, so what it serves is a
+# function of the source commit and not of whichever Node the build host had.
+# No server side. Everything the console decides it decides in the browser, and
+# everything it decides about is behind the API next door.
 #
-# --------------------------------------------------- why a host of its own ----
+# ------------------------------------------------- the chuggy.vteng.io split ----
 #
-# chuggy-web.yaml's one-origin argument is about a console and the API it reads,
-# not about two consoles. It says each console must reach `/api/v1` on the
-# hostname the browser loaded it from, and this Ingress does exactly that. What
-# it does not say is that the two consoles share a name: they both want `/`, and
-# putting the second under `chuggy.vteng.io/ui/` would mean an image serving
-# from a sub-path, a router doing the same, and a redirect URI underneath it.
-# A second name is the cheaper of the two, and it keeps the old console's
-# origin -- and therefore its registered client -- untouched.
+# ONE ORIGIN, AND THAT IS THE WHOLE REASON FOR THIS SHAPE. The API implements no
+# cross-origin preflight -- no OPTIONS handler and no Access-Control-Allow-Origin
+# anywhere in it -- so a console served from any other hostname could not read it
+# at all. `/api/v1` and `/` are therefore two backends behind one Ingress rather
+# than two Ingresses, and moving either to a host of its own breaks the console
+# without breaking anything a curl would notice.
 #
-# ----------------------------------------------------------- the reference ----
+# Traefik orders rules by the length of the matcher it builds, so `/api/v1` wins
+# over `/` without anything here saying so.
 #
-# A DIGEST AND A SOURCE COMMIT, which `scripts/check-release-consistency` reads
-# here as it reads them in chuggy-web.yaml: two consoles, one source, and no
-# release that moves one without the other.
+# `pathType: Prefix` IS A STRING PREFIX TO TRAEFIK, not a path-segment one, so
+# `/api/v1foo` reaches the API rather than the console. Harmless -- the API
+# answers it with its own 404 and the console has no such route to lose -- but
+# the two rules are disjoint by intent and not by the matcher, and a future rule
+# that assumed segment boundaries would be wrong here.
 #
-# WHAT NO CHECK CAN DECIDE IS WHICH CONSOLE A `chuggy/web` DIGEST HOLDS. Both
-# are that repository at that commit built from a different document root, and
-# `CHUG_WEB_SITE` -- the whole of the difference -- is nowhere in the image. So
-# the script refuses the two digests being equal, which is the one form of the
-# mistake it can see, and the build's own record is what says which is which.
+# The image proxies nothing. `/api/v1` reaches the API because this Ingress sends
+# it there and for no other reason -- there is no proxy_pass in the container, so
+# a request that arrives at the console's port under that path is served the
+# index like any other unresolved route.
 #
-# THE BUILD IS GIVEN ITS REFERENCE RATHER THAN PRODUCING IT.
-# `deploy/rig/images/build-and-import.sh` defaults `CHUG_IMAGE_PREFIX` to
-# `chuggy.invalid` and `CHUG_IMAGE_TAG` to the short commit of a clean tree --
-# and that short commit is the OTHER console's tag on the same release, because
-# one repository at one commit builds both. So this image is built with both
-# variables set: the prefix this cluster resolves, and `chuggy-ui`, a tag that
-# names the document root where the default names the commit.
+# `/api/v1/tenants/:tenant/projects/:project/events` is under that prefix, so the
+# stream needs no rule of its own. What it does need is a heartbeat, and
+# chuggy-api.yaml carries the measured timeout that bounds it.
+#
+# NEITHER PROBE PATH IS PUBLISHED, and that is a decision rather than an
+# omission. `/health/live` and `/health/ready` are unauthenticated and the
+# kubelet reaches them on the pod address, which is the only reader that acts on
+# them. `/health/ready` runs a database query for every request it answers, so
+# publishing it would put an unauthenticated round trip to the durable authority
+# on the open internet with nothing throttling it and no consumer asking for it.
+# What that costs is a `kubectl` away from anyone who needs the answer. Both
+# paths therefore fall to the console below and are served its index.
 #
 # --------------------------------------------------------- the runtime config ----
 #
-# The console reads `/config.json` at start-up; the ConfigMap below is what
-# tells this image which installation it is. Every value in it is public by
-# construction and `chuggy-ui` is a public client, exactly as chuggy-web is.
+# The console reads `/config.json` at start-up, so one image serves every
+# installation and the deployment is what tells it which one it is. The image
+# serves that path by `alias` from OUTSIDE the document root, which is why the
+# ConfigMap mounts at /etc/chuggy/web and not into the site: a copy of the file
+# inside the site is then unreachable rather than silently authoritative, and an
+# unmounted config is a 404 rather than the index -- a console handed HTML where
+# its configuration should be cannot tell what went wrong.
 #
-# `audience` NAMES THE API AND NOT THIS HOST, which is why it is
-# `https://chuggy.vteng.io/api` on a console served from chuggy-ui.vteng.io.
-# The API takes `CHUG_API_OIDC_AUDIENCE` as one required string -- see
-# `oidcAudienceVariable` in kasofsk/chuggy's `src/roots/nativeHttp.ts` -- so
-# there is one audience for one API, and a console that asked for its own
-# hostname would be issued a token that verifies perfectly and is refused by
-# every read. Changing the API's value to this host's name would do the same to
-# chuggy-web.
+# Every value in it is public by construction. `chuggy-ui` is a public client:
+# it holds no secret, it proves possession of the authorization code with PKCE,
+# and the redirect below is registered with Hydra. What stops someone else's page
+# using this client id is that registration, not the secrecy of this file.
+#
+# `audience` is not decoration, and it names the API rather than a host. Hydra
+# puts the GRANTED audience in the token, so a console that does not ask for one
+# is issued `aud: []` and every read the API serves it is a 401 -- with a token
+# that verifies perfectly. The API takes `CHUG_API_OIDC_AUDIENCE` as one required
+# string -- see `oidcAudienceVariable` in kasofsk/chuggy's
+# `src/roots/nativeHttp.ts` -- so there is one audience for one API, and it is
+# the same string chuggy-selector.yaml registers its own client with.
 #
 # `offline_access` is what makes the session survive a reload: without it Hydra
 # issues no refresh token and the console is signed out fifteen minutes later,
@@ -65,10 +74,45 @@
 # is; `skip_consent` on this client is what removes the consent step, and it is
 # set because the console and the API are one first party.
 #
+# CHANGING THE ConfigMap BELOW DOES NOT RESTART ANYTHING, and here it does not
+# need to: nginx re-reads the file per request and the browser is told not to
+# store it. A change is live on the next reload of the page.
+#
+# ---------------------------------------------------------------- the image ----
+#
+# The digest is the release identity. Every node maps the logical
+# `registry.chuggy.internal` name to the private registry through k3s, so a new
+# node can pull these bytes without an archive imported into its own containerd.
+#
+# A DIGEST AND A SOURCE COMMIT, which `scripts/check-release-consistency` reads
+# here as it reads them on every control-plane manifest: one source, and no
+# release that moves the console without the rest.
+#
+# THE BUILD IS GIVEN ITS REFERENCE RATHER THAN PRODUCING IT.
+# `deploy/rig/images/build-and-import.sh` defaults `CHUG_IMAGE_PREFIX` to
+# `chuggy.invalid` and `CHUG_IMAGE_TAG` to the short commit of a clean tree, so
+# this image is built with both set: the prefix this cluster resolves, and a tag
+# the release names. It is published under the `chuggy/web` repository, which is
+# the registry path and not a second image.
+#
+# ------------------------------------------------------- the security headers ----
+#
+# Content-Security-Policy, Referrer-Policy, X-Content-Type-Options and
+# X-Frame-Options are the image's, not this Ingress's. They describe the
+# document, so they travel with whatever serves it -- and the ingress-level
+# alternative could not be scoped to the console anyway: a Traefik middleware
+# annotation applies to every router an Ingress generates, which was checked on
+# this cluster and not assumed, so it would stamp `frame-ancestors` onto the
+# API's JSON or force splitting the origin the console cannot be split from.
+#
+# `Referrer-Policy: no-referrer` is the load-bearing one: /auth/callback carries
+# the authorization code in its query string, and a weaker policy sends that URL
+# to every subsequent request the page makes. kasofsk/chuggy#216 argues the rest.
+#
 # ----------------------------------------------------------- the host, three ways ----
 #
-# `chuggy-ui.vteng.io` reaches this cluster only when all three of these are
-# true, and each is in a different place:
+# `chuggy.vteng.io` reaches this cluster only when all three of these are true,
+# and each is in a different place:
 #
 #   1. this Ingress, so Traefik has a router for the Host header;
 #   2. `chuggy.tunnel.hostnames` in hosts/gtr/default.nix, so cloudflared
@@ -85,12 +129,10 @@
 #
 # ------------------------------------------------- the network policy posture ----
 #
-# NONE, AND THAT MATCHES chuggy-web. No policy in this directory selects either
-# console in either direction, so nothing restricts what may reach this pod or
-# where it may go. That is the state chuggy-control-plane-network-policy.yaml
-# leaves the first console in and the state this one starts in; bounding both is
-# one change and it is not this one. A policy written for this console alone
-# would be the same posture described two different ways.
+# NONE. No policy in this directory selects this console in either direction, so
+# nothing restricts what may reach this pod or where it may go. That is the state
+# chuggy-control-plane-network-policy.yaml leaves it in; bounding it is worth
+# doing and is not that change.
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -103,7 +145,7 @@ data:
       "issuer": "https://auth.vteng.io",
       "clientId": "chuggy-ui",
       "audience": "https://chuggy.vteng.io/api",
-      "redirectUri": "https://chuggy-ui.vteng.io/auth/callback",
+      "redirectUri": "https://chuggy.vteng.io/auth/callback",
       "scopes": ["openid", "offline_access"]
     }
 ---
@@ -121,8 +163,9 @@ spec:
     matchLabels: { app: chuggy-ui }
   template:
     metadata:
-      # No postgres-client label, for chuggy-web.yaml's reason: this holds no
-      # database role and reaches PostgreSQL through nothing.
+      # No postgres-client label: this holds no database role and reaches
+      # PostgreSQL through nothing. Everything it reads it reads through the
+      # API, with the caller's own token.
       labels: { app: chuggy-ui }
     spec:
       # An nginx over a directory of files calls no Kubernetes API, so the token
@@ -192,26 +235,26 @@ spec:
       port: 8080
       targetPort: http
 ---
+# NAMED FOR THE HOST AND NOT FOR THE WORKLOAD, which is what makes this a patch
+# of the object already serving chuggy.vteng.io rather than a second router for
+# it. The console this replaces carried an Ingress of this name; applying and
+# pruning are not ordered against each other, so an Ingress under a new name
+# would leave two routers claiming the same host and path for as long as the
+# reconcile took, with Traefik free to pick either.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: chuggy-ui
+  name: chuggy
   namespace: chuggy
 spec:
   ingressClassName: traefik
   rules:
-    - host: chuggy-ui.vteng.io
+    - host: chuggy.vteng.io
       http:
         paths:
-          # Unrewritten, and the same backend `chuggy` names on the other host:
-          # one API, reached on whichever origin the browser loaded a console
-          # from. Traefik orders rules by the length of the matcher it builds,
-          # so this wins over `/` without anything here saying so.
-          #
-          # `/api/v1/tenants/:tenant/projects/:project/events` is under this
-          # prefix, so the stream needs no rule of its own. What it does need is
-          # a heartbeat, and chuggy-api.yaml carries the measured timeout that
-          # bounds it.
+          # Unrewritten: the API serves this prefix itself, so Traefik passes
+          # the path through and a rewrite here would take the version out of
+          # every route.
           - path: /api/v1
             pathType: Prefix
             backend:

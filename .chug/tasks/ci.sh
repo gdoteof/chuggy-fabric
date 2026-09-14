@@ -5,9 +5,8 @@
 # That script states and enforces the rule; this runs it over `cluster/apps`,
 # where it reads the manifests its own `API_MANIFESTS` and `WEB_MANIFESTS` name
 # and no other file in the directory. It holds that those control-plane
-# manifests select one API image digest, that the two consoles select different
-# web digests, that all of them annotate the same source commit, and that the
-# migrate Job is named for that commit. `tests/release-images.nix` drives that
+# manifests select one API image digest, that all of them annotate the same
+# source commit, and that the migrate Job is named for that commit. `tests/release-images.nix` drives that
 # script through every refusal it states; `tests/chug-ci.nix` drives this file
 # against a refused tree and against trees it cannot run in, so what proves
 # either bites is not this file.

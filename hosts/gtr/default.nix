@@ -140,16 +140,11 @@
     # the self-service UI. Neither admin port appears here, and cluster/apps/
     # ory-hydra.yaml says why that matters.
     #
-    # chuggy is one name for two backends: the operations console at / and the
-    # web API at /api/v1. They share it because the API answers no cross-origin
-    # preflight, so a console on a second name could not read it -- the split is
-    # Traefik's, in cluster/apps/chuggy-web.yaml, and this list cannot express it
-    # either way.
-    #
-    # chuggy-ui is the second console and the same split again, in
-    # cluster/apps/chuggy-ui.yaml. It is a separate name rather than a path
-    # under chuggy because both consoles want /, and it is a single label
-    # rather than ui.chuggy for the certificate reason above.
+    # chuggy is one name for two backends: the console at / and the web API at
+    # /api/v1. They share it because the API answers no cross-origin preflight,
+    # so a console on a second name could not read it -- the split is Traefik's,
+    # in cluster/apps/chuggy-ui.yaml, and this list cannot express it either
+    # way.
     hostnames = [
       "whoami.vteng.io"
       "grafana.vteng.io"
@@ -157,7 +152,6 @@
       "auth.vteng.io"
       "id.vteng.io"
       "chuggy.vteng.io"
-      "chuggy-ui.vteng.io"
     ];
   };
 
