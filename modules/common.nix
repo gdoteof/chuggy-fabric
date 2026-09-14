@@ -132,10 +132,20 @@
     extraGroups = [ "wheel" "docker" ];
     shell = pkgs.zsh;
 
-    # Public key only, same argument as geoff's above: not secret, belongs in a
+    # Public keys only, same argument as geoff's above: not secret, belongs in a
     # public repo, and the single way in while password auth is off.
+    #
+    # Two machines, one account, deliberately. A second user would need the same
+    # wheel and docker to be useful, and that is root enough to read the 0644
+    # system:masters cert -- so it would name a boundary it does not draw, and
+    # revoking either machine would still mean rotating what a root shell could
+    # have taken. The separation worth having is the one above: fix the 0644 and
+    # give each machine its own ServiceAccount, and then split this too.
     openssh.authorizedKeys.keys = [
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBI+Q42CQ3DZ0/+ocfwTEqsLXFSO/ano20kVH+jkGk3e david@Mac.lan"
+      # The Mac mini geoff's block above expects back, on a fresh ed25519 rather
+      # than either of the RSA keys dropped there.
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAID5r00QIFC5gETM1aBxdIA6ev/8GVQLywa09V6FQJr05 hg@davids-Mac-mini.lan"
     ];
   };
 
