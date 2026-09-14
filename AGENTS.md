@@ -19,8 +19,9 @@ ownership boundaries, deployment sequence, recovery path, and required checks.
 - `builds/` contains immutable Shipwright requests pinned to full source commits.
   Generate them with `scripts/render-build-request`; never edit one in place.
 - `results/` records immutable build provenance, published by the host that
-  recorded it. Image deployment changes are generated with
-  `scripts/render-image-promotion` from a verified result.
+  recorded it. A release -- the image digests, source-commit annotations and
+  migrate Job name under `cluster/apps` -- is generated from those results
+  with `scripts/render-release`, and never edited by hand.
 - Credentials remain outside Git. Commit references, projections, and delivery
   mechanisms, but never private keys or token values.
 

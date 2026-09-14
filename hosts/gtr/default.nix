@@ -102,7 +102,7 @@
   };
 
   # What this box builds is recorded on that path and committed to the
-  # repository it follows, so a rollout renders its promotion from a checkout
+  # repository it follows, so a rollout renders its release from a checkout
   # rather than from this filesystem. The push carries a portal App token
   # because `Finalizer owns main` on that repository admits the portal App and
   # repository admins; the token is declared below.

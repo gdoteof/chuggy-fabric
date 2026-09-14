@@ -2,12 +2,12 @@
 """Refuse a tree whose committed build results are not the results of the
 requests it carries.
 
-`results/` exists so that `scripts/render-image-promotion` can be run from any
-checkout: it takes one checksummed record and never reaches the host that made
-it. That makes the records deployment inputs sitting in Git, and the way they go
-wrong is not corruption -- the recorder's checksum would catch that -- but
-identity. A record filed under the wrong commit, or under a request nothing
-declares, verifies against itself perfectly and promotes the wrong image.
+`results/` exists so that `scripts/render-release` can be run from any checkout:
+it takes the checksummed records and never reaches the host that made them. That
+makes the records deployment inputs sitting in Git, and the way they go wrong is
+not corruption -- the recorder's checksum would catch that -- but identity. A
+record filed under the wrong commit, or under a request nothing declares,
+verifies against itself perfectly and releases the wrong image.
 
 SO NOTHING BELOW READS A RECORD ALONE. Every result names a request:
 `results/<repository-id>/<source-commit>/<request-digest>/<attempt>.json` is
@@ -36,8 +36,8 @@ WHAT THIS GATE CANNOT SEE. Whether the record is the one the cluster actually
 produced -- the recorder's checksum covers the bytes, and nothing here can ask
 Shipwright what it built. Whether a request that has no result here failed,
 is still running, or was never applied. And whether the registry still serves
-the digest a successful record names, which is `render-image-promotion`'s own
-check at the moment of promotion and deliberately not a property of the tree.
+the digest a successful record names, which nothing in this repository reads a
+registry to ask and which is deliberately not a property of the tree.
 """
 
 import hashlib
