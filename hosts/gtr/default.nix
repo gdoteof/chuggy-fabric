@@ -62,6 +62,14 @@
         publicKey = "cMer3teG3LOE6J5J2yXCREHFYpfjpkZYodIP2Uk8jAY=";
         allowedIPs = [ "10.100.0.2/32" ];
       }
+      # The mac mini: its own keypair and address, so both machines can hold the
+      # tunnel at once and either can be revoked without touching the other. The
+      # peer above is the laptop -- `dev2` there is the older name and means the
+      # second dev machine, not the second peer.
+      { name = "mini";
+        publicKey = "m1YtR0k9po06DwdAnSdsPL4h830vMDvTYSq0/y2d7TA=";
+        allowedIPs = [ "10.100.0.3/32" ];
+      }
     ];
   };
 
