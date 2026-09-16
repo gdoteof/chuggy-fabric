@@ -411,6 +411,8 @@ def main():
             report(case, f"the wait stopped looking after {counter.read_text()} fetch")
         if waited < 13:
             report(case, f"the deadline was declared {13 - waited:.1f} seconds before it passed")
+        if "could not look" in completed.stderr:
+            report(case, f"the last round was cut off by the deadline\n{completed.stderr}")
 
     # A round that saw the request unanswered and a blink after it is a build
     # that is late, not a fabric that is broken: 2 is for a wait no round of

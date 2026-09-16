@@ -360,13 +360,10 @@ def main():
     ) and fingerprint(apps) != before:
         report(case, "cluster/apps was edited for a build with no record")
 
-    # The wait's deadline is its verdict even when its rounds are slow. The
-    # wait's last round may run past its own deadline, so a child handed the
-    # whole of what is left is one this command kills inside that round, short
-    # of the refusal it was about to make -- and 2 says the fabric is broken
-    # where 3 says the build is late. The resolve here eats most of the
-    # fractional second the whole-of-what-is-left arithmetic would leave, and
-    # the fetch is longer than what remains of it.
+    # The wait's deadline is its verdict even when its rounds are slow: a
+    # resolve and a fetch that each take most of a second inside the bound
+    # still end in the wait's refusal, not in this command pre-empting it --
+    # and 2 says the fabric is broken where 3 says the build is late.
     case = "reaches-the-deadline-across-a-slow-fetch"
     target = commits["documentation"]
     clone = branch(case, requested(target))
