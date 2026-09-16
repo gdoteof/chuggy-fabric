@@ -27,13 +27,28 @@ conclude a build had happened that had not. A FAILED RESULT FULFILS IT TOO -- a
 result was recorded, and which images a release may be cut from is
 `scripts/render-release`'s question, which it answers by refusing.
 
-WHAT IS NEVER REWRITTEN. A build this tree already carries is left exactly as it
-is and is not re-rendered: an operator may have retried it, and a retried
-request is that same file carrying a later attempt, which a re-render would
-report as a request that changed. A fulfilment record that exists is never
-written again for the same reason `results/` is immutable everywhere else. So a
-run over a tree an earlier run answered writes nothing, which is what keeps the
-timer that calls this from committing to the live branch every few minutes.
+AN ANSWERED REQUEST IS INERT, and the record is what says it was answered. That
+is the only thing this reads to decide, because `requests/` is never pruned and
+the alternative -- rendering first and keeping whatever the tree already carries
+at that path -- keys the decision on a digest rather than on the request:
+anything that moves a digest, a value in the declaration or a profile digest or
+the Shipwright version, would re-render every request ever answered at a NEW
+path, and one image with two requests at one commit is a release
+`scripts/render-release` refuses. The same ordering also undoes
+`scripts/retire-build-request`: it takes a manifest out of `builds/`, and a
+command that decided on the rendered path would write it back at the next
+activation and let Flux run it again.
+
+The residual is a request rendered and not yet answered when one of those values
+changes: its builds are already in the tree at the old digest and the next
+activation adds the new ones. That window is the minutes between a build and its
+result, not the life of the branch, and nothing here can close it -- the tree
+carries no record of what a request was rendered as until it has been answered.
+
+A build this tree already carries is otherwise left exactly as it is: an
+operator may have retried it, and a retried request is that same file carrying a
+later attempt. A fulfilment record that exists is never written again for the
+same reason `results/` is immutable everywhere else.
 
 WHAT THIS CANNOT SEE. Whether the commit a request names exists in the source --
 the build is what finds that out -- and whether a rendered build ever ran:
@@ -245,6 +260,12 @@ def fulfil(root, output_root, path, repository_id, commit, digest):
     """One request: every declared image rendered, and the record written once
     every one of them has been answered. Returns the paths created."""
     relative = path.relative_to(root)
+    record = root / "results" / repository_id / commit / f"request-{digest}.json"
+    if record.exists():
+        # Answered. Nothing below runs, not even the renderer: see the header --
+        # what this tree carries for an answered request is what answered it,
+        # and a render at a digest this tree does not carry would build it again.
+        return []
     declaration = SOURCES.get(repository_id)
     if declaration is None:
         finding(
@@ -277,9 +298,6 @@ def fulfil(root, output_root, path, repository_id, commit, digest):
             created.append(rendered.as_posix())
         answers.append((dockerfile, rendered.stem))
 
-    record = root / "results" / repository_id / commit / f"request-{digest}.json"
-    if record.exists():
-        return created
     results = []
     for dockerfile, request_digest in answers:
         result = recorded_result(root, repository_id, commit, request_digest)

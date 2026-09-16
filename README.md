@@ -741,10 +741,13 @@ Flux to apply, and once every one of those builds has a recorded result writes
 the builds it rendered and the results that answered them. That record is what
 the finalizer waits for. A failed result completes it too: what a failed build
 refuses is the release, and `scripts/render-release` is where that refusal is.
-Nothing is rewritten here either -- a request already answered renders nothing,
-and a build retried by an operator is left as it is -- and
-`tests/build-requests.nix` drives the command over this repository's own builds
-and results.
+A request that record answers is inert from then on: the command reads the
+record before it renders anything, because `requests/` is never pruned and a
+command that decided by looking for the rendered manifest instead would re-render
+every request ever answered the day a declared value, a profile digest or the
+Shipwright version moved a digest. A build retried by an operator is left as it
+is. `tests/build-requests.nix` drives the command over this repository's own
+builds and results.
 
 The release is a separate Git change, and `scripts/render-release` is what
 writes it. Given the chuggy commit to release, it reads the live commit off the

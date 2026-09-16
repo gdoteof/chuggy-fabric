@@ -239,6 +239,20 @@ def main():
         if fingerprint(root) != before:
             report(case, "a second run over an answered request wrote to the tree")
 
+        # And with one of the builds it rendered no longer in the tree, which is
+        # what `scripts/retire-build-request` leaves behind. Nothing is written,
+        # because the record is what says the request was answered: a command
+        # that decided on the rendered path instead would render the retired
+        # build back and let Flux run it again -- and would do the same to every
+        # request ever answered the day the declaration, a profile digest or the
+        # Shipwright version moves a digest.
+        case = "renders-nothing-for-a-request-it-has-answered"
+        carried(root, API).unlink()
+        before = fingerprint(root)
+        expect(case, fulfil(root), 0, [])
+        if fingerprint(root) != before:
+            report(case, "an answered request was rendered again after a build was retired")
+
     # A retried request is that same file carrying a later attempt. Re-rendering
     # it would report a request that changed, or put the retired attempt back.
     case = "leaves-a-retried-request-alone"
