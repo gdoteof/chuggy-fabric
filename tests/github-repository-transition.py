@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Refuse a build request the site declares no repository for, and a rendered
-cluster carrying a per-repository token at all.
+"""Refuse a build request the site declares no repository for, a source whose
+declared images name another repository's credential, and a rendered cluster
+carrying a per-repository token at all.
 
 `repositories.nix` is where the site says which repositories it builds images
 for, and the only thing it still produces per repository is the Git basic-auth
@@ -132,6 +133,43 @@ def check_build_requests(root, roster):
                 )
 
 
+def check_declared_sources(root, roster):
+    """`scripts/build_sources.py` says which images each source builds, and
+    names that source's URL and clone Secret a second time because the command
+    that answers a build request is Python and cannot read a Nix expression.
+
+    It is held to this roster in the same direction the requests are: a source
+    that file renders builds for and this one does not carry is a build that
+    never starts, and each file reads correctly while the other is wrong."""
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, str(Path(root, "scripts")))
+    from build_sources import SOURCES
+
+    for repository_id, declaration in SOURCES.items():
+        entry = roster.get(repository_id)
+        if entry is None:
+            refuse(
+                f"scripts/build_sources.py builds images for {repository_id}, which the site "
+                "does not declare; a repository is added to repositories.nix first"
+            )
+        if declaration["url"] != entry["github"]:
+            refuse(
+                f"scripts/build_sources.py clones {repository_id} from {declaration['url']}; "
+                f"the site declares {entry['github']}"
+            )
+        wanted = entry["tokens"]["buildReaderSecret"]
+        if declaration["sourceSecret"] != wanted:
+            refuse(
+                f"scripts/build_sources.py clones {repository_id} with "
+                f"{declaration['sourceSecret']}; the site mints that credential as {wanted}"
+            )
+        if not declaration["images"]:
+            refuse(
+                f"scripts/build_sources.py declares no image for {repository_id}, so a request "
+                "for it would be answered by building nothing"
+            )
+
+
 def check_roster(roster):
     """The key is the repository's name on GitHub, which is what lets one entry
     name it in the URL a request clones and in the Secret it clones with."""
@@ -153,6 +191,7 @@ def main():
     if not roster:
         refuse("the site declares no repositories")
     check_roster(roster)
+    check_declared_sources(sys.argv[3], roster)
     check_no_repository_tokens(documents_in(sys.argv[2]))
     check_build_requests(sys.argv[3], roster)
 
