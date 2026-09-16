@@ -111,6 +111,10 @@ SOURCE_REF = "refs/heads/main"
 WORKER_PATHS = ("images/worker",)
 COMMIT = re.compile(r"[0-9a-f]{40}")
 ATTEMPT = re.compile(r"[a-z0-9][-a-z0-9.]*-a(?P<ordinal>[1-9][0-9]*)\.json")
+# `scripts/fulfil-build-requests` files one of these beside the attempts of a
+# commit to say that a source's build request has been answered. It is an index
+# of results and not one, so nothing is selected from it.
+FULFILMENT = re.compile(r"request-[0-9a-f]{64}\.json")
 DOCKERFILE = re.compile(
     r'^[ \t]*- name: dockerfile\n[ \t]*value: "(?P<dockerfile>[^"]+)"$', re.MULTILINE
 )
@@ -368,6 +372,8 @@ def selected(fabric, repository_id, commit, by_dockerfile):
         return recorded, failed
     for record in sorted(directory.rglob("*.json")):
         relative = record.relative_to(fabric)
+        if record.parent == directory and FULFILMENT.fullmatch(record.name):
+            continue
         attempt = ATTEMPT.fullmatch(record.name)
         if attempt is None or record.parent.parent != directory:
             refuse(f"{relative} is not an attempt of a request of {commit}")

@@ -406,6 +406,17 @@ def main():
         if edited != set(RELEASE_MANIFESTS):
             report(case, f"the edit did not land on exactly the release: {sorted(edited)}")
 
+    # The fulfilment record `scripts/fulfil-build-requests` files beside the
+    # attempts of a commit. It is an index of results and not one, so a release
+    # that read it as an attempt would refuse every commit a request answered.
+    case = "fulfilment-record-beside-the-results"
+    root = fabric(case, base)
+    selected = record(root, commits["ui"], "chuggy-ui", NEW_UI)
+    answered = root / "results" / "chuggy" / commits["ui"] / f"request-{'a5' * 32}.json"
+    answered.write_text(json.dumps({"version": 1, "builds": [{"result": selected}]}) + "\n")
+    if expect(case, render(root, commits["ui"], source), 0, ["moved, selected from " + selected]):
+        accepts(case, root)
+
     # The refusal the fabric-rollout brief exists for: the inputs moved and the
     # image that would carry them has not been built at that commit.
     case = "no-result"

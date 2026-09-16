@@ -25,6 +25,16 @@ record against the manifest's ordinal would refuse exactly the history this
 directory exists to keep. The attempt name and ordinal come from the file name,
 and the verifier is what holds them to the request digest.
 
+THE FULFILMENT RECORD IS HELD THE SAME WAY. `scripts/fulfil-build-requests`
+files `<repository-id>/<source-commit>/request-<request-digest>.json` beside the
+attempt directories of that commit to say that a source's build request has been
+answered, and a source's finalizer concludes on nothing but its existence. So it
+is read here as what it claims -- the request document it answers, the builds it
+rendered, the results those builds recorded -- and every one of those has to be
+a path this tree carries. It has no checksum beside it, unlike its neighbours,
+because nothing about it came from a host: it is an index of this tree, and this
+gate is what re-resolves it.
+
 A RESULT WHOSE REQUEST IS GONE IS A FINDING, and that is the one thing this gate
 asks of the retirement flow: `scripts/retire-build-request` removes a
 declaration from `builds/`, and doing that to a request whose result is
@@ -50,6 +60,7 @@ DIGEST = re.compile(r"[0-9a-f]{64}")
 COMMIT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 REPOSITORY_ID = re.compile(r"[a-z0-9](?:[-a-z0-9.]{0,61}[a-z0-9])?")
 ATTEMPT = re.compile(r"(?P<name>[a-z0-9][-a-z0-9.]*)-a(?P<ordinal>[1-9][0-9]*)")
+FULFILMENT = re.compile(r"request-(?P<request>[0-9a-f]{64})\.json")
 KEEPFILE = ".gitkeep"
 RECORD = ".json"
 CHECKSUM = ".json.sha256"
@@ -65,10 +76,12 @@ def checksum_of(path):
 
 def located(results):
     """Every record under `results/`, as (relative path, repository, commit,
-    request, attempt). A file that is not a record or its checksum, or one at a
+    request, attempt), and every fulfilment record as (relative path,
+    repository, commit, request). A file that is not one of those, or one at a
     depth the layout does not have, is refused here rather than skipped: a
     result nothing reads is a result nothing checks."""
     records = []
+    fulfilments = []
     checksums = set()
     for path in sorted(results.rglob("*")):
         relative = path.relative_to(results)
@@ -77,6 +90,16 @@ def located(results):
         if path.is_dir():
             continue
         if relative.as_posix() == KEEPFILE:
+            continue
+        if len(relative.parts) == 3:
+            repository, commit, filename = relative.parts
+            fulfilment = FULFILMENT.fullmatch(filename)
+            if fulfilment is None:
+                refuse(
+                    f"{relative} is not "
+                    "<repository-id>/<source-commit>/request-<request-digest>.json"
+                )
+            fulfilments.append((relative, repository, commit, fulfilment.group("request")))
             continue
         if len(relative.parts) != 4:
             refuse(
@@ -107,7 +130,41 @@ def located(results):
     )
     if orphans:
         refuse(f"{orphans[0]} checksums a record this tree does not carry")
-    return records
+    return records, fulfilments
+
+
+def answered(root, record, relative, repository, commit, request):
+    """One fulfilment record, re-resolved against the tree it indexes. What it
+    says is that a request was answered here, and a source's finalizer concludes
+    on that; every path it names is therefore a path this tree has to carry."""
+    if REPOSITORY_ID.fullmatch(repository) is None or COMMIT.fullmatch(commit) is None:
+        refuse(f"{relative} is not filed under a repository id and a full source commit")
+    carried = json.loads(record.read_text())
+    if carried.get("version") != 1:
+        refuse(f"{relative} is version {carried.get('version')!r}, which nothing here reads")
+    document = Path("requests") / repository / commit / f"{request}.json"
+    if carried.get("request") != document.as_posix():
+        refuse(f"{relative} answers {carried.get('request')!r}, which is not {document}")
+    if not (root / document).is_file():
+        refuse(f"{relative} answers {document}, which this tree does not carry")
+    source = carried.get("source", {})
+    if source.get("repositoryId") != repository or source.get("commit") != commit:
+        refuse(f"{relative} records another repository or source commit")
+    builds = carried.get("builds")
+    if not isinstance(builds, list) or not builds:
+        refuse(f"{relative} names no build, so it answers nothing")
+    for build in builds:
+        rendered = build.get("request", "")
+        if DIGEST.fullmatch(rendered) is None:
+            refuse(f"{relative} names {rendered!r}, which is not a request digest")
+        manifest = Path("builds") / repository / commit / f"{rendered}.yaml"
+        if not (root / manifest).is_file():
+            refuse(f"{relative} names {manifest}, which this tree does not carry")
+        result = build.get("result", "")
+        if Path(result).parent != Path("results") / repository / commit / rendered:
+            refuse(f"{relative} answers {rendered} with {result!r}, which is not a result of it")
+        if not (root / result).is_file():
+            refuse(f"{relative} names {result}, which this tree does not carry")
 
 
 def main():
@@ -126,7 +183,8 @@ def main():
     if not results.is_dir():
         refuse("results/ is not a directory, and AGENTS.md says this tree records provenance")
 
-    for relative, repository, commit, request, attempt in located(results):
+    records, fulfilments = located(results)
+    for relative, repository, commit, request, attempt in records:
         record = results / relative
         checksum = record.with_name(record.name[: -len(RECORD)] + CHECKSUM)
         if not checksum.is_file():
@@ -151,6 +209,9 @@ def main():
         identities["attempt"] = attempt.group()
         identities["ordinal"] = int(attempt.group("ordinal"))
         verify_record(record, identities)
+
+    for relative, repository, commit, request in fulfilments:
+        answered(root, results / relative, relative, repository, commit, request)
 
 
 main()
