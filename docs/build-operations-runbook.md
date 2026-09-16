@@ -13,13 +13,19 @@ scripts/await-build-results --repository-id chuggy --source-commit <full commit>
   --within-secs <seconds>
 ```
 
-The first writes the request document and prints its path; it stages nothing, so
-the change is committed and pushed like any other. The second reads the branch
-over `git fetch` and returns when this site has recorded a result for every
-build that request rendered. Neither is an operator command in the ordinary
-case: they are what a ticket runs, and the rules each enforces are in its own
-header. A failed build is still an answer -- `scripts/render-release` is what
-refuses one, and the diagnosis is below.
+The first writes the request document; it stages nothing, so the change is
+committed and pushed like any other. It refuses a commit that already carries a
+request, its own included, because a run with nothing to write is a ticket with
+nothing to land. The second reads the branch over `git fetch` and returns when
+this site has recorded a result for every build that request rendered, or when
+the wait it was given runs out -- size that wait under the deadline of whatever
+runs it, because a run that is killed has reached no verdict at all.
+
+Each prints one JSON object on stdout and its account on stderr, so a ticket
+engine reads the result and a person reads the reason. Neither is an operator
+command in the ordinary case: they are what a ticket runs, and the rules each
+enforces are in its own header. A failed build is still an answer --
+`scripts/render-release` is what refuses one, and the diagnosis is below.
 
 ## Diagnose
 
