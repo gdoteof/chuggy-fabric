@@ -232,23 +232,59 @@ def stalled(case):
     return listener, f"git://127.0.0.1:{listener.getsockname()[1]}/{case}.git"
 
 
-def rollout(clone, source, ref, within=2, url=None, extra=()):
-    return subprocess.run(
-        [
-            sys.executable,
-            str(SCRIPTS / "rollout-from-results"),
-            "--within-secs", str(within),
-            "--every-secs", "1",
-            "--fabric-root", str(clone),
-            "--source-url", url or str(source),
-            "--source-ref", ref,
-            "--source-tree", str(source),
-            *extra,
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
+def slow_git(case, resolve_secs, fetch_secs):
+    """A `git` for the front of PATH whose `ls-remote` and every `fetch` take
+    that long before it is the real one: a remote over a network, where the
+    resolve eats most of a second and the wait's last round is not
+    milliseconds."""
+    directory = WORK / f"{case}-bin"
+    directory.mkdir(parents=True)
+    stub = directory / "git"
+    real = shutil.which("git")
+    stub.write_text(
+        f"#!{sys.executable}\n"
+        "import os, sys, time\n"
+        'if "ls-remote" in sys.argv[1:]:\n'
+        f"    time.sleep({resolve_secs})\n"
+        'if "fetch" in sys.argv[1:]:\n'
+        f"    time.sleep({fetch_secs})\n"
+        f"os.execv({real!r}, [{real!r}] + sys.argv[1:])\n"
     )
+    stub.chmod(0o755)
+    return directory
+
+
+def rollout(clone, source, ref, within=2, url=None, extra=(), path=None):
+    """The command, given a bound of this suite's own well past the one it was
+    given: a command whose bound is no bound would otherwise hang the check
+    rather than red it."""
+    environment = dict(os.environ)
+    if path is not None:
+        environment["PATH"] = f"{path}{os.pathsep}{environment['PATH']}"
+    try:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS / "rollout-from-results"),
+                "--within-secs", str(within),
+                "--every-secs", "1",
+                "--fabric-root", str(clone),
+                "--source-url", url or str(source),
+                "--source-ref", ref,
+                "--source-tree", str(source),
+                *extra,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=environment,
+            timeout=within * 5 + 30,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise SystemExit(
+            f"rollout from results: the command did not come back in {error.timeout:.0f} "
+            f"seconds against a bound of {within}, so its bound is no bound"
+        )
 
 
 def expect(case, completed, code, printed=(), phrases=()):
@@ -323,6 +359,27 @@ def main():
         [f"has no record for {DIGEST}", "has not answered the request"],
     ) and fingerprint(apps) != before:
         report(case, "cluster/apps was edited for a build with no record")
+
+    # The wait's deadline is its verdict even when its last round is slow. The
+    # wait fetches once more past its own deadline before it concludes, so a
+    # child handed the whole of what is left is one this command kills a fetch
+    # short of the refusal it was about to make -- and 2 says the fabric is
+    # broken where 3 says the build is late. The resolve here eats most of the
+    # fractional second the whole-of-what-is-left arithmetic would leave, and
+    # the fetch is longer than what remains of it.
+    case = "reaches-the-deadline-across-a-slow-fetch"
+    target = commits["documentation"]
+    clone = branch(case, requested(target))
+    deployed(clone, base)
+    expect(
+        case,
+        rollout(
+            clone, source, "refs/heads/documentation", within=8, path=slow_git(case, 0.7, 0.8)
+        ),
+        REFUSAL,
+        [],
+        ["has not answered the request"],
+    )
 
     # No request at the resolved commit is the chain broken, not a build that
     # is late: the wait's could-not-run is this command's, so that a ticket
