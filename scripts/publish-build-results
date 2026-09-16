@@ -5,9 +5,9 @@
 # answer every build request that repository carries that this branch has not.
 #
 # WHY BOTH ACTS ARE ONE UNIT. They are the fabric's two halves of one loop -- a
-# source's finalizer commits a request, `scripts/fulfil-build-requests` renders
-# the builds it asks for, the recorder records their results, and the fulfilment
-# record those results complete is what the finalizer waits for -- and both
+# fabric ticket lands a request, `scripts/fulfil-build-requests` renders the
+# builds it asks for, the recorder records their results, and the fulfilment
+# record those results complete is what the rollout ticket waits for -- and both
 # halves are pushes to the branch Flux follows. This is the only unattended push
 # this tree makes to that branch, and a second unit pushing to it would be two
 # timers racing for one protected ref and each reporting the other's rejection.
