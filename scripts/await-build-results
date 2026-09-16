@@ -37,22 +37,30 @@ of the deadline as its own timeout, because a `git` that never returns -- a
 stalled proxy, a connection whose conntrack entry was evicted -- would otherwise
 be a wait of no length at all, and the caller's bound would buy nothing. A child
 given up on is a round that saw nothing, which is the same as a round that
-failed.
+failed. And no round is started that what is left cannot hold: a fetch started
+at the deadline is cut off by the deadline, and against a remote over a network
+that is most fetches, so a last round started there would report the network
+where the build is late. The last round starts no later than one round's floor
+before the deadline, what is left after it is slept out, and the deadline is
+declared on what that round saw. The first round is started whatever the
+bound, because before it nothing has been seen.
 
 A ROUND THAT COULD NOT LOOK IS NOT A VERDICT. One failed fetch is a blip -- a
 name that did not resolve, a gateway, an installation token that expired late in
 a long wait -- and a build that is still running is not a broken fabric. So a
 failed round is slept through like any other, and 2 is reached only if the
-deadline passes with the last round still unable to look. What that costs is
-that `--within-secs` is the time to a verdict of any kind, which is what a
-caller sizing a ticket wants it to be.
+deadline passes with no round having looked. A round that saw the request
+unanswered and a failed round after it is a build that is late, with the
+failure in the account. What that costs is that `--within-secs` is the time to
+a verdict of any kind, which is what a caller sizing a ticket wants it to be.
 
 THE BOUND HAS TO UNDERCUT THE ONE AROUND IT. Whatever runs this has a deadline
 of its own, and a caller killed at that deadline is a run with no verdict: what
 follows a kill is another attempt from the beginning, not a decision about the
 build. So `--within-secs` is sized under the deadline of the thing that runs it,
-and the value of reaching 3 is that it is this command's answer rather than
-somebody else's timer.
+by what the last round may run past it -- its fetch ends by the deadline, and
+the two listings after it get a second each -- and the value of reaching 3 is
+that it is this command's answer rather than somebody else's timer.
 
 STDOUT IS THE RESULT AND NOTHING ELSE: one JSON object naming the records found.
 Accounts and refusals go to stderr. A command whose work is read by a ticket
@@ -62,8 +70,8 @@ WHAT IT NEEDS ON PATH: `git`. The worker image carries it.
 
 Exit 0 when every request filed at that commit has its record, 3 when the
 deadline passed without one, 2 when it could not look -- no request document
-filed at that commit at all, or a deadline reached with the remote or the
-fetched ref still unreadable. Exit 2 is not a pass, and an uncaught exception
+filed at that commit at all, or a deadline reached with no round having read
+the remote and the fetched ref. Exit 2 is not a pass, and an uncaught exception
 exits 1 rather than either.
 """
 
@@ -88,6 +96,14 @@ CAP_SECS = 6 * 60 * 60
 # The record appears when the publisher's timer fires, so polling much faster
 # than that only spends fetches; this is comfortably under it.
 EVERY_SECS = 30
+# A child is given what is left of the wait and never less than this, which is
+# for the listings: they read a local ref, and take nothing like it.
+CHILD_FLOOR_SECS = 1
+# See the header: no round is started with less than this ahead of it, so its
+# fetch is given this or more. A fetch of a branch that has not moved is a ref
+# advertisement and no pack, and is well under it against a remote over a
+# network; the two listings after it are local.
+ROUND_SECS = 10
 
 
 class Blind(Exception):
@@ -109,7 +125,7 @@ def git(root, deadline, *arguments):
             capture_output=True,
             text=True,
             check=False,
-            timeout=max(1, deadline - time.monotonic()),
+            timeout=max(CHILD_FLOOR_SECS, deadline - time.monotonic()),
         )
     except subprocess.TimeoutExpired:
         raise Blind(f"git {arguments[0]} did not return within the wait") from None
@@ -173,6 +189,7 @@ def main():
     filed = f"{REQUESTS}/{arguments.repository_id}/{arguments.source_commit}"
     answered = f"{RESULTS}/{arguments.repository_id}/{arguments.source_commit}"
     deadline = time.monotonic() + arguments.within_secs
+    looked = False
     blind = None
     missing = []
     while True:
@@ -199,20 +216,27 @@ def main():
                     )
                 )
                 return
+            looked = True
             blind = None
         except Blind as error:
             blind = error
         remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            if blind is not None:
-                unrunnable(str(blind))
-            print(
-                f"await-build-results: {arguments.remote}/{arguments.branch} has no "
-                f"record for {', '.join(missing)} at {filed}/",
-                file=sys.stderr,
-            )
-            raise SystemExit(DEADLINE)
-        time.sleep(min(arguments.every_secs, remaining))
+        if remaining < ROUND_SECS:
+            time.sleep(max(0, remaining))
+            break
+        # The next round is due a poll from now, or at the last moment that
+        # still holds a whole round, whichever is first.
+        time.sleep(min(arguments.every_secs, remaining - ROUND_SECS))
+    if not looked:
+        unrunnable(str(blind))
+    if blind is not None:
+        print(f"await-build-results: the last round could not look: {blind}", file=sys.stderr)
+    print(
+        f"await-build-results: {arguments.remote}/{arguments.branch} has no "
+        f"record for {', '.join(missing)} at {filed}/",
+        file=sys.stderr,
+    )
+    raise SystemExit(DEADLINE)
 
 
 if __name__ == "__main__":
