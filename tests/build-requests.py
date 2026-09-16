@@ -121,9 +121,9 @@ def expect(case, completed, code, created, phrases=()):
             f"{completed.stdout}\n{completed.stderr}",
         )
         return False
-    reported = [line for line in completed.stdout.splitlines() if line]
-    if reported != list(created):
-        report(case, f"created {reported}, not {list(created)}")
+    announced = [line for line in completed.stdout.splitlines() if line]
+    if announced != list(created):
+        report(case, f"created {announced}, not {list(created)}")
         return False
     for phrase in phrases:
         if phrase not in completed.stderr:
@@ -182,7 +182,8 @@ def released_images():
     spec = spec_from_file_location("render_release", str(path), loader=loader)
     module = module_from_spec(spec)
     loader.exec_module(module)
-    return {image.dockerfile: image.repository for image in module.images(module.roster_of(SCRIPTS))}
+    release = module.images(module.roster_of(SCRIPTS))
+    return {image.dockerfile: image.repository for image in release}
 
 
 def main():
@@ -203,9 +204,11 @@ def main():
         f"builds/chuggy/{COMMIT}/{API}.yaml",
         f"builds/chuggy/{COMMIT}/{WEB}.yaml",
     ]
-    if expect(case, fulfil(root), 0, rendered + [f"results/chuggy/{COMMIT}/request-{digest}.json"]):
+    answers = rendered + [f"results/chuggy/{COMMIT}/request-{digest}.json"]
+    if expect(case, fulfil(root), 0, answers):
         for request in (API, WEB):
-            if carried(root, request).read_bytes() != (ROOT / carried(root, request).relative_to(root)).read_bytes():
+            rendered_bytes = carried(root, request).read_bytes()
+            if rendered_bytes != (ROOT / carried(root, request).relative_to(root)).read_bytes():
                 report(case, f"{request} is not the manifest this repository carries")
         answered = json.loads(record_of(root, digest).read_text())
         if answered != {
@@ -243,7 +246,9 @@ def main():
     shutil.rmtree(root / "results" / "chuggy" / COMMIT)
     requested(root, REQUESTED)
     retried = carried(root, API)
-    retried.write_text(retried.read_text().replace("-a1", "-a2").replace('ordinal: "1"', 'ordinal: "2"'))
+    retried.write_text(
+        retried.read_text().replace("-a1", "-a2").replace('ordinal: "1"', 'ordinal: "2"')
+    )
     before = fingerprint(root)
     if expect(case, fulfil(root), 0, []):
         if fingerprint(root) != before:
