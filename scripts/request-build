@@ -41,6 +41,15 @@ before it lands and the only one that can name what caused it. What the refusal
 takes away is re-filing a moved declaration at a commit already asked for, which
 is what the release would refuse anyway.
 
+WHICH COMMIT. `--source-commit` names it, in full, and is what an operator
+passes. `--source-ref` resolves it from the declared source when this runs,
+and is what a ticket passes: nothing that filed the ticket could know the
+commit, and a commit written into a brief goes stale between filing and
+dispatch. The ref is resolved against the URL the declaration carries, because
+a URL in a configuration line would be a second home for the same value, and
+`git ls-remote` is given a bound: it is one round trip, and a source that has
+not answered one in that time is not going to.
+
 FILING IS NOT LANDING. Nothing here stages, commits or pushes: the file is left
 in the tree for the ticket that ran the command to land by its own finalization,
 which is what puts it in front of a reviewer.
@@ -55,6 +64,8 @@ decides it and another run reaches the same verdict. An attempt starts from a
 fresh branch off `main`, so the tree where this happens is one where the request
 already landed.
 
+WHAT IT NEEDS ON PATH: `git`, for `--source-ref` and nothing else.
+
 STDOUT IS THE RESULT AND NOTHING ELSE: one JSON object naming what was filed.
 Accounts and refusals go to stderr. A command whose work is read by a ticket
 engine has no other channel, and a stray line on stdout is a task that failed.
@@ -67,7 +78,9 @@ either.
 import argparse
 import hashlib
 import json
+import os
 import re
+import subprocess
 import sys
 from importlib.machinery import SourceFileLoader
 from importlib.util import module_from_spec, spec_from_file_location
@@ -86,6 +99,8 @@ API_VERSION = "chuggy.dev/v1"
 KIND = "ContainerBuildRequest"
 REQUESTS = "requests"
 COMMIT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+# See the header: one round trip to the source.
+RESOLVE_SECS = 60
 
 
 def refuse(message):
@@ -117,6 +132,33 @@ def profile_name(key):
     return profile["name"]
 
 
+def resolved(url, ref):
+    """The commit the declared source's ref is at now."""
+    try:
+        completed = subprocess.run(
+            ["git", "ls-remote", "--exit-code", url, ref],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=dict(os.environ, GIT_TERMINAL_PROMPT="0"),
+            timeout=RESOLVE_SECS,
+        )
+    except subprocess.TimeoutExpired:
+        unrunnable(f"{url} did not answer for {ref} within {RESOLVE_SECS} seconds")
+    except OSError as error:
+        unrunnable(f"git could not be run: {error}")
+    if completed.returncode != 0:
+        unrunnable(f"{ref} could not be resolved at {url}")
+    named = {}
+    for line in completed.stdout.splitlines():
+        commit, _, name = line.partition("\t")
+        named[name] = commit
+    commit = named.get(ref)
+    if commit is None or COMMIT.fullmatch(commit) is None:
+        unrunnable(f"{ref} at {url} did not resolve to one full commit: {sorted(named)}")
+    return commit
+
+
 def document(commit, declaration):
     return {
         "apiVersion": API_VERSION,
@@ -135,7 +177,9 @@ def main():
         description="File one source change's build request in this tree."
     )
     parser.add_argument("--repository-id", required=True)
-    parser.add_argument("--source-commit", required=True)
+    which = parser.add_mutually_exclusive_group(required=True)
+    which.add_argument("--source-commit", help="the commit to build, in full")
+    which.add_argument("--source-ref", help="a ref of the declared source, resolved now")
     parser.add_argument("--root", type=Path, default=Path("."))
     arguments = parser.parse_args()
 
@@ -150,21 +194,25 @@ def main():
         refuse(
             f"{arguments.repository_id} is a source this site declares no images for"
         )
-    if COMMIT.fullmatch(arguments.source_commit) is None:
+    if arguments.source_ref is not None:
+        commit = resolved(declaration["url"], arguments.source_ref)
+    elif COMMIT.fullmatch(arguments.source_commit) is None:
         refuse(
             f"{arguments.source_commit!r} is not a full source commit; a build "
             "is pinned to one and an abbreviation names a different commit later"
         )
+    else:
+        commit = arguments.source_commit
 
     encoded = json.dumps(
-        document(arguments.source_commit, declaration),
+        document(commit, declaration),
         sort_keys=True,
         separators=(",", ":"),
     ).encode()
     relative = (
         Path(REQUESTS)
         / arguments.repository_id
-        / arguments.source_commit
+        / commit
         / f"{hashlib.sha256(encoded).hexdigest()}.json"
     )
     path = root / relative
