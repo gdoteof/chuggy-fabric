@@ -28,7 +28,7 @@ and the verifier is what holds them to the request digest.
 THE FULFILMENT RECORD IS HELD THE SAME WAY. `scripts/fulfil-build-requests`
 files `<repository-id>/<source-commit>/request-<request-digest>.json` beside the
 attempt directories of that commit to say that a source's build request has been
-answered, and a source's finalizer concludes on nothing but its existence. So it
+answered, and the rollout ticket's wait concludes on nothing but its existence. So it
 is read here as what it claims -- the request document it answers, the builds it
 rendered, the results those builds recorded -- and every one of those has to be
 a path this tree carries. It has no checksum beside it, unlike its neighbours,
@@ -135,8 +135,9 @@ def located(results):
 
 def answered(root, record, relative, repository, commit, request):
     """One fulfilment record, re-resolved against the tree it indexes. What it
-    says is that a request was answered here, and a source's finalizer concludes
-    on that; every path it names is therefore a path this tree has to carry."""
+    says is that a request was answered here, and the rollout ticket's wait
+    concludes on that; every path it names is therefore a path this tree has to
+    carry."""
     if REPOSITORY_ID.fullmatch(repository) is None or COMMIT.fullmatch(commit) is None:
         refuse(f"{relative} is not filed under a repository id and a full source commit")
     carried = json.loads(record.read_text())

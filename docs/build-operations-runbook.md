@@ -7,7 +7,7 @@ order, and every move between them is a commit to the branch Flux follows:
 | Path | What lands there | Written by |
 |---|---|---|
 | `requests/<repository-id>/<source-commit>/<request-digest>.json` | the document asking for a build of one commit | `scripts/request-build`, run by a `fabric-change` ticket and landed by its merge |
-| `builds/<repository-id>/<source-commit>/<request-digest>.yaml` | one Shipwright request per image `scripts/build_sources.py` declares for the source; Flux applies them | `scripts/fulfil-build-requests`, run and pushed by `chuggy-build-results-publish.service` on the host |
+| `builds/<repository-id>/<source-commit>/<build-request-digest>.yaml` | one Shipwright request per image, each at its own digest, `scripts/build_sources.py` declares for the source; Flux applies them | `scripts/fulfil-build-requests`, run and pushed by `chuggy-build-results-publish.service` on the host |
 | `results/<repository-id>/<source-commit>/<request-digest>/<attempt>.json` | the recorded result of one attempt, beside its checksum | recorded by `chuggy-build-provenance.service`, pushed by the publisher unit |
 | `results/<repository-id>/<source-commit>/request-<request-digest>.json` | the record: every build the request rendered has a result | `scripts/fulfil-build-requests`, in the activation that pushed the last result |
 

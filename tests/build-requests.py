@@ -27,7 +27,7 @@ by the timer that runs one and the ticket that runs the other, so every case
 asserts the code, the account, and what the tree carries afterwards -- because
 the failures that matter here are silent: a build rendered twice under two
 digests is a release that refuses, and a fulfilment record written early is a
-finalizer concluding on a build that has not happened.
+rollout concluding on a build that has not happened.
 """
 
 import hashlib
@@ -45,7 +45,7 @@ SCRIPTS = Path(sys.argv[2]).resolve()
 WORK = Path(sys.argv[3]).resolve()
 
 COMMIT = "5e37c51f5e588a11903bdfdc3d22e1e64f9bb96e"
-# What chuggy's finalizer renders and commits, verbatim.
+# The request document this site is built to answer, verbatim.
 REQUESTED = (
     '{"apiVersion":"chuggy.dev/v1","kind":"ContainerBuildRequest","spec":'
     '{"builderProfile":"shipwright-buildkit-rootless-mini/v1","platforms":["linux/amd64"],'
@@ -91,7 +91,7 @@ def tree(case):
 
 
 def requested(root, document, repository_id="chuggy", commit=COMMIT, digest=None):
-    """A request document filed where a finalizer files one. The name is the
+    """A request document filed where the fabric ticket files one. The name is the
     digest of chuggy's identity input, which nothing here can recompute, so a
     digest of the bytes stands in: this side reads it as a name."""
     encoded = document.encode()
@@ -306,7 +306,7 @@ def main():
     filed = f"requests/chuggy/{COMMIT}/{digest}.json"
     if expect(case, request_build(root), 0, announced({"request": filed})):
         if (root / filed).read_bytes() != REQUESTED.encode():
-            report(case, "what was filed is not the document chuggy's finalizer sends")
+            report(case, "what was filed is not the document this site is built to answer")
         answers = [
             f"builds/chuggy/{COMMIT}/{API}.yaml",
             f"builds/chuggy/{COMMIT}/{WEB}.yaml",
@@ -452,9 +452,9 @@ def main():
         if fingerprint(root) != before:
             report(case, "a retried request was rendered over")
 
-    # The record is what a finalizer concludes on, so it may not appear while a
-    # build it names has no result: that finalizer would be reporting a build
-    # that has not happened.
+    # The record is what the rollout's wait concludes on, so it may not appear
+    # while a build it names has no result: that rollout would be releasing a
+    # build that has not happened.
     case = "records-nothing-until-every-build-has-a-result"
     root = tree(case)
     shutil.rmtree(root / "results" / "chuggy" / COMMIT / WEB)
@@ -533,7 +533,7 @@ def main():
     )
 
     # A document nobody can answer is one request and not the run: the others
-    # are independent of it and a finalizer is waiting for each.
+    # are independent of it and a rollout is waiting for each.
     case = "answers-the-rest-of-a-tree-it-has-a-finding-in"
     root = tree(case)
     for request in (API, WEB):
@@ -553,7 +553,7 @@ def main():
     )
 
     # A file under `requests/` that is not one is a request nothing answers,
-    # which is a finalizer waiting for its deadline with nothing to read.
+    # which is a wait running to its deadline with nothing to read.
     case = "refuses-a-stray-under-requests"
     root = tree(case)
     (root / "requests" / "stray.json").write_text("{}\n")
