@@ -163,7 +163,7 @@ publish() {
   rm -rf "$work/run"
   mkdir -p "$work/run"
   env RESULTS_PATH="${RESULTS_UNDER_TEST:-$work/host-records}" \
-    SCRIPTS_PATH="$scripts" \
+    SCRIPTS_PATH="${SCRIPTS_UNDER_TEST:-$scripts}" \
     REPOSITORY_URL="file://$work/${REPOSITORY_UNDER_TEST:-origin.git}" \
     BRANCH=main \
     CLONE_PATH="$work/clone" \
@@ -576,3 +576,32 @@ fi
 # ------------------------------------------------- what the layout gate says ---
 
 python3 "$root/tests/build-results.py" "$work/published" "$scripts"
+
+# ------------------------------------------- a consumer that could not run ---
+
+# The other half's 2 is not its 3. A document nobody can answer is permanent and
+# the unit succeeds on it; a consumer that could not run at all reached no
+# verdict about anything, and a unit that reported that as success would leave
+# every request on the branch unanswered and nothing red to say so. The
+# `SCRIPTS_PATH` the host names is the store copy the host was built with, so
+# what makes the consumer unrunnable here is that copy missing the renderer it
+# resolves its profiles from.
+commit_m=cccccccccccccccccccccccccccccccccccccccc
+request_m=ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+mkdir -p "$work/staging/requests/chuggy/$commit_m"
+cat > "$work/staging/requests/chuggy/$commit_m/$request_m.json" <<JSON
+{"apiVersion":"chuggy.dev/v1","kind":"ContainerBuildRequest","spec":{"builderProfile":"shipwright-buildkit-rootless-mini/v1","platforms":["linux/amd64"],"source":{"commit":"$commit_m","repository":"https://github.com/kasofsk/chuggy.git"},"targetImageRepository":"registry.chuggy-registry.svc.cluster.local:5000/chuggy"}}
+JSON
+land 'fixture: a request to answer with a consumer that cannot run'
+cp -R "$scripts" "$work/partial-scripts"
+chmod -R u+w "$work/partial-scripts"
+rm "$work/partial-scripts/render-build-request"
+if SCRIPTS_UNDER_TEST="$work/partial-scripts" publish 2>"$work/unrunnable.log"; then
+  echo "a consumer that could not run reported success" >&2
+  exit 1
+fi
+grep -Fq 'cannot run' "$work/unrunnable.log"
+git -C "$work/published" fetch --quiet origin main
+git -C "$work/published" reset --quiet --hard origin/main
+test ! -e "$work/published/builds/chuggy/$commit_m"
+test ! -e "$work/published/results/chuggy/$commit_m"
