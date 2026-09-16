@@ -1,0 +1,337 @@
+#!/usr/bin/env python3
+"""Render the builds each Chuggy build request in this tree asks for, and record
+that they were answered.
+
+WHAT A REQUEST IS. A source repository's finalizer commits one document per
+finalized change to this repository's main:
+
+    requests/<repository-id>/<source-commit>/<request-digest>.json
+    {"apiVersion":"chuggy.dev/v1","kind":"ContainerBuildRequest","spec":{…}}
+
+whose `spec` names the commit to build, the registry namespace to publish under,
+a builder profile and a platform. It names no image, so one request renders N
+Shipwright requests -- one per image `scripts/build_sources.py` declares for that
+source -- through `scripts/render-build-request`, which stays the only renderer
+of a `builds/` manifest and the only authority on a request digest. Rendering
+here and rendering by hand from the runbook produce the same bytes at the same
+path because they are the same command.
+
+WHAT FULFILS IT:
+
+    results/<repository-id>/<source-commit>/request-<request-digest>.json
+
+written once every build this command rendered for that request has a recorded
+result beside its checksum. That file is what the finalizer waits for, which is
+why it is written last and never before: a finalizer that saw it earlier would
+conclude a build had happened that had not. A FAILED RESULT FULFILS IT TOO -- a
+result was recorded, and which images a release may be cut from is
+`scripts/render-release`'s question, which it answers by refusing.
+
+WHAT IS NEVER REWRITTEN. A build this tree already carries is left exactly as it
+is and is not re-rendered: an operator may have retried it, and a retried
+request is that same file carrying a later attempt, which a re-render would
+report as a request that changed. A fulfilment record that exists is never
+written again for the same reason `results/` is immutable everywhere else. So a
+run over a tree an earlier run answered writes nothing, which is what keeps the
+timer that calls this from committing to the live branch every few minutes.
+
+WHAT THIS CANNOT SEE. Whether the commit a request names exists in the source --
+the build is what finds that out -- and whether a rendered build ever ran:
+Flux applies `builds/` and the recorder is what puts a result under `results/`.
+
+Exit 0 clean, 1 on a finding, 2 when it could not run. Exit 2 is not a pass. A
+finding is a document this site cannot answer -- a source it does not declare, a
+namespace, platform or source repository that is not the declared one, a profile
+it does not have -- and each is reported and skipped rather than ending the run,
+because requests are independent and one document nobody can answer must not
+hold up the others.
+
+Every path created is printed to stdout, one per line, so a caller stages
+exactly what this wrote and nothing else.
+"""
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+import tempfile
+from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
+
+# Importing a sibling writes bytecode into `scripts/`, which this repository
+# tracks by hand.
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from build_sources import SOURCES  # noqa: E402  (after the line above, which it needs)
+
+FINDING = 1
+UNRUNNABLE = 2
+API_VERSION = "chuggy.dev/v1"
+KIND = "ContainerBuildRequest"
+REQUESTS = "requests"
+KEEPFILE = ".gitkeep"
+REPOSITORY_ID = re.compile(r"[a-z0-9](?:[a-z0-9.-]{0,61}[a-z0-9])?")
+COMMIT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+DIGEST = re.compile(r"[0-9a-f]{64}")
+ATTEMPT = re.compile(r"[a-z0-9][-a-z0-9.]*-a(?P<ordinal>[1-9][0-9]*)\.json")
+
+findings = 0
+
+
+def finding(message):
+    global findings
+    findings += 1
+    print(f"fulfil-build-requests: {message}", file=sys.stderr)
+
+
+def unrunnable(message):
+    print(f"fulfil-build-requests: cannot run: {message}", file=sys.stderr)
+    raise SystemExit(UNRUNNABLE)
+
+
+def sibling(name):
+    return Path(__file__).resolve().with_name(name)
+
+
+def profile_named(builder_profile):
+    """The `--profile` `render-build-request` takes for the builder profile a
+    document names, read out of that script's own roster: a copy here would be a
+    name this command accepts and that renderer does not."""
+    path = sibling("render-build-request")
+    loader = SourceFileLoader("render_build_request", str(path))
+    spec = spec_from_file_location("render_build_request", str(path), loader=loader)
+    module = module_from_spec(spec)
+    try:
+        loader.exec_module(module)
+    except Exception as error:  # noqa: BLE001 -- any failure here is the same verdict
+        unrunnable(f"{path} could not be read for its profiles: {error}")
+    return {profile["name"]: key for key, profile in module.PROFILES.items()}.get(
+        builder_profile
+    )
+
+
+def render(output_root, repository_id, commit, declaration, dockerfile, image):
+    """One Shipwright request, rendered by the renderer every other one in this
+    tree came from. Returns its path relative to the output root."""
+    command = [
+        sys.executable,
+        str(sibling("render-build-request")),
+        "--repository-id", repository_id,
+        "--source-url", declaration["url"],
+        "--source-commit", commit,
+        "--source-secret", declaration["sourceSecret"],
+        "--target-image-repository", f"{declaration['imageNamespace']}/{image}",
+        "--output-secret", declaration["outputSecret"],
+        "--context-dir", declaration["contextDir"],
+        "--dockerfile", dockerfile,
+        "--cache", declaration["cache"],
+        "--platform", declaration["platform"],
+        "--profile", declaration["profile"],
+        "--output-root", str(output_root),
+    ]
+    try:
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+    except OSError as error:
+        unrunnable(f"{command[0]} could not be run: {error}")
+    if completed.returncode != 0:
+        return None, completed.stderr.strip() or completed.stdout.strip() or "no detail"
+    return Path(completed.stdout.strip()), None
+
+
+def recorded_result(root, repository_id, commit, request_digest):
+    """The recorded attempt of one build, latest ordinal first, or None while
+    none has been published. A record whose checksum is not beside it yet is
+    half of a pair the publisher is still copying, and is not one."""
+    directory = root / "results" / repository_id / commit / request_digest
+    if not directory.is_dir():
+        return None
+    attempts = []
+    for record in sorted(directory.iterdir()):
+        attempt = ATTEMPT.fullmatch(record.name)
+        if attempt is None or not record.with_name(f"{record.name}.sha256").is_file():
+            continue
+        attempts.append((int(attempt.group("ordinal")), record))
+    if not attempts:
+        return None
+    return max(attempts)[1]
+
+
+def declared(document, relative, repository_id, commit, declaration):
+    """What the fabric holds a request document to before it builds anything
+    from it. Each of these is an image built for somewhere this site did not
+    mean to publish it, or from a source it did not mean to clone."""
+    if (
+        not isinstance(document, dict)
+        or document.get("apiVersion") != API_VERSION
+        or document.get("kind") != KIND
+    ):
+        finding(f"{relative} is not a {KIND} of {API_VERSION}")
+        return None
+    spec = document.get("spec")
+    source = spec.get("source") if isinstance(spec, dict) else None
+    if not isinstance(spec, dict) or not isinstance(source, dict):
+        finding(f"{relative} carries no build specification")
+        return None
+    if source.get("repository") != declaration["url"]:
+        finding(
+            f"{relative} builds {source.get('repository')!r}; {repository_id} is "
+            f"{declaration['url']} here"
+        )
+        return None
+    if source.get("commit") != commit:
+        finding(f"{relative} asks for commit {source.get('commit')!r}, which is not its path")
+        return None
+    if spec.get("targetImageRepository") != declaration["imageNamespace"]:
+        finding(
+            f"{relative} publishes to {spec.get('targetImageRepository')!r}; "
+            f"{repository_id}'s images are published under {declaration['imageNamespace']}"
+        )
+        return None
+    if spec.get("platforms") != [declaration["platform"]]:
+        finding(
+            f"{relative} asks for platforms {spec.get('platforms')!r}; this site builds "
+            f"{repository_id} for {[declaration['platform']]}"
+        )
+        return None
+    profile = profile_named(spec.get("builderProfile"))
+    if profile is None:
+        finding(
+            f"{relative} asks for builder profile {spec.get('builderProfile')!r}, "
+            "which this site does not have"
+        )
+        return None
+    return dict(declaration, profile=profile)
+
+
+def request_documents(root):
+    """Every request document under `requests/`, as (path, repository id,
+    commit, digest). A file the layout does not have is a finding rather than
+    something skipped: a request nothing reads is a build that never happens and
+    a finalizer that waits for its deadline."""
+    directory = root / REQUESTS
+    if not directory.is_dir():
+        return []
+    documents = []
+    for path in sorted(directory.rglob("*")):
+        if path.is_dir():
+            continue
+        relative = path.relative_to(root)
+        parts = path.relative_to(directory).parts
+        if parts == (KEEPFILE,):
+            continue
+        if len(parts) != 3 or not parts[2].endswith(".json"):
+            finding(
+                f"{relative} is not "
+                "<repository-id>/<source-commit>/<request-digest>.json"
+            )
+            continue
+        repository_id, commit, filename = parts
+        digest = filename[: -len(".json")]
+        if (
+            REPOSITORY_ID.fullmatch(repository_id) is None
+            or COMMIT.fullmatch(commit) is None
+            or DIGEST.fullmatch(digest) is None
+        ):
+            finding(f"{relative} is not filed under a repository, a commit and a request digest")
+            continue
+        documents.append((path, repository_id, commit, digest))
+    return documents
+
+
+def fulfil(root, output_root, path, repository_id, commit, digest):
+    """One request: every declared image rendered, and the record written once
+    every one of them has been answered. Returns the paths created."""
+    relative = path.relative_to(root)
+    declaration = SOURCES.get(repository_id)
+    if declaration is None:
+        finding(
+            f"{relative} is a request for {repository_id}, "
+            "which this site declares no images for"
+        )
+        return []
+    try:
+        document = json.loads(path.read_text())
+    except (OSError, ValueError) as error:
+        finding(f"{relative} could not be read as a request: {error}")
+        return []
+    declaration = declared(document, relative, repository_id, commit, declaration)
+    if declaration is None:
+        return []
+
+    created = []
+    answers = []
+    for dockerfile, image in sorted(declaration["images"].items()):
+        rendered, refusal = render(
+            output_root, repository_id, commit, declaration, dockerfile, image
+        )
+        if rendered is None:
+            finding(f"{relative} could not be rendered for {dockerfile}: {refusal}")
+            return created
+        carried = root / rendered
+        if not carried.exists():
+            carried.parent.mkdir(parents=True, exist_ok=True)
+            carried.write_bytes((output_root / rendered).read_bytes())
+            created.append(rendered.as_posix())
+        answers.append((dockerfile, rendered.stem))
+
+    record = root / "results" / repository_id / commit / f"request-{digest}.json"
+    if record.exists():
+        return created
+    results = []
+    for dockerfile, request_digest in answers:
+        result = recorded_result(root, repository_id, commit, request_digest)
+        if result is None:
+            return created
+        results.append(
+            {
+                "dockerfile": dockerfile,
+                "request": request_digest,
+                "result": result.relative_to(root).as_posix(),
+            }
+        )
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "request": relative.as_posix(),
+                "source": {"repositoryId": repository_id, "commit": commit},
+                "builds": results,
+            },
+            sort_keys=True,
+            indent=2,
+        )
+        + "\n"
+    )
+    created.append(record.relative_to(root).as_posix())
+    return created
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Render the builds this tree's Chuggy build requests ask for."
+    )
+    parser.add_argument("--root", type=Path, default=Path("."))
+    arguments = parser.parse_args()
+    root = arguments.root
+    if not root.is_dir():
+        unrunnable(f"{root} is not a directory, so there is no tree to fulfil requests in")
+
+    created = []
+    # The renderer decides a request's path from its own digest, so a build is
+    # rendered before this command can know whether the tree already carries it.
+    # Rendering somewhere else first is what keeps that from touching one.
+    with tempfile.TemporaryDirectory(prefix="fulfil-build-requests.") as staging:
+        for path, repository_id, commit, digest in request_documents(root):
+            created.extend(fulfil(root, Path(staging), path, repository_id, commit, digest))
+
+    for path in created:
+        print(path)
+    raise SystemExit(FINDING if findings else 0)
+
+
+if __name__ == "__main__":
+    main()

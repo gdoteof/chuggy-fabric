@@ -136,6 +136,7 @@
       fluxWiring = host: expectSecretRef:
         import ./tests/flux-wiring.nix { inherit pkgs host expectSecretRef; };
       buildPlatform = import ./tests/build-platform.nix { inherit pkgs; };
+      buildRequests = import ./tests/build-requests.nix { inherit pkgs; };
       buildResults = import ./tests/build-results.nix { inherit pkgs; };
       buildResultsPublish = import ./tests/build-results-publish.nix { inherit pkgs; };
       renderRelease = import ./tests/render-release.nix { inherit pkgs; };
@@ -372,6 +373,11 @@
           })
           "fabric-source-auth";
         build-platform = buildPlatform;
+
+        # What a source's build request is answered with: one build per image
+        # this site declares for it, rendered by the renderer every request
+        # under `builds/` came from, and the record that says so.
+        build-requests = buildRequests;
 
         # Every record `results/` carries, against the request in `builds/` it
         # answers. The records are what a rollout promotes an image from, and
