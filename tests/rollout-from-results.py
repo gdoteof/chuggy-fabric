@@ -308,7 +308,16 @@ def rollout(clone, source, ref, within=2, url=None, extra=(), path=None):
     """The command, given a bound of this suite's own well past the one it was
     given: a command whose bound is no bound would otherwise hang the check
     rather than red it."""
-    environment = dict(os.environ)
+    # The identity is what lets a merge that is not a fast-forward commit:
+    # without one, a plain merge dies before it moves anything and looks like
+    # the refusal `--ff-only` makes on purpose.
+    environment = dict(
+        os.environ,
+        GIT_AUTHOR_NAME="rollout tests",
+        GIT_AUTHOR_EMAIL="tests@invalid",
+        GIT_COMMITTER_NAME="rollout tests",
+        GIT_COMMITTER_EMAIL="tests@invalid",
+    )
     if path is not None:
         environment["PATH"] = f"{path}{os.pathsep}{environment['PATH']}"
     try:

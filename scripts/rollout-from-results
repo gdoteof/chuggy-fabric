@@ -42,14 +42,14 @@ PROVED. `render-release` reads `results/` from the tree at `--fabric-root`,
 because a release is cut from records this repository carries and a checkout
 is what carries them. The wait reads the branch and not the tree, because the
 publisher pushes the record and nothing local writes one. In a ticket the two
-disagree: the checkout is a fresh branch from `main` as it was at dispatch,
-and the record lands minutes to hours later -- so a wait that found it on the
+disagree: the checkout is detached at `main` as it was at dispatch, and the
+record lands minutes to hours later -- so a wait that found it on the
 branch would hand the render a tree without it, and every rollout whose record
 was not already on `main` at dispatch would be refused as a build with no
 result. So between the two the checkout is fast-forwarded to
 `<remote>/<branch>`, which the wait's own fetch brought up to date, and no
 network is touched here. Fast-forward and not reset, because the ticket's
-branch is `main` at dispatch plus nothing, and that is the one shape a
+checkout is `main` at dispatch plus nothing, and that is the one shape a
 fast-forward accepts: a checkout that cannot -- commits of its own, an edit in
 the way of the merge -- is not the checkout a ticket has, and is could-not-run
 with an account saying so rather than a tree thrown away to render from.

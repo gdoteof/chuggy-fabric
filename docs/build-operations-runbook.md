@@ -65,8 +65,8 @@ stderr, so a ticket engine reads the result and a person reads the reason.
 
 ## Sizing the wait
 
-`--within-secs` is the rollout command's whole life: the resolve, the wait
-and the render each get what is left of it. It has to undercut the deadline
+`--within-secs` is the rollout command's whole life: the resolve, the wait,
+the fast-forward and the render each get what is left of it. It has to undercut the deadline
 of the pod that runs it -- `CHUG_SCHEDULER_WORKER_DEADLINE_SECS` in
 `cluster/apps/chuggy-scheduler.yaml` -- by the clone and setup before the
 command, because a pod killed at its deadline has reached no verdict: what
