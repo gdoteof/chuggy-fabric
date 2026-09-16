@@ -137,6 +137,7 @@
         import ./tests/flux-wiring.nix { inherit pkgs host expectSecretRef; };
       buildPlatform = import ./tests/build-platform.nix { inherit pkgs; };
       buildRequests = import ./tests/build-requests.nix { inherit pkgs; };
+      awaitBuildResults = import ./tests/await-build-results.nix { inherit pkgs; };
       buildResults = import ./tests/build-results.nix { inherit pkgs; };
       buildResultsPublish = import ./tests/build-results-publish.nix { inherit pkgs; };
       renderRelease = import ./tests/render-release.nix { inherit pkgs; };
@@ -374,10 +375,17 @@
           "fabric-source-auth";
         build-platform = buildPlatform;
 
-        # What a source's build request is answered with: one build per image
-        # this site declares for it, rendered by the renderer every request
-        # under `builds/` came from, and the record that says so.
+        # What a source's build request is, and what it is answered with: the
+        # document the command a source ticket runs files, and one build per
+        # image this site declares for it, rendered by the renderer every
+        # request under `builds/` came from, and the record that says so.
         build-requests = buildRequests;
+
+        # And the wait between a request and that record, against a real
+        # remote. A ticket concluding a build happened when it did not rolls out
+        # a release nothing built; one concluding it did not abandons a change
+        # that is already merged.
+        await-build-results = awaitBuildResults;
 
         # Every record `results/` carries, against the request in `builds/` it
         # answers. The records are what a rollout promotes an image from, and

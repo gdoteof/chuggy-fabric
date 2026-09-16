@@ -1,12 +1,12 @@
-# The command that answers a source's build requests, driven over this
-# repository's own builds and results. What each case is and why it is that case
-# is in build-requests.py's header.
+# The commands that file a source's build requests and answer them, driven over
+# this repository's own builds and results. What each case is and why it is that
+# case is in build-requests.py's header.
 #
-# It runs against a copy of `scripts/` rather than the store paths because the
-# command resolves its siblings -- the declaration it reads, the renderer it
-# renders through, the verifier the results gate reaches for -- beside itself,
-# and a suite that pointed at anything else would be proving a different
-# arrangement than the one the host runs.
+# They run against a copy of `scripts/` rather than the store paths because each
+# resolves its siblings -- the declaration they read, the renderer they render
+# through, the verifier the results gate reaches for -- beside itself, and a
+# suite that pointed at anything else would be proving a different arrangement
+# than the one the host runs.
 { pkgs }:
 
 pkgs.runCommand "chuggy-build-requests" {
@@ -28,5 +28,10 @@ pkgs.runCommand "chuggy-build-requests" {
   set -u
   mkdir work
   python3 ${./build-requests.py} "$root" "$PWD/scripts-under-test" "$PWD/work"
+  # The runbook is where an operator goes for the commands of this loop, and one
+  # named nowhere in it is one nobody finds when a ticket's build has not
+  # arrived.
+  grep -F 'scripts/request-build' "$root/docs/build-operations-runbook.md" >/dev/null
+  grep -F 'scripts/await-build-results' "$root/docs/build-operations-runbook.md" >/dev/null
   touch "$out"
 ''

@@ -1,0 +1,194 @@
+#!/usr/bin/env python3
+"""File the build request one finalized source change asks this site for.
+
+WHAT THIS WRITES. One document, at
+
+    requests/<repository-id>/<source-commit>/<request-digest>.json
+
+which is the path `scripts/fulfil-build-requests` reads and the one document a
+source's finalized change puts into this tree. Its `spec` names the commit to
+build, the source it is cloned from, the registry namespace its images are
+published under, the builder profile and the platform -- and no image at all,
+because which images a source builds is this site's fact. Every value comes from
+that source's entry in `scripts/build_sources.py`, which is also what the
+consumer holds the document to, so a request and the builds it is answered with
+cannot name different things.
+
+WHY A COMMAND AND NOT A RENDERER IN THE SOURCE. Chuggy's finalizer renders this
+document from chuggy's own copy of these values, and a copy is a second home for
+the registry namespace, the source URL, the platform and the profile name: the
+day one of them moves here, a request arrives that this site refuses, and the
+refusal is correct in both trees separately. A ticket that runs this command
+instead carries no fabric fact. What it carries is the commit.
+
+THE DIGEST IS OF THE BYTES. The consumer reads the name as a name -- 64 hex
+characters and nothing more -- so the document is its own address: two runs at
+one commit agree on the path exactly when they agree on the document. The bytes
+are minified with sorted keys and no trailing newline, which is what the
+consumer parses and what `tests/build-requests.py` holds to the document the
+fabric is built to answer.
+
+ONE COMMIT CARRIES ONE REQUEST, and a second is refused here rather than
+downstream. Two documents at one commit is what a declaration that moved between
+two filings leaves, and every path out of it is a late failure somebody else has
+to read: the consumer holds a document to the declaration as it stands, so the
+older one can never be answered again; `scripts/await-build-results` waits for
+every document at the commit, so it can never return 0 for that commit again;
+`requests/` is never pruned and is not edited by hand, so there is no forward fix
+in the tree; and if both are somehow answered, `scripts/render-release` refuses
+the release for two digests on one image. This is the only place that can see it
+before it lands and the only one that can name what caused it. What the refusal
+takes away is re-filing a moved declaration at a commit already asked for, which
+is what the release would refuse anyway.
+
+FILING IS NOT LANDING. Nothing here stages, commits or pushes: the file is left
+in the tree for the ticket that ran the command to land by its own finalization,
+which is what puts it in front of a reviewer.
+
+NOTHING TO DO IS NOT SUCCESS. A run that finds its own request already filed has
+written nothing, and a work stage that writes nothing lands an empty change --
+which the finalizer refuses as contradictory, and which is a pull request with no
+commits. So that run refuses rather than succeeding quietly, and its account on
+stderr is what a reader wants: the request is there, and this ticket has nothing
+to land. It is a refusal and not a could-not-run because the tree is what
+decides it and another run reaches the same verdict. An attempt starts from a
+fresh branch off `main`, so the tree where this happens is one where the request
+already landed.
+
+STDOUT IS THE RESULT AND NOTHING ELSE: one JSON object naming what was filed.
+Accounts and refusals go to stderr. A command whose work is read by a ticket
+engine has no other channel, and a stray line on stdout is a task that failed.
+
+Exit 0 when a request was filed, 2 when it could not run, 3 when it refuses to
+file. Exit 2 is not a pass, and an uncaught exception exits 1 rather than
+either.
+"""
+
+import argparse
+import hashlib
+import json
+import re
+import sys
+from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
+
+# Importing a sibling writes bytecode into `scripts/`, which this repository
+# tracks by hand.
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from build_sources import SOURCES  # noqa: E402  (after the line above, which it needs)
+
+UNRUNNABLE = 2
+REFUSAL = 3
+API_VERSION = "chuggy.dev/v1"
+KIND = "ContainerBuildRequest"
+REQUESTS = "requests"
+COMMIT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+
+
+def refuse(message):
+    print(f"request-build: {message}", file=sys.stderr)
+    raise SystemExit(REFUSAL)
+
+
+def unrunnable(message):
+    print(f"request-build: cannot run: {message}", file=sys.stderr)
+    raise SystemExit(UNRUNNABLE)
+
+
+def profile_name(key):
+    """The builder profile name a document carries, for the profile a
+    declaration selects. Read out of `scripts/render-build-request`'s roster,
+    which is where the consumer maps the name back to the same key: a name
+    spelled here by hand would be one the consumer refuses."""
+    path = Path(__file__).resolve().with_name("render-build-request")
+    loader = SourceFileLoader("render_build_request", str(path))
+    spec = spec_from_file_location("render_build_request", str(path), loader=loader)
+    module = module_from_spec(spec)
+    try:
+        loader.exec_module(module)
+    except Exception as error:  # noqa: BLE001 -- any failure here is the same verdict
+        unrunnable(f"{path} could not be read for its profiles: {error}")
+    profile = module.PROFILES.get(key)
+    if profile is None:
+        unrunnable(f"{path} has no builder profile {key!r}")
+    return profile["name"]
+
+
+def document(commit, declaration):
+    return {
+        "apiVersion": API_VERSION,
+        "kind": KIND,
+        "spec": {
+            "builderProfile": profile_name(declaration["profile"]),
+            "platforms": [declaration["platform"]],
+            "source": {"commit": commit, "repository": declaration["url"]},
+            "targetImageRepository": declaration["imageNamespace"],
+        },
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="File one source change's build request in this tree."
+    )
+    parser.add_argument("--repository-id", required=True)
+    parser.add_argument("--source-commit", required=True)
+    parser.add_argument("--root", type=Path, default=Path("."))
+    arguments = parser.parse_args()
+
+    root = arguments.root
+    if not root.is_dir():
+        unrunnable(f"{root} is not a directory, so there is no tree to file in")
+    declaration = SOURCES.get(arguments.repository_id)
+    if declaration is None:
+        # The same verdict `scripts/fulfil-build-requests` reaches on a document
+        # for an undeclared source, and for the same reason: nothing about this
+        # run reaches it, and what clears it is the declaration.
+        refuse(
+            f"{arguments.repository_id} is a source this site declares no images for"
+        )
+    if COMMIT.fullmatch(arguments.source_commit) is None:
+        refuse(
+            f"{arguments.source_commit!r} is not a full source commit; a build "
+            "is pinned to one and an abbreviation names a different commit later"
+        )
+
+    encoded = json.dumps(
+        document(arguments.source_commit, declaration),
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    relative = (
+        Path(REQUESTS)
+        / arguments.repository_id
+        / arguments.source_commit
+        / f"{hashlib.sha256(encoded).hexdigest()}.json"
+    )
+    path = root / relative
+    siblings = sorted(
+        other.name
+        for other in (path.parent.iterdir() if path.parent.is_dir() else ())
+        if other.is_file() and other.name != path.name
+    )
+    if siblings:
+        refuse(
+            f"{relative.parent}/ already carries {', '.join(siblings)}, filed "
+            "when this site declared something else; one commit carries one "
+            "request"
+        )
+    if path.exists():
+        # The name is the digest of these bytes, so anything else at it was
+        # written by something that is not this command.
+        if path.read_bytes() != encoded:
+            refuse(f"{relative} is not the request this site would file there")
+        refuse(f"{relative} is already filed, so this run has nothing to land")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(encoded)
+    print(json.dumps({"request": relative.as_posix()}))
+
+
+if __name__ == "__main__":
+    main()

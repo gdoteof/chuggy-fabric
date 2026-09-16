@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Drive `scripts/fulfil-build-requests` over the requests it answers and every
-refusal it states.
+"""Drive `scripts/request-build` and `scripts/fulfil-build-requests` over the
+requests one files and the other answers, and every refusal each states.
 
 WHAT IS REAL HERE AND WHAT IS FIXTURE. The builds and results are this
 repository's own: the tree each case runs against is a copy of `builds/` and
@@ -14,16 +14,20 @@ THE REQUEST DOCUMENTS ARE FIXTURES, and one of them is verbatim: `REQUESTED`
 below is what chuggy's `handoffOutput` renders, byte for byte, key order
 included. Nothing in this repository can hold that to chuggy's renderer, so it
 is written here as the contract this side reads, and a case that changed it
-would be changing what the fabric claims to consume.
+would be changing what the fabric claims to consume. `scripts/request-build` is
+this site's own writer of that document, and the first case holds what it files
+to those same bytes and then answers it: the two are one document, or the loop
+has two ends that disagree and each reads correctly alone.
 
-THE EXIT CODE IS THE VERDICT. Zero is a tree this command answered, 3 is a
-document it will never answer, 2 is a run that did not happen, and 1 is a crash
-because nothing here raises it deliberately. A command reporting any of those as
-another is believed by the timer that runs it, so every case asserts the code,
-the account, and what the tree carries afterwards -- because the failures that
-matter here are silent: a build rendered twice under two digests is a release
-that refuses, and a fulfilment record written early is a finalizer concluding on
-a build that has not happened.
+THE EXIT CODE IS THE VERDICT. Zero is a tree these commands answered or filed
+into, 3 is a document one will never answer and a request the other will not
+file, 2 is a run that did not happen, and 1 is a crash because nothing here
+raises it deliberately. A command reporting any of those as another is believed
+by the timer that runs one and the ticket that runs the other, so every case
+asserts the code, the account, and what the tree carries afterwards -- because
+the failures that matter here are silent: a build rendered twice under two
+digests is a release that refuses, and a fulfilment record written early is a
+finalizer concluding on a build that has not happened.
 """
 
 import hashlib
@@ -51,6 +55,8 @@ REQUESTED = (
 API = "9565818d877f3df1c69b4a2776d3ff0fe3dc0da594847aee9b82bc69ea9bcec1"
 WEB = "471cd9294f093cb0c498495c3f66c995d943947b9dd72866138165e49b489033"
 UNANSWERABLE = 3
+# The same number from the filing end of the loop: what this site will not do.
+REFUSAL = 3
 
 failures = []
 
@@ -113,6 +119,43 @@ def fulfil(root):
         text=True,
         check=False,
     )
+
+
+def moved_declaration(case):
+    """A copy of `scripts/` whose declaration for chuggy names another builder
+    profile. Filing at one commit on either side of such a move is what leaves
+    two documents there; writing the second by hand would be a fixture asserting
+    its own shape."""
+    moved = WORK / f"{case}-scripts"
+    shutil.copytree(SCRIPTS, moved)
+    declaration = moved / "build_sources.py"
+    text = declaration.read_text()
+    moved_text = text.replace('"profile": "mini",', '"profile": "dedicated",')
+    assert moved_text != text, "the declaration no longer names the profile it did"
+    declaration.write_text(moved_text)
+    return moved
+
+
+def request_build(root, repository_id="chuggy", commit=COMMIT, scripts=None):
+    return subprocess.run(
+        [
+            sys.executable,
+            str((scripts or SCRIPTS) / "request-build"),
+            "--repository-id", repository_id,
+            "--source-commit", commit,
+            "--root", str(root),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def announced(payload):
+    """The whole of what a command a ticket engine runs may put on stdout: one
+    JSON object, which is the result the engine reads. A second line, or a line
+    that is not that object, is a task that failed whatever the command meant."""
+    return [json.dumps(payload)]
 
 
 def expect(case, completed, code, created, phrases=()):
@@ -188,10 +231,103 @@ def released_images():
     return {image.dockerfile: image.repository for image in release}
 
 
+def unfiled(case, phrases, **asked):
+    """A request this site will not file: the run says 3, and the tree is as it
+    was. A ticket reading any other verdict either lands a document nobody can
+    answer or waits out its deadline for a build nothing asked for."""
+    root = tree(case)
+    before = fingerprint(root)
+    expect(case, request_build(root, **asked), REFUSAL, [], phrases)
+    if fingerprint(root) != before:
+        report(case, "a request this site refused to file still wrote to the tree")
+
+
 def main():
     sys.dont_write_bytecode = True
     sys.path.insert(0, str(SCRIPTS))
     from build_sources import SOURCES
+
+    # What a source ticket files, and what this site answers, are one document.
+    # The bytes are held to `REQUESTED` -- chuggy's own renderer's, which nothing
+    # here can reach -- and then handed to the consumer, because a document that
+    # matched those bytes and rendered differently would be a parity claim about
+    # a string rather than about the loop.
+    case = "files-the-document-this-site-answers"
+    root = tree(case)
+    for request in (API, WEB):
+        carried(root, request).unlink()
+    digest = hashlib.sha256(REQUESTED.encode()).hexdigest()
+    filed = f"requests/chuggy/{COMMIT}/{digest}.json"
+    if expect(case, request_build(root), 0, announced({"request": filed})):
+        if (root / filed).read_bytes() != REQUESTED.encode():
+            report(case, "what was filed is not the document chuggy's finalizer sends")
+        answers = [
+            f"builds/chuggy/{COMMIT}/{API}.yaml",
+            f"builds/chuggy/{COMMIT}/{WEB}.yaml",
+            f"results/chuggy/{COMMIT}/request-{digest}.json",
+        ]
+        if expect(case, fulfil(root), 0, answers):
+            for request in (API, WEB):
+                manifest = carried(root, request)
+                if manifest.read_bytes() != (ROOT / manifest.relative_to(root)).read_bytes():
+                    report(case, f"{request} is not the manifest this repository carries")
+
+    # A run that finds its own request already filed has written nothing, and a
+    # work stage that writes nothing lands an empty change: the finalizer
+    # refuses that as contradictory, and a ticket engine makes it a pull request
+    # with no commits. So it is a refusal with an account, not a quiet zero.
+    case = "refuses-a-request-it-has-already-filed"
+    root = tree(case)
+    expect(case, request_build(root), 0, announced({"request": filed}))
+    before = fingerprint(root)
+    expect(case, request_build(root), REFUSAL, [], ["is already filed"])
+    if fingerprint(root) != before:
+        report(case, "a request this tree already carried was written again")
+
+    # A declaration that moved between two filings would leave two documents at
+    # one commit. Nothing downstream recovers from that -- the consumer can
+    # never answer the older one again, the wait can never return 0 for the
+    # commit again, and `requests/` is never pruned -- so it is refused by the
+    # only command that can see it before it lands.
+    case = "refuses-a-second-request-at-one-commit"
+    root = tree(case)
+    expect(case, request_build(root), 0, announced({"request": filed}))
+    before = fingerprint(root)
+    expect(
+        case,
+        request_build(root, scripts=moved_declaration(case)),
+        REFUSAL,
+        [],
+        ["already carries", f"{digest}.json"],
+    )
+    if fingerprint(root) != before:
+        report(case, "a commit that already carries a request was filed at again")
+
+    # The name is the digest of the bytes, so anything else under it was written
+    # by something that is not this command, and writing over it would be this
+    # command deciding what a hand-edited request meant.
+    case = "refuses-a-request-that-is-not-the-one-at-its-name"
+    root = tree(case)
+    (root / filed).parent.mkdir(parents=True, exist_ok=True)
+    (root / filed).write_text("{}")
+    before = fingerprint(root)
+    expect(case, request_build(root), REFUSAL, [], ["is not the request this site would file"])
+    if fingerprint(root) != before:
+        report(case, "a document this command did not write was written over")
+
+    # A build is pinned to a full commit; an abbreviation names a different one
+    # as the source grows, and the consumer would refuse the document later,
+    # after a ticket had landed it.
+    unfiled(
+        "refuses-a-commit-that-is-not-a-full-one",
+        ["is not a full source commit"],
+        commit=COMMIT[:12],
+    )
+    unfiled(
+        "files-nothing-for-a-source-this-site-declares-no-images-for",
+        ["declares no images for"],
+        repository_id="someone-else",
+    )
 
     # The request an operator answered by hand, answered by the command: the
     # same two manifests at the same two paths, byte for byte. Anything else is
@@ -319,6 +455,14 @@ def main():
         altered(builderProfile="shipwright-buildkit-rootless-enormous/v1"),
         ["builder profile", "does not have"],
     )
+    # A profile this site has but did not declare for this source is a build
+    # scheduled against a node property the running host does not carry, which
+    # is a request that renders and never starts.
+    unrequested(
+        "refuses-a-profile-this-site-did-not-declare-for-the-source",
+        altered(builderProfile="shipwright-buildkit-rootless/v1"),
+        ["builder profile", "is built with the"],
+    )
     unrequested(
         "refuses-a-source-this-site-does-not-declare",
         REQUESTED,
@@ -331,6 +475,16 @@ def main():
         ["is not a ContainerBuildRequest"],
     )
     unrequested("refuses-what-is-not-a-document", "{not json", ["could not be read as a request"])
+    # A name that is not a request digest, carrying a document this site would
+    # otherwise answer: what is refused is the name. `results/` mirrors it --
+    # the record is `request-<digest>.json` -- so a request filed under anything
+    # else is one nothing can record, and a ticket waiting out its deadline.
+    unrequested(
+        "refuses-a-request-named-by-something-that-is-not-a-digest",
+        REQUESTED,
+        ["is not filed under a repository, a commit and a request digest"],
+        digest="0" * 40,
+    )
 
     # A document nobody can answer is one request and not the run: the others
     # are independent of it and a finalizer is waiting for each.

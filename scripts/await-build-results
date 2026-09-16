@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+"""Wait, bounded, for this site to have answered a source's build request.
+
+WHAT IT WAITS FOR. `scripts/fulfil-build-requests` writes
+
+    results/<repository-id>/<source-commit>/request-<request-digest>.json
+
+once every build it rendered for that request has a recorded result beside its
+checksum, and that record is the whole of what says a request was answered. So
+this waits for the record of every request document filed under
+`requests/<repository-id>/<source-commit>/` -- one, ordinarily, and all of them
+when a declaration moved between two filings and a commit carries two.
+
+IT WAITS ON THE BRANCH, NOT ON THIS CHECKOUT. The publisher pushes the record;
+nothing local produces one. So each round fetches the remote branch and reads
+the fetched ref with `git ls-tree`: no checkout, no reset, no file of the
+caller's tree consulted. A record sitting unstaged in the worktree is not an
+answer, and a caller whose clone is behind is not left waiting for something
+that already landed.
+
+A FAILED BUILD IS STILL AN ANSWER. A result was recorded, and this command does
+not open one: which images a release may be cut from is `scripts/render-release`'s
+question, and it answers it by refusing. A wait that refused here would put that
+verdict in two places and reach the caller before the release is even attempted.
+
+BOUNDED, AND THE BOUND IS THE CALLER'S. `--within-secs` is required, because a
+wait with no deadline is a ticket that never ends. It is also capped, because a
+caller may pass any number: the cap below is past every bound this site puts on
+the thing being waited for -- `scripts/render-build-request` writes a timeout
+into each Build, `scripts/build_sources.py` declares how many of them one
+request renders, and a result reaches the branch a `chuggy-build-provenance`
+activation and a `chuggy-build-results-publish` activation after the last of
+them finishes. What a longer wait holds open is a ticket, not a build.
+
+THE BOUND IS ON THE COMMAND AND NOT ON ITS ROUNDS. Every child gets what is left
+of the deadline as its own timeout, because a `git` that never returns -- a
+stalled proxy, a connection whose conntrack entry was evicted -- would otherwise
+be a wait of no length at all, and the caller's bound would buy nothing. A child
+given up on is a round that saw nothing, which is the same as a round that
+failed.
+
+A ROUND THAT COULD NOT LOOK IS NOT A VERDICT. One failed fetch is a blip -- a
+name that did not resolve, a gateway, an installation token that expired late in
+a long wait -- and a build that is still running is not a broken fabric. So a
+failed round is slept through like any other, and 2 is reached only if the
+deadline passes with the last round still unable to look. What that costs is
+that `--within-secs` is the time to a verdict of any kind, which is what a
+caller sizing a ticket wants it to be.
+
+THE BOUND HAS TO UNDERCUT THE ONE AROUND IT. Whatever runs this has a deadline
+of its own, and a caller killed at that deadline is a run with no verdict: what
+follows a kill is another attempt from the beginning, not a decision about the
+build. So `--within-secs` is sized under the deadline of the thing that runs it,
+and the value of reaching 3 is that it is this command's answer rather than
+somebody else's timer.
+
+STDOUT IS THE RESULT AND NOTHING ELSE: one JSON object naming the records found.
+Accounts and refusals go to stderr. A command whose work is read by a ticket
+engine has no other channel, and a stray line on stdout is a task that failed.
+
+WHAT IT NEEDS ON PATH: `git`. The worker image carries it.
+
+Exit 0 when every request filed at that commit has its record, 3 when the
+deadline passed without one, 2 when it could not look -- no request document
+filed at that commit at all, or a deadline reached with the remote or the
+fetched ref still unreadable. Exit 2 is not a pass, and an uncaught exception
+exits 1 rather than either.
+"""
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+UNRUNNABLE = 2
+DEADLINE = 3
+REQUESTS = "requests"
+RESULTS = "results"
+FETCHED = "FETCH_HEAD"
+DIGEST = re.compile(r"[0-9a-f]{64}")
+COMMIT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+# See the header: past the timeout of every build one request renders, and past
+# the two timer activations that carry the last result to the branch.
+CAP_SECS = 6 * 60 * 60
+# The record appears when the publisher's timer fires, so polling much faster
+# than that only spends fetches; this is comfortably under it.
+EVERY_SECS = 30
+
+
+class Blind(Exception):
+    """A round that could not look: a remote that did not answer, or a fetched
+    ref that could not be read. Carries the account, and is not a verdict --
+    the round after it may see."""
+
+
+def unrunnable(message):
+    print(f"await-build-results: cannot run: {message}", file=sys.stderr)
+    raise SystemExit(UNRUNNABLE)
+
+
+def git(root, deadline, *arguments):
+    """One child, given what is left of the wait and no more."""
+    try:
+        return subprocess.run(
+            ["git", "-C", str(root), *arguments],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=max(1, deadline - time.monotonic()),
+        )
+    except subprocess.TimeoutExpired:
+        raise Blind(f"git {arguments[0]} did not return within the wait") from None
+    except OSError as error:
+        unrunnable(f"git could not be run: {error}")
+
+
+def fetched(root, deadline, remote, branch):
+    """The remote branch, brought into FETCH_HEAD and nowhere else."""
+    completed = git(root, deadline, "fetch", "--quiet", "--no-tags", remote, branch)
+    if completed.returncode != 0:
+        raise Blind(
+            f"{remote} {branch} could not be fetched from {root}: "
+            f"{completed.stderr.strip() or 'no detail'}"
+        )
+
+
+def listing(root, deadline, directory):
+    """The files the fetched branch carries under one directory."""
+    completed = git(
+        root, deadline, "ls-tree", "-r", "--name-only", "-z", FETCHED, "--", directory
+    )
+    if completed.returncode != 0:
+        raise Blind(f"{FETCHED} could not be read: {completed.stderr.strip() or 'no detail'}")
+    return {name for name in completed.stdout.split("\0") if name}
+
+
+def request_digests(root, deadline, filed):
+    """The request documents filed at one commit, by digest. A file under that
+    directory that is not one is not a request this site can answer, so nothing
+    here waits for it: what waits for one is a deadline that always passes."""
+    digests = set()
+    for name in listing(root, deadline, filed):
+        stem = Path(name).name
+        if stem.endswith(".json") and DIGEST.fullmatch(stem[: -len(".json")]):
+            digests.add(stem[: -len(".json")])
+    return sorted(digests)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Wait for this site to answer one source change's build request."
+    )
+    parser.add_argument("--repository-id", required=True)
+    parser.add_argument("--source-commit", required=True)
+    parser.add_argument("--within-secs", type=int, required=True)
+    parser.add_argument("--every-secs", type=int, default=EVERY_SECS)
+    parser.add_argument("--remote", default="origin")
+    parser.add_argument("--branch", default="main")
+    parser.add_argument("--root", type=Path, default=Path("."))
+    arguments = parser.parse_args()
+
+    if COMMIT.fullmatch(arguments.source_commit) is None:
+        unrunnable(f"{arguments.source_commit!r} is not a full source commit")
+    if not 0 < arguments.within_secs <= CAP_SECS:
+        unrunnable(f"--within-secs is a wait of 1 to {CAP_SECS} seconds")
+    if arguments.every_secs <= 0:
+        unrunnable("--every-secs is a poll of at least 1 second")
+
+    root = arguments.root
+    filed = f"{REQUESTS}/{arguments.repository_id}/{arguments.source_commit}"
+    answered = f"{RESULTS}/{arguments.repository_id}/{arguments.source_commit}"
+    deadline = time.monotonic() + arguments.within_secs
+    blind = None
+    missing = []
+    while True:
+        try:
+            fetched(root, deadline, arguments.remote, arguments.branch)
+            digests = request_digests(root, deadline, filed)
+            if not digests:
+                # Nothing to wait for, and no round of this will change that:
+                # the request is landed by a ticket of its own, before this one.
+                unrunnable(
+                    f"{arguments.remote}/{arguments.branch} carries no request "
+                    f"document under {filed}/"
+                )
+            records = listing(root, deadline, answered)
+            missing = [
+                digest
+                for digest in digests
+                if f"{answered}/request-{digest}.json" not in records
+            ]
+            if not missing:
+                print(
+                    json.dumps(
+                        {"records": [f"{answered}/request-{digest}.json" for digest in digests]}
+                    )
+                )
+                return
+            blind = None
+        except Blind as error:
+            blind = error
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            if blind is not None:
+                unrunnable(str(blind))
+            print(
+                f"await-build-results: {arguments.remote}/{arguments.branch} has no "
+                f"record for {', '.join(missing)} at {filed}/",
+                file=sys.stderr,
+            )
+            raise SystemExit(DEADLINE)
+        time.sleep(min(arguments.every_secs, remaining))
+
+
+if __name__ == "__main__":
+    main()

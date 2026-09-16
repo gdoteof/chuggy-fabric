@@ -727,27 +727,32 @@ publication reaches the live branch and changes no object.
 `builds/` it answers, and `tests/build-results-publish.nix` runs the publisher
 against a real repository.
 
-A source's finalizer can ask for those builds rather than an operator rendering
-them. It commits one document to
+A source's change can ask for those builds rather than an operator rendering
+them, over a ticket of its own. That ticket runs `scripts/request-build` and
+lands what it wrote: one document at
 `requests/<repository-id>/<source-commit>/<request-digest>.json` naming the
 commit to build, the registry namespace, the builder profile and the platform,
-and no image at all: which images a source builds is this site's fact, and
-`scripts/build_sources.py` is where it is declared. The same activation of that
+and no image at all, because which images a source builds is this site's fact
+and `scripts/build_sources.py` is where every value in that document is
+declared. One commit carries one request; the command refuses a second, for the
+reasons in its header. The same activation of that
 timer renders one Shipwright request per declared image through
 `scripts/render-build-request` -- the command an operator renders by hand with,
 so the path and the bytes are the same ones -- commits them under `builds/` for
 Flux to apply, and once every one of those builds has a recorded result writes
 `results/<repository-id>/<source-commit>/request-<request-digest>.json`, naming
 the builds it rendered and the results that answered them. That record is what
-the finalizer waits for. A failed result completes it too: what a failed build
-refuses is the release, and `scripts/render-release` is where that refusal is.
+the rollout ticket waits for, with `scripts/await-build-results`. A failed
+result completes it too: what a failed build refuses is the release, and
+`scripts/render-release` is where that refusal is.
 A request that record answers is inert from then on: the command reads the
 record before it renders anything, because `requests/` is never pruned and a
 command that decided by looking for the rendered manifest instead would re-render
 every request ever answered the day a declared value, a profile digest or the
 Shipwright version moved a digest. A build retried by an operator is left as it
-is. `tests/build-requests.nix` drives the command over this repository's own
-builds and results.
+is. `tests/build-requests.nix` drives both commands over this repository's own
+builds and results, and `tests/await-build-results.nix` drives the wait against
+a real remote.
 
 The release is a separate Git change, and `scripts/render-release` is what
 writes it. Given the chuggy commit to release, it reads the live commit off the

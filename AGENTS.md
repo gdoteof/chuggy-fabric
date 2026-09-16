@@ -18,14 +18,15 @@ ownership boundaries, deployment sequence, recovery path, and required checks.
   manifest change is a deployment action.
 - `builds/` contains immutable Shipwright requests pinned to full source commits.
   Generate them with `scripts/render-build-request`; never edit one in place.
-- `requests/` holds the build requests a source repository's finalizer commits,
-  one document per finalized change, and nothing in this repository writes there.
-  Do not put a file there by hand: `scripts/fulfil-build-requests` renders real
-  Shipwright requests from whatever it finds and the publisher's timer commits
-  them to the live branch within one activation, so a hand-written document is a
-  build running on the cluster minutes later. No gate covers the directory --
-  the command's own refusals are the whole of what holds a document, and they
-  are in its header.
+- `requests/` holds the build requests a source repository's finalized change
+  commits, one document each. Write one with `scripts/request-build` and nothing
+  else, here or in the source; do not put a file there by hand.
+  `scripts/fulfil-build-requests` renders real Shipwright requests from whatever
+  it finds and the publisher's timer commits them to the live branch within one
+  activation, so a hand-written document is a build running on the cluster
+  minutes later. No gate covers the directory -- those two commands' own
+  refusals are the whole of what holds a document, and they are in their
+  headers.
 - `results/` records immutable build provenance, published by the host that
   recorded it. A release -- the image digests, source-commit annotations and
   migrate Job name under `cluster/apps` -- is generated from those results
