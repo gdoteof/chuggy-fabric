@@ -27,11 +27,12 @@ by the timer that runs one and the ticket that runs the other, so every case
 asserts the code, the account, and what the tree carries afterwards -- because
 the failures that matter here are silent: a build rendered twice under two
 digests is a release that refuses, and a fulfilment record written early is a
-finalizer concluding on a build that has not happened.
+rollout concluding on a build that has not happened.
 """
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -44,7 +45,7 @@ SCRIPTS = Path(sys.argv[2]).resolve()
 WORK = Path(sys.argv[3]).resolve()
 
 COMMIT = "5e37c51f5e588a11903bdfdc3d22e1e64f9bb96e"
-# What chuggy's finalizer renders and commits, verbatim.
+# The request document this site is built to answer, verbatim.
 REQUESTED = (
     '{"apiVersion":"chuggy.dev/v1","kind":"ContainerBuildRequest","spec":'
     '{"builderProfile":"shipwright-buildkit-rootless-mini/v1","platforms":["linux/amd64"],'
@@ -57,6 +58,7 @@ WEB = "471cd9294f093cb0c498495c3f66c995d943947b9dd72866138165e49b489033"
 UNANSWERABLE = 3
 # The same number from the filing end of the loop: what this site will not do.
 REFUSAL = 3
+UNRUNNABLE = 2
 
 failures = []
 
@@ -89,7 +91,7 @@ def tree(case):
 
 
 def requested(root, document, repository_id="chuggy", commit=COMMIT, digest=None):
-    """A request document filed where a finalizer files one. The name is the
+    """A request document filed where the fabric ticket files one. The name is the
     digest of chuggy's identity input, which nothing here can recompute, so a
     digest of the bytes stands in: this side reads it as a name."""
     encoded = document.encode()
@@ -136,13 +138,57 @@ def moved_declaration(case):
     return moved
 
 
-def request_build(root, repository_id="chuggy", commit=COMMIT, scripts=None):
+def declared_at(case, url):
+    """A copy of `scripts/` whose declaration for chuggy names another source
+    URL: the one a ref is resolved against, so a case about resolution reaches
+    a repository this suite made rather than the network."""
+    declared = WORK / f"{case}-scripts"
+    shutil.copytree(SCRIPTS, declared)
+    declaration = declared / "build_sources.py"
+    text = declaration.read_text()
+    declared_text = text.replace(
+        '"url": "https://github.com/kasofsk/chuggy.git",', f'"url": "{url}",'
+    )
+    assert declared_text != text, "the declaration no longer names the URL it did"
+    declaration.write_text(declared_text)
+    return declared
+
+
+def source(case):
+    """A source repository with one commit on `main`, standing in for the
+    branch a ticket resolves."""
+    repository = WORK / f"{case}-source"
+    repository.mkdir(parents=True)
+    environment = dict(
+        os.environ,
+        GIT_AUTHOR_NAME="build requests tests",
+        GIT_AUTHOR_EMAIL="tests@invalid",
+        GIT_COMMITTER_NAME="build requests tests",
+        GIT_COMMITTER_EMAIL="tests@invalid",
+    )
+    for arguments in (
+        ("init", "--quiet", "--initial-branch", "main"),
+        ("commit", "--quiet", "--allow-empty", "--message", "the source"),
+    ):
+        completed = subprocess.run(
+            ["git", "-C", str(repository), *arguments],
+            env=environment, capture_output=True, text=True, check=False,
+        )
+        if completed.returncode != 0:
+            raise SystemExit(f"fixture: git {' '.join(arguments)}: {completed.stderr}")
+    return repository, subprocess.run(
+        ["git", "-C", str(repository), "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+
+def request_build(root, repository_id="chuggy", commit=COMMIT, scripts=None, ref=None):
     return subprocess.run(
         [
             sys.executable,
             str((scripts or SCRIPTS) / "request-build"),
             "--repository-id", repository_id,
-            "--source-commit", commit,
+            *(["--source-ref", ref] if ref else ["--source-commit", commit]),
             "--root", str(root),
         ],
         capture_output=True,
@@ -260,7 +306,7 @@ def main():
     filed = f"requests/chuggy/{COMMIT}/{digest}.json"
     if expect(case, request_build(root), 0, announced({"request": filed})):
         if (root / filed).read_bytes() != REQUESTED.encode():
-            report(case, "what was filed is not the document chuggy's finalizer sends")
+            report(case, "what was filed is not the document this site is built to answer")
         answers = [
             f"builds/chuggy/{COMMIT}/{API}.yaml",
             f"builds/chuggy/{COMMIT}/{WEB}.yaml",
@@ -406,9 +452,9 @@ def main():
         if fingerprint(root) != before:
             report(case, "a retried request was rendered over")
 
-    # The record is what a finalizer concludes on, so it may not appear while a
-    # build it names has no result: that finalizer would be reporting a build
-    # that has not happened.
+    # The record is what the rollout's wait concludes on, so it may not appear
+    # while a build it names has no result: that rollout would be releasing a
+    # build that has not happened.
     case = "records-nothing-until-every-build-has-a-result"
     root = tree(case)
     shutil.rmtree(root / "results" / "chuggy" / COMMIT / WEB)
@@ -487,7 +533,7 @@ def main():
     )
 
     # A document nobody can answer is one request and not the run: the others
-    # are independent of it and a finalizer is waiting for each.
+    # are independent of it and a rollout is waiting for each.
     case = "answers-the-rest-of-a-tree-it-has-a-finding-in"
     root = tree(case)
     for request in (API, WEB):
@@ -507,7 +553,7 @@ def main():
     )
 
     # A file under `requests/` that is not one is a request nothing answers,
-    # which is a finalizer waiting for its deadline with nothing to read.
+    # which is a wait running to its deadline with nothing to read.
     case = "refuses-a-stray-under-requests"
     root = tree(case)
     (root / "requests" / "stray.json").write_text("{}\n")
@@ -534,6 +580,36 @@ def main():
     record_of(root, digest).write_text(json.dumps(answered))
     if results_gate(root).returncode == 0:
         report(case, "the results gate accepts a record naming a result this tree does not carry")
+
+    # A ticket cannot know the commit it asks for, so it names a ref and the
+    # command resolves it -- against the declared source and nothing else,
+    # because a URL passed beside the ref would be a second home for the one
+    # the document carries. What is filed is the request for that commit.
+    case = "resolves-a-ref-against-the-declared-source"
+    root = tree(case)
+    repository, head = source(case)
+    scripts = declared_at(case, repository)
+    completed = request_build(root, scripts=scripts, ref="refs/heads/main")
+    filed = sorted(path for path in root.glob(f"requests/chuggy/{head}/*.json"))
+    if completed.returncode != 0 or len(filed) != 1:
+        report(case, f"expected one request filed at {head}, got exit {completed.returncode}: "
+               f"{[p.name for p in filed]}\n{completed.stderr}")
+    else:
+        document = json.loads(filed[0].read_bytes())
+        if document["spec"]["source"] != {"commit": head, "repository": str(repository)}:
+            report(case, f"the document names another source: {document['spec']['source']}")
+        expect(case, completed, 0, announced({"request": filed[0].relative_to(root).as_posix()}))
+
+    # A ref the source does not have is a run that could not start, not a
+    # request refused and not one filed: nothing decides it but the source.
+    case = "cannot-run-when-the-ref-does-not-resolve"
+    root = tree(case)
+    repository, head = source(case)
+    scripts = declared_at(case, repository)
+    before = fingerprint(root)
+    if expect(case, request_build(root, scripts=scripts, ref="refs/heads/nowhere"), UNRUNNABLE,
+              [], ["refs/heads/nowhere could not be resolved"]) and fingerprint(root) != before:
+        report(case, "a request was filed for a ref that does not resolve")
 
     # The images this site renders requests for and the images a release moves
     # are one set. An image declared in only one of them is either a build

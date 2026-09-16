@@ -220,25 +220,35 @@ def blinking_git(case):
 
 
 def await_results(clone, within=1, every=1, extra=(), path=None):
+    """The command, given a bound of this suite's own well past the one it was
+    given: a command whose bound is no bound would otherwise hang the check
+    rather than red it."""
     environment = dict(os.environ)
     if path is not None:
         environment["PATH"] = f"{path}{os.pathsep}{environment['PATH']}"
-    return subprocess.run(
-        [
-            sys.executable,
-            str(SCRIPTS / "await-build-results"),
-            "--repository-id", "chuggy",
-            "--source-commit", COMMIT,
-            "--within-secs", str(within),
-            "--every-secs", str(every),
-            "--root", str(clone),
-            *extra,
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-        env=environment,
-    )
+    try:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS / "await-build-results"),
+                "--repository-id", "chuggy",
+                "--source-commit", COMMIT,
+                "--within-secs", str(within),
+                "--every-secs", str(every),
+                "--root", str(clone),
+                *extra,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=environment,
+            timeout=within * 5 + 30,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise SystemExit(
+            f"await build results: the command did not come back in {error.timeout:.0f} "
+            f"seconds against a bound of {within}, so its bound is no bound"
+        )
 
 
 def announced(records):

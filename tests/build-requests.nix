@@ -15,6 +15,7 @@ pkgs.runCommand "chuggy-build-requests" {
     pkgs.bash
     pkgs.coreutils
     pkgs.gawk
+    pkgs.git
     pkgs.gnugrep
     pkgs.jq
   ];

@@ -2,8 +2,8 @@
 """Render the builds each Chuggy build request in this tree asks for, and record
 that they were answered.
 
-WHAT A REQUEST IS. A source repository's finalizer commits one document per
-finalized change to this repository's main:
+WHAT A REQUEST IS. A fabric ticket's finalization lands one document per
+source change on this repository's main, written by `scripts/request-build`:
 
     requests/<repository-id>/<source-commit>/<request-digest>.json
     {"apiVersion":"chuggy.dev/v1","kind":"ContainerBuildRequest","spec":{…}}
@@ -21,9 +21,9 @@ WHAT FULFILS IT:
     results/<repository-id>/<source-commit>/request-<request-digest>.json
 
 written once every build this command rendered for that request has a recorded
-result beside its checksum. That file is what the finalizer waits for, which is
-why it is written last and never before: a finalizer that saw it earlier would
-conclude a build had happened that had not. A FAILED RESULT FULFILS IT TOO -- a
+result beside its checksum. That file is what the rollout ticket's work waits
+for, which is why it is written last and never before: a wait that saw it
+earlier would conclude a build had happened that had not. A FAILED RESULT FULFILS IT TOO -- a
 result was recorded, and which images a release may be cut from is
 `scripts/render-release`'s question, which it answers by refusing.
 
@@ -239,7 +239,7 @@ def request_documents(root):
     """Every request document under `requests/`, as (path, repository id,
     commit, digest). A file the layout does not have is reported rather than
     passed over: a request nothing reads is a build that never happens and a
-    finalizer that waits for its deadline."""
+    wait that runs to its deadline."""
     directory = root / REQUESTS
     if not directory.is_dir():
         return []

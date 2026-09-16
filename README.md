@@ -742,17 +742,24 @@ so the path and the bytes are the same ones -- commits them under `builds/` for
 Flux to apply, and once every one of those builds has a recorded result writes
 `results/<repository-id>/<source-commit>/request-<request-digest>.json`, naming
 the builds it rendered and the results that answered them. That record is what
-the rollout ticket waits for, with `scripts/await-build-results`. A failed
-result completes it too: what a failed build refuses is the release, and
-`scripts/render-release` is where that refusal is.
+the rollout ticket waits for, through `scripts/rollout-from-results`: the one
+command that ticket's work is, which runs `scripts/await-build-results` and
+then `scripts/render-release` under one bound and prints one object naming
+what it released. A failed result completes the record too: what a failed
+build refuses is the release, and `scripts/render-release` is where that
+refusal is.
 A request that record answers is inert from then on: the command reads the
 record before it renders anything, because `requests/` is never pruned and a
 command that decided by looking for the rendered manifest instead would re-render
 every request ever answered the day a declared value, a profile digest or the
 Shipwright version moved a digest. A build retried by an operator is left as it
 is. `tests/build-requests.nix` drives both commands over this repository's own
-builds and results, and `tests/await-build-results.nix` drives the wait against
-a real remote.
+builds and results, `tests/await-build-results.nix` drives the wait against a
+real remote, `tests/rollout-from-results.nix` drives the rollout command over
+this repository's own release, and `tests/build-results-publish-unit.nix`
+drives the consumer from the store copy of `scripts/` the publisher unit gtr
+builds names, with the PATH that unit exports. The three tickets and the rule
+for sizing the wait are in `docs/build-operations-runbook.md`.
 
 The release is a separate Git change, and `scripts/render-release` is what
 writes it. Given the chuggy commit to release, it reads the live commit off the

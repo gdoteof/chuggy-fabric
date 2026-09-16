@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""Release what this site built for the source's branch, once it has built it.
+
+THE ROLLOUT TICKET'S ONE COMMAND. A rollout is two steps this tree already has
+-- `scripts/await-build-results` for the record that says a request was
+answered, then `scripts/render-release` for the manifests -- and a ticket's
+work is one line invoking one script, because the engine that runs it hands a
+workload one argv and reads one object back. This is that line. It runs the
+two in order, and nothing that is not theirs.
+
+WHICH COMMIT IS RESOLVED HERE, from the source's branch, when this runs: nothing
+that filed the ticket could know it, and a commit written into a brief is one
+that goes stale between filing and dispatch. The request for that commit was
+filed by the ticket before this one. So a branch that moved between the two is
+a wait with nothing filed at it, which the wait reports as could-not-run rather
+than as a deadline, and what clears it is asking for the new commit.
+
+ONE BOUND. `--within-secs` is this command's whole life, not the wait's alone:
+each child gets what is left of it, the resolve and the render included, so a
+`git` that never returns is not a wait of no length. What that costs is that a
+record landing in the last seconds of the bound leaves the render nothing to
+run in, and the caller sizes the bound with the render's minutes in hand. The
+rule for sizing it is in `docs/build-operations-runbook.md`, and the cap on it
+is the wait's own: past the bounds this site puts on the thing being waited
+for, a longer wait holds open a ticket, not a build.
+
+THE WAIT IS HANDED LESS THAN WHAT IS LEFT, by a grace that covers its last
+round. `await-build-results` concludes only after one more fetch past its own
+deadline, so a wait given the whole remainder as its bound and killed at that
+same remainder is killed a fetch short of the refusal it was about to make --
+and 2 says the fabric is broken where 3 says the build is late. So the wait's
+`--within-secs` is the remainder minus the grace and the timeout on it is the
+whole remainder, which is what makes its deadline this command's 3 and not a
+coin toss against the network. The grace is a few seconds because the wait
+gives each child of that last round a second and no more, so its overrun is
+bounded by its own rule. A bound shorter than the grace leaves the wait one
+second and the parent the rest, which holds only where a round is
+milliseconds, and that is a suite.
+
+NOTHING TO RELEASE IS A REFUSAL. `render-release` writes nothing and exits 0
+when `cluster/apps` already releases the commit, which is the right answer to a
+person and the wrong one to a ticket: a work stage that writes nothing lands an
+empty change, which the finalizer refuses as contradictory and which is a pull
+request with no commits. So the manifests are compared before and after, by
+bytes rather than by the renderer's account, and a render that moved nothing is
+3 here with an account that says so.
+
+STDOUT IS THE RESULT AND NOTHING ELSE: one JSON object naming the commit
+released and the records the wait found. The wait's stdout is read here as its
+result and the renderer's is passed on to stderr as its account, because a
+stray line on stdout is a task that failed whatever the command meant. Every
+child's stderr is this command's.
+
+WHAT IT NEEDS ON PATH: what its two children need -- `git`, and the tools
+`scripts/render-release` names. The worker image carries them.
+
+Exit 0 when a release was rendered, 2 when this or a child could not run, 3
+when a child refuses -- the wait's deadline passing is a refusal here, because
+this site has not answered yet and the ticket's attempts are its budget -- and
+a child that exits with any other code has crashed, which is passed on as it
+came. Exit 2 is not a pass, and an uncaught exception here exits 1 rather than
+either.
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
+
+# Importing a sibling writes bytecode into `scripts/`, which this repository
+# tracks by hand.
+sys.dont_write_bytecode = True
+
+UNRUNNABLE = 2
+REFUSAL = 3
+# `render-release` pins a release to a commit of this length and no other.
+COMMIT = re.compile(r"[0-9a-f]{40}")
+# See the header: past the wait's last round, one fetch and two listings at a
+# second each, and the process around them.
+WAIT_GRACE_SECS = 5
+
+
+def refuse(message):
+    print(f"rollout-from-results: {message}", file=sys.stderr)
+    raise SystemExit(REFUSAL)
+
+
+def unrunnable(message):
+    print(f"rollout-from-results: cannot run: {message}", file=sys.stderr)
+    raise SystemExit(UNRUNNABLE)
+
+
+def account(message):
+    print(f"rollout-from-results: {message}", file=sys.stderr, flush=True)
+
+
+def sibling(name):
+    return Path(__file__).resolve().with_name(name)
+
+
+def loaded(name):
+    """A sibling command, imported for what it states -- the wait for its cap,
+    the renderer for the source it releases -- rather than for anything it
+    does. A value restated here would be one this command holds against a
+    different copy."""
+    path = sibling(name)
+    loader = SourceFileLoader(name.replace("-", "_"), str(path))
+    spec = spec_from_file_location(name.replace("-", "_"), str(path), loader=loader)
+    module = module_from_spec(spec)
+    try:
+        loader.exec_module(module)
+    except Exception as error:  # noqa: BLE001 -- any failure here is the same verdict
+        unrunnable(f"{path} could not be read: {error}")
+    return module
+
+
+def child(command, deadline, description):
+    """One child, given what is left of the bound and no more. Its stdout comes
+    back to be read as its result; its stderr is already this command's."""
+    environment = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+    try:
+        return subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            text=True,
+            check=False,
+            env=environment,
+            timeout=max(1, deadline - time.monotonic()),
+        )
+    except subprocess.TimeoutExpired:
+        unrunnable(f"{description} did not return within the wait")
+    except OSError as error:
+        unrunnable(f"{description} could not be run: {error}")
+
+
+def resolved(url, ref, deadline):
+    """The commit the source's branch is at now."""
+    completed = child(["git", "ls-remote", "--exit-code", url, ref], deadline, "git ls-remote")
+    if completed.returncode != 0:
+        unrunnable(f"{ref} could not be resolved at {url}")
+    named = {}
+    for line in completed.stdout.splitlines():
+        commit, _, name = line.partition("\t")
+        named[name] = commit
+    commit = named.get(ref)
+    if commit is None or COMMIT.fullmatch(commit) is None:
+        unrunnable(f"{ref} at {url} did not resolve to one full commit: {sorted(named)}")
+    return commit
+
+
+def fingerprint(apps):
+    """The release as bytes, which is what a work stage lands or does not."""
+    return {
+        path.relative_to(apps).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(apps.rglob("*"))
+        if path.is_file()
+    }
+
+
+def passed_on(completed, description):
+    """A child's exit that is not a verdict this command translates: 2 and 3
+    mean here what they mean there, and anything else is its crash."""
+    if completed.returncode == UNRUNNABLE:
+        unrunnable(f"{description} could not run")
+    account(f"{description} exited {completed.returncode} without a verdict")
+    raise SystemExit(completed.returncode)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Wait for this site to answer the source's build request, then render its release."
+    )
+    parser.add_argument("--within-secs", type=int, required=True)
+    parser.add_argument("--every-secs", type=int, default=None)
+    parser.add_argument("--repository-id", default="chuggy")
+    parser.add_argument("--fabric-root", type=Path, default=Path("."))
+    parser.add_argument("--remote", default="origin")
+    parser.add_argument("--branch", default="main")
+    parser.add_argument("--source-url", default=None)
+    parser.add_argument("--source-ref", default=None)
+    parser.add_argument(
+        "--source-tree", type=Path, default=None, help="a chuggy checkout holding both commits"
+    )
+    arguments = parser.parse_args()
+
+    cap = loaded("await-build-results").CAP_SECS
+    if not 0 < arguments.within_secs <= cap:
+        unrunnable(f"--within-secs is a wait of 1 to {cap} seconds")
+    renderer = loaded("render-release")
+    url = arguments.source_url or renderer.SOURCE_URL
+    ref = arguments.source_ref or renderer.SOURCE_REF
+    root = arguments.fabric_root
+    apps = root / "cluster" / "apps"
+    if not apps.is_dir():
+        unrunnable(f"{apps} is not a directory, so there is no release to render")
+
+    deadline = time.monotonic() + arguments.within_secs
+    commit = resolved(url, ref, deadline)
+    account(f"{ref} at {url} is {commit}")
+
+    waiting = [
+        sys.executable,
+        str(sibling("await-build-results")),
+        "--repository-id", arguments.repository_id,
+        "--source-commit", commit,
+        "--within-secs", str(max(1, int(deadline - time.monotonic()) - WAIT_GRACE_SECS)),
+        "--remote", arguments.remote,
+        "--branch", arguments.branch,
+        "--root", str(root),
+    ]
+    if arguments.every_secs is not None:
+        waiting += ["--every-secs", str(arguments.every_secs)]
+    waited = child(waiting, deadline, "await-build-results")
+    if waited.returncode == REFUSAL:
+        refuse(f"this site has not answered the request for {commit} within the wait")
+    if waited.returncode != 0:
+        passed_on(waited, "await-build-results")
+    try:
+        records = json.loads(waited.stdout)["records"]
+    except (ValueError, KeyError, TypeError):
+        unrunnable("await-build-results printed something that is not its result")
+
+    before = fingerprint(apps)
+    rendering = [
+        sys.executable,
+        str(sibling("render-release")),
+        "--target-commit", commit,
+        "--fabric-root", str(root),
+        "--repository-id", arguments.repository_id,
+        "--source-url", url,
+        "--source-ref", ref,
+    ]
+    if arguments.source_tree is not None:
+        rendering += ["--source-tree", str(arguments.source_tree)]
+    rendered = child(rendering, deadline, "render-release")
+    if rendered.stdout:
+        print(rendered.stdout, file=sys.stderr, end="", flush=True)
+    if rendered.returncode == REFUSAL:
+        refuse(f"the release of {commit} is refused")
+    if rendered.returncode != 0:
+        passed_on(rendered, "render-release")
+    if fingerprint(apps) == before:
+        refuse(f"cluster/apps already releases {commit}, so this run has nothing to land")
+
+    print(json.dumps({"released": commit, "records": records}))
+
+
+if __name__ == "__main__":
+    main()

@@ -5,8 +5,14 @@
     "version": 1,
     "image": "registry.chuggy.internal/chuggy/worker@sha256:014a8d934621f27819d7bd547dec0b1a4e4ca0bafc9e446254536f37cc2b7436",
     "authority": {
-      "tools": ["claude-code", "shell"],
-      "credentials": ["chuggy-github-worker", "claude-code"],
+      "tools": [
+        "claude-code",
+        "shell"
+      ],
+      "credentials": [
+        "chuggy-github-worker",
+        "claude-code"
+      ],
       "network": true,
       "filesystem": "WriteWorkspace",
       "mayCompleteTask": false
@@ -15,45 +21,54 @@
       "mode": {
         "type": "SingleAgent",
         "agent": "Claude",
-        "arguments": ["--allowedTools=Bash,Edit,Read,Write,Glob,Grep"]
+        "arguments": [
+          "--allowedTools=Bash,Edit,Read,Write,Glob,Grep"
+        ]
       },
       "setup": [],
       "files": []
     },
     "brief": {
       "motivation": [
-        "Change the fabric that runs Chuggy by hand: its NixOS hosts and modules, its cluster declarations, and the scripts that generate the rest."
+        "Ask this site to build what chuggy main is now. The change is the one request document scripts/request-build writes under requests/ and nothing else: which images, from which source, under which profile, is this site's declaration in scripts/build_sources.py and not a brief's."
       ],
       "acceptanceCriteria": [
-        "The ticket-specific acceptance criteria are satisfied, and the release manifests still identify one source."
+        "The diff is one file under requests/chuggy/<commit>/, written by scripts/request-build for the commit chuggy main was at when the work ran, and the release manifests still identify one source."
       ],
       "constraints": [
-        "Read AGENTS.md and .chug/tasks/review-change.md before changing the repository.",
-        "A build request is rendered with scripts/render-build-request from the previous request's arguments for the same image; never hand-written. The source commit is chuggy main at run time unless the brief names another.",
-        "Generate a release -- image digests, source-commit annotations and the migrate Job name under cluster/apps -- with scripts/render-release; never edit one in place.",
-        "main is live: Flux applies cluster/ and builds/, so a merged request starts a build and a merged manifest deploys; results/ it does not apply. Open a pull request; do not merge it.",
+        "The work is the one command below, which resolves chuggy main itself and commits nothing it did not write. A refusal (exit 3) is this ticket's failure and its attempts are its budget: the request is already filed, or this site declares nothing for the source. Read AGENTS.md and .chug/tasks/review-change.md before judging the change.",
+        "A build request for this site's own images and the worker is not asked for this way: an operator renders it with scripts/render-build-request from the previous request's arguments for the same image, never hand-written, and it lands by a change of its own.",
+        "main is live: Flux applies cluster/ and builds/, and the publisher answers a landed request with builds under builds/, so the merge this ticket lands by is what starts the build. requests/ and results/ Flux does not apply.",
         "Do not rebuild or switch a host, reconcile Flux, apply manifests, restart infrastructure, reset data, or deploy."
       ]
     },
-    "practices": ["RegressionCoverage", "AcceptanceCriteria"],
+    "practices": [
+      "AcceptanceCriteria"
+    ],
     "work": {
-      "instructions": [
-        "Implement the requested change and extend the fabric's own checks to cover what it adds.",
-        "Run .chug/tasks/ci.sh, and report which nix flake check entries the change still needs run: that command does not run them."
+      "commands": [
+        "scripts/request-build --repository-id chuggy --source-ref refs/heads/main"
       ]
     },
-    "review": { "instructions": [] },
+    "review": {
+      "instructions": []
+    },
     "evaluations": [
       {
         "purpose": "Check",
-        "checks": [".chug/tasks/ci.sh"]
+        "checks": [
+          ".chug/tasks/ci.sh"
+        ]
       },
       {
         "purpose": "Review",
         "instructions": [
           "Read .chug/tasks/review-change.md and review the change exactly as that brief requires."
         ],
-        "practices": ["ChangedCallPaths", "AcceptanceCriteria"]
+        "practices": [
+          "ChangedCallPaths",
+          "AcceptanceCriteria"
+        ]
       }
     ]
   }

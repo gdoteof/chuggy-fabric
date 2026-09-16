@@ -5,8 +5,14 @@
     "version": 1,
     "image": "registry.chuggy.internal/chuggy/worker@sha256:014a8d934621f27819d7bd547dec0b1a4e4ca0bafc9e446254536f37cc2b7436",
     "authority": {
-      "tools": ["claude-code", "shell"],
-      "credentials": ["chuggy-github-worker", "claude-code"],
+      "tools": [
+        "claude-code",
+        "shell"
+      ],
+      "credentials": [
+        "chuggy-github-worker",
+        "claude-code"
+      ],
       "network": true,
       "filesystem": "WriteWorkspace",
       "mayCompleteTask": false
@@ -15,36 +21,44 @@
       "mode": {
         "type": "SingleAgent",
         "agent": "Claude",
-        "arguments": ["--allowedTools=Bash,Edit,Read,Write,Glob,Grep"]
+        "arguments": [
+          "--allowedTools=Bash,Edit,Read,Write,Glob,Grep"
+        ]
       },
       "setup": [],
       "files": []
     },
     "brief": {
       "motivation": [
-        "Land a rollout the release scripts generated: image digests, source-commit annotations, and the migrate Job named for that commit. A rollout deploys what is on chuggy main; nothing in a brief names a commit or a digest."
+        "Land the release of what chuggy main is now: the manifests scripts/render-release writes under cluster/apps from the results this site recorded for the build the previous ticket asked for. Nothing in a brief names a commit or a digest; the command resolves the commit itself."
       ],
       "acceptanceCriteria": [
-        "The diff is script output and nothing else, every manifest in it names one source commit, and scripts/check-release-consistency accepts cluster/apps."
+        "The diff is what scripts/rollout-from-results wrote under cluster/apps and nothing else, every manifest in it names one source commit, and scripts/check-release-consistency accepts cluster/apps."
       ],
       "constraints": [
-        "Resolve chuggy main yourself at run time: git ls-remote https://github.com/kasofsk/chuggy.git refs/heads/main. The brief cannot know it.",
-        "Render the rollout with scripts/render-release --target-commit <that commit>, from the repository root, and commit exactly what it wrote. It edits cluster/apps and nothing else: the image digest where an image moved, the source-commit annotation on every manifest scripts/check-release-consistency names, and the migrate Job named for the release. It warns when images/worker moved, which no release moves and nothing needs done about here.",
-        "Digests come only from recorded build results under results/<repository>/<commit>/<request>/; never from a registry read or a hand edit. render-release refuses a release whose images moved and have no verified result at that commit. A refusal is a rollout that cannot be produced yet: report what it said and stop, and never edit a manifest by hand instead.",
-        "Do not reconcile Flux, apply manifests, restart infrastructure, reset data, or deploy. main is live; the pull request you open is the deployment decision and it is the owner's."
+        "The work is the one command below, once, from the repository root, committing nothing it did not write. It waits for this site's record of the build, bounded, then renders the release; its account is on stderr and its result is one JSON line on stdout.",
+        "The bound is sized by the rule in docs/build-operations-runbook.md: under the deadline of the pod that runs it, with the clone before and the render after in hand, and never past the wait's own cap. A wait occupies this site's one worker for its whole life.",
+        "A refusal (exit 3) is this ticket's failure and its attempts are its budget: this site has not answered within the bound, the release cannot be cut from what it answered (a failed build is the fabric operator's, per the runbook), or cluster/apps already releases the commit. Never edit a manifest by hand instead.",
+        "Digests come only from recorded results under results/; the command reads no registry and contacts no cluster. main is live: the merge this ticket lands by deploys the release, and how it lands is the fabric binding's default in Chuggy, not this file's. Do not reconcile Flux, apply manifests, restart infrastructure, reset data, or deploy by any other path."
       ]
     },
-    "practices": ["AcceptanceCriteria"],
+    "practices": [
+      "AcceptanceCriteria"
+    ],
     "work": {
-      "instructions": [
-        "Produce the rollout with scripts/render-release, and change nothing it did not write."
+      "commands": [
+        "scripts/rollout-from-results --within-secs 3000"
       ]
     },
-    "review": { "instructions": [] },
+    "review": {
+      "instructions": []
+    },
     "evaluations": [
       {
         "purpose": "Check",
-        "checks": [".chug/tasks/ci.sh"]
+        "checks": [
+          ".chug/tasks/ci.sh"
+        ]
       }
     ]
   }
