@@ -26,8 +26,11 @@ themselves are in: a request naming a Secret this site does not mint is a build
 that never starts, and it reads correctly in either file alone.
 
 A REQUEST ALSO NAMES A BUILDER PROFILE, and the profiles this site has are
-`scripts/render-build-request`'s. `fulfil-build-requests` reads them there and
-refuses a name that is not one of them, so no entry restates that roster.
+`scripts/render-build-request`'s. An entry selects one of them by the key that
+renderer takes; `scripts/request-build` writes the name that key maps to, and
+`fulfil-build-requests` maps a name back and refuses one this site does not have
+or did not declare for that source. So the roster stays in the renderer, and an
+entry names a member of it rather than restating it.
 
 WHY CHUGGY'S WORKER IMAGE IS NOT LISTED. It is built here and it renders by the
 same renderer -- `builds/chuggy/f8dc9194f2d2b88a50619225c521363b5f2822c8/` is
@@ -48,6 +51,11 @@ SOURCES = {
         "contextDir": ".",
         "cache": "registry",
         "platform": "linux/amd64",
+        # The builder profile `scripts/render-build-request` renders with. The
+        # `chuggy.mini` role labels its only node a builder and asserts that
+        # nothing taints it, so the profile that emits no toleration for that
+        # taint is the one that schedules here.
+        "profile": "mini",
         # The Dockerfile a build builds, and the image repository under the
         # namespace above that it publishes to. Which image a result is of is
         # the Dockerfile its request names, which is also how

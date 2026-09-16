@@ -319,6 +319,14 @@ def main():
         altered(builderProfile="shipwright-buildkit-rootless-enormous/v1"),
         ["builder profile", "does not have"],
     )
+    # A profile this site has but did not declare for this source is a build
+    # scheduled against a node property the running host does not carry, which
+    # is a request that renders and never starts.
+    unrequested(
+        "refuses-a-profile-this-site-did-not-declare-for-the-source",
+        altered(builderProfile="shipwright-buildkit-rootless/v1"),
+        ["builder profile", "is built with the"],
+    )
     unrequested(
         "refuses-a-source-this-site-does-not-declare",
         REQUESTED,
@@ -331,6 +339,16 @@ def main():
         ["is not a ContainerBuildRequest"],
     )
     unrequested("refuses-what-is-not-a-document", "{not json", ["could not be read as a request"])
+    # A name that is not a request digest, carrying a document this site would
+    # otherwise answer: what is refused is the name. `results/` mirrors it --
+    # the record is `request-<digest>.json` -- so a request filed under anything
+    # else is one nothing can record, and a ticket waiting out its deadline.
+    unrequested(
+        "refuses-a-request-named-by-something-that-is-not-a-digest",
+        REQUESTED,
+        ["is not filed under a repository, a commit and a request digest"],
+        digest="0" * 40,
+    )
 
     # A document nobody can answer is one request and not the run: the others
     # are independent of it and a finalizer is waiting for each.

@@ -59,8 +59,8 @@ run. Exit 2 is not a pass, and an uncaught exception exits 1 rather than either
 of the others, so a caller reading 1 as a verdict is believing a crash.
 
 A DOCUMENT THIS SITE WILL NEVER ANSWER -- a source it does not declare, a
-namespace, platform or source repository that is not the declared one, a profile
-it does not have, bytes that are not a request -- is reported and skipped rather
+namespace, platform, source repository or builder profile that is not the one
+declared for it, bytes that are not a request -- is reported and skipped rather
 than ending the run, because requests are independent and one document nobody
 can answer must not hold up the others. It is 3 and not 2 because no activation
 after it reaches a different verdict: what clears it is the branch changing --
@@ -226,7 +226,13 @@ def declared(document, relative, repository_id, commit, declaration):
             "which this site does not have"
         )
         return None
-    return dict(declaration, profile=profile)
+    if profile != declaration["profile"]:
+        unanswerable(
+            f"{relative} asks for builder profile {spec.get('builderProfile')!r}; "
+            f"{repository_id} is built with the {declaration['profile']} profile here"
+        )
+        return None
+    return declaration
 
 
 def request_documents(root):
