@@ -16,13 +16,14 @@ included. Nothing in this repository can hold that to chuggy's renderer, so it
 is written here as the contract this side reads, and a case that changed it
 would be changing what the fabric claims to consume.
 
-THE EXIT CODE IS THE VERDICT. Zero is a tree this command answered, 1 is a
-document it cannot answer, 2 is a run that did not happen. A command reporting
-any of those as another is believed by the timer that runs it, so every case
-asserts the code, the account, and what the tree carries afterwards -- because
-the failures that matter here are silent: a build rendered twice under two
-digests is a release that refuses, and a fulfilment record written early is a
-finalizer concluding on a build that has not happened.
+THE EXIT CODE IS THE VERDICT. Zero is a tree this command answered, 3 is a
+document it will never answer, 2 is a run that did not happen, and 1 is a crash
+because nothing here raises it deliberately. A command reporting any of those as
+another is believed by the timer that runs it, so every case asserts the code,
+the account, and what the tree carries afterwards -- because the failures that
+matter here are silent: a build rendered twice under two digests is a release
+that refuses, and a fulfilment record written early is a finalizer concluding on
+a build that has not happened.
 """
 
 import hashlib
@@ -49,6 +50,7 @@ REQUESTED = (
 )
 API = "9565818d877f3df1c69b4a2776d3ff0fe3dc0da594847aee9b82bc69ea9bcec1"
 WEB = "471cd9294f093cb0c498495c3f66c995d943947b9dd72866138165e49b489033"
+UNANSWERABLE = 3
 
 failures = []
 
@@ -149,13 +151,13 @@ def record_of(root, digest):
 
 
 def unrequested(case, document, phrases, **filed):
-    """A document this site cannot answer: the run is a finding, and nothing is
+    """A document this site will never answer: the run says 3, and nothing is
     rendered from it. Building any of it would be building for somewhere this
     site did not mean to publish, or from something it did not mean to clone."""
     root = tree(case)
     requested(root, document, **filed)
     before = fingerprint(root)
-    expect(case, fulfil(root), 1, [], phrases)
+    expect(case, fulfil(root), UNANSWERABLE, [], phrases)
     if fingerprint(root) != before:
         report(case, "a request this site cannot answer still wrote to the tree")
 
@@ -341,7 +343,7 @@ def main():
     expect(
         case,
         fulfil(root),
-        1,
+        UNANSWERABLE,
         [
             f"builds/chuggy/{COMMIT}/{API}.yaml",
             f"builds/chuggy/{COMMIT}/{WEB}.yaml",
@@ -355,7 +357,7 @@ def main():
     case = "refuses-a-stray-under-requests"
     root = tree(case)
     (root / "requests" / "stray.json").write_text("{}\n")
-    expect(case, fulfil(root), 1, [], ["is not <repository-id>/<source-commit>"])
+    expect(case, fulfil(root), UNANSWERABLE, [], ["is not <repository-id>/<source-commit>"])
 
     # The record is provenance like its neighbours, so the gate that holds this
     # tree's results has to resolve it rather than refuse the directory.

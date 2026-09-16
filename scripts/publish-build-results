@@ -40,6 +40,14 @@
 # - A record whose request this branch does not declare is reported and skipped.
 #   That is retirement, which is an operator's act and not this unit's failure;
 #   `tests/build-results.py` is what refuses a tree carrying such a result.
+# - A request document nobody here can answer -- an undeclared source, a profile
+#   this site does not have, bytes that are not a request -- is reported and the
+#   run still succeeds. Nothing this host does changes that verdict, so failing
+#   on it would be failing on every activation from now until an operator reads
+#   the journal, and a unit that is red every time is a unit whose red no longer
+#   says that a push was rejected. It is cleared on the branch, by removing the
+#   document or by declaring what it asks for, and the account is in the journal
+#   of every run until then.
 # - A record whose checksum file is not there yet is skipped silently. The
 #   recorder renames the record into place and the checksum after it, so the
 #   pair is briefly incomplete by design, and a pair that stays incomplete is
@@ -183,11 +191,14 @@ if (( ${#published[@]} )); then
 fi
 
 # The requests this branch carries, answered in the clone the records above just
-# landed in. A finding there is a document nobody can answer and is reported by
-# the command itself; whatever it did create is still committed, because a
+# landed in. Its 3 is the rule above -- a document nobody here can answer, which
+# it has already reported -- and every other non-zero is this unit's, including
+# the 1 of a crash. Whatever it created is committed either way, because a
 # request this site cannot build is not a reason to withhold the others.
+answered=0
 "${PYTHON:-python3}" "$SCRIPTS_PATH/fulfil-build-requests" --root "$clone" > "$run/fulfilled" ||
-  status=1
+  answered=$?
+(( answered == 0 || answered == 3 )) || status=1
 mapfile -t fulfilled < "$run/fulfilled"
 if (( ${#fulfilled[@]} )); then
   "${git[@]}" add -- "${fulfilled[@]}"

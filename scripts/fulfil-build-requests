@@ -54,12 +54,18 @@ WHAT THIS CANNOT SEE. Whether the commit a request names exists in the source --
 the build is what finds that out -- and whether a rendered build ever ran:
 Flux applies `builds/` and the recorder is what puts a result under `results/`.
 
-Exit 0 clean, 1 on a finding, 2 when it could not run. Exit 2 is not a pass. A
-finding is a document this site cannot answer -- a source it does not declare, a
+Exit 0 clean, 3 for a document this site will never answer, 2 when it could not
+run. Exit 2 is not a pass, and an uncaught exception exits 1 rather than either
+of the others, so a caller reading 1 as a verdict is believing a crash.
+
+A DOCUMENT THIS SITE WILL NEVER ANSWER -- a source it does not declare, a
 namespace, platform or source repository that is not the declared one, a profile
-it does not have -- and each is reported and skipped rather than ending the run,
-because requests are independent and one document nobody can answer must not
-hold up the others.
+it does not have, bytes that are not a request -- is reported and skipped rather
+than ending the run, because requests are independent and one document nobody
+can answer must not hold up the others. It is 3 and not 2 because no activation
+after it reaches a different verdict: what clears it is the branch changing --
+the document removed, or this site declaring what it asks for -- and the caller
+is what decides whether that is its own failure.
 
 Every path created is printed to stdout, one per line, so a caller stages
 exactly what this wrote and nothing else.
@@ -82,8 +88,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from build_sources import SOURCES  # noqa: E402  (after the line above, which it needs)
 
-FINDING = 1
 UNRUNNABLE = 2
+UNANSWERABLE = 3
 API_VERSION = "chuggy.dev/v1"
 KIND = "ContainerBuildRequest"
 REQUESTS = "requests"
@@ -93,12 +99,14 @@ COMMIT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 DIGEST = re.compile(r"[0-9a-f]{64}")
 ATTEMPT = re.compile(r"[a-z0-9][-a-z0-9.]*-a(?P<ordinal>[1-9][0-9]*)\.json")
 
-findings = 0
+unanswerable_documents = 0
 
 
-def finding(message):
-    global findings
-    findings += 1
+def unanswerable(message):
+    """A document nobody here can answer. Reported, counted and stepped over:
+    the verdict is the run's, and the run carries on to the next request."""
+    global unanswerable_documents
+    unanswerable_documents += 1
     print(f"fulfil-build-requests: {message}", file=sys.stderr)
 
 
@@ -183,37 +191,37 @@ def declared(document, relative, repository_id, commit, declaration):
         or document.get("apiVersion") != API_VERSION
         or document.get("kind") != KIND
     ):
-        finding(f"{relative} is not a {KIND} of {API_VERSION}")
+        unanswerable(f"{relative} is not a {KIND} of {API_VERSION}")
         return None
     spec = document.get("spec")
     source = spec.get("source") if isinstance(spec, dict) else None
     if not isinstance(spec, dict) or not isinstance(source, dict):
-        finding(f"{relative} carries no build specification")
+        unanswerable(f"{relative} carries no build specification")
         return None
     if source.get("repository") != declaration["url"]:
-        finding(
+        unanswerable(
             f"{relative} builds {source.get('repository')!r}; {repository_id} is "
             f"{declaration['url']} here"
         )
         return None
     if source.get("commit") != commit:
-        finding(f"{relative} asks for commit {source.get('commit')!r}, which is not its path")
+        unanswerable(f"{relative} asks for commit {source.get('commit')!r}, which is not its path")
         return None
     if spec.get("targetImageRepository") != declaration["imageNamespace"]:
-        finding(
+        unanswerable(
             f"{relative} publishes to {spec.get('targetImageRepository')!r}; "
             f"{repository_id}'s images are published under {declaration['imageNamespace']}"
         )
         return None
     if spec.get("platforms") != [declaration["platform"]]:
-        finding(
+        unanswerable(
             f"{relative} asks for platforms {spec.get('platforms')!r}; this site builds "
             f"{repository_id} for {[declaration['platform']]}"
         )
         return None
     profile = profile_named(spec.get("builderProfile"))
     if profile is None:
-        finding(
+        unanswerable(
             f"{relative} asks for builder profile {spec.get('builderProfile')!r}, "
             "which this site does not have"
         )
@@ -223,9 +231,9 @@ def declared(document, relative, repository_id, commit, declaration):
 
 def request_documents(root):
     """Every request document under `requests/`, as (path, repository id,
-    commit, digest). A file the layout does not have is a finding rather than
-    something skipped: a request nothing reads is a build that never happens and
-    a finalizer that waits for its deadline."""
+    commit, digest). A file the layout does not have is reported rather than
+    passed over: a request nothing reads is a build that never happens and a
+    finalizer that waits for its deadline."""
     directory = root / REQUESTS
     if not directory.is_dir():
         return []
@@ -238,7 +246,7 @@ def request_documents(root):
         if parts == (KEEPFILE,):
             continue
         if len(parts) != 3 or not parts[2].endswith(".json"):
-            finding(
+            unanswerable(
                 f"{relative} is not "
                 "<repository-id>/<source-commit>/<request-digest>.json"
             )
@@ -250,7 +258,7 @@ def request_documents(root):
             or COMMIT.fullmatch(commit) is None
             or DIGEST.fullmatch(digest) is None
         ):
-            finding(f"{relative} is not filed under a repository, a commit and a request digest")
+            unanswerable(f"{relative} is not filed under a repository, a commit and a request digest")
             continue
         documents.append((path, repository_id, commit, digest))
     return documents
@@ -268,7 +276,7 @@ def fulfil(root, output_root, path, repository_id, commit, digest):
         return []
     declaration = SOURCES.get(repository_id)
     if declaration is None:
-        finding(
+        unanswerable(
             f"{relative} is a request for {repository_id}, "
             "which this site declares no images for"
         )
@@ -276,7 +284,7 @@ def fulfil(root, output_root, path, repository_id, commit, digest):
     try:
         document = json.loads(path.read_text())
     except (OSError, ValueError) as error:
-        finding(f"{relative} could not be read as a request: {error}")
+        unanswerable(f"{relative} could not be read as a request: {error}")
         return []
     declaration = declared(document, relative, repository_id, commit, declaration)
     if declaration is None:
@@ -289,7 +297,7 @@ def fulfil(root, output_root, path, repository_id, commit, digest):
             output_root, repository_id, commit, declaration, dockerfile, image
         )
         if rendered is None:
-            finding(f"{relative} could not be rendered for {dockerfile}: {refusal}")
+            unanswerable(f"{relative} could not be rendered for {dockerfile}: {refusal}")
             return created
         carried = root / rendered
         if not carried.exists():
@@ -348,7 +356,7 @@ def main():
 
     for path in created:
         print(path)
-    raise SystemExit(FINDING if findings else 0)
+    raise SystemExit(UNANSWERABLE if unanswerable_documents else 0)
 
 
 if __name__ == "__main__":

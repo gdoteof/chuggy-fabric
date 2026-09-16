@@ -16,7 +16,10 @@
 # a release that refuses, and a fulfilment record written before the results are
 # in is a source's finalizer concluding on a build that has not happened. So the
 # case for it lands a document, reads what arrived in the remote, and only then
-# records the results.
+# records the results. A document nobody here can answer is its own case, for a
+# failure that is not silent but permanent: failing the unit on one would make
+# this unit red every few minutes until somebody edited the branch, and a red
+# that is always there is a red that cannot report a rejected push.
 #
 # THE REMOTE IS A BARE REPOSITORY OVER `file://` and the records are made the way
 # `record-build-provenance` makes them: canonical payload, digest of the payload
@@ -346,6 +349,52 @@ done
 published=$(tip)
 publish
 test "$(tip)" = "$published"
+
+# ------------------------------------- a request nobody here can ever answer ---
+
+# An undeclared source, a profile this site does not have, a half-written
+# document: no activation of this unit clears any of those -- the branch is what
+# clears them -- so a unit that failed on one would be red every few minutes
+# from then on, and a unit that is red every time cannot say that a push was
+# rejected. So the account is on stderr, the run succeeds, and the results half
+# of the same activation still lands.
+commit_k=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+commit_l=dddddddddddddddddddddddddddddddddddddddd
+request_l=eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+render "$commit_k" >/dev/null
+mkdir -p "$work/staging/builds/example-service" "$work/staging/requests/nobody/$commit_l"
+cp -R "$work/rendered/builds/example-service/$commit_k" "$work/staging/builds/example-service/"
+cat > "$work/staging/requests/nobody/$commit_l/$request_l.json" <<JSON
+{"apiVersion":"chuggy.dev/v1","kind":"ContainerBuildRequest","spec":{"builderProfile":"shipwright-buildkit-rootless-mini/v1","platforms":["linux/amd64"],"source":{"commit":"$commit_l","repository":"https://github.com/nobody/nothing.git"},"targetImageRepository":"registry.example.invalid/nobody"}}
+JSON
+land 'fixture: a request for a source this site declares no images for'
+published=$(tip)
+attempt_k=$(make_record "$(manifest_for "$commit_k")")
+request_k=$(basename "$(dirname "$(echo "$work/host-records"/*/"$attempt_k.json")")")
+publish 2>"$work/unanswerable.log"
+grep -Fq 'declares no images for' "$work/unanswerable.log"
+test "$(git -C "$work/origin.git" rev-list --count "$published..$(tip)")" = 1
+git -C "$work/published" fetch --quiet origin main
+git -C "$work/published" reset --quiet --hard origin/main
+same_as_host "$commit_k" "$request_k" "$attempt_k"
+
+# And it is still saying so, and still succeeding, on the activation after that.
+published=$(tip)
+publish 2>"$work/unanswerable-again.log"
+test "$(tip)" = "$published"
+grep -Fq 'declares no images for' "$work/unanswerable-again.log"
+
+# What clears it is the branch, which is the remedy the unit's header names: the
+# document withdrawn, and the account gone with it.
+git -C "$work/seed" fetch --quiet origin main
+git -C "$work/seed" reset --quiet --hard origin/main
+git -C "$work/seed" rm --quiet -r -- requests/nobody
+"${fixture[@]}" -C "$work/seed" commit --quiet -m 'fixture: the unanswerable request is withdrawn'
+git -C "$work/seed" push --quiet origin main
+published=$(tip)
+publish 2>"$work/cleared.log"
+test "$(tip)" = "$published"
+test ! -s "$work/cleared.log"
 
 # --------------------------------------------- a request this branch has not ---
 
