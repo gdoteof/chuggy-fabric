@@ -14,21 +14,36 @@ worker's own checkout, or one pushed after that checkout was made, each read as
 an answer or a silence in exactly the way that is wrong, and each is a case
 below. Neither is visible in a run against a tree the command also wrote.
 
-THE DEADLINE IS A SECOND. `--within-secs 1 --every-secs 1` is the whole of the
-waiting here: what is being checked is which verdict a bound produces, not how
-long a bound lasts, and a suite that waited for a real one would be a suite
-nobody runs.
+THE DEADLINE IS A SECOND OR THREE. `--within-secs 1 --every-secs 1` is the whole
+of the waiting in most cases: what is being checked is which verdict a bound
+produces, not how long a bound lasts, and a suite that waited for a real one
+would be a suite nobody runs. The two cases about the bound itself are the
+exception -- they measure, and what they assert is that the command came back
+inside a multiple of the bound it was given.
+
+WHAT STANDS IN FOR A BROKEN NETWORK. A remote that never answers is a socket
+this suite binds and never accepts on: `git` completes the connection out of the
+listen backlog, sends its request and waits for a reply that cannot come, which
+is the shape of a stalled proxy and of a connection whose conntrack entry was
+evicted. A remote that answers late is a `git` on PATH that fails the first
+fetch and then is the real one. Neither needs a network the sandbox does not
+have.
 
 THE EXIT CODE IS THE VERDICT. Zero is a request this site has answered, 3 is a
 deadline that passed without one, and 2 is a run that could not look. The ticket
 that runs this reads them as: go on, give up, and the fabric is broken. A
 command reporting any as another either rolls out a release for a build that did
-not happen or abandons one that did.
+not happen or abandons one that did, and a command reporting none at all is
+three attempts that each end at the pod's own deadline hours later.
 """
 
 import json
+import os
+import shutil
+import socket
 import subprocess
 import sys
+import time
 from importlib.machinery import SourceFileLoader
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
@@ -44,6 +59,7 @@ BUILD = "e" * 64
 FETCHED = 0
 DEADLINE = 3
 UNRUNNABLE = 2
+
 
 def command():
     """The command under test, imported for the bound it states rather than for
@@ -167,7 +183,46 @@ def worker(case, origin):
     return clone
 
 
-def await_results(clone, within=1, every=1, extra=()):
+def stalled(case):
+    """A remote that accepts a connection and answers nothing, ever. Bound and
+    listened on and never accepted: the handshake completes out of the backlog,
+    so `git` is connected and waiting rather than refused."""
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    return listener, f"git://127.0.0.1:{listener.getsockname()[1]}/{case}.git"
+
+
+def blinking_git(case):
+    """A `git` for the front of PATH that fails its first fetch and is the real
+    one from then on, which is a name that did not resolve or a gateway or a
+    token that expired, and not a fabric that is broken."""
+    directory = WORK / f"{case}-bin"
+    directory.mkdir(parents=True)
+    counter = directory / "fetches"
+    counter.write_text("0")
+    stub = directory / "git"
+    real = shutil.which("git")
+    stub.write_text(
+        f"#!{sys.executable}\n"
+        "import os, pathlib, sys\n"
+        f"counter = pathlib.Path({str(counter)!r})\n"
+        'if "fetch" in sys.argv[1:]:\n'
+        "    fetches = int(counter.read_text()) + 1\n"
+        "    counter.write_text(str(fetches))\n"
+        "    if fetches == 1:\n"
+        '        sys.stderr.write("fixture: the remote blinked\\n")\n'
+        "        raise SystemExit(128)\n"
+        f"os.execv({real!r}, [{real!r}] + sys.argv[1:])\n"
+    )
+    stub.chmod(0o755)
+    return directory, counter
+
+
+def await_results(clone, within=1, every=1, extra=(), path=None):
+    environment = dict(os.environ)
+    if path is not None:
+        environment["PATH"] = f"{path}{os.pathsep}{environment['PATH']}"
     return subprocess.run(
         [
             sys.executable,
@@ -182,7 +237,15 @@ def await_results(clone, within=1, every=1, extra=()):
         capture_output=True,
         text=True,
         check=False,
+        env=environment,
     )
+
+
+def announced(records):
+    """The whole of what a command a ticket engine runs may put on stdout: one
+    JSON object, which is the result the engine reads. A second line, or a line
+    that is not that object, is a task that failed whatever the command meant."""
+    return [json.dumps({"records": records})]
 
 
 def expect(case, completed, code, printed=(), phrases=()):
@@ -214,7 +277,7 @@ def main():
         case,
         await_results(worker(case, origin)),
         FETCHED,
-        [f"results/chuggy/{COMMIT}/request-{ONE}.json"],
+        announced([f"results/chuggy/{COMMIT}/request-{ONE}.json"]),
     )
 
     # The publisher pushes; nothing local writes a record. A command reading the
@@ -229,7 +292,7 @@ def main():
         case,
         await_results(clone),
         FETCHED,
-        [f"results/chuggy/{COMMIT}/request-{ONE}.json"],
+        announced([f"results/chuggy/{COMMIT}/request-{ONE}.json"]),
     )
 
     # And the other way: a record in the worker's own tree is not on the branch,
@@ -257,6 +320,44 @@ def main():
         [],
         [f"has no record for {ONE}"],
     )
+
+    # And the bound holds over a remote that never answers, which is the only
+    # way it is a bound at all: a round consulted between children is no bound
+    # on a child that does not return, and a command that returns nothing
+    # reaches the ticket as the pod's own deadline, hours later and with no
+    # verdict about the build.
+    case = "comes-back-from-a-remote-that-never-answers"
+    origin, seed = remote(case)
+    land(seed, requests(ONE), "the request")
+    clone = worker(case, origin)
+    listener, url = stalled(case)
+    try:
+        git(clone, "remote", "set-url", "origin", url)
+        started = time.monotonic()
+        completed = await_results(clone, within=3, every=1)
+        waited = time.monotonic() - started
+    finally:
+        listener.close()
+    if expect(case, completed, UNRUNNABLE, [], ["did not return within the wait"]):
+        if waited > 15:
+            report(case, f"a 3 second wait took {waited:.0f} seconds to come back")
+
+    # One fetch that fails is a blip -- a name that did not resolve, a gateway,
+    # an installation token that expired late in a long wait -- and the build it
+    # is waiting on is still running. A ticket that read it as a broken fabric
+    # would abandon a change that is already merged.
+    case = "waits-out-a-remote-that-answers-late"
+    origin, seed = remote(case)
+    land(seed, requests(ONE) | record(ONE), "the request and its record")
+    clone = worker(case, origin)
+    blinking, counter = blinking_git(case)
+    if expect(
+        case,
+        await_results(clone, within=5, every=1, path=blinking),
+        FETCHED,
+        announced([f"results/chuggy/{COMMIT}/request-{ONE}.json"]),
+    ) and counter.read_text() != "2":
+        report(case, f"the failed fetch was not retried: {counter.read_text()} fetches")
 
     # A commit with no request filed at it is not a wait that could succeed: the
     # request is landed by a ticket before this one runs, so its absence is the
@@ -291,7 +392,7 @@ def main():
         case,
         await_results(worker(case, origin)),
         FETCHED,
-        [f"results/chuggy/{COMMIT}/request-{ONE}.json"],
+        announced([f"results/chuggy/{COMMIT}/request-{ONE}.json"]),
     )
 
     # A declaration that moved between two filings puts two documents at one
@@ -306,10 +407,12 @@ def main():
         case,
         await_results(clone),
         FETCHED,
-        [
-            f"results/chuggy/{COMMIT}/request-{ONE}.json",
-            f"results/chuggy/{COMMIT}/request-{TWO}.json",
-        ],
+        announced(
+            [
+                f"results/chuggy/{COMMIT}/request-{ONE}.json",
+                f"results/chuggy/{COMMIT}/request-{TWO}.json",
+            ]
+        ),
     )
 
     # The cap is the command's, and a caller cannot ask past it: a wait longer

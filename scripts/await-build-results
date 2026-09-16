@@ -32,15 +32,43 @@ request renders, and a result reaches the branch a `chuggy-build-provenance`
 activation and a `chuggy-build-results-publish` activation after the last of
 them finishes. What a longer wait holds open is a ticket, not a build.
 
+THE BOUND IS ON THE COMMAND AND NOT ON ITS ROUNDS. Every child gets what is left
+of the deadline as its own timeout, because a `git` that never returns -- a
+stalled proxy, a connection whose conntrack entry was evicted -- would otherwise
+be a wait of no length at all, and the caller's bound would buy nothing. A child
+given up on is a round that saw nothing, which is the same as a round that
+failed.
+
+A ROUND THAT COULD NOT LOOK IS NOT A VERDICT. One failed fetch is a blip -- a
+name that did not resolve, a gateway, an installation token that expired late in
+a long wait -- and a build that is still running is not a broken fabric. So a
+failed round is slept through like any other, and 2 is reached only if the
+deadline passes with the last round still unable to look. What that costs is
+that `--within-secs` is the time to a verdict of any kind, which is what a
+caller sizing a ticket wants it to be.
+
+THE BOUND HAS TO UNDERCUT THE ONE AROUND IT. Whatever runs this has a deadline
+of its own, and a caller killed at that deadline is a run with no verdict: what
+follows a kill is another attempt from the beginning, not a decision about the
+build. So `--within-secs` is sized under the deadline of the thing that runs it,
+and the value of reaching 3 is that it is this command's answer rather than
+somebody else's timer.
+
+STDOUT IS THE RESULT AND NOTHING ELSE: one JSON object naming the records found.
+Accounts and refusals go to stderr. A command whose work is read by a ticket
+engine has no other channel, and a stray line on stdout is a task that failed.
+
 WHAT IT NEEDS ON PATH: `git`. The worker image carries it.
 
 Exit 0 when every request filed at that commit has its record, 3 when the
-deadline passed without one, 2 when it could not look -- no remote, no branch,
-or no request document filed at that commit at all. Exit 2 is not a pass, and an
-uncaught exception exits 1 rather than either.
+deadline passed without one, 2 when it could not look -- no request document
+filed at that commit at all, or a deadline reached with the remote or the
+fetched ref still unreadable. Exit 2 is not a pass, and an uncaught exception
+exits 1 rather than either.
 """
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -62,49 +90,59 @@ CAP_SECS = 6 * 60 * 60
 EVERY_SECS = 30
 
 
+class Blind(Exception):
+    """A round that could not look: a remote that did not answer, or a fetched
+    ref that could not be read. Carries the account, and is not a verdict --
+    the round after it may see."""
+
+
 def unrunnable(message):
     print(f"await-build-results: cannot run: {message}", file=sys.stderr)
     raise SystemExit(UNRUNNABLE)
 
 
-def git(root, *arguments):
+def git(root, deadline, *arguments):
+    """One child, given what is left of the wait and no more."""
     try:
         return subprocess.run(
             ["git", "-C", str(root), *arguments],
             capture_output=True,
             text=True,
             check=False,
+            timeout=max(1, deadline - time.monotonic()),
         )
+    except subprocess.TimeoutExpired:
+        raise Blind(f"git {arguments[0]} did not return within the wait") from None
     except OSError as error:
         unrunnable(f"git could not be run: {error}")
 
 
-def fetched(root, remote, branch):
+def fetched(root, deadline, remote, branch):
     """The remote branch, brought into FETCH_HEAD and nowhere else."""
-    completed = git(root, "fetch", "--quiet", "--no-tags", remote, branch)
+    completed = git(root, deadline, "fetch", "--quiet", "--no-tags", remote, branch)
     if completed.returncode != 0:
-        unrunnable(
+        raise Blind(
             f"{remote} {branch} could not be fetched from {root}: "
             f"{completed.stderr.strip() or 'no detail'}"
         )
 
 
-def listing(root, directory):
+def listing(root, deadline, directory):
     """The files the fetched branch carries under one directory."""
-    completed = git(root, "ls-tree", "-r", "--name-only", "-z", FETCHED, "--", directory)
+    completed = git(
+        root, deadline, "ls-tree", "-r", "--name-only", "-z", FETCHED, "--", directory
+    )
     if completed.returncode != 0:
-        unrunnable(
-            f"{FETCHED} could not be read: {completed.stderr.strip() or 'no detail'}"
-        )
+        raise Blind(f"{FETCHED} could not be read: {completed.stderr.strip() or 'no detail'}")
     return {name for name in completed.stdout.split("\0") if name}
 
 
-def request_digests(root, filed):
+def request_digests(root, deadline, filed):
     """The request documents filed at one commit, by digest. A file under that
     directory that is not one is not a request this site can answer, so nothing
     here waits for it: what waits for one is a deadline that always passes."""
     digests = set()
-    for name in listing(root, filed):
+    for name in listing(root, deadline, filed):
         stem = Path(name).name
         if stem.endswith(".json") and DIGEST.fullmatch(stem[: -len(".json")]):
             digests.add(stem[: -len(".json")])
@@ -135,26 +173,39 @@ def main():
     filed = f"{REQUESTS}/{arguments.repository_id}/{arguments.source_commit}"
     answered = f"{RESULTS}/{arguments.repository_id}/{arguments.source_commit}"
     deadline = time.monotonic() + arguments.within_secs
+    blind = None
+    missing = []
     while True:
-        fetched(root, arguments.remote, arguments.branch)
-        digests = request_digests(root, filed)
-        if not digests:
-            # Nothing to wait for, and no round of this will change that: the
-            # request is landed by a ticket of its own, before this one runs.
-            unrunnable(
-                f"{arguments.remote}/{arguments.branch} carries no request "
-                f"document under {filed}/"
-            )
-        records = listing(root, answered)
-        missing = [
-            digest for digest in digests if f"{answered}/request-{digest}.json" not in records
-        ]
-        if not missing:
-            for digest in digests:
-                print(f"{answered}/request-{digest}.json")
-            return
+        try:
+            fetched(root, deadline, arguments.remote, arguments.branch)
+            digests = request_digests(root, deadline, filed)
+            if not digests:
+                # Nothing to wait for, and no round of this will change that:
+                # the request is landed by a ticket of its own, before this one.
+                unrunnable(
+                    f"{arguments.remote}/{arguments.branch} carries no request "
+                    f"document under {filed}/"
+                )
+            records = listing(root, deadline, answered)
+            missing = [
+                digest
+                for digest in digests
+                if f"{answered}/request-{digest}.json" not in records
+            ]
+            if not missing:
+                print(
+                    json.dumps(
+                        {"records": [f"{answered}/request-{digest}.json" for digest in digests]}
+                    )
+                )
+                return
+            blind = None
+        except Blind as error:
+            blind = error
         remaining = deadline - time.monotonic()
         if remaining <= 0:
+            if blind is not None:
+                unrunnable(str(blind))
             print(
                 f"await-build-results: {arguments.remote}/{arguments.branch} has no "
                 f"record for {', '.join(missing)} at {filed}/",
