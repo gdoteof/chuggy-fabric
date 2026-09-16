@@ -11,6 +11,16 @@
 # each is a case below, and each is checked by looking at what arrived in the
 # remote -- not at what the script printed.
 #
+# The same unit answers the build requests the branch carries, and that half
+# fails the same way: a request rendered twice is two digests for one image and
+# a release that refuses, and a fulfilment record written before the results are
+# in is a source's finalizer concluding on a build that has not happened. So the
+# case for it lands a document, reads what arrived in the remote, and only then
+# records the results. A document nobody here can answer is its own case, for a
+# failure that is not silent but permanent: failing the unit on one would make
+# this unit red every few minutes until somebody edited the branch, and a red
+# that is always there is a red that cannot report a rejected push.
+#
 # THE REMOTE IS A BARE REPOSITORY OVER `file://` and the records are made the way
 # `record-build-provenance` makes them: canonical payload, digest of the payload
 # inside the record, checksum of the record beside it. So a case that says
@@ -109,8 +119,9 @@ render() {
 # the recorder would have used.
 make_record() {
   local manifest=$1 request commit target renderer controller profile profile_digest
-  local attempt directory
+  local attempt directory repository
   request=$(grep -m1 -F 'fabric.chuggy.dev/request-digest:' "$manifest" | awk '{print $2}')
+  repository=$(grep -m1 -F 'fabric.chuggy.dev/source-repository-id:' "$manifest" | awk '{print $2}')
   commit=$(grep -m1 -F 'fabric.chuggy.dev/source-commit:' "$manifest" | awk '{print $2}')
   target=$(grep -m1 -F 'fabric.chuggy.dev/target-image-repository:' "$manifest" | awk '{print $2}' | tr -d '"')
   renderer=$(grep -m1 -F 'fabric.chuggy.dev/renderer:' "$manifest" | awk '{print $2}')
@@ -123,14 +134,15 @@ make_record() {
   mkdir -p "$directory"
   jq -nS --arg request "$request" --arg attempt "$attempt" --arg commit "$commit" \
     --arg target "$target" --arg renderer "$renderer" --arg controller "$controller" \
-    --arg profile "$profile" --arg profileDigest "$profile_digest" '{
+    --arg profile "$profile" --arg profileDigest "$profile_digest" \
+    --arg repository "$repository" '{
       attempt: {name: $attempt, ordinal: 1},
       controller: $controller,
       output: {digest: "sha256:2c1cd2f0c4b8a4d4c6f5e3b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0998877", repository: $target},
       profile: {digest: $profileDigest, name: $profile},
       renderer: $renderer,
       requestDigest: $request,
-      source: {observedCommit: $commit, repositoryId: "example-service", requestedCommit: $commit},
+      source: {observedCommit: $commit, repositoryId: $repository, requestedCommit: $commit},
       terminalCondition: {
         lastTransitionTime: "2026-01-01T00:00:00Z",
         message: "All Steps have completed executing",
@@ -151,6 +163,7 @@ publish() {
   rm -rf "$work/run"
   mkdir -p "$work/run"
   env RESULTS_PATH="${RESULTS_UNDER_TEST:-$work/host-records}" \
+    SCRIPTS_PATH="$scripts" \
     REPOSITORY_URL="file://$work/${REPOSITORY_UNDER_TEST:-origin.git}" \
     BRANCH=main \
     CLONE_PATH="$work/clone" \
@@ -291,6 +304,97 @@ test "$(added --diff-filter=A | wc -l)" = 4
 published=$(tip)
 publish
 test "$(tip)" = "$published"
+
+# ------------------------------------------------- a build request to answer ---
+
+# A source's finalizer commits one document and the fabric decides how many
+# builds answer it. Nothing else in this tree pushes to the branch Flux follows,
+# so this is that half run against a real repository too: the builds arrive, and
+# the record that says the request was answered arrives only with the results.
+commit_j=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+request_j=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+mkdir -p "$work/staging/requests/chuggy/$commit_j"
+cat > "$work/staging/requests/chuggy/$commit_j/$request_j.json" <<JSON
+{"apiVersion":"chuggy.dev/v1","kind":"ContainerBuildRequest","spec":{"builderProfile":"shipwright-buildkit-rootless-mini/v1","platforms":["linux/amd64"],"source":{"commit":"$commit_j","repository":"https://github.com/kasofsk/chuggy.git"},"targetImageRepository":"registry.chuggy-registry.svc.cluster.local:5000/chuggy"}}
+JSON
+land 'fixture: a build request from the source'
+published=$(tip)
+publish
+test "$(git -C "$work/origin.git" rev-list --count "$published..$(tip)")" = 1
+test "$(git -C "$work/origin.git" log -1 --format=%s)" = 'fulfil build requests'
+git -C "$work/published" fetch --quiet origin main
+git -C "$work/published" reset --quiet --hard origin/main
+mapfile -t answers < <(ls "$work/published/builds/chuggy/$commit_j")
+test "${#answers[@]}" = 2
+test ! -e "$work/published/results/chuggy/$commit_j/request-$request_j.json"
+
+# The record arrives in the activation that lands the last result it names:
+# two commits, one push, and the fabric's side of the loop closed.
+published=$(tip)
+for manifest in "$work/published/builds/chuggy/$commit_j"/*.yaml; do
+  make_record "$manifest" >/dev/null
+done
+publish
+test "$(git -C "$work/origin.git" rev-list --count "$published..$(tip)")" = 2
+git -C "$work/published" fetch --quiet origin main
+git -C "$work/published" reset --quiet --hard origin/main
+answered="$work/published/results/chuggy/$commit_j/request-$request_j.json"
+test -f "$answered"
+test "$(jq -r '.builds | length' "$answered")" = 2
+for result in $(jq -r '.builds[].result' "$answered"); do
+  test -f "$work/published/$result"
+done
+
+# And an answered request is not answered again.
+published=$(tip)
+publish
+test "$(tip)" = "$published"
+
+# ------------------------------------- a request nobody here can ever answer ---
+
+# An undeclared source, a profile this site does not have, a half-written
+# document: no activation of this unit clears any of those -- the branch is what
+# clears them -- so a unit that failed on one would be red every few minutes
+# from then on, and a unit that is red every time cannot say that a push was
+# rejected. So the account is on stderr, the run succeeds, and the results half
+# of the same activation still lands.
+commit_k=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+commit_l=dddddddddddddddddddddddddddddddddddddddd
+request_l=eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+render "$commit_k" >/dev/null
+mkdir -p "$work/staging/builds/example-service" "$work/staging/requests/nobody/$commit_l"
+cp -R "$work/rendered/builds/example-service/$commit_k" "$work/staging/builds/example-service/"
+cat > "$work/staging/requests/nobody/$commit_l/$request_l.json" <<JSON
+{"apiVersion":"chuggy.dev/v1","kind":"ContainerBuildRequest","spec":{"builderProfile":"shipwright-buildkit-rootless-mini/v1","platforms":["linux/amd64"],"source":{"commit":"$commit_l","repository":"https://github.com/nobody/nothing.git"},"targetImageRepository":"registry.example.invalid/nobody"}}
+JSON
+land 'fixture: a request for a source this site declares no images for'
+published=$(tip)
+attempt_k=$(make_record "$(manifest_for "$commit_k")")
+request_k=$(basename "$(dirname "$(echo "$work/host-records"/*/"$attempt_k.json")")")
+publish 2>"$work/unanswerable.log"
+grep -Fq 'declares no images for' "$work/unanswerable.log"
+test "$(git -C "$work/origin.git" rev-list --count "$published..$(tip)")" = 1
+git -C "$work/published" fetch --quiet origin main
+git -C "$work/published" reset --quiet --hard origin/main
+same_as_host "$commit_k" "$request_k" "$attempt_k"
+
+# And it is still saying so, and still succeeding, on the activation after that.
+published=$(tip)
+publish 2>"$work/unanswerable-again.log"
+test "$(tip)" = "$published"
+grep -Fq 'declares no images for' "$work/unanswerable-again.log"
+
+# What clears it is the branch, which is the remedy the unit's header names: the
+# document withdrawn, and the account gone with it.
+git -C "$work/seed" fetch --quiet origin main
+git -C "$work/seed" reset --quiet --hard origin/main
+git -C "$work/seed" rm --quiet -r -- requests/nobody
+"${fixture[@]}" -C "$work/seed" commit --quiet -m 'fixture: the unanswerable request is withdrawn'
+git -C "$work/seed" push --quiet origin main
+published=$(tip)
+publish 2>"$work/cleared.log"
+test "$(tip)" = "$published"
+test ! -s "$work/cleared.log"
 
 # --------------------------------------------- a request this branch has not ---
 

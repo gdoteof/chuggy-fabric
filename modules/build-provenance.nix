@@ -18,9 +18,22 @@ let
   };
   publisher = pkgs.writeShellApplication {
     name = "chuggy-build-results-publish";
-    runtimeInputs = [ pkgs.coreutils pkgs.diffutils pkgs.gawk pkgs.git pkgs.jq pkgs.kubectl ];
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.diffutils
+      pkgs.gawk
+      pkgs.git
+      pkgs.jq
+      pkgs.kubectl
+      pkgs.python3
+    ];
     text = builtins.readFile ../scripts/publish-build-results;
   };
+  # The publisher answers the branch's build requests with the renderer this
+  # host was built with, which is this copy and not the clone's own: what the
+  # clone carries is a branch, and running a branch's `scripts/` would run as
+  # root whatever reaches it.
+  scriptsPath = ../scripts;
   # The delivery this host already declares for the token the push uses, so
   # neither the Secret's name nor the namespace it lands in is written twice.
   # `null` covers every way of not having one -- unnamed, or named and not
@@ -186,7 +199,7 @@ in
       };
     };
     systemd.services.chuggy-build-results-publish = lib.mkIf cfg.publish.enable {
-      description = "Publish recorded build provenance into the fabric repository";
+      description = "Publish recorded build provenance and answer build requests in the fabric repository";
       # Ordered after the recorder rather than triggered by it: a record is
       # briefly a JSON file without its checksum, and that ordering is what
       # keeps the common activation from reading the pair mid-rename. A record
@@ -195,6 +208,7 @@ in
       wants = [ "network-online.target" "k3s.service" ];
       environment = {
         RESULTS_PATH = resultsPath;
+        SCRIPTS_PATH = "${scriptsPath}";
         REPOSITORY_URL = fluxRepositoryUrl;
         BRANCH = config.chuggy.flux.branch;
         TOKEN_SECRET = if publishToken == null then "" else publishToken.secretName;

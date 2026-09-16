@@ -1,7 +1,18 @@
 #!/usr/bin/env bash
 # Copy every durable build result this host holds and the fabric repository does
 # not into that repository, under
-# `results/<repository-id>/<source-commit>/<request-digest>/<attempt>.json`.
+# `results/<repository-id>/<source-commit>/<request-digest>/<attempt>.json`, and
+# answer every build request that repository carries that this branch has not.
+#
+# WHY BOTH ACTS ARE ONE UNIT. They are the fabric's two halves of one loop -- a
+# source's finalizer commits a request, `scripts/fulfil-build-requests` renders
+# the builds it asks for, the recorder records their results, and the fulfilment
+# record those results complete is what the finalizer waits for -- and both
+# halves are pushes to the branch Flux follows. This is the only unattended push
+# this tree makes to that branch, and a second unit pushing to it would be two
+# timers racing for one protected ref and each reporting the other's rejection.
+# So one clone, one run, and one push carrying whichever of the two commits this
+# activation had to make.
 #
 # WHY GIT AND NOT THE HOST DIRECTORY. `scripts/render-release` selects an image
 # from a checksummed result and nothing else, and the pod that runs it is a
@@ -18,8 +29,9 @@
 # THE RULES, WHICH ARE WHAT THIS FILE ENFORCES:
 #
 # - Nothing is rewritten and nothing is deleted. The only paths ever staged are
-#   the two files of a record Git does not carry, so a publication is additions
-#   and nothing else.
+#   the two files of a record Git does not carry and the paths
+#   `fulfil-build-requests` reports having created, which are equally files Git
+#   does not carry, so an activation is additions and nothing else.
 # - A record Git already carries is compared, never overwritten. Two different
 #   bytes claiming one attempt is a finding: it is reported and the run fails,
 #   with everything else still published.
@@ -28,17 +40,33 @@
 # - A record whose request this branch does not declare is reported and skipped.
 #   That is retirement, which is an operator's act and not this unit's failure;
 #   `tests/build-results.py` is what refuses a tree carrying such a result.
+# - A request document nobody here can answer -- an undeclared source, a profile
+#   this site does not have, bytes that are not a request -- is reported and the
+#   run still succeeds. Nothing this host does changes that verdict, so failing
+#   on it would be failing on every activation from now until an operator reads
+#   the journal, and a unit that is red every time is a unit whose red no longer
+#   says that a push was rejected. It is cleared on the branch, by removing the
+#   document or by declaring what it asks for, and the account is in the journal
+#   of every run until then.
 # - A record whose checksum file is not there yet is skipped silently. The
 #   recorder renames the record into place and the checksum after it, so the
 #   pair is briefly incomplete by design, and a pair that stays incomplete is
 #   reported by the recorder rather than twice.
-# - A run with nothing to publish commits nothing.
+# - A run with nothing to publish and no request to answer commits nothing.
+# - The requests are answered after the records are copied and in the same
+#   clone, so a fulfilment record can be written in the activation that landed
+#   the last result it names rather than in the next one.
 # - The clone is reset to the branch's remote tip at the start of every run and
 #   swept of anything untracked, so a failed push leaves nothing half-done: the
 #   next activation rebuilds the same commit from the same records, or finds
 #   them already pushed. The sweep is the half that matters after a crash
 #   between a record and its checksum -- a stray copy left in the clone would
 #   otherwise read as a record Git already carries and differ from it forever.
+#
+# THE RENDERER IS THE ONE THIS HOST WAS BUILT WITH. `SCRIPTS_PATH` names it, and
+# the host names the store copy of `scripts/` there rather than the clone's own:
+# the clone is a branch this unit fetches, and running its `scripts/` would let
+# anything that reaches that branch run as root here.
 #
 # THE TOKEN IS READ FROM THE SECRET THE REFRESHER MAINTAINS and reaches Git
 # through an askpass port, never a URL and never a file inside the clone. The
@@ -48,6 +76,7 @@
 set -o errexit -o nounset -o pipefail
 
 : "${RESULTS_PATH:?RESULTS_PATH is required}"
+: "${SCRIPTS_PATH:?SCRIPTS_PATH is required}"
 : "${REPOSITORY_URL:?REPOSITORY_URL is required}"
 : "${BRANCH:?BRANCH is required}"
 : "${TOKEN_SECRET:?TOKEN_SECRET is required}"
@@ -94,6 +123,7 @@ git=("$git_command" -C "$clone" -c "user.name=$AUTHOR_NAME" -c "user.email=$AUTH
 "${git[@]}" fetch --quiet --depth 1 --no-tags origin "$BRANCH"
 "${git[@]}" reset --quiet --hard FETCH_HEAD
 "${git[@]}" clean --quiet -fdx
+base=$("${git[@]}" rev-parse HEAD)
 
 status=0
 published=()
@@ -149,13 +179,33 @@ for record in "$RESULTS_PATH"/*/*.json; do
   published+=("$name")
 done
 
-(( ${#published[@]} )) || exit "$status"
+# One commit per act, so no subject describes half of what it carries, and a
+# reader of the branch sees which activation did which.
+commit_listing() {
+  { printf '%s\n\n' "$1"; shift; printf '%s\n' "$@"; } > "$run/message"
+  "${git[@]}" commit --quiet --file "$run/message"
+}
 
-{
-  printf 'publish build results\n\n'
-  printf '%s\n' "${published[@]}"
-} > "$run/message"
-"${git[@]}" commit --quiet --file "$run/message"
+if (( ${#published[@]} )); then
+  commit_listing 'publish build results' "${published[@]}"
+fi
+
+# The requests this branch carries, answered in the clone the records above just
+# landed in. Its 3 is the rule above -- a document nobody here can answer, which
+# it has already reported -- and every other non-zero is this unit's, including
+# the 1 of a crash. Whatever it created is committed either way, because a
+# request this site cannot build is not a reason to withhold the others.
+answered=0
+"${PYTHON:-python3}" "$SCRIPTS_PATH/fulfil-build-requests" --root "$clone" > "$run/fulfilled" ||
+  answered=$?
+(( answered == 0 || answered == 3 )) || status=1
+mapfile -t fulfilled < "$run/fulfilled"
+if (( ${#fulfilled[@]} )); then
+  "${git[@]}" add -- "${fulfilled[@]}"
+  commit_listing 'fulfil build requests' "${fulfilled[@]}"
+fi
+
+[[ $("${git[@]}" rev-parse HEAD) != "$base" ]] || exit "$status"
 "${git[@]}" push --quiet origin "HEAD:refs/heads/$BRANCH" ||
   { echo "push to $BRANCH failed; the next activation retries from origin" >&2; exit 1; }
 exit "$status"
