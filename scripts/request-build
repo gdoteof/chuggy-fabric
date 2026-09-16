@@ -23,20 +23,45 @@ instead carries no fabric fact. What it carries is the commit.
 
 THE DIGEST IS OF THE BYTES. The consumer reads the name as a name -- 64 hex
 characters and nothing more -- so the document is its own address: two runs at
-one commit agree on the path exactly when they agree on the document, and a
-declaration that moved between them files a second request rather than
-overwriting the first. The bytes are minified with sorted keys and no trailing
-newline, which is what the consumer parses and what `tests/build-requests.py`
-holds to the document the fabric is built to answer.
+one commit agree on the path exactly when they agree on the document. The bytes
+are minified with sorted keys and no trailing newline, which is what the
+consumer parses and what `tests/build-requests.py` holds to the document the
+fabric is built to answer.
+
+ONE COMMIT CARRIES ONE REQUEST, and a second is refused here rather than
+downstream. Two documents at one commit is what a declaration that moved between
+two filings leaves, and every path out of it is a late failure somebody else has
+to read: the consumer holds a document to the declaration as it stands, so the
+older one can never be answered again; `scripts/await-build-results` waits for
+every document at the commit, so it can never return 0 for that commit again;
+`requests/` is never pruned and is not edited by hand, so there is no forward fix
+in the tree; and if both are somehow answered, `scripts/render-release` refuses
+the release for two digests on one image. This is the only place that can see it
+before it lands and the only one that can name what caused it. What the refusal
+takes away is re-filing a moved declaration at a commit already asked for, which
+is what the release would refuse anyway.
 
 FILING IS NOT LANDING. Nothing here stages, commits or pushes: the file is left
 in the tree for the ticket that ran the command to land by its own finalization,
-which is what puts it in front of a reviewer. A second run over a request this
-tree already carries writes nothing and succeeds, so a retried ticket files the
-request it filed before rather than a second one.
+which is what puts it in front of a reviewer.
 
-Exit 0 clean, 2 when it could not run, 3 when it refuses to file. Exit 2 is not
-a pass, and an uncaught exception exits 1 rather than either.
+NOTHING TO DO IS NOT SUCCESS. A run that finds its own request already filed has
+written nothing, and a work stage that writes nothing lands an empty change --
+which the finalizer refuses as contradictory, and which is a pull request with no
+commits. So that run refuses rather than succeeding quietly, and its account on
+stderr is what a reader wants: the request is there, and this ticket has nothing
+to land. It is a refusal and not a could-not-run because the tree is what
+decides it and another run reaches the same verdict. An attempt starts from a
+fresh branch off `main`, so the tree where this happens is one where the request
+already landed.
+
+STDOUT IS THE RESULT AND NOTHING ELSE: one JSON object naming what was filed.
+Accounts and refusals go to stderr. A command whose work is read by a ticket
+engine has no other channel, and a stray line on stdout is a task that failed.
+
+Exit 0 when a request was filed, 2 when it could not run, 3 when it refuses to
+file. Exit 2 is not a pass, and an uncaught exception exits 1 rather than
+either.
 """
 
 import argparse
@@ -143,15 +168,26 @@ def main():
         / f"{hashlib.sha256(encoded).hexdigest()}.json"
     )
     path = root / relative
+    siblings = sorted(
+        other.name
+        for other in (path.parent.iterdir() if path.parent.is_dir() else ())
+        if other.is_file() and other.name != path.name
+    )
+    if siblings:
+        refuse(
+            f"{relative.parent}/ already carries {', '.join(siblings)}, filed "
+            "when this site declared something else; one commit carries one "
+            "request"
+        )
     if path.exists():
         # The name is the digest of these bytes, so anything else at it was
         # written by something that is not this command.
         if path.read_bytes() != encoded:
             refuse(f"{relative} is not the request this site would file there")
-    else:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(encoded)
-    print(relative.as_posix())
+        refuse(f"{relative} is already filed, so this run has nothing to land")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(encoded)
+    print(json.dumps({"request": relative.as_posix()}))
 
 
 if __name__ == "__main__":

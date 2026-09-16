@@ -121,11 +121,26 @@ def fulfil(root):
     )
 
 
-def request_build(root, repository_id="chuggy", commit=COMMIT):
+def moved_declaration(case):
+    """A copy of `scripts/` whose declaration for chuggy names another builder
+    profile. Filing at one commit on either side of such a move is what leaves
+    two documents there; writing the second by hand would be a fixture asserting
+    its own shape."""
+    moved = WORK / f"{case}-scripts"
+    shutil.copytree(SCRIPTS, moved)
+    declaration = moved / "build_sources.py"
+    text = declaration.read_text()
+    moved_text = text.replace('"profile": "mini",', '"profile": "dedicated",')
+    assert moved_text != text, "the declaration no longer names the profile it did"
+    declaration.write_text(moved_text)
+    return moved
+
+
+def request_build(root, repository_id="chuggy", commit=COMMIT, scripts=None):
     return subprocess.run(
         [
             sys.executable,
-            str(SCRIPTS / "request-build"),
+            str((scripts or SCRIPTS) / "request-build"),
             "--repository-id", repository_id,
             "--source-commit", commit,
             "--root", str(root),
@@ -134,6 +149,13 @@ def request_build(root, repository_id="chuggy", commit=COMMIT):
         text=True,
         check=False,
     )
+
+
+def announced(payload):
+    """The whole of what a command a ticket engine runs may put on stdout: one
+    JSON object, which is the result the engine reads. A second line, or a line
+    that is not that object, is a task that failed whatever the command meant."""
+    return [json.dumps(payload)]
 
 
 def expect(case, completed, code, created, phrases=()):
@@ -236,7 +258,7 @@ def main():
         carried(root, request).unlink()
     digest = hashlib.sha256(REQUESTED.encode()).hexdigest()
     filed = f"requests/chuggy/{COMMIT}/{digest}.json"
-    if expect(case, request_build(root), 0, [filed]):
+    if expect(case, request_build(root), 0, announced({"request": filed})):
         if (root / filed).read_bytes() != REQUESTED.encode():
             report(case, "what was filed is not the document chuggy's finalizer sends")
         answers = [
@@ -250,15 +272,36 @@ def main():
                 if manifest.read_bytes() != (ROOT / manifest.relative_to(root)).read_bytes():
                     report(case, f"{request} is not the manifest this repository carries")
 
-    # A ticket that is retried files the request it filed before. A second name
-    # for one commit's request is two build sets at that commit, which is one
-    # image with two requests and a release that refuses.
-    case = "files-one-request-once"
+    # A run that finds its own request already filed has written nothing, and a
+    # work stage that writes nothing lands an empty change: the finalizer
+    # refuses that as contradictory, and a ticket engine makes it a pull request
+    # with no commits. So it is a refusal with an account, not a quiet zero.
+    case = "refuses-a-request-it-has-already-filed"
     root = tree(case)
-    expect(case, request_build(root), 0, [filed])
+    expect(case, request_build(root), 0, announced({"request": filed}))
     before = fingerprint(root)
-    if expect(case, request_build(root), 0, [filed]) and fingerprint(root) != before:
-        report(case, "filing a request this tree already carries changed it")
+    expect(case, request_build(root), REFUSAL, [], ["is already filed"])
+    if fingerprint(root) != before:
+        report(case, "a request this tree already carried was written again")
+
+    # A declaration that moved between two filings would leave two documents at
+    # one commit. Nothing downstream recovers from that -- the consumer can
+    # never answer the older one again, the wait can never return 0 for the
+    # commit again, and `requests/` is never pruned -- so it is refused by the
+    # only command that can see it before it lands.
+    case = "refuses-a-second-request-at-one-commit"
+    root = tree(case)
+    expect(case, request_build(root), 0, announced({"request": filed}))
+    before = fingerprint(root)
+    expect(
+        case,
+        request_build(root, scripts=moved_declaration(case)),
+        REFUSAL,
+        [],
+        ["already carries", f"{digest}.json"],
+    )
+    if fingerprint(root) != before:
+        report(case, "a commit that already carries a request was filed at again")
 
     # The name is the digest of the bytes, so anything else under it was written
     # by something that is not this command, and writing over it would be this
