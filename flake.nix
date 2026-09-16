@@ -141,6 +141,7 @@
       buildResults = import ./tests/build-results.nix { inherit pkgs; };
       buildResultsPublish = import ./tests/build-results-publish.nix { inherit pkgs; };
       renderRelease = import ./tests/render-release.nix { inherit pkgs; };
+      rolloutFromResults = import ./tests/rollout-from-results.nix { inherit pkgs; };
       buildResultsPublishUnit = host:
         import ./tests/build-results-publish-unit.nix { inherit pkgs host; };
       configurationImporter = import ./tests/configuration-importer.nix { inherit pkgs; };
@@ -402,6 +403,12 @@
         # records, over this repository's own `cluster/apps`, driven through
         # every refusal the renderer states.
         render-release = renderRelease;
+
+        # And the one command a rollout ticket runs: that wait and then that
+        # render, under one bound and with one object on stdout. A ticket
+        # engine reads nothing else, and a render that moved nothing is an
+        # empty change the finalizer refuses.
+        rollout-from-results = rolloutFromResults;
 
         # The publisher unit as gtr builds it, driving the consumer from the
         # store copy it names with the PATH its script exports. The publisher's

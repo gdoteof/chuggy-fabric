@@ -30,7 +30,9 @@ ownership boundaries, deployment sequence, recovery path, and required checks.
 - `results/` records immutable build provenance, published by the host that
   recorded it. A release -- the image digests, source-commit annotations and
   migrate Job name under `cluster/apps` -- is generated from those results
-  with `scripts/render-release`, and never edited by hand.
+  with `scripts/render-release`, and never edited by hand. A rollout ticket
+  runs it through `scripts/rollout-from-results`, which first waits for this
+  site's record of the build.
 - Credentials remain outside Git. Commit references, projections, and delivery
   mechanisms, but never private keys or token values.
 
