@@ -3,6 +3,24 @@
 The source ticket ends when its configured Git handoff succeeds. Failures here
 belong to the fabric operator and never reopen that ticket.
 
+## Ask, and wait
+
+In a checkout of the branch Flux follows:
+
+```text
+scripts/request-build --repository-id chuggy --source-commit <full commit>
+scripts/await-build-results --repository-id chuggy --source-commit <full commit> \
+  --within-secs <seconds>
+```
+
+The first writes the request document and prints its path; it stages nothing, so
+the change is committed and pushed like any other. The second reads the branch
+over `git fetch` and returns when this site has recorded a result for every
+build that request rendered. Neither is an operator command in the ordinary
+case: they are what a ticket runs, and the rules each enforces are in its own
+header. A failed build is still an answer -- `scripts/render-release` is what
+refuses one, and the diagnosis is below.
+
 ## Diagnose
 
 `chuggy-build-attempt-alerts.service` fails with an identified JSON alert when
