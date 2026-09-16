@@ -25,9 +25,9 @@ WHAT STANDS IN FOR A BROKEN NETWORK. A remote that never answers is a socket
 this suite binds and never accepts on: `git` completes the connection out of the
 listen backlog, sends its request and waits for a reply that cannot come, which
 is the shape of a stalled proxy and of a connection whose conntrack entry was
-evicted. A remote that answers late is a `git` on PATH that fails the first
-fetch and then is the real one. Neither needs a network the sandbox does not
-have.
+evicted. A remote that answers late, slowly, or not after the first time is a
+`git` on PATH that does that to a fetch and then is the real one. Neither needs
+a network the sandbox does not have.
 
 THE EXIT CODE IS THE VERDICT. Zero is a request this site has answered, 3 is a
 deadline that passed without one, and 2 is a run that could not look. The ticket
@@ -193,10 +193,11 @@ def stalled(case):
     return listener, f"git://127.0.0.1:{listener.getsockname()[1]}/{case}.git"
 
 
-def blinking_git(case):
-    """A `git` for the front of PATH that fails its first fetch and is the real
-    one from then on, which is a name that did not resolve or a gateway or a
-    token that expired, and not a fabric that is broken."""
+def shimmed_git(case, on_fetch):
+    """A `git` for the front of PATH that is the real one except before a
+    fetch, where it runs `on_fetch` -- Python, with the count of fetches so far
+    in `fetches` -- and so blinks, stalls or goes dark on cue. Returns the
+    directory and the counter of fetches."""
     directory = WORK / f"{case}-bin"
     directory.mkdir(parents=True)
     counter = directory / "fetches"
@@ -205,18 +206,40 @@ def blinking_git(case):
     real = shutil.which("git")
     stub.write_text(
         f"#!{sys.executable}\n"
-        "import os, pathlib, sys\n"
+        "import os, pathlib, sys, time\n"
         f"counter = pathlib.Path({str(counter)!r})\n"
         'if "fetch" in sys.argv[1:]:\n'
         "    fetches = int(counter.read_text()) + 1\n"
         "    counter.write_text(str(fetches))\n"
-        "    if fetches == 1:\n"
-        '        sys.stderr.write("fixture: the remote blinked\\n")\n'
-        "        raise SystemExit(128)\n"
+        f"    {on_fetch}\n"
         f"os.execv({real!r}, [{real!r}] + sys.argv[1:])\n"
     )
     stub.chmod(0o755)
     return directory, counter
+
+
+def blinking_git(case):
+    """Fails its first fetch and is the real one from then on, which is a name
+    that did not resolve or a gateway or a token that expired, and not a fabric
+    that is broken."""
+    return shimmed_git(
+        case,
+        'if fetches == 1: sys.stderr.write("fixture: the remote blinked\\n"); raise SystemExit(128)',
+    )
+
+
+def slow_git(case, fetch_secs):
+    """Every fetch takes that long: a remote over a network."""
+    return shimmed_git(case, f"time.sleep({fetch_secs})")
+
+
+def darkening_git(case):
+    """The first fetch is the real one and every fetch after it fails: a token
+    that expired late in a wait."""
+    return shimmed_git(
+        case,
+        'if fetches > 1: sys.stderr.write("fixture: the remote went dark\\n"); raise SystemExit(128)',
+    )
 
 
 def await_results(clone, within=1, every=1, extra=(), path=None):
@@ -363,11 +386,50 @@ def main():
     blinking, counter = blinking_git(case)
     if expect(
         case,
-        await_results(clone, within=5, every=1, path=blinking),
+        await_results(clone, within=12, every=1, path=blinking),
         FETCHED,
         announced([f"results/chuggy/{COMMIT}/request-{ONE}.json"]),
     ) and counter.read_text() != "2":
         report(case, f"the failed fetch was not retried: {counter.read_text()} fetches")
+
+    # A round started at the deadline gives its fetch the second a child is
+    # always given and no more, and against a remote over a network a fetch is
+    # longer than that: the round is cut off by the deadline and the wait says
+    # the network did not answer, which sends the operator to the network and
+    # not to the build that is late. So no round is started that what is left
+    # cannot hold, and the deadline is declared on what the last one saw.
+    case = "gives-up-at-the-deadline-across-a-fetch-slower-than-a-second"
+    origin, seed = remote(case)
+    land(seed, requests(ONE), "a request nothing answers")
+    clone = worker(case, origin)
+    slow, counter = slow_git(case, 1.5)
+    started = time.monotonic()
+    completed = await_results(clone, within=13, every=1, path=slow)
+    waited = time.monotonic() - started
+    if expect(case, completed, DEADLINE, [], [f"has no record for {ONE}"]):
+        if int(counter.read_text()) < 2:
+            report(case, f"the wait stopped looking after {counter.read_text()} fetch")
+        if waited < 13:
+            report(case, f"the deadline was declared {13 - waited:.1f} seconds before it passed")
+        if "could not look" in completed.stderr:
+            report(case, f"the last round was cut off by the deadline\n{completed.stderr}")
+
+    # A round that saw the request unanswered and a blink after it is a build
+    # that is late, not a fabric that is broken: 2 is for a wait no round of
+    # which could look. The blink is still in the account.
+    case = "reads-a-blink-after-a-round-that-saw-as-the-deadline"
+    origin, seed = remote(case)
+    land(seed, requests(ONE), "a request nothing answers")
+    clone = worker(case, origin)
+    darkening, counter = darkening_git(case)
+    if expect(
+        case,
+        await_results(clone, within=11, every=1, path=darkening),
+        DEADLINE,
+        [],
+        [f"has no record for {ONE}", "could not look", "the remote went dark"],
+    ) and int(counter.read_text()) < 2:
+        report(case, f"the wait stopped looking after {counter.read_text()} fetch")
 
     # A commit with no request filed at it is not a wait that could succeed: the
     # request is landed by a ticket before this one runs, so its absence is the

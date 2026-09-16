@@ -24,18 +24,18 @@ rule for sizing it is in `docs/build-operations-runbook.md`, and the cap on it
 is the wait's own: past the bounds this site puts on the thing being waited
 for, a longer wait holds open a ticket, not a build.
 
-THE WAIT IS HANDED LESS THAN WHAT IS LEFT, by a grace that covers its last
-round. `await-build-results` concludes only after one more fetch past its own
-deadline, so a wait given the whole remainder as its bound and killed at that
-same remainder is killed a fetch short of the refusal it was about to make --
-and 2 says the fabric is broken where 3 says the build is late. So the wait's
-`--within-secs` is the remainder minus the grace and the timeout on it is the
-whole remainder, which is what makes its deadline this command's 3 and not a
-coin toss against the network. The grace is a few seconds because the wait
-gives each child of that last round a second and no more, so its overrun is
-bounded by its own rule. A bound shorter than the grace leaves the wait one
-second and the parent the rest, which holds only where a round is
-milliseconds, and that is a suite.
+THE WAIT IS HANDED LESS THAN WHAT IS LEFT, by a grace that covers its overrun.
+`await-build-results` starts no round it cannot hold, so its fetches end by its
+deadline; what may run past it is the two listings after the last fetch, a
+second each, and the process around them. A wait given the whole remainder as
+its bound and killed at that same remainder is killed inside those, a verdict
+short of the refusal it was about to make -- and 2 says the fabric is broken
+where 3 says the build is late. So the wait's `--within-secs` is the remainder
+minus the grace and the timeout on it is the whole remainder, which is what
+makes sure this command never pre-empts the wait; whether the wait says 3 or 2
+is its own rule, in its header, and nothing here decides it. A bound shorter
+than the grace leaves the wait one second and the parent the rest, which holds
+only where a round is milliseconds, and that is a suite.
 
 NOTHING TO RELEASE IS A REFUSAL. `render-release` writes nothing and exits 0
 when `cluster/apps` already releases the commit, which is the right answer to a
@@ -82,8 +82,8 @@ UNRUNNABLE = 2
 REFUSAL = 3
 # `render-release` pins a release to a commit of this length and no other.
 COMMIT = re.compile(r"[0-9a-f]{40}")
-# See the header: past the wait's last round, one fetch and two listings at a
-# second each, and the process around them.
+# See the header: past the two listings the wait's last round may run beyond
+# its deadline, a second each, and the process around them.
 WAIT_GRACE_SECS = 5
 
 
