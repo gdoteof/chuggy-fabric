@@ -141,6 +141,8 @@
       buildResults = import ./tests/build-results.nix { inherit pkgs; };
       buildResultsPublish = import ./tests/build-results-publish.nix { inherit pkgs; };
       renderRelease = import ./tests/render-release.nix { inherit pkgs; };
+      buildResultsPublishUnit = host:
+        import ./tests/build-results-publish-unit.nix { inherit pkgs host; };
       configurationImporter = import ./tests/configuration-importer.nix { inherit pkgs; };
       developmentWorker = import ./tests/development-worker.nix { inherit pkgs; };
       sessionPlacement = import ./tests/session-placement.nix { inherit pkgs; };
@@ -400,6 +402,12 @@
         # records, over this repository's own `cluster/apps`, driven through
         # every refusal the renderer states.
         render-release = renderRelease;
+
+        # The publisher unit as gtr builds it, driving the consumer from the
+        # store copy it names with the PATH its script exports. The publisher's
+        # own suite runs a copy of `scripts/` with the build's tools on PATH,
+        # which is not the arrangement the host runs.
+        build-results-publish-unit-gtr = buildResultsPublishUnit self.nixosConfigurations.gtr;
         configuration-importer = configurationImporter;
       };
     };
