@@ -3,7 +3,7 @@
   "name": "fabric-change",
   "configuration": {
     "version": 1,
-    "image": "registry.chuggy.internal/chuggy/worker@sha256:7d9397bad9d1174314a83be8d5aaad1a0e2aa83af767b7892aa789d23ced2362",
+    "image": "registry.chuggy.internal/chuggy/worker@sha256:014a8d934621f27819d7bd547dec0b1a4e4ca0bafc9e446254536f37cc2b7436",
     "authority": {
       "tools": ["claude-code", "shell"],
       "credentials": ["chuggy-github-worker", "claude-code"],
