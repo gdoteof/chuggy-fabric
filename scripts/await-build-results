@@ -134,7 +134,8 @@ def git(root, deadline, *arguments):
 
 
 def fetched(root, deadline, remote, branch):
-    """The remote branch, brought into FETCH_HEAD and nowhere else."""
+    """The remote branch, brought into FETCH_HEAD and, where the clone's refspec
+    tracks it, `<remote>/<branch>`; nothing here is checked out."""
     completed = git(root, deadline, "fetch", "--quiet", "--no-tags", remote, branch)
     if completed.returncode != 0:
         raise Blind(

@@ -12,6 +12,10 @@ read off `--source-ref` and never told to it. No case moves an image's inputs
 except the one about the renderer's refusal, so no case needs a verified
 result: what is held here is the wrapper -- the order, the bound, the exit
 classes and the stdout -- and `tests/render-release.py` holds what it wraps.
+The fast-forward between the two is held the same way: after a run whose
+record landed while it waited, the checkout is at the branch and carries that
+record, and that the renderer reads a record from the tree it is given is that
+suite's to hold.
 
 THE EXIT CODE IS THE VERDICT AND STDOUT IS THE RESULT. Zero is a release
 rendered and one JSON object naming it; 3 is a refusal, whether the wait's or
@@ -178,6 +182,17 @@ def branch(case, files):
     return clone
 
 
+def land(case, files, message):
+    """`files`, pushed to the branch by the publisher's stand-in after the
+    ticket's clone was taken."""
+    seed = WORK / case / "seed"
+    for relative, content in files.items():
+        write(seed, relative, content)
+    git(seed, "add", "-A")
+    git(seed, "commit", "--quiet", "-m", message)
+    git(seed, "push", "--quiet", "origin", "main")
+
+
 def deployed(clone, commit):
     """This repository's `cluster/apps`, moved back to the fixture's live
     commit so that what the renderer reads as deployed is the base of the
@@ -254,11 +269,55 @@ def slow_git(case, resolve_secs, fetch_secs):
     return directory
 
 
+def landing_git(case, files):
+    """A `git` for the front of PATH that lands `files` on the branch before
+    the first fetch and is the real one otherwise: the publisher pushing the
+    record while the run waits, after the checkout the run was given was
+    taken."""
+    directory = WORK / f"{case}-bin"
+    directory.mkdir(parents=True)
+    seed = WORK / case / "seed"
+    landed = directory / "landed"
+    real = shutil.which("git")
+    stub = directory / "git"
+    stub.write_text(
+        f"#!{sys.executable}\n"
+        "import os, pathlib, subprocess, sys\n"
+        f"landed = pathlib.Path({str(landed)!r})\n"
+        'if "fetch" in sys.argv[1:] and not landed.exists():\n'
+        f"    for relative, content in {files!r}.items():\n"
+        f"        path = pathlib.Path({str(seed)!r}) / relative\n"
+        "        path.parent.mkdir(parents=True, exist_ok=True)\n"
+        "        path.write_text(content)\n"
+        "    for arguments in (\n"
+        '        ["add", "-A"],\n'
+        '        ["-c", "user.name=fixture", "-c", "user.email=fixture@invalid",\n'
+        '         "commit", "--quiet", "-m", "the record, while the run waits"],\n'
+        '        ["push", "--quiet", "origin", "main"],\n'
+        "    ):\n"
+        f"        subprocess.run([{real!r}, '-C', {str(seed)!r}, *arguments], "
+        "stdout=subprocess.DEVNULL, check=True)\n"
+        "    landed.touch()\n"
+        f"os.execv({real!r}, [{real!r}] + sys.argv[1:])\n"
+    )
+    stub.chmod(0o755)
+    return directory
+
+
 def rollout(clone, source, ref, within=2, url=None, extra=(), path=None):
     """The command, given a bound of this suite's own well past the one it was
     given: a command whose bound is no bound would otherwise hang the check
     rather than red it."""
-    environment = dict(os.environ)
+    # The identity is what lets a merge that is not a fast-forward commit:
+    # without one, a plain merge dies before it moves anything and looks like
+    # the refusal `--ff-only` makes on purpose.
+    environment = dict(
+        os.environ,
+        GIT_AUTHOR_NAME="rollout tests",
+        GIT_AUTHOR_EMAIL="tests@invalid",
+        GIT_COMMITTER_NAME="rollout tests",
+        GIT_COMMITTER_EMAIL="tests@invalid",
+    )
     if path is not None:
         environment["PATH"] = f"{path}{os.pathsep}{environment['PATH']}"
     try:
@@ -326,6 +385,60 @@ def main():
         [f"refs/heads/documentation at {source} is {target}"],
     ) and annotations(apps) != {target[:8]}:
         report(case, f"the release does not annotate the resolved commit: {annotations(apps)}")
+
+    # The record lands on the branch while the run waits, and the checkout the
+    # run was given is the branch before it: the wait reads the branch, the
+    # render reads the checkout, and between them the checkout is advanced to
+    # what the wait proved. A run that rendered from the checkout as given
+    # would refuse every rollout whose record was not on main at dispatch.
+    case = "renders-from-the-branch-the-wait-proved"
+    target = commits["documentation"]
+    record = f"results/chuggy/{target}/request-{DIGEST}.json"
+    clone = branch(case, requested(target))
+    apps = deployed(clone, base)
+    if expect(
+        case,
+        rollout(
+            clone,
+            source,
+            "refs/heads/documentation",
+            within=4,
+            path=landing_git(case, answered(target)),
+        ),
+        RELEASED,
+        [json.dumps({"released": target, "records": [record]})],
+        [f"{clone} is at origin/main"],
+    ) and annotations(apps) != {target[:8]}:
+        report(case, f"the release does not annotate the resolved commit: {annotations(apps)}")
+    if not (clone / record).is_file():
+        report(case, "the checkout the render read does not carry the record the wait found")
+    if git(clone, "rev-parse", "HEAD") != git(clone, "rev-parse", "origin/main"):
+        report(case, "the checkout was not advanced to origin/main")
+
+    # A checkout with a commit of its own is not the one a ticket has, and the
+    # branch has moved past it: no fast-forward reaches the record, and a run
+    # that reset the tree to get there would throw away what it was given.
+    case = "cannot-run-when-the-checkout-does-not-fast-forward"
+    target = commits["documentation"]
+    clone = branch(case, requested(target))
+    apps = deployed(clone, base)
+    write(clone, "docs/its-own", "a commit the branch does not have\n")
+    git(clone, "add", "docs/its-own")
+    git(clone, "commit", "--quiet", "-m", "its own")
+    land(case, answered(target), "the record, after the checkout diverged")
+    before = fingerprint(apps)
+    head = git(clone, "rev-parse", "HEAD")
+    if expect(
+        case,
+        rollout(clone, source, "refs/heads/documentation"),
+        UNRUNNABLE,
+        [],
+        [f"the checkout at {clone} does not fast-forward to origin/main"],
+    ):
+        if fingerprint(apps) != before:
+            report(case, "cluster/apps was edited from a checkout that was not advanced")
+        if git(clone, "rev-parse", "HEAD") != head:
+            report(case, "the checkout was moved off its own commit")
 
     # The renderer's clean no-op is this command's refusal: a work stage that
     # writes nothing lands an empty change, which the finalizer refuses and

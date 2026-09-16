@@ -49,8 +49,13 @@ commit rather than resolving it:
 scripts/request-build --repository-id chuggy --source-commit <full commit>
 scripts/await-build-results --repository-id chuggy --source-commit <full commit> \
   --within-secs <seconds>
+git merge --ff-only origin/main
 scripts/render-release --target-commit <full commit>
 ```
+
+The fast-forward is what `scripts/rollout-from-results` does between the two:
+the wait reads the branch, the render reads the checkout, and the record is
+on the branch before it is in any checkout taken earlier.
 
 The first stages nothing, so what it wrote is committed and pushed like any
 other change; it refuses a commit that already carries a request, its own
@@ -60,8 +65,8 @@ stderr, so a ticket engine reads the result and a person reads the reason.
 
 ## Sizing the wait
 
-`--within-secs` is the rollout command's whole life: the resolve, the wait
-and the render each get what is left of it. It has to undercut the deadline
+`--within-secs` is the rollout command's whole life: the resolve, the wait,
+the fast-forward and the render each get what is left of it. It has to undercut the deadline
 of the pod that runs it -- `CHUG_SCHEDULER_WORKER_DEADLINE_SECS` in
 `cluster/apps/chuggy-scheduler.yaml` -- by the clone and setup before the
 command, because a pod killed at its deadline has reached no verdict: what
