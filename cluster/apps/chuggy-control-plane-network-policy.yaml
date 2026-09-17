@@ -242,8 +242,14 @@ spec:
             matchLabels:
               app.kubernetes.io/name: traefik
       ports:
+        # 8443 AND NOT 443, WHICH IS THE PORT THE URL NAMES. A policy is
+        # evaluated against the packet after the Service's destination NAT, so
+        # what has to be named here is the port the ingress controller's pod
+        # listens on and not the port its Service publishes. Allowing 443
+        # matches nothing and reads as though it should: the connection is
+        # refused with the rule in place and looking correct.
         - protocol: TCP
-          port: 443
+          port: 8443
 ---
 # The ticket service reaches the database and public HTTPS, which is where it
 # both mints and reads a source. NetworkPolicy cannot name GitHub as a
