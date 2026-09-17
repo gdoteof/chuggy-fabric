@@ -142,7 +142,7 @@ metadata:
 data:
   config.json: |
     {
-      "issuer": "https://gumbo-nuc-0.tail20c474.ts.net/auth",
+      "issuer": "https://gumbo-nuc-0.tail20c474.ts.net/oauth",
       "clientId": "chuggy-ui",
       "audience": "https://gumbo-nuc-0.tail20c474.ts.net/api",
       "redirectUri": "https://gumbo-nuc-0.tail20c474.ts.net/auth/callback",

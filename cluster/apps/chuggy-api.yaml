@@ -302,7 +302,7 @@ spec:
               valueFrom:
                 secretKeyRef: { name: chuggy-api, key: idempotency-keying }
             - name: CHUG_API_OIDC_ISSUER
-              value: https://auth.vteng.io
+              value: https://gumbo-nuc-0.tail20c474.ts.net/oauth
             - name: CHUG_API_OIDC_AUDIENCE
               value: https://gumbo-nuc-0.tail20c474.ts.net/api
             # RS256 alone. The list is what `jwtVerify` will accept, so leaving

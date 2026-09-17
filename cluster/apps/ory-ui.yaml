@@ -83,16 +83,28 @@ spec:
             - name: KRATOS_PUBLIC_URL
               value: http://kratos-public.ory.svc.cluster.local:4433
             - name: KRATOS_BROWSER_URL
-              value: https://id.vteng.io
+              value: https://gumbo-nuc-0.tail20c474.ts.net/id
+            # `app.use(BASE_PATH, router)` in the image: this app mounts itself
+            # under the prefix rather than being handed a stripped path, which
+            # is why the Ingress below passes `/id` through and only the Kratos
+            # rule beside it strips. Every link it renders carries the prefix
+            # because of this line.
+            - name: BASE_PATH
+              value: /id
             - name: KRATOS_ADMIN_URL
               value: http://kratos-admin.ory.svc.cluster.local:4434
             - name: HYDRA_ADMIN_URL
               value: http://hydra-admin.ory.svc.cluster.local:4445
-            # `__Host-` binds the cookie to this exact host over HTTPS with no
-            # Domain attribute -- the browser enforces it, so a cookie set for
-            # a sibling of id.vteng.io cannot be presented here.
+            # `__Secure-` RATHER THAN `__Host-`, AND THE PREFIX IS WHY. A
+            # `__Host-` cookie must be set with `Path=/`, and this app now
+            # lives under `/id` and scopes its cookie there, so the browser
+            # would reject the cookie and every form would fail its CSRF
+            # check. `__Secure-` keeps the part that still applies -- HTTPS
+            # only -- and gives up the path and Domain guarantees, which on a
+            # single-origin deployment bound nothing another prefix here could
+            # not already reach.
             - name: CSRF_COOKIE_NAME
-              value: __Host-ory-ui-csrf
+              value: __Secure-ory-ui-csrf
             - name: CSRF_COOKIE_SECRET
               valueFrom:
                 secretKeyRef: { name: ory-ui, key: csrf-cookie-secret }
@@ -141,20 +153,59 @@ metadata:
   namespace: ory
 spec:
   ingressClassName: traefik
+  tls:
+    - hosts:
+        - gumbo-nuc-0.tail20c474.ts.net
+      secretName: tailnet-tls
   rules:
-    - host: id.vteng.io
+    - host: gumbo-nuc-0.tail20c474.ts.net
       http:
         paths:
-          # The flow endpoints a browser is redirected to and posts forms at.
-          - path: /self-service
-            pathType: Prefix
-            backend:
-              service:
-                name: kratos-public
-                port: { number: 4433 }
-          - path: /
+          - path: /id
             pathType: Prefix
             backend:
               service:
                 name: ory-ui
                 port: { number: 3000 }
+---
+# THE FLOW ENDPOINTS, AND A SECOND OBJECT BECAUSE THEY ARE STRIPPED AND THE APP
+# ABOVE IS NOT. Kratos serves `/self-service` at its root and carries the prefix
+# in `serve.public.base_url`, so it needs `/id` taken off; the console app
+# mounts itself under `/id` and needs it left on. A Traefik middleware is
+# selected per Ingress and not per path, so one rule cannot do both.
+#
+# Traefik matches the longer prefix first, so this wins over `/id` above for
+# exactly the paths Kratos serves.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-id
+  namespace: ory
+spec:
+  stripPrefix:
+    prefixes:
+      - /id
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ory-id-flows
+  namespace: ory
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: ory-strip-id@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - gumbo-nuc-0.tail20c474.ts.net
+      secretName: tailnet-tls
+  rules:
+    - host: gumbo-nuc-0.tail20c474.ts.net
+      http:
+        paths:
+          - path: /id/self-service
+            pathType: Prefix
+            backend:
+              service:
+                name: kratos-public
+                port: { number: 4433 }
