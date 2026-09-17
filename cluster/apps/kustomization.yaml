@@ -68,8 +68,6 @@ resources:
   - postgres-network-policy.yaml
   - postgres.yaml
   - registry.yaml
-  - sirdocalot-namespace.yaml
-  - sirdocalot-source.yaml
   - whoami.yaml
 
 # The name of each of these ends in a hash of its content, and kustomize rewrites
