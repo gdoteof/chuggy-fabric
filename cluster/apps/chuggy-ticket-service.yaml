@@ -198,7 +198,7 @@ spec:
                     "projectLeaseSeconds": 30
                   },
                   "domain": {
-                    "nTickets": 64,
+                    "nTickets": 256,
                     "nTasks": 8,
                     "reworkPolicy": { "type": "BudgetedRework", "value": 2 },
                     "gas": 1000,
