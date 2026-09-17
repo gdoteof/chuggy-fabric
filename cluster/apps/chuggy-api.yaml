@@ -304,7 +304,7 @@ spec:
             - name: CHUG_API_OIDC_ISSUER
               value: https://auth.vteng.io
             - name: CHUG_API_OIDC_AUDIENCE
-              value: https://chuggy.vteng.io/api
+              value: https://gumbo-nuc-0.tail20c474.ts.net/api
             # RS256 alone. The list is what `jwtVerify` will accept, so leaving
             # it wider than what Hydra signs with is the algorithm-confusion
             # surface and nothing else; `none` is refused by the API whatever is
