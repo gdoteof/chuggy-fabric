@@ -197,31 +197,7 @@ spec:
                     "projectsPerPassMax": 8,
                     "projectLeaseSeconds": 30
                   },
-                  "domain": {
-                    "nTickets": 256,
-                    "nTasks": 8,
-                    "reworkPolicy": { "type": "BudgetedRework", "value": 2 },
-                    "gas": 1000,
-                    "finalizationPricing": "DeadlineOnly",
-                    "maxStages": 4
-                  },
-                  "owner": "$(CHUG_POD_NAME)",
-                  "forge": {
-                    "appId": "4708055",
-                    "keyFile": "/var/run/chuggy/forge-app/private-key"
-                  },
-                  "source": {
-                    "scratchDirectory": "/var/lib/chuggy/git",
-                    "identity": {
-                      "name": "chuggy ticket service",
-                      "email": "ticket-service@chuggy.vteng.io"
-                    },
-                    "environment": {
-                      "HOME": "/var/lib/chuggy/git",
-                      "TMPDIR": "/var/lib/chuggy/git"
-                    },
-                    "credentialUsername": "x-access-token"
-                  }
+                  "owner": "$(CHUG_POD_NAME)"
                 }
           volumeMounts:
             - name: git-scratch
