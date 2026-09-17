@@ -147,7 +147,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: scheduler
-          image: registry.chuggy.internal/chuggy/api@sha256:24a06074d822d85d93cd3d5b36fa85945343e793898a08bc376871656b6433a6
+          image: registry.chuggy.internal/chuggy/api@sha256:00d05634c4c194588570bcc31f40837f3bac8c9e7904db37b339d29c12d575d9
           imagePullPolicy: IfNotPresent
           command:
             [
@@ -461,7 +461,7 @@ spec:
                     "capabilities": ["Agent:Claude", "Agent:Codex"]
                   },
                   {
-                    "image": "registry.chuggy.internal/chuggy/worker@sha256:aa6ca14645edb30f4b128cb839f7eae1ddd774c5e6caa1e4cb9074b7964f773e",
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:835e2c316d53bab0880f484fb4eb19f189e2af43439dd2a879c3a10d5aefc0cf",
                     "name": "chuggy-worker",
                     "version": "0.26",
                     "operatingSystem": "Linux",
@@ -743,7 +743,7 @@ spec:
             - name: CHUG_SCHEDULER_SESSION_POLICY
               value: |
                 {
-                  "image": "registry.chuggy.internal/chuggy/worker@sha256:aa6ca14645edb30f4b128cb839f7eae1ddd774c5e6caa1e4cb9074b7964f773e",
+                  "image": "registry.chuggy.internal/chuggy/worker@sha256:835e2c316d53bab0880f484fb4eb19f189e2af43439dd2a879c3a10d5aefc0cf",
                   "profile": "chuggy-development",
                   "runtimeVersion": "claude-code-latest",
                   "grant": {
