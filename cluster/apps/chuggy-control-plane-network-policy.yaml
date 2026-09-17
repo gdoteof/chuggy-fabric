@@ -224,6 +224,26 @@ spec:
       ports:
         - protocol: TCP
           port: 443
+    # THE ISSUER, WHICH ON THIS NODE IS INSIDE THE CLUSTER. This process reads
+    # the OpenID discovery document at start-up and refuses to start without
+    # it. The rule above reaches a public issuer and deliberately excludes
+    # every private range; here the issuer is a prefix on this node's own name,
+    # which resolves to the ingress controller, so it is excluded by that rule
+    # and the API could not start.
+    #
+    # Traefik by name rather than the address the name resolves to: the ClusterIP
+    # is assigned and a policy naming it would be a second place for it to
+    # change.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 443
 ---
 # The ticket service reaches the database and public HTTPS, which is where it
 # both mints and reads a source. NetworkPolicy cannot name GitHub as a
