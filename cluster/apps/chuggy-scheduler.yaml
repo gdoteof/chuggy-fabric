@@ -119,7 +119,7 @@ metadata:
   name: chuggy-scheduler
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: b17d0d53
+    fabric.chuggy.dev/source-commit: 809ad2d1
   labels: { app: chuggy-scheduler }
 spec:
   replicas: 1
@@ -459,6 +459,14 @@ spec:
                     "operatingSystem": "Linux",
                     "architecture": "Amd64",
                     "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:aa6ca14645edb30f4b128cb839f7eae1ddd774c5e6caa1e4cb9074b7964f773e",
+                    "name": "chuggy-worker",
+                    "version": "0.26",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
                   }
                 ]
             # The memory limit is what chuggy's own `ci.sh` needs: Node sizes
@@ -735,7 +743,7 @@ spec:
             - name: CHUG_SCHEDULER_SESSION_POLICY
               value: |
                 {
-                  "image": "registry.chuggy.internal/chuggy/worker@sha256:a33575679ba64d13ecf9a6b9c9bcfdea1eeae854abc6dc187f5b7a6b0505b555",
+                  "image": "registry.chuggy.internal/chuggy/worker@sha256:aa6ca14645edb30f4b128cb839f7eae1ddd774c5e6caa1e4cb9074b7964f773e",
                   "profile": "chuggy-development",
                   "runtimeVersion": "claude-code-latest",
                   "grant": {
