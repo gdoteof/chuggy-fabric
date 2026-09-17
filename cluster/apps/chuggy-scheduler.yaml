@@ -485,7 +485,7 @@ spec:
                   {
                     "image": "registry.chuggy.internal/chuggy/worker@sha256:835e2c316d53bab0880f484fb4eb19f189e2af43439dd2a879c3a10d5aefc0cf",
                     "name": "chuggy-worker",
-                    "version": "0.26",
+                    "version": "0.27",
                     "operatingSystem": "Linux",
                     "architecture": "Amd64",
                     "capabilities": ["Agent:Claude", "Agent:Codex"]
