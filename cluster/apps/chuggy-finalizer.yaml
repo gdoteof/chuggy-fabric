@@ -244,6 +244,22 @@ spec:
               value: "4708055"
             - name: CHUG_FINALIZER_FORGE_APP_KEY_FILE
               value: /var/run/chuggy/forge-app/private-key
+            # The forge the pull-request path proposes on. A PullRequest landing
+            # is held ProposalDenied, silently and on every pass, for a
+            # repository whose host no binding names, and the key above covers
+            # only what a binding sends it to. No `path`: the credential for
+            # this host is minted under the App, not read from a file, so the
+            # reference names nothing mounted.
+            - name: CHUG_FINALIZER_FORGE_BINDINGS
+              value: |
+                [
+                  {
+                    "forge": "github",
+                    "repositoryHost": "github.com",
+                    "apiHost": "api.github.com",
+                    "credentialReference": "portal-app"
+                  }
+                ]
             # git writes into HOME, and the root filesystem below refuses
             # writes. The scratch is the one writable place this process has
             # that is not the artifact store, which git has no business in.
