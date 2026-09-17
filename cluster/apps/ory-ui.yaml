@@ -119,11 +119,14 @@ spec:
             requests: { cpu: 50m, memory: 128Mi }
             limits: { memory: 384Mi }
           readinessProbe:
-            httpGet: { path: /health/ready, port: http }
+            # PREFIXED, BECAUSE THE WHOLE APP IS. `BASE_PATH` mounts every
+            # route under /id, health included, so a probe at the root gets
+            # the app's own 404 and the pod never becomes ready.
+            httpGet: { path: /id/health/ready, port: http }
             periodSeconds: 10
             timeoutSeconds: 3
           livenessProbe:
-            httpGet: { path: /health/alive, port: http }
+            httpGet: { path: /id/health/alive, port: http }
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 5
