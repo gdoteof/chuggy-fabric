@@ -22,7 +22,7 @@ metadata:
   name: chuggy-configuration-importer
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: 9162378a
+    fabric.chuggy.dev/source-commit: 9bd56103
   labels: { app: chuggy-configuration-importer }
 spec:
   schedule: "*/2 * * * *"
