@@ -78,11 +78,9 @@ spec:
       - key: app
         operator: In
         values:
-          - chuggy-selector
           - chuggy-scheduler
           - chuggy-ticket-service
           - chuggy-finalizer
-          - chuggy-configuration-importer
           - chuggy-migrate
   # THE ABSENT `ingress:` KEY IS THE RULE. `ingress: [{}]` admits everything and
   # looks almost identical -- do not "complete" this object.
@@ -90,8 +88,8 @@ spec:
     - Ingress
 ---
 # The API is reachable from Traefik, which is how the internet reaches it, from
-# the selector, and from a session pod in `chuggy-work`. Nothing else on the pod
-# network may open a connection to it.
+# a labelled pod in this namespace, and from a session pod in `chuggy-work`.
+# Nothing else on the pod network may open a connection to it.
 #
 # THE THIRD ELEMENT NAMES ITS NAMESPACE AND THE SECOND DELIBERATELY DOES NOT.
 # `chuggy.dev/api-client` is one label with two readers, and a bare podSelector
@@ -113,7 +111,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: chuggy-api-admits-traefik-and-the-selector
+  name: chuggy-api-admits-traefik-and-its-clients
   namespace: chuggy
 spec:
   podSelector:
@@ -277,95 +275,6 @@ spec:
       ports:
         - protocol: TCP
           port: 443
----
-# The selector adds the API, Hydra and Keto to the DNS and PostgreSQL every rule
-# here begins with: the API because its project view comes through `/api/v1`
-# rather than out of the database, Hydra because the token it presents to the
-# API is one it mints for itself, and Keto because what a principal may do on a
-# project is a relation there rather than a row beside the project.
-#
-# HYDRA IS ON ITS PUBLIC PORT AND NOT ITS ADMIN ONE. The selector asks
-# `/oauth2/token` for a client-credentials grant; registering the client that
-# grant belongs to is an admin-port act and it is done by hand, out of band, so
-# nothing here needs 4445. `ory-network-policy.yaml` admits 4444 from anywhere
-# on the pod network and this is the other half of that: without this arm the
-# selector's own egress rule refuses the connection that policy would have
-# accepted. The number is the pod's as well as the Service's -- read off
-# `kubectl -n ory get endpointslice`, for the reason the finalizer rule below
-# states at length.
-#
-# KETO IS ON ITS READ PORT AND NOT ITS WRITE ONE, for the same shape of reason:
-# the selector checks what a principal may do, and the tuples it checks are
-# written out of band by kasofsk/chuggy's `src/roots/provisionProjectAccess.ts`
-# and never by this pod. `ory-network-policy.yaml` admits 4466 from anywhere on
-# the pod network and 4467 from `ory` alone, so an arm for the write port would
-# be permitted at this end and refused at the other.
-#
-# POSTGRESQL IS ALSO WHERE ITS DECISIONS COME FROM, which is why the rule did
-# not change when the policy did. The selector asks the project's lead for a
-# decision by offering a turn on the lead session's mailbox, and that mailbox is
-# a set of functions on the database this arm already permits. The lead adds no
-# destination and there is no policy service to name -- the protocol that wanted
-# one is retired by the commit chuggy-selector.yaml names, which argues that
-# where the configuration used to name it.
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: chuggy-selector-egress
-  namespace: chuggy
-spec:
-  podSelector:
-    matchLabels:
-      app: chuggy-selector
-  policyTypes:
-    - Egress
-  egress:
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              k8s-app: kube-dns
-      ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
-    - to:
-        - podSelector:
-            matchLabels:
-              app: postgres
-      ports:
-        - protocol: TCP
-          port: 5432
-    - to:
-        - podSelector:
-            matchLabels:
-              app: chuggy-api
-      ports:
-        - protocol: TCP
-          port: 3000
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: ory
-          podSelector:
-            matchLabels:
-              app: hydra
-      ports:
-        - protocol: TCP
-          port: 4444
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: ory
-          podSelector:
-            matchLabels:
-              app: keto
-      ports:
-        - protocol: TCP
-          port: 4466
 ---
 # The finalizer can push to both the rig's git service and GitHub. The internal
 # remote is selected by namespace and pod label. NetworkPolicy cannot name
@@ -553,52 +462,3 @@ spec:
       ports:
         - protocol: TCP
           port: 5432
----
-# The importer resolves and reads GitHub, then appends through its own database
-# role. NetworkPolicy cannot name GitHub as a hostname, so the public rule
-# admits HTTPS to public addresses while excluding private, loopback,
-# carrier-grade NAT and link-local ranges.
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: chuggy-configuration-importer-egress
-  namespace: chuggy
-spec:
-  podSelector:
-    matchLabels:
-      app: chuggy-configuration-importer
-  policyTypes:
-    - Egress
-  egress:
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              k8s-app: kube-dns
-      ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
-    - to:
-        - podSelector:
-            matchLabels:
-              app: postgres
-      ports:
-        - protocol: TCP
-          port: 5432
-    - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except:
-              - 10.0.0.0/8
-              - 100.64.0.0/10
-              - 127.0.0.0/8
-              - 169.254.0.0/16
-              - 172.16.0.0/12
-              - 192.168.0.0/16
-      ports:
-        - protocol: TCP
-          port: 443
