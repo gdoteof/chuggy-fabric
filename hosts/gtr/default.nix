@@ -92,6 +92,10 @@
     # is what a fresh box registers with; this one already carries it, and
     # kubelet does not reapply a label to a node that already exists.
     nodeLabels = [ "chuggy.dev/durable=true" "chuggy.dev/pool=work" ];
+
+    # The Mac virtual kubelet (macmini-m1, 192.168.0.175) is on this LAN and runs
+    # no k3s agent, so there is no tunnel to reach it through.
+    egressSelectorMode = "disabled";
   };
 
   # --------------------------------------------------------------- chuggy ----
