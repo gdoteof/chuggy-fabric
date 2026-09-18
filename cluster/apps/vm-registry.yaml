@@ -1,0 +1,148 @@
+# The registry of macOS VM images for the macmini-m1 virtual kubelet.
+#
+# That kubelet pulls from the Mac host, which is on the LAN and not on the pod
+# or service network, so this registry is published on the node's address as a
+# NodePort. It is a separate registry from chuggy-registry because it has no
+# authentication: what can reach it can overwrite it, and the release images
+# gtr runs must not be in that reach. The NetworkPolicy admits only the Mac,
+# and `externalTrafficPolicy: Local` is what keeps the Mac's source address for
+# that policy to match.
+#
+# The kubelet pulls from a private address over plain HTTP, so it is addressed
+# as 192.168.0.114:30500.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: chuggy-vm-registry
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: chuggy-vm-registry
+spec:
+  capacity:
+    storage: 300Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: chuggy-retained
+  local:
+    path: /var/lib/chuggy/vm-registry
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: chuggy.dev/durable
+              operator: In
+              values: ["true"]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: registry
+  namespace: chuggy-vm-registry
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: chuggy-retained
+  resources:
+    requests:
+      storage: 300Gi
+  volumeName: chuggy-vm-registry
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry
+  namespace: chuggy-vm-registry
+  labels: { app: registry }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: registry }
+  template:
+    metadata:
+      labels: { app: registry }
+    spec:
+      nodeSelector:
+        chuggy.dev/durable: "true"
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: registry
+          image: registry:3@sha256:1be55279f18a2fe1a74edf2664cac61c1bea305b7b4642dab412e7affdcb3e33
+          imagePullPolicy: IfNotPresent
+          args: [/etc/distribution/config.yml]
+          ports:
+            - name: registry
+              containerPort: 5000
+          readinessProbe:
+            httpGet: { path: /v2/, port: registry }
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet: { path: /v2/, port: registry }
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests: { cpu: 25m, memory: 64Mi }
+            limits: { memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/distribution/config.yml
+              subPath: config.yml
+              readOnly: true
+            - name: storage
+              mountPath: /var/lib/registry
+      volumes:
+        - name: config
+          configMap:
+            name: vm-registry-config
+        - name: storage
+          persistentVolumeClaim:
+            claimName: registry
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: registry
+  namespace: chuggy-vm-registry
+spec:
+  type: NodePort
+  externalTrafficPolicy: Local
+  selector: { app: registry }
+  ports:
+    - name: registry
+      port: 5000
+      targetPort: registry
+      nodePort: 30500
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: registry-admits-macos-node
+  namespace: chuggy-vm-registry
+spec:
+  podSelector:
+    matchLabels: { app: registry }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - ipBlock: { cidr: 192.168.0.175/32 }
+      ports:
+        - { protocol: TCP, port: 5000 }

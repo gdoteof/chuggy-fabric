@@ -110,6 +110,7 @@
     # but does mean reading an artifact from a shell here needs sudo.
     artifacts.path = "/var/lib/chuggy/artifacts";
     registry.path = "/var/lib/chuggy/registry";
+    vmRegistry.path = "/var/lib/chuggy/vm-registry";
     buildResults.path = "/var/lib/chuggy/build-results";
   };
 
