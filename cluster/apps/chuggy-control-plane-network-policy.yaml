@@ -168,8 +168,18 @@ spec:
 # admits 4466 from anywhere on the pod network and 4467 from `ory` alone, so a
 # write arm here would be permitted at this end and refused at the other.
 #
-# The rig's own git service is not among its destinations: this pod's
-# configuration names no repository on it.
+# THE RIG'S OWN GIT SERVICE IS AMONG ITS DESTINATIONS, because a project bound
+# to a repository on it names one. This pod resolves a project's catalog by
+# reading the bound repository's HEAD and then fetching the commit that names,
+# and `kasofsk/chuggy` is bound to `git.chuggy-git`. The public arm above cannot
+# serve it: that arm excludes every private range, and a ClusterIP is in
+# 10.0.0.0/8.
+#
+# WITHOUT THE ARM BELOW THE FAILURE READS AS ABSENCE, which is why it is worth
+# the words. An unreachable remote yields no tip, a project with no tip is
+# reported as one that is not there, and the console renders that as an editor
+# with no completions, no previews, no materialise action and no verdict on the
+# document -- with nothing anywhere naming a policy as the reason.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -250,6 +260,29 @@ spec:
         # refused with the rule in place and looking correct.
         - protocol: TCP
           port: 8443
+    # THE RIG'S GIT SERVICE, which is where a project bound to a repository on
+    # this cluster keeps its catalog. Reached over plain HTTP on the pod
+    # network: the service terminates nothing and publishes port 80, and the
+    # hop does not leave the node.
+    #
+    # By name rather than by address, for the reason the Traefik arm gives --
+    # `git` is a ClusterIP and naming it here would be a second place for it to
+    # change.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy-git
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: git
+      ports:
+        # 8080 AND NOT 80, WHICH IS THE PORT THE BINDING NAMES, for exactly the
+        # reason the Traefik arm above gives: the policy sees the packet after
+        # the Service's destination NAT, and this Service publishes 80 against a
+        # `targetPort: http` that is the pod's 8080. An arm naming 80 is
+        # accepted, reads as correct, and matches no packet the pod ever sends.
+        - protocol: TCP
+          port: 8080
 ---
 # The ticket service reaches the database and public HTTPS, which is where it
 # both mints and reads a source. NetworkPolicy cannot name GitHub as a
