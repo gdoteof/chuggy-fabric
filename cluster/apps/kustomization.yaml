@@ -60,6 +60,7 @@ resources:
   - chuggy-work.yaml
   - dev2-access.yaml
   - logging.yaml
+  - macos-node-exporter.yaml
   - monitoring.yaml
   - ory-hydra.yaml
   - ory-keto.yaml
