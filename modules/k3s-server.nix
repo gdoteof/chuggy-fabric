@@ -126,6 +126,19 @@ in
       '';
     };
 
+    egressSelectorMode = lib.mkOption {
+      type = lib.types.enum [ "agent" "cluster" "pod" "disabled" ];
+      default = "agent";
+      description = ''
+        How the API server reaches kubelets. Under k3s's default, `agent`, it
+        dials only through the tunnel a k3s agent opens from its node, so a
+        kubelet that is not a k3s agent -- a virtual kubelet -- registers and
+        goes Ready, and every `logs`, `exec` and `attach` against it answers
+        502 "failed to find Session". `disabled` dials the kubelet's address
+        directly, which needs the API server to reach every node.
+      '';
+    };
+
     nodeTaints = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ ];
@@ -174,6 +187,7 @@ in
           # the admin credential is reachable regardless. Revisit if these boxes
           # ever get a second human user.
           "--write-kubeconfig-mode=0644"
+          "--egress-selector-mode=${cfg.egressSelectorMode}"
         ]
         ++ map (san: "--tls-san=${san}") cfg.apiSans
       );
