@@ -119,7 +119,7 @@ metadata:
   name: chuggy-scheduler
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: 809ad2d1
+    fabric.chuggy.dev/source-commit: 79aa9d50
   labels: { app: chuggy-scheduler }
 spec:
   replicas: 1
@@ -147,7 +147,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: scheduler
-          image: registry.chuggy.internal/chuggy/api@sha256:00d05634c4c194588570bcc31f40837f3bac8c9e7904db37b339d29c12d575d9
+          image: registry.chuggy.internal/chuggy/api@sha256:721eb8a41405b5dc7f5a2aecad6a9232b6fcc8411de92c96ae7ce5a9116f6a22
           imagePullPolicy: IfNotPresent
           command:
             [
@@ -304,7 +304,7 @@ spec:
             - name: CHUG_SCHEDULER_TICKET_EXECUTION
               value: |
                 {
-                  "image": "registry.chuggy.internal/chuggy/worker@sha256:835e2c316d53bab0880f484fb4eb19f189e2af43439dd2a879c3a10d5aefc0cf"
+                  "image": "registry.chuggy.internal/chuggy/worker@sha256:a82dcb0eb4991f4a30f1f9d7f24842989f3045e617e68c1464960c5d6b6310ba"
                 }
             - name: CHUG_SCHEDULER_ADMITTED_IMAGES
               value: |
@@ -483,9 +483,9 @@ spec:
                     "capabilities": ["Agent:Claude", "Agent:Codex"]
                   },
                   {
-                    "image": "registry.chuggy.internal/chuggy/worker@sha256:835e2c316d53bab0880f484fb4eb19f189e2af43439dd2a879c3a10d5aefc0cf",
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:a82dcb0eb4991f4a30f1f9d7f24842989f3045e617e68c1464960c5d6b6310ba",
                     "name": "chuggy-worker",
-                    "version": "0.27",
+                    "version": "0.28",
                     "operatingSystem": "Linux",
                     "architecture": "Amd64",
                     "capabilities": ["Agent:Claude", "Agent:Codex"]
@@ -689,7 +689,7 @@ spec:
             - name: CHUG_SCHEDULER_SESSION_POLICY
               value: |
                 {
-                  "image": "registry.chuggy.internal/chuggy/worker@sha256:835e2c316d53bab0880f484fb4eb19f189e2af43439dd2a879c3a10d5aefc0cf",
+                  "image": "registry.chuggy.internal/chuggy/worker@sha256:a82dcb0eb4991f4a30f1f9d7f24842989f3045e617e68c1464960c5d6b6310ba",
                   "profile": "chuggy-development",
                   "runtimeVersion": "claude-code-latest",
                   "grant": {
