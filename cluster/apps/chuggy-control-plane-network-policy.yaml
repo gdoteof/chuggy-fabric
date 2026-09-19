@@ -221,6 +221,28 @@ spec:
       ports:
         - protocol: TCP
           port: 4466
+        # Keto's WRITE port, which this policy refused until now and which the
+        # registration route needs: redeeming a registration token writes the
+        # `pools` tuple the plane then answers `Execute` from. One pod selector
+        # covers both, because Keto serves both ports from one pod; what keeps
+        # them apart is which URL each caller is given, and the pool plane is
+        # given only the read one.
+        - protocol: TCP
+          port: 4467
+    # Hydra's ADMIN port, for the same route and the same release. Creating a
+    # pool's OAuth2 client is the one step of registration no revocation
+    # undoes, which is why the api holds this address and the plane a pool
+    # polls never does.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ory
+          podSelector:
+            matchLabels:
+              app: hydra
+      ports:
+        - protocol: TCP
+          port: 4445
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

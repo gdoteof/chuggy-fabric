@@ -85,7 +85,7 @@ metadata:
   namespace: chuggy-pool-k8s
   labels: { app: chuggy-pool-client }
   annotations:
-    fabric.chuggy.dev/source-commit: 50b2e0db
+    fabric.chuggy.dev/source-commit: 19fa5deb
 spec:
   replicas: 1
   strategy: { type: Recreate }
@@ -106,7 +106,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: pool-client
-          image: registry.chuggy.internal/chuggy/api@sha256:0f63928e381718a1d850d8d0c6b6fea4ba54d291deb326d1aed25c1e90692114
+          image: registry.chuggy.internal/chuggy/api@sha256:36dcdc50e250d53beb068c3bd5211acd92b8d2ed2932d43fdf875aed4ea0d842
           imagePullPolicy: IfNotPresent
           command: [node, --experimental-strip-types, src/roots/poolClient.ts]
           env:
@@ -157,7 +157,7 @@ spec:
                   "capabilityFile": "/var/run/chuggy/worker-capability/bearer",
                   "workerPlaneUrl": "http://chuggy-worker-plane.chuggy.svc.cluster.local:3001",
                   "podNamePrefix": "chuggy-pool-work",
-                  "image": "registry.chuggy.internal/chuggy/worker@sha256:a82dcb0eb4991f4a30f1f9d7f24842989f3045e617e68c1464960c5d6b6310ba",
+                  "image": "registry.chuggy.internal/chuggy/worker@sha256:4deb1f3b8a3e3e929b0b3ddd9cf430250db395e9d7d9ee9c469e1e5f462dc661",
                   "poolLabel": { "name": "chuggy.dev/pool-workload", "value": "true" },
                   "nodeSelector": { "chuggy.dev/pool": "work" },
                   "resources": {

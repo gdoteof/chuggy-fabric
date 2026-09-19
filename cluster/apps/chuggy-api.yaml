@@ -219,7 +219,7 @@ metadata:
   name: chuggy-api
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: 50b2e0db
+    fabric.chuggy.dev/source-commit: 19fa5deb
   labels: { app: chuggy-api }
 spec:
   # One. The journal makes concurrent writers safe, so this is not a
@@ -278,7 +278,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: api
-          image: registry.chuggy.internal/chuggy/api@sha256:0f63928e381718a1d850d8d0c6b6fea4ba54d291deb326d1aed25c1e90692114
+          image: registry.chuggy.internal/chuggy/api@sha256:36dcdc50e250d53beb068c3bd5211acd92b8d2ed2932d43fdf875aed4ea0d842
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -316,6 +316,24 @@ spec:
             # alone. Nothing in the image above reads this name yet.
             - name: CHUG_API_KETO_READ_URL
               value: http://keto-read.ory.svc.cluster.local:4466
+            # THE TWO ADDRESSES REGISTERING A WORKER POOL NEEDS, and the only
+            # two this process names that write rather than read. Naming
+            # neither serves no registration route at all; naming one without
+            # the other refuses the start, because a half-composed registration
+            # would mint a client the authority was never told about.
+            #
+            # THIS IS A REAL WIDENING, AND deploy/rig/keto/README.md IN
+            # kasofsk/chuggy SAID THE OPPOSITE UNTIL THIS RELEASE: that the api
+            # holds no credential for Keto's write port, so the api process
+            # cannot widen its own authorization. From here it can -- redeeming
+            # a registration token writes a `pools` tuple. What still holds is
+            # narrower and belongs in that sentence's place: the route writes
+            # one relation for one principal it has just minted, and the pool
+            # plane that pools actually talk to names neither address.
+            - name: CHUG_API_KETO_WRITE_URL
+              value: http://keto-write.ory.svc.cluster.local:4467
+            - name: CHUG_API_HYDRA_ADMIN_URL
+              value: http://hydra-admin.ory.svc.cluster.local:4445
             # The portal App this process mints its own installation tokens
             # from, in place of reading the per-repository token files below.
             # The id is the same one hosts/gtr gives
