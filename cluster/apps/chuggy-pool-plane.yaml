@@ -65,8 +65,17 @@ spec:
             # It is the worker plane and never this one: a pool that could reach
             # this listener as a harness would be holding a door its credential
             # was given no key to.
+            #
+            # IT CARRIES THE ROUTE PREFIX AND IS NOT THE PLANE'S BARE ADDRESS.
+            # A harness resolves each route against this value -- `terminal`,
+            # `view`, `heartbeat` -- so a value ending at the port sends every
+            # one of them to the plane's root, and the plane answers 404 to a
+            # path it does not serve. The scheduler's own runner builds the
+            # same string with `new URL("/v1/ticket-execution", ...)` in
+            # src/roots/ticketExecution.ts; this variable is handed to the
+            # assignment verbatim, so the prefix is written here instead.
             - name: CHUG_POOL_PLANE_CALLBACK_URL
-              value: http://chuggy-worker-plane.chuggy.svc.cluster.local:3001
+              value: http://chuggy-worker-plane.chuggy.svc.cluster.local:3001/v1/ticket-execution
             # The same issuer and audience the api names. A pool is an ordinary
             # OIDC principal of this installation, so a second issuer here would
             # be a second answer to who a caller is.
