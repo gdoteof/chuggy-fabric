@@ -1,0 +1,36 @@
+{
+  "provenanceRecordDigest": "sha256:e909aa5b1303c63eda24f882e10bb6659dfe7e641afb0e3b90536ec9329c11ad",
+  "result": {
+    "attempt": {
+      "name": "build-f75c13fe104bc6671940fb1bd13bcff4add84737-a1",
+      "ordinal": 1
+    },
+    "controller": "v0.18.4",
+    "output": {
+      "digest": null,
+      "repository": "registry.chuggy-registry.svc.cluster.local:5000/chuggy/worker"
+    },
+    "profile": {
+      "digest": "sha256:b4d3bb9e36544a6bb1b51bdda3021fd628cb343960d2f0139a3cf1bb5fe5f0c5",
+      "name": "shipwright-buildkit-rootless-mini/v1"
+    },
+    "renderer": "shipwright-build-request/v1",
+    "requestDigest": "sha256:f75c13fe104bc6671940fb1bd13bcff4add8473700da253daf0e5f6a49c780db",
+    "source": {
+      "observedCommit": "44612cfe2d26675bef8906b000028c472c0570c0",
+      "repositoryId": "chuggy",
+      "requestedCommit": "44612cfe2d26675bef8906b000028c472c0570c0"
+    },
+    "terminalCondition": {
+      "lastTransitionTime": "2026-09-17T06:55:46Z",
+      "message": "\"step-build-and-push\" exited with code 1: Error",
+      "reason": "StepFailed",
+      "status": "False",
+      "type": "Succeeded"
+    },
+    "timestamps": {
+      "completed": "2026-09-17T06:55:46Z",
+      "started": "2026-09-17T06:47:01Z"
+    }
+  }
+}

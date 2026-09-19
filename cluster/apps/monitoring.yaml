@@ -58,6 +58,23 @@ spec:
     kubeEtcd: { enabled: false }
     kubeProxy: { enabled: false }
 
+    # A virtual kubelet serves none of /metrics, /metrics/cadvisor or
+    # /metrics/probes, so its kubelet targets would be permanently down for the
+    # same reason. Its host is scraped by macos-node-exporter.yaml instead. Each
+    # list restates the chart's metrics_path rule, which setting it replaces.
+    kubelet:
+      serviceMonitor:
+        attachMetadata: { node: true }
+        relabelings:
+          - { action: drop, sourceLabels: [__meta_kubernetes_node_label_type], regex: virtual-kubelet }
+          - { action: replace, sourceLabels: [__metrics_path__], targetLabel: metrics_path }
+        cAdvisorRelabelings:
+          - { action: drop, sourceLabels: [__meta_kubernetes_node_label_type], regex: virtual-kubelet }
+          - { action: replace, sourceLabels: [__metrics_path__], targetLabel: metrics_path }
+        probesRelabelings:
+          - { action: drop, sourceLabels: [__meta_kubernetes_node_label_type], regex: virtual-kubelet }
+          - { action: replace, sourceLabels: [__metrics_path__], targetLabel: metrics_path }
+
     # Rules still evaluate and show as firing in the UI; there is simply nowhere
     # to route them yet. notification-controller is omitted for the same reason.
     # Turn this on when there is an actual destination for a page.

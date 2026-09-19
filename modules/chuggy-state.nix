@@ -187,6 +187,37 @@ in
       };
     };
 
+    vmRegistry = {
+      path = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "/var/lib/chuggy/vm-registry";
+        description = ''
+          Filesystem path retained for the registry of macOS VM images, which
+          is separate from the release registry because it is reachable from
+          the LAN. Optional: a host with no macOS node has no use for it.
+        '';
+      };
+
+      user = lib.mkOption {
+        type = lib.types.int;
+        default = 1000;
+        description = "Numeric owner matching the registry container's runtime uid.";
+      };
+
+      group = lib.mkOption {
+        type = lib.types.int;
+        default = 1000;
+        description = "Numeric group matching the registry container's runtime gid.";
+      };
+
+      mode = lib.mkOption {
+        type = lib.types.str;
+        default = "0750";
+        description = "Mode enforced on the VM registry storage directory at activation.";
+      };
+    };
+
     buildResults = {
       path = lib.mkOption {
         type = lib.types.nullOr lib.types.str;
@@ -245,6 +276,8 @@ in
       "d ${cfg.artifacts.path} ${cfg.artifacts.mode} ${toString cfg.artifacts.user} ${toString cfg.artifacts.group} -"
     ++ lib.optional (cfg.registry.path != null)
       "d ${cfg.registry.path} ${cfg.registry.mode} ${toString cfg.registry.user} ${toString cfg.registry.group} -"
+    ++ lib.optional (cfg.vmRegistry.path != null)
+      "d ${cfg.vmRegistry.path} ${cfg.vmRegistry.mode} ${toString cfg.vmRegistry.user} ${toString cfg.vmRegistry.group} -"
     ++ lib.optional (cfg.buildResults.path != null)
       "d ${cfg.buildResults.path} ${cfg.buildResults.mode} ${toString cfg.buildResults.user} ${toString cfg.buildResults.group} -";
   };
