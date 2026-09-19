@@ -56,6 +56,7 @@ resources:
   - chuggy-ui.yaml
   - chuggy-worker-plane.yaml
   - chuggy-pool-k8s.yaml
+  - chuggy-releases.yaml
   - chuggy-pool-plane.yaml
   - chuggy-work.yaml
   - dev2-access.yaml
