@@ -278,7 +278,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: api
-          image: registry.chuggy.internal/chuggy/api@sha256:721eb8a41405b5dc7f5a2aecad6a9232b6fcc8411de92c96ae7ce5a9116f6a22
+          image: registry.chuggy.internal/chuggy/api@sha256:7bd0a62778f0549e19c703cd22d570c9e978fa281a6163b3fea2f278c65d50d8
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -362,9 +362,33 @@ spec:
               value: /var/lib/chuggy/artifacts
             - name: CHUG_API_GIT_SCRATCH_ROOT
               value: /var/lib/chuggy/git
-            # `CHUG_API_REPOSITORY_CREDENTIAL_SOURCES` is unset: this pod mints
-            # every repository credential it presents from the portal key
-            # above, so it is told to read no file.
+            # THE RIG'S OWN GIT IS THE ONE CREDENTIAL THIS POD DOES NOT MINT.
+            # Every repository on a forge is minted from the portal key above,
+            # and a project bound to a repository on this cluster is not on a
+            # forge: `git.chuggy-git` validates basic auth against an htpasswd
+            # and there is no anonymous read. So this one is a file.
+            #
+            # `sync` is the reader `deploy/rig/git/README.md` names, reused
+            # rather than minted a second time -- it may read every repository
+            # and move none, which is the whole of what resolving a catalog
+            # needs. The name is not a secret and is given here; only the
+            # password is mounted.
+            #
+            # THE SECRET IS THE OPERATOR'S OWN, like the App keys above, and is
+            # a copy of `git-sync` in `chuggy-git`, which a Secret cannot be
+            # mounted across:
+            #
+            #   kubectl -n chuggy-git get secret git-sync \
+            #     -o jsonpath='{.data.password}' | base64 -d \
+            #     | kubectl -n chuggy create secret generic chuggy-rig-git \
+            #         --from-file=password=/dev/stdin
+            #
+            # Rotating `git-sync` leaves this copy behind; re-run the command.
+            - name: CHUG_API_REPOSITORY_CREDENTIAL_SOURCES
+              value: >-
+                [{"repository":"http://git.chuggy-git.svc.cluster.local./chuggy.git","path":"/var/run/chuggy/rig-git/password"}]
+            - name: CHUG_API_GIT_CREDENTIAL_USERNAME
+              value: sync
             # The image already sets this. Repeated because the source default
             # is loopback and a container's loopback is its own namespace's --
             # an inherited value that no manifest states is one an image rebuild
@@ -444,6 +468,9 @@ spec:
               readOnly: true
             - name: forge-app-worker
               mountPath: /var/run/chuggy/forge-app-worker
+              readOnly: true
+            - name: rig-git
+              mountPath: /var/run/chuggy/rig-git
               readOnly: true
           resources:
             requests: { cpu: 100m, memory: 128Mi }
@@ -544,6 +571,20 @@ spec:
             items:
               - key: private-key
                 path: private-key
+        # THE RIG GIT READER'S PASSWORD, the one repository credential this pod
+        # reads rather than mints. The env block above holds the command that
+        # copies it out of `chuggy-git` and the argument for reusing `sync`.
+        - name: rig-git
+          secret:
+            secretName: chuggy-rig-git
+            # 0444 and the key named, for the reasons the portal volume above
+            # argues in full: a mode without the world bit leaves a file this
+            # process cannot open, and naming the key makes a Secret without it
+            # a refusal rather than an empty directory.
+            defaultMode: 0444
+            items:
+              - key: password
+                path: password
 ---
 apiVersion: v1
 kind: Service
