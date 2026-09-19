@@ -69,7 +69,6 @@ resources:
   - postgres-network-policy.yaml
   - postgres.yaml
   - registry.yaml
-  - vm-registry.yaml
   - whoami.yaml
 
 # The name of each of these ends in a hash of its content, and kustomize rewrites
@@ -96,11 +95,6 @@ resources:
 configMapGenerator:
   - name: registry-config
     namespace: chuggy-registry
-    files:
-      - config.yml=registry/config.yml
-  # The VM registry runs the release registry's configuration unchanged.
-  - name: vm-registry-config
-    namespace: chuggy-vm-registry
     files:
       - config.yml=registry/config.yml
   - name: hydra-config
