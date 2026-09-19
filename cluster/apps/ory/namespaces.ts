@@ -30,6 +30,7 @@ class Project implements Namespace {
     developers: User[]
     dispatchers: User[]
     agents: User[]
+    pools: User[]
   }
   permits = {
     administer: (ctx: Context): boolean =>
@@ -42,7 +43,8 @@ class Project implements Namespace {
     propose: (ctx: Context): boolean => this.permits.develop(ctx),
     dispatch: (ctx: Context): boolean =>
       this.related.dispatchers.includes(ctx.subject) || this.permits.administer(ctx),
-    execute: (ctx: Context): boolean => this.permits.develop(ctx),
+    execute: (ctx: Context): boolean =>
+      this.related.pools.includes(ctx.subject) || this.permits.administer(ctx),
     manage_selector: (ctx: Context): boolean => this.permits.administer(ctx),
   }
 }
