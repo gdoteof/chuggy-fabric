@@ -110,6 +110,13 @@ spec:
           imagePullPolicy: IfNotPresent
           command: [node, --experimental-strip-types, src/roots/poolClient.ts]
           env:
+            # THE CLUSTER'S OWN CA, which Node does not otherwise trust: the
+            # API server presents a certificate signed by it and `fetch`
+            # rejects the chain, which the client reports as a cluster it could
+            # not list. Node reads this variable once at start-up, so it is an
+            # environment entry and cannot be set from inside the process.
+            - name: NODE_EXTRA_CA_CERTS
+              value: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
             # What a registration answered, once. The command that mints it
             # stores neither value, so a pool that loses the secret is
             # registered again rather than recovered.
