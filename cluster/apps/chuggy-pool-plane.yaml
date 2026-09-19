@@ -221,3 +221,23 @@ spec:
             matchLabels: { app: hydra }
       ports:
         - { protocol: TCP, port: 4444 }
+    # THE ISSUER, WHICH IS THIS DEPLOYMENT'S OWN PUBLIC NAME. `iss` on a token
+    # is the tailnet URL, so the discovery this plane does at start-up is of
+    # that name and not of the in-cluster Service above -- a plane that
+    # discovered Hydra directly would be trusting a document that disagrees
+    # with every token it is handed.
+    #
+    # THE RULE NAMES TRAEFIK'S POD AND NOT THAT NAME. The name resolves to
+    # traefik's ClusterIP and kube-proxy rewrites the destination before a
+    # policy is evaluated, so what a policy sees is the pod behind it on its
+    # own container port. chuggy-api.yaml carries the same rule for the same
+    # reason; without it this plane cannot start, and it exits `fetch failed`
+    # without naming what it could not fetch.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: traefik }
+      ports:
+        - { protocol: TCP, port: 8443 }
