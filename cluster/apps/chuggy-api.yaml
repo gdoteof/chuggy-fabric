@@ -233,6 +233,10 @@ spec:
     metadata:
       labels:
         app: chuggy-api
+        # What ory-network-policy.yaml admits to hydra-admin and keto-write.
+        # Registering a worker pool is the only thing this process does at
+        # either, and the label says so rather than the Service's own name.
+        chuggy.dev/ory-admin-client: "true"
         # What postgres-network-policy.yaml admits, together with this
         # namespace. Drop this label and every connection to the database is
         # refused, with no error anywhere to say the label is why.
