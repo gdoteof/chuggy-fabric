@@ -39,8 +39,11 @@ serve:
     # exist. PKCE is what stands there, and `oauth2.pkce` below enforces it.
     cors:
       enabled: true
+      # One origin, and it is this issuer's own: the console and the issuer
+      # are two prefixes on one host now, so the exchange is same-origin and
+      # this list has a single member rather than a sibling of it.
       allowed_origins:
-        - https://chuggy.vteng.io
+        - https://gumbo-nuc-0.tail20c474.ts.net
       # The exchange, plus the discovery and JWKS documents a client reads
       # before it. Nothing else here is called from a browser.
       allowed_methods: [GET, POST, OPTIONS]
@@ -53,25 +56,26 @@ serve:
     port: 4445
     host: 0.0.0.0
   cookies:
-    # Lax, not Hydra's default of None. auth.vteng.io and id.vteng.io are
-    # the same site, and every return from the login and consent app is a
+    # Lax, not Hydra's default of None. The issuer and the login app are now
+    # the same ORIGIN, not merely the same site -- one host, two prefixes --
+    # so every return from the login and consent app is a same-origin
     # top-level GET redirect, which Lax sends. None would need no more than
     # this and would also travel on requests initiated by any other site.
     same_site_mode: Lax
-    # TLS terminates at Cloudflare, so the pod never sees HTTPS and cannot
+    # TLS terminates at Traefik, so the pod never sees HTTPS and cannot
     # infer this. The browser does see HTTPS, which is what the flag is
     # about.
     secure: true
 
 urls:
   self:
-    issuer: https://auth.vteng.io
-    public: https://auth.vteng.io
-  login: https://id.vteng.io/login
-  consent: https://id.vteng.io/consent
-  logout: https://id.vteng.io/logout
-  error: https://id.vteng.io/error
-  post_logout_redirect: https://id.vteng.io/welcome
+    issuer: https://gumbo-nuc-0.tail20c474.ts.net/oauth
+    public: https://gumbo-nuc-0.tail20c474.ts.net/oauth
+  login: https://gumbo-nuc-0.tail20c474.ts.net/id/login
+  consent: https://gumbo-nuc-0.tail20c474.ts.net/id/consent
+  logout: https://gumbo-nuc-0.tail20c474.ts.net/id/logout
+  error: https://gumbo-nuc-0.tail20c474.ts.net/id/error
+  post_logout_redirect: https://gumbo-nuc-0.tail20c474.ts.net/id/welcome
 
 strategies:
   # JWT access tokens, because the API verifies them offline against JWKS

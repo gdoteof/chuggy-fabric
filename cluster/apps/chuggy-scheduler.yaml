@@ -119,7 +119,7 @@ metadata:
   name: chuggy-scheduler
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: b2bc152f
+    fabric.chuggy.dev/source-commit: 50b2e0db
   labels: { app: chuggy-scheduler }
 spec:
   replicas: 1
@@ -147,7 +147,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: scheduler
-          image: registry.chuggy.internal/chuggy/api@sha256:b1bbb6aaf87cba4be2ee97779af98395bbc3f814c772d91752a6a10002866f6d
+          image: registry.chuggy.internal/chuggy/api@sha256:0f63928e381718a1d850d8d0c6b6fea4ba54d291deb326d1aed25c1e90692114
           imagePullPolicy: IfNotPresent
           command:
             [
@@ -284,6 +284,28 @@ spec:
             # capabilities it carries, and names the operating system and the
             # architecture together or neither: that triple is what a task
             # requiring a capability rather than a digest resolves against.
+            # HOW A UNIT OF TICKET WORK IS RUN: the image each task pod
+            # carries, and the bounds on an attempt. It replaces
+            # CHUG_SCHEDULER_EXECUTION_POLICY, which described a session by
+            # phase; image selection now sits on the task's own pinned
+            # requirement, and this names what that requirement is checked
+            # against and run as.
+            #
+            # ONLY `image` IS WRITTEN HERE. Every other field of the schema
+            # carries a default, and a default stated again is a second place
+            # for it to drift from. What is deliberately absent is `forge`:
+            # this node works against local git repositories and mints against
+            # no forge, and the field is optional exactly so that a deployment
+            # without one says nothing rather than something empty.
+            #
+            # The digest is the worker built on this node, and it is the
+            # generation admitted as v0.26 below -- an image absent from that
+            # allowlist is `ExecutionPolicyDenied` before a pod is asked for.
+            - name: CHUG_SCHEDULER_TICKET_EXECUTION
+              value: |
+                {
+                  "image": "registry.chuggy.internal/chuggy/worker@sha256:a82dcb0eb4991f4a30f1f9d7f24842989f3045e617e68c1464960c5d6b6310ba"
+                }
             - name: CHUG_SCHEDULER_ADMITTED_IMAGES
               value: |
                 [
@@ -475,6 +497,14 @@ spec:
                     "operatingSystem": "Linux",
                     "architecture": "Amd64",
                     "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:a82dcb0eb4991f4a30f1f9d7f24842989f3045e617e68c1464960c5d6b6310ba",
+                    "name": "chuggy-worker",
+                    "version": "0.28",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
                   }
                 ]
             # The memory limit is what chuggy's own `ci.sh` needs: Node sizes
@@ -494,82 +524,6 @@ spec:
                   "memoryLimit": "4Gi",
                   "ephemeralStorageLimit": "20Gi"
                 }
-            - name: CHUG_SCHEDULER_EXECUTION_POLICY
-              value: |
-                {
-                  "Work": {
-                    "profile": "chuggy-development",
-                    "runtimeVersion": "claude-code-latest",
-                    "grant": {
-                      "tools": ["claude-code", "shell"],
-                      "credentials": ["chuggy-git-worker", "claude-code"],
-                      "network": true,
-                      "filesystem": "WriteWorkspace",
-                      "mayCompleteTask": false
-                    }
-                  },
-                  "Evaluation": {
-                    "profile": "chuggy-development",
-                    "runtimeVersion": "claude-code-latest",
-                    "grant": {
-                      "tools": ["claude-code", "shell"],
-                      "credentials": ["chuggy-git-worker", "claude-code"],
-                      "network": true,
-                      "filesystem": "WriteWorkspace",
-                      "mayCompleteTask": false
-                    }
-                  }
-                }
-            # D39: one project, and it is this rig's own repository. The digest
-            # is sixty-four zeroes because no authored configuration has been
-            # pinned yet.
-            - name: CHUG_SCHEDULER_TASK_CONFIGURATIONS
-              value: |
-                [
-                  {
-                    "tenant": "chuggy",
-                    "project": "chuggy",
-                    "configurationRevision": "unpinned",
-                    "configurationDigest": "0000000000000000000000000000000000000000000000000000000000000000",
-                    "brief": {
-                      "motivation": [],
-                      "acceptanceCriteria": [],
-                      "constraints": []
-                    },
-                    "practices": [],
-                    "work": { "instructions": [] },
-                    "review": { "instructions": [] }
-                  }
-                ]
-            # ------------------------------------------------ agent sessions ----
-            #
-            # The second kind of pod this one process places: a long-lived agent
-            # session, which has no ticket, no task and no pinned configuration,
-            # and whose durable identity is a row rather than the pod. The pod
-            # is a cache of it, so ending one costs a resume and nothing else.
-            #
-            # THE SITE IS NOT NAMED TWICE. A session pod stands on the same
-            # cluster API, namespace, service account, token file, both security
-            # contexts, worker-plane URL, capability file, workspace path and
-            # credential mounts the worker half above names. A second set of
-            # variables for those would be a second answer to what this site is,
-            # and the first change to one of them would leave the other half
-            # placing pods the site no longer describes. What a session names
-            # for itself is what makes it a session.
-            #
-            # THE LABELS ARE LOAD-BEARING IN BOTH DIRECTIONS AND MUST NOT BE
-            # DROPPED TO "SIMPLIFY". `chuggy.dev/session` is what the
-            # `chuggy-sessions` NetworkPolicy in chuggy-work.yaml selects, and a
-            # pod in that namespace selected by NO policy is isolated in neither
-            # direction -- so an empty value here is strictly worse than the
-            # worker label would be. `chuggy.dev/api-client` is what the third
-            # `from` element on `chuggy-api-admits-traefik-and-the-selector`
-            # admits. Neither is authentication: what a session may do is its
-            # bearer's and its principal's.
-            #
-            # No PostgreSQL label: a session runs no gates, so no server is
-            # placed beside it, and the control plane's server admits nothing
-            # from this namespace in any case.
             - name: CHUG_SCHEDULER_SESSION_LABELS
               value: '{"chuggy.dev/session":"true","chuggy.dev/api-client":"true"}'
             # A session checks the project's repository out to read it, and a
@@ -751,7 +705,7 @@ spec:
             - name: CHUG_SCHEDULER_SESSION_POLICY
               value: |
                 {
-                  "image": "registry.chuggy.internal/chuggy/worker@sha256:c3226d5e9a7d7522991b21592ae5e403635fca783f953347722b4bbb4cea9d56",
+                  "image": "registry.chuggy.internal/chuggy/worker@sha256:a82dcb0eb4991f4a30f1f9d7f24842989f3045e617e68c1464960c5d6b6310ba",
                   "profile": "chuggy-development",
                   "runtimeVersion": "claude-code-latest",
                   "grant": {

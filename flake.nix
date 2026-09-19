@@ -144,10 +144,8 @@
       rolloutFromResults = import ./tests/rollout-from-results.nix { inherit pkgs; };
       buildResultsPublishUnit = host:
         import ./tests/build-results-publish-unit.nix { inherit pkgs host; };
-      configurationImporter = import ./tests/configuration-importer.nix { inherit pkgs; };
       developmentWorker = import ./tests/development-worker.nix { inherit pkgs; };
       sessionPlacement = import ./tests/session-placement.nix { inherit pkgs; };
-      selectorReach = import ./tests/selector-reach.nix { inherit pkgs; };
       githubRepositoryTransition = import ./tests/github-repository-transition.nix { inherit pkgs; };
       githubAppToken = import ./tests/github-app-token.nix { inherit pkgs; };
       forgeAppKey = import ./tests/forge-app-key.nix {
@@ -197,11 +195,6 @@
         # this goes wrong is a pod no policy selects, which is unisolated in
         # both directions and looks correct in every file separately.
         session-placement = sessionPlacement;
-
-        # Where the selector is configured to go against where it is permitted
-        # to go: two halves of one reach, in a JSON string and in a policy, each
-        # of which reads correctly while the other is wrong.
-        selector-reach = selectorReach;
 
         # Which of Keto's two ports is reachable from where. The write port
         # grants permission and authenticates nobody, and the way it comes open
@@ -415,7 +408,6 @@
         # own suite runs a copy of `scripts/` with the build's tools on PATH,
         # which is not the arrangement the host runs.
         build-results-publish-unit-gtr = buildResultsPublishUnit self.nixosConfigurations.gtr;
-        configuration-importer = configurationImporter;
       };
     };
 }

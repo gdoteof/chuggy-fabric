@@ -1,7 +1,7 @@
 # The namespace Ory runs in, and by implication the four Secrets and the three
-# databases inside it. Same arrangement as sirdocalot-namespace.yaml: none of
-# these values can live in a public repo, so the commands that create them are
-# recorded here, beside the Namespace whose deletion takes the Secrets with it.
+# databases inside it. None of these values can live in a public repo, so the
+# commands that create them are recorded here, beside the Namespace whose
+# deletion takes the Secrets with it.
 #
 # Hydra is the OIDC issuer; Kratos is the identity store; Keto holds what a
 # principal may do; the self-service UI serves Kratos's flows and Hydra's
