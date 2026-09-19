@@ -170,6 +170,25 @@ spec:
               chuggy.dev/session: "true"
       ports:
         - { protocol: TCP, port: 3001 }
+    # What the in-cluster pool places, which is in a namespace of its own
+    # rather than in `chuggy-work`: the scheduler's own runner puts work in
+    # that one, and a pool is a separate placer whose pods this cluster should
+    # be able to tell apart from it.
+    #
+    # THE OTHER HALF OF THIS WAS WRITTEN FIRST AND ALONE. chuggy-pool-k8s.yaml
+    # gave its workload egress to this plane, which admitted nothing outside
+    # `chuggy-work` -- so a placement ran, fetched its obligation, was refused
+    # by this end and reported `fetch failed` without naming what refused it.
+    # An egress rule is never evidence that the destination allows it.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy-pool-k8s
+          podSelector:
+            matchLabels:
+              chuggy.dev/pool-workload: "true"
+      ports:
+        - { protocol: TCP, port: 3001 }
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
