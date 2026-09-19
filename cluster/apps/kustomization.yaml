@@ -55,6 +55,7 @@ resources:
   - chuggy-ticket-service.yaml
   - chuggy-ui.yaml
   - chuggy-worker-plane.yaml
+  - chuggy-pool-plane.yaml
   - chuggy-work.yaml
   - dev2-access.yaml
   - logging.yaml
