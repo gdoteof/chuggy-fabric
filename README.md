@@ -62,6 +62,73 @@ with a different card, so it lives in the host file.
 `nixos-live/` is history, not input. Nothing imports it.
 
 What `cluster/apps/` declares is deliberately less than what the cluster runs.
+## What a fresh installation needs that nothing declares
+
+Four things exist on this rig because somebody made them, are named by manifests
+that fail without them, and are written down nowhere else. They are not secrets
+policy — that is the list further down — they are objects and rows. A second
+installation is not reproducible until each is either created by hand or
+declared, and this section is the record of the first while the second is
+outstanding.
+
+**`chuggy.git`, the repository a worker clones.**
+`CHUG_SCHEDULER_WORKER_ENVIRONMENT` names
+`http://git.chuggy-git.svc.cluster.local./chuggy.git`, and
+`deploy/rig/git/seed.sh` in kasofsk/chuggy creates `rig.git` and nothing else —
+that is the deploy loop's repository, not the source one. The second is created
+inside the pod and seeded over the Ingress with the operator credential; the
+hook goes on every repository under `/git`, so re-running `seed.sh` afterwards
+gives the new one the same ref wall:
+
+    pod="$(kubectl -n chuggy-git get pod -l app.kubernetes.io/name=git \
+      -o jsonpath='{.items[0].metadata.name}')"
+    kubectl -n chuggy-git exec "$pod" -- git init --bare -q /git/chuggy.git
+    ./deploy/rig/git/seed.sh            # installs the hook on it
+
+A push to it needs the full history: a shallow clone is refused by the receiving
+end, which reports `shallow update not allowed` and not which side is shallow.
+
+**`chuggy-git-worker` in `chuggy-work`.**
+`CHUG_SCHEDULER_WORKER_CREDENTIAL_MOUNTS` mounts it into every attempt pod, and
+the namespace `cluster/apps/chuggy-work.yaml` declares holds no Secret at all.
+It is the git service's worker credential, copied across namespaces rather than
+minted:
+
+    kubectl -n chuggy-work create secret generic chuggy-git-worker \
+      --from-literal=password="$(kubectl -n chuggy-git get secret git-worker \
+        -o jsonpath='{.data.password}' | base64 -d)"
+
+**The console's OAuth2 client.** Hydra starts with no clients, and
+`chuggy-ui-config` names `chuggy-ui` as its `clientId` — so until one is
+registered under exactly that id the console's login is a client Hydra has
+never heard of. It is public and proves possession with PKCE, so it holds no
+secret:
+
+    kubectl -n ory exec deploy/hydra -c hydra -- hydra create oauth2-client \
+      --endpoint http://127.0.0.1:4445 --id chuggy-ui --name 'chuggy console' \
+      --grant-type authorization_code,refresh_token --response-type code \
+      --scope openid,offline_access --token-endpoint-auth-method none \
+      --redirect-uri '<the console origin>/auth/callback' \
+      --audience '<the console origin>/api'
+
+The redirect and the audience must be byte-for-byte what `chuggy-ui-config`
+carries; Hydra compares the redirect exactly and refuses anything else.
+
+**The first identity.** `selfservice.flows.registration` is disabled in
+`ory/kratos.yaml`, and deliberately — an open registration flow on a reachable
+host is an invitation to create identities. So no identity can be made through
+the browser, and the first one comes from the admin API, which is in-cluster
+only:
+
+    kubectl -n ory port-forward svc/kratos-admin 44340:4434 &
+    curl -s -X POST -H 'Content-Type: application/json' \
+      -d '{"schema_id":"default","traits":{"email":"<address>"},
+           "credentials":{"password":{"config":{"password":"<pw>"}}}}' \
+      http://127.0.0.1:44340/admin/identities
+
+`email` is the identifier the password method logs in against, and the schema
+admits no other trait.
+
 The `chuggy-git` and `chuggy-work` namespaces were both bootstrapped by hand from
 the [chuggy](https://github.com/kasofsk/chuggy) repo as deployment rehearsal
 fixtures — transient by intent, so declaring one would have committed Flux to
@@ -1593,22 +1660,13 @@ not after it.
 
    It must print `t`. The importer connects as the login role; it does not use
    `SET ROLE`, so this inherited membership is the capability boundary.
-5. **Create `chuggy-selector`, `chuggy-finalizer-credentials`,
-   `chuggy-github-app-portal` and `chuggy-github-app-worker`** by hand — the
-   selector's OAuth2 client secret and policy token, the finalizer's git
-   credential, and the two Apps' private keys. Values never go in this
+5. **Create `chuggy-finalizer-credentials`, `chuggy-github-app-portal` and
+   `chuggy-github-app-worker`** by hand — the finalizer's git credential and
+   the two Apps' private keys. Values never go in this
    repository; it is public. A pod whose
    Secret is missing is never built, under one of two names: a `secretKeyRef`
    env gives `CreateContainerConfigError`, a mounted secret gives
    `ContainerCreating` on a `FailedMount`.
-
-   Of the selector's two, the client secret is **not a value the operator
-   invents**: it is what Hydra returns when the client the selector
-   authenticates as is registered, so the registration comes first and the
-   Secret carries its output. The policy token is the operator's own, because
-   nothing issues one — nothing serves the protocol it authenticates to.
-   `chuggy-selector.yaml` holds both commands and argues the audience the client
-   must be granted.
 
    The finalizer's is **not a credential for anywhere outside this cluster**. Its
    remote is `rig.git` on the rig's own git service, so the value is the operator
