@@ -483,6 +483,22 @@ spec:
                     "capabilities": ["Agent:Claude", "Agent:Codex"]
                   },
                   {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:cd841adc9744c02748e775188a499ad10166fb2ae420ae11b5965cb15f87fc48",
+                    "name": "chuggy-worker",
+                    "version": "0.26",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:c3226d5e9a7d7522991b21592ae5e403635fca783f953347722b4bbb4cea9d56",
+                    "name": "chuggy-worker",
+                    "version": "0.27",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
                     "image": "registry.chuggy.internal/chuggy/worker@sha256:a82dcb0eb4991f4a30f1f9d7f24842989f3045e617e68c1464960c5d6b6310ba",
                     "name": "chuggy-worker",
                     "version": "0.28",
