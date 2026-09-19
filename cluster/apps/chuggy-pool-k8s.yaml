@@ -222,10 +222,18 @@ spec:
     # The cluster's API server, which has no pod of its own to select: on this
     # single-node cluster it is the node, so it is named as an address rather
     # than as a workload.
+    #
+    # IT IS THE NODE'S ADDRESS AND NOT THE SERVICE'S. `kubernetes.default.svc`
+    # resolves to 10.43.0.1:443, but kube-proxy rewrites that destination
+    # before a policy is evaluated -- so a rule naming the ClusterIP matches
+    # nothing and the client reports that it could not list the cluster. What
+    # the rule has to name is the endpoint behind it, which `kubectl -n default
+    # get endpointslices kubernetes` prints. That address is this node's, so
+    # this line does not survive the cluster gaining a second one.
     - to:
-        - ipBlock: { cidr: 10.43.0.1/32 }
+        - ipBlock: { cidr: 192.168.129.133/32 }
       ports:
-        - { protocol: TCP, port: 443 }
+        - { protocol: TCP, port: 6443 }
 ---
 # Everything this pool PLACES, denied in both directions by default. It is the
 # same shape as `work-denies-all` in the work namespace and for the same
