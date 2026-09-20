@@ -292,3 +292,20 @@ spec:
             matchLabels: { app: chuggy-worker-plane }
       ports:
         - { protocol: TCP, port: 3001 }
+    # AND THE TREE IT WAS SENT TO WORK ON. A placement clones its ticket's
+    # repository, and this rig's own git answers over TLS through the ingress
+    # rather than in-cluster -- a harness refuses to put a credential on a
+    # cleartext remote, so the in-cluster address is not one it may use. The
+    # rule names the pod behind traefik on its own container port, because
+    # kube-proxy rewrites the destination before a policy is evaluated and a
+    # rule naming the ingress address matches nothing. Without it the clone
+    # fails in milliseconds with `Could not connect to server`, which is the
+    # REJECT and not a server that is down.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: traefik }
+      ports:
+        - { protocol: TCP, port: 8443 }
