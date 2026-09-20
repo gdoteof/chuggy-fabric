@@ -142,10 +142,10 @@ metadata:
 data:
   config.json: |
     {
-      "issuer": "https://auth.vteng.io",
+      "issuer": "https://gumbo-nuc-0.tail20c474.ts.net/oauth",
       "clientId": "chuggy-ui",
-      "audience": "https://chuggy.vteng.io/api",
-      "redirectUri": "https://chuggy.vteng.io/auth/callback",
+      "audience": "https://gumbo-nuc-0.tail20c474.ts.net/api",
+      "redirectUri": "https://gumbo-nuc-0.tail20c474.ts.net/auth/callback",
       "scopes": ["openid", "offline_access"]
     }
 ---
@@ -155,7 +155,7 @@ metadata:
   name: chuggy-ui
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: b2bc152f
+    fabric.chuggy.dev/source-commit: 04dd2ce6
   labels: { app: chuggy-ui }
 spec:
   replicas: 1
@@ -180,7 +180,7 @@ spec:
         runAsGroup: 101
       containers:
         - name: web
-          image: registry.chuggy.internal/chuggy/web@sha256:5255d048f98e650f92c045772e77522b688c0ea58a90550f876a6b410277bc28
+          image: registry.chuggy.internal/chuggy/web@sha256:0f52aa18fdb3333a245403b28a26908c14caa616155aef7a12a68cdacdffedb3
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -248,8 +248,18 @@ metadata:
   namespace: chuggy
 spec:
   ingressClassName: traefik
+  # The certificate Tailscale issues for this node's own name. It is a real
+  # publicly-trusted certificate for a name only the tailnet resolves, which is
+  # what lets the console be reached over https without a tunnel, a zone or a
+  # certificate authority of this cluster's own. `tailnet-tls` is written by the
+  # host, not by this repository -- see the trial notes; it expires, and nothing
+  # here renews it.
+  tls:
+    - hosts:
+        - gumbo-nuc-0.tail20c474.ts.net
+      secretName: tailnet-tls
   rules:
-    - host: chuggy.vteng.io
+    - host: gumbo-nuc-0.tail20c474.ts.net
       http:
         paths:
           # Unrewritten: the API serves this prefix itself, so Traefik passes

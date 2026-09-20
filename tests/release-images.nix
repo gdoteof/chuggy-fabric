@@ -42,8 +42,8 @@ pkgs.runCommand "chuggy-release-images" {
   # being in the directory, and the check has to say so rather than raise: a
   # traceback reaches the caller as a script it could not run.
   cp -R manifests retired-component
-  rm retired-component/chuggy-selector.yaml
-  refused retired-component 'the release does not carry retired-component/chuggy-selector.yaml'
+  rm retired-component/chuggy-ticket-service.yaml
+  refused retired-component 'the release does not carry retired-component/chuggy-ticket-service.yaml'
 
   # Every value the check compares is read through one_match, which refuses a
   # manifest naming its image or its commit twice rather than taking the first.

@@ -105,3 +105,31 @@ spec:
           port: 4434 # kratos-admin
         - protocol: TCP
           port: 4467 # keto-write
+    # REGISTERING A WORKER POOL IS THE ONE THING OUTSIDE `ory` THAT WRITES, and
+    # the element above says in its own words that nothing outside this
+    # namespace does. That stopped being true at the release carrying
+    # kasofsk/chuggy#695: redeeming a registration token creates the pool's
+    # OAuth2 client at hydra-admin and writes its `pools` relation at
+    # keto-write, both from the api. Without this the route fails at its first
+    # call rather than at start-up, which is the worse failure of the two.
+    #
+    # A LABEL RATHER THAN `app: chuggy-api`, and the label is the point. It
+    # names what the pod is being admitted FOR, so the owner-side registration
+    # command -- the same three writes, run from a throwaway pod -- carries it
+    # without also joining the api's Service and taking its traffic.
+    #
+    # 4434 IS NOT HERE. kratos-admin administers identities and registration
+    # has no business with one; widening the element above would have admitted
+    # all three ports, which is why this is an element of its own.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy
+          podSelector:
+            matchLabels:
+              chuggy.dev/ory-admin-client: "true"
+      ports:
+        - protocol: TCP
+          port: 4445 # hydra-admin
+        - protocol: TCP
+          port: 4467 # keto-write

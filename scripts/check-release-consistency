@@ -8,13 +8,17 @@ from pathlib import Path
 
 API_MANIFESTS = (
     "chuggy-api.yaml",
-    "chuggy-configuration-importer.yaml",
     "chuggy-finalizer.yaml",
     "chuggy-migrate.yaml",
     "chuggy-scheduler.yaml",
-    "chuggy-selector.yaml",
     "chuggy-ticket-service.yaml",
     "chuggy-worker-plane.yaml",
+    # Listed here before it is listed in cluster/apps/kustomization.yaml. The
+    # manifest exists and is inert until a release carries an image with
+    # src/roots/poolPlane.ts in it; being in this tuple from the start is what
+    # keeps that release from moving six digests and forgetting the seventh.
+    "chuggy-pool-plane.yaml",
+    "chuggy-pool-k8s.yaml",
 )
 WEB_MANIFESTS = ("chuggy-ui.yaml",)
 DIGEST = r"sha256:[0-9a-f]{64}"

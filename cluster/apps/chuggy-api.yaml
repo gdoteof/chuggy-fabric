@@ -219,7 +219,7 @@ metadata:
   name: chuggy-api
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: b2bc152f
+    fabric.chuggy.dev/source-commit: 04dd2ce6
   labels: { app: chuggy-api }
 spec:
   # One. The journal makes concurrent writers safe, so this is not a
@@ -233,6 +233,10 @@ spec:
     metadata:
       labels:
         app: chuggy-api
+        # What ory-network-policy.yaml admits to hydra-admin and keto-write.
+        # Registering a worker pool is the only thing this process does at
+        # either, and the label says so rather than the Service's own name.
+        chuggy.dev/ory-admin-client: "true"
         # What postgres-network-policy.yaml admits, together with this
         # namespace. Drop this label and every connection to the database is
         # refused, with no error anywhere to say the label is why.
@@ -278,7 +282,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: api
-          image: registry.chuggy.internal/chuggy/api@sha256:b1bbb6aaf87cba4be2ee97779af98395bbc3f814c772d91752a6a10002866f6d
+          image: registry.chuggy.internal/chuggy/api@sha256:e435958ceb6142ddc27976bb41087bf896dc1937831c2f784661d59674a86f89
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -302,9 +306,9 @@ spec:
               valueFrom:
                 secretKeyRef: { name: chuggy-api, key: idempotency-keying }
             - name: CHUG_API_OIDC_ISSUER
-              value: https://auth.vteng.io
+              value: https://gumbo-nuc-0.tail20c474.ts.net/oauth
             - name: CHUG_API_OIDC_AUDIENCE
-              value: https://chuggy.vteng.io/api
+              value: https://gumbo-nuc-0.tail20c474.ts.net/api
             # RS256 alone. The list is what `jwtVerify` will accept, so leaving
             # it wider than what Hydra signs with is the algorithm-confusion
             # surface and nothing else; `none` is refused by the API whatever is
@@ -316,6 +320,24 @@ spec:
             # alone. Nothing in the image above reads this name yet.
             - name: CHUG_API_KETO_READ_URL
               value: http://keto-read.ory.svc.cluster.local:4466
+            # THE TWO ADDRESSES REGISTERING A WORKER POOL NEEDS, and the only
+            # two this process names that write rather than read. Naming
+            # neither serves no registration route at all; naming one without
+            # the other refuses the start, because a half-composed registration
+            # would mint a client the authority was never told about.
+            #
+            # THIS IS A REAL WIDENING, AND deploy/rig/keto/README.md IN
+            # kasofsk/chuggy SAID THE OPPOSITE UNTIL THIS RELEASE: that the api
+            # holds no credential for Keto's write port, so the api process
+            # cannot widen its own authorization. From here it can -- redeeming
+            # a registration token writes a `pools` tuple. What still holds is
+            # narrower and belongs in that sentence's place: the route writes
+            # one relation for one principal it has just minted, and the pool
+            # plane that pools actually talk to names neither address.
+            - name: CHUG_API_KETO_WRITE_URL
+              value: http://keto-write.ory.svc.cluster.local:4467
+            - name: CHUG_API_HYDRA_ADMIN_URL
+              value: http://hydra-admin.ory.svc.cluster.local:4445
             # The portal App this process mints its own installation tokens
             # from, in place of reading the per-repository token files below.
             # The id is the same one hosts/gtr gives
@@ -362,9 +384,33 @@ spec:
               value: /var/lib/chuggy/artifacts
             - name: CHUG_API_GIT_SCRATCH_ROOT
               value: /var/lib/chuggy/git
-            # `CHUG_API_REPOSITORY_CREDENTIAL_SOURCES` is unset: this pod mints
-            # every repository credential it presents from the portal key
-            # above, so it is told to read no file.
+            # THE RIG'S OWN GIT IS THE ONE CREDENTIAL THIS POD DOES NOT MINT.
+            # Every repository on a forge is minted from the portal key above,
+            # and a project bound to a repository on this cluster is not on a
+            # forge: `git.chuggy-git` validates basic auth against an htpasswd
+            # and there is no anonymous read. So this one is a file.
+            #
+            # `sync` is the reader `deploy/rig/git/README.md` names, reused
+            # rather than minted a second time -- it may read every repository
+            # and move none, which is the whole of what resolving a catalog
+            # needs. The name is not a secret and is given here; only the
+            # password is mounted.
+            #
+            # THE SECRET IS THE OPERATOR'S OWN, like the App keys above, and is
+            # a copy of `git-sync` in `chuggy-git`, which a Secret cannot be
+            # mounted across:
+            #
+            #   kubectl -n chuggy-git get secret git-sync \
+            #     -o jsonpath='{.data.password}' | base64 -d \
+            #     | kubectl -n chuggy create secret generic chuggy-rig-git \
+            #         --from-file=password=/dev/stdin
+            #
+            # Rotating `git-sync` leaves this copy behind; re-run the command.
+            - name: CHUG_API_REPOSITORY_CREDENTIAL_SOURCES
+              value: >-
+                [{"repository":"http://git.chuggy-git.svc.cluster.local./chuggy.git","path":"/var/run/chuggy/rig-git/password"},{"repository":"https://gumbo-nuc-0.tail20c474.ts.net/chuggy.git","path":"/var/run/chuggy/rig-git/password"}]
+            - name: CHUG_API_GIT_CREDENTIAL_USERNAME
+              value: sync
             # The image already sets this. Repeated because the source default
             # is loopback and a container's loopback is its own namespace's --
             # an inherited value that no manifest states is one an image rebuild
@@ -444,6 +490,9 @@ spec:
               readOnly: true
             - name: forge-app-worker
               mountPath: /var/run/chuggy/forge-app-worker
+              readOnly: true
+            - name: rig-git
+              mountPath: /var/run/chuggy/rig-git
               readOnly: true
           resources:
             requests: { cpu: 100m, memory: 128Mi }
@@ -544,6 +593,20 @@ spec:
             items:
               - key: private-key
                 path: private-key
+        # THE RIG GIT READER'S PASSWORD, the one repository credential this pod
+        # reads rather than mints. The env block above holds the command that
+        # copies it out of `chuggy-git` and the argument for reusing `sync`.
+        - name: rig-git
+          secret:
+            secretName: chuggy-rig-git
+            # 0444 and the key named, for the reasons the portal volume above
+            # argues in full: a mode without the world bit leaves a file this
+            # process cannot open, and naming the key makes a Secret without it
+            # a refusal rather than an empty directory.
+            defaultMode: 0444
+            items:
+              - key: password
+                path: password
 ---
 apiVersion: v1
 kind: Service

@@ -47,16 +47,17 @@ kind: Kustomization
 resources:
   - chuggy-api.yaml
   - chuggy-artifacts.yaml
-  - chuggy-configuration-importer.yaml
   - chuggy-control-plane-network-policy.yaml
   - chuggy-finalizer.yaml
   - chuggy-migrate.yaml
   - chuggy-scheduler.yaml
-  - chuggy-selector.yaml
   - chuggy-storage.yaml
   - chuggy-ticket-service.yaml
   - chuggy-ui.yaml
   - chuggy-worker-plane.yaml
+  - chuggy-pool-k8s.yaml
+  - chuggy-releases.yaml
+  - chuggy-pool-plane.yaml
   - chuggy-work.yaml
   - dev2-access.yaml
   - logging.yaml
@@ -71,9 +72,6 @@ resources:
   - postgres-network-policy.yaml
   - postgres.yaml
   - registry.yaml
-  - sirdocalot-namespace.yaml
-  - sirdocalot-source.yaml
-  - vm-registry.yaml
   - whoami.yaml
 
 # The name of each of these ends in a hash of its content, and kustomize rewrites
@@ -100,11 +98,6 @@ resources:
 configMapGenerator:
   - name: registry-config
     namespace: chuggy-registry
-    files:
-      - config.yml=registry/config.yml
-  # The VM registry runs the release registry's configuration unchanged.
-  - name: vm-registry-config
-    namespace: chuggy-vm-registry
     files:
       - config.yml=registry/config.yml
   - name: hydra-config

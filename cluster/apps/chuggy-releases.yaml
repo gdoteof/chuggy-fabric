@@ -1,0 +1,179 @@
+# The release store: source tarballs a pool fetches when it has no image to pull.
+#
+# WHY THIS EXISTS AT ALL. A Kubernetes pool is handed a worker image and pulls
+# it. A pool running natively on a host has nothing to pull, so the harness
+# arrives as a tarball pinned by its own digest -- and `src/adapters/nomad/
+# harnessJob.ts` in kasofsk/chuggy requires that URL to be `https://`, fetches
+# it with `curl`, and refuses an archive whose bytes are not the pinned ones.
+# Something has to serve those bytes over TLS. This is that something, and it
+# is deliberately the smallest thing that can be: a read-only directory behind
+# the ingress this node already terminates.
+#
+# IT IS UNAUTHENTICATED, AND THAT IS THE DECISION. What it serves is a tarball
+# of a source tree, addressed by a digest the fetcher already knows and refuses
+# to deviate from -- so the door adds no secrecy that the URL did not already
+# give away, and adding a credential here would put one more secret on every
+# pool host in exchange for nothing. It is reachable from the tailnet and from
+# nowhere else, which is the boundary that is actually doing work.
+#
+# NOTHING WRITES TO IT FROM INSIDE THE CLUSTER. The directory is the machine
+# layer's, the same way chuggy-artifacts.yaml argues its own is, and an
+# operator puts a release in it by hand:
+#
+#     sudo install -d -m 0755 /var/lib/chuggy/releases
+#     git archive --format=tar --prefix=chuggy/ "$sha" | gzip -n > "chuggy-$sha.tar.gz"
+#     sudo install -m 0644 "chuggy-$sha.tar.gz" /var/lib/chuggy/releases/
+#
+# `--prefix` is not decoration: the fetcher untars with `--strip-components 1`
+# and gets nothing without a leading directory to strip. `gzip -n` keeps the
+# name and mtime out of the header, so the same commit archives to the same
+# digest twice.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: chuggy-releases
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: chuggy-retained
+  local:
+    path: /var/lib/chuggy/releases
+  # Required rather than advisory, and the same label chuggy-artifacts.yaml
+  # argues at length: a `local` volume without node affinity is rejected.
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: chuggy.dev/durable
+              operator: In
+              values: ["true"]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: chuggy-releases
+  namespace: chuggy
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: chuggy-retained
+  resources:
+    requests:
+      storage: 5Gi
+  volumeName: chuggy-releases
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chuggy-releases
+  namespace: chuggy
+  labels: { app: chuggy-releases }
+spec:
+  replicas: 1
+  # Recreate rather than RollingUpdate: the claim is ReadWriteOnce and a
+  # second pod would sit unschedulable waiting for a volume the first holds.
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: chuggy-releases }
+  template:
+    metadata:
+      labels: { app: chuggy-releases }
+    spec:
+      # The unprivileged image, because the ordinary one binds 80 and writes
+      # its pid and temp files as root. This one listens on 8080 as uid 101
+      # and needs nothing else changed.
+      containers:
+        - name: nginx
+          image: nginxinc/nginx-unprivileged:1.27-alpine@sha256:65e3e85dbaed8ba248841d9d58a899b6197106c23cb0ff1a132b7bfe0547e4c0
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            # Mounted AT the path the URL carries, so `/releases/x.tar.gz`
+            # resolves without a rewrite and the ingress needs no middleware.
+            - name: releases
+              mountPath: /usr/share/nginx/html/releases
+              readOnly: true
+          # The image's own index page, and not the release directory: a
+          # probe counts only 2xx and 3xx as healthy, and a directory with
+          # autoindex off answers 403. That would hold the pod unready
+          # forever while it served every release correctly.
+          readinessProbe:
+            httpGet: { path: /, port: 8080 }
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities: { drop: [ALL] }
+      volumes:
+        - name: releases
+          persistentVolumeClaim:
+            claimName: chuggy-releases
+            readOnly: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chuggy-releases
+  namespace: chuggy
+spec:
+  selector: { app: chuggy-releases }
+  ports:
+    - { protocol: TCP, port: 8080, targetPort: 8080 }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chuggy-releases
+  namespace: chuggy
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - gumbo-nuc-0.tail20c474.ts.net
+      secretName: tailnet-tls
+  rules:
+    - host: gumbo-nuc-0.tail20c474.ts.net
+      http:
+        paths:
+          - path: /releases
+            pathType: Prefix
+            backend:
+              service:
+                name: chuggy-releases
+                port: { number: 8080 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-releases-ingress
+  namespace: chuggy
+spec:
+  podSelector:
+    matchLabels: { app: chuggy-releases }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: traefik }
+      ports:
+        - { protocol: TCP, port: 8080 }
+---
+# It serves files off a disk. There is nothing it has to reach, not even DNS,
+# so it is denied everything rather than given a list with nothing on it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-releases-denies-egress
+  namespace: chuggy
+spec:
+  podSelector:
+    matchLabels: { app: chuggy-releases }
+  policyTypes: [Egress]

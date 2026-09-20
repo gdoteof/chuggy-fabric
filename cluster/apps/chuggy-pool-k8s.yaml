@@ -1,0 +1,311 @@
+# A worker pool that places its work in this cluster, in a namespace of its own.
+#
+# IT IS A POOL LIKE ANY OTHER AND HOLDS NO SHORTCUT. It authenticates as a
+# confidential OAuth2 client, polls the same `/v1/assignments` an outside pool
+# polls, and is authorized by the same `Execute` on the same project. Running
+# inside the cluster it places into buys it nothing: the plane cannot tell it
+# apart from the pool on the host, and that is the point of giving it a
+# namespace rather than a corner of `chuggy`.
+#
+# ITS RBAC IS THE WHOLE OF WHAT IT MAY DO TO THIS CLUSTER. Pods and Secrets, in
+# `chuggy-pool-k8s` and nowhere else, which is what a Role rather than a
+# ClusterRole means. It cannot place into `chuggy`, it cannot place into
+# `chuggy-work`, and it cannot read either.
+#
+# IT IS NOT LISTED IN kustomization.yaml YET, for chuggy-pool-plane.yaml's
+# reason: `src/roots/poolClient.ts` is not in the api image pinned below.
+# IT ALSO NEEDS A REGISTRATION BEFORE IT IS LISTED -- the Secret named at the
+# bottom is an operator's to create from what redeeming a registration token
+# answered, and a pool client with no credential refuses to start.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: chuggy-pool-k8s
+  labels:
+    kubernetes.io/metadata.name: chuggy-pool-k8s
+    # The work this pool places is agent-authored and gets the treatment
+    # `chuggy-work` gets. `baseline` refuses host namespaces at admission,
+    # which is what keeps the policy below from being one field away from
+    # irrelevant.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
+---
+# The identity the client spends against this cluster's API. The workload pods
+# it places name `chuggy-pool-workload`, which is a different account and holds
+# nothing at all.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chuggy-pool-client
+  namespace: chuggy-pool-k8s
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chuggy-pool-workload
+  namespace: chuggy-pool-k8s
+automountServiceAccountToken: false
+---
+# Pods because that is what a placement is, and Secrets because an assignment's
+# bearer and its workspace values are handed to the pod as one and deleted with
+# it. `create`, `get`, `list` and `delete` and no `update`: nothing edits a
+# placement in flight, and a verb granted for a call nobody makes is a verb
+# available to a call nobody meant.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: chuggy-pool-placement
+  namespace: chuggy-pool-k8s
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [create, get, list, delete]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create, get, list, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: chuggy-pool-placement
+  namespace: chuggy-pool-k8s
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: chuggy-pool-placement
+subjects:
+  - kind: ServiceAccount
+    name: chuggy-pool-client
+    namespace: chuggy-pool-k8s
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chuggy-pool-client
+  namespace: chuggy-pool-k8s
+  labels: { app: chuggy-pool-client }
+  annotations:
+    fabric.chuggy.dev/source-commit: 04dd2ce6
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: chuggy-pool-client }
+  template:
+    metadata:
+      labels: { app: chuggy-pool-client }
+    spec:
+      serviceAccountName: chuggy-pool-client
+      # True here and false on the workload account, which is the split this
+      # namespace exists to make: the client needs a token to place with, and
+      # what it places needs none and is handed none.
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: pool-client
+          image: registry.chuggy.internal/chuggy/api@sha256:e435958ceb6142ddc27976bb41087bf896dc1937831c2f784661d59674a86f89
+          imagePullPolicy: IfNotPresent
+          command: [node, --experimental-strip-types, src/roots/poolClient.ts]
+          env:
+            # THE CLUSTER'S OWN CA, which Node does not otherwise trust: the
+            # API server presents a certificate signed by it and `fetch`
+            # rejects the chain, which the client reports as a cluster it could
+            # not list. Node reads this variable once at start-up, so it is an
+            # environment entry and cannot be set from inside the process.
+            - name: NODE_EXTRA_CA_CERTS
+              value: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+            # What a registration answered, once. The command that mints it
+            # stores neither value, so a pool that loses the secret is
+            # registered again rather than recovered.
+            - name: CHUG_POOL_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: chuggy-pool-k8s-credentials
+                  key: client-id
+            - name: CHUG_POOL_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: chuggy-pool-k8s-credentials
+                  key: client-secret
+            - name: CHUG_POOL_CLIENT_TOKEN_URL
+              value: http://hydra-public.ory.svc.cluster.local:4444/oauth2/token
+            # A client_credentials request that names no audience is answered a
+            # token with no `aud`, and the plane refuses it. This is the same
+            # audience the plane verifies against.
+            - name: CHUG_POOL_CLIENT_AUDIENCE
+              value: https://gumbo-nuc-0.tail20c474.ts.net/api
+            - name: CHUG_POOL_CLIENT_PLANE_URL
+              value: http://chuggy-pool-plane.chuggy.svc.cluster.local:3002
+            # THE WORKER DIGEST INSIDE IT must be one chuggy-scheduler.yaml's
+            # roster admits, and nothing checks that: check-release-consistency
+            # reads image references in YAML and does not see inside this
+            # document, so a release that moves the worker moves the line in
+            # here by hand. The schema is `strictObject`, so a comment key
+            # placed inside to say so is refused at start-up -- which is why
+            # this paragraph is out here.
+            #
+            # THE SITE IS ONE DOCUMENT AND NOT A VARIABLE PER LEAF, so a change
+            # to how this pool places is one change and is reviewable as one.
+            # `fabric` is what selects the backend -- there is no second
+            # variable saying which, because the one that goes stale is the one
+            # nobody reads.
+            - name: CHUG_POOL_CLIENT_SITE
+              value: |
+                {
+                  "fabric": "Kubernetes",
+                  "apiBaseUrl": "https://kubernetes.default.svc",
+                  "namespace": "chuggy-pool-k8s",
+                  "tokenFile": "/var/run/secrets/kubernetes.io/serviceaccount/token",
+                  "serviceAccountName": "chuggy-pool-workload",
+                  "workspacePath": "/workspace",
+                  "capabilityFile": "/var/run/chuggy/worker-capability/bearer",
+                  "workerPlaneUrl": "http://chuggy-worker-plane.chuggy.svc.cluster.local:3001",
+                  "podNamePrefix": "chuggy-pool-work",
+                  "image": "registry.chuggy.internal/chuggy/worker@sha256:4deb1f3b8a3e3e929b0b3ddd9cf430250db395e9d7d9ee9c469e1e5f462dc661",
+                  "poolLabel": { "name": "chuggy.dev/pool-workload", "value": "true" },
+                  "nodeSelector": { "chuggy.dev/pool": "work" },
+                  "resources": {
+                    "cpuRequest": "500m",
+                    "cpuLimit": "2",
+                    "memoryRequest": "1Gi",
+                    "memoryLimit": "4Gi",
+                    "ephemeralStorageLimit": "8Gi"
+                  },
+                  "environment": {
+                    "GIT_CONFIG_COUNT": "1",
+                    "GIT_CONFIG_KEY_0": "safe.directory",
+                    "GIT_CONFIG_VALUE_0": "/workspace"
+                  },
+                  "timeoutSecsMax": 3600,
+                  "outputBytesMax": 1048576,
+                  "requestTimeoutSecsMax": 30,
+                  "unavailableRetryAfterSecs": 15
+                }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+            seccompProfile: { type: RuntimeDefault }
+---
+# The client reaches three things: the cluster's own API to place with, the
+# plane to poll, and DNS. The work it places is covered by the deny-all below
+# and gets its own exemptions from the site document, not from here.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-pool-client-egress
+  namespace: chuggy-pool-k8s
+spec:
+  podSelector:
+    matchLabels: { app: chuggy-pool-client }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy
+          podSelector:
+            matchLabels: { app: chuggy-pool-plane }
+      ports:
+        - { protocol: TCP, port: 3002 }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ory
+          podSelector:
+            matchLabels: { app: hydra }
+      ports:
+        - { protocol: TCP, port: 4444 }
+    # The cluster's API server, which has no pod of its own to select: on this
+    # single-node cluster it is the node, so it is named as an address rather
+    # than as a workload.
+    #
+    # IT IS THE NODE'S ADDRESS AND NOT THE SERVICE'S. `kubernetes.default.svc`
+    # resolves to 10.43.0.1:443, but kube-proxy rewrites that destination
+    # before a policy is evaluated -- so a rule naming the ClusterIP matches
+    # nothing and the client reports that it could not list the cluster. What
+    # the rule has to name is the endpoint behind it, which `kubectl -n default
+    # get endpointslices kubernetes` prints. That address is this node's, so
+    # this line does not survive the cluster gaining a second one.
+    - to:
+        - ipBlock: { cidr: 192.168.129.133/32 }
+      ports:
+        - { protocol: TCP, port: 6443 }
+---
+# Everything this pool PLACES, denied in both directions by default. It is the
+# same shape as `work-denies-all` in the work namespace and for the same
+# reason: a placement is agent-authored work, and what it may reach is an
+# exemption someone writes down, never a default.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-pool-workload-denies-all
+  namespace: chuggy-pool-k8s
+spec:
+  podSelector:
+    matchLabels: { chuggy.dev/pool-workload: "true" }
+  policyTypes: [Ingress, Egress]
+---
+# The one hole that deny-all must leave: a harness fetches its view and mints
+# its git credential from the worker plane, and posts its outcome back there.
+# Without this the work runs and can report nothing, which the ticket sees as
+# silence rather than as a failure.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-pool-workload-reaches-worker-plane
+  namespace: chuggy-pool-k8s
+spec:
+  podSelector:
+    matchLabels: { chuggy.dev/pool-workload: "true" }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy
+          podSelector:
+            matchLabels: { app: chuggy-worker-plane }
+      ports:
+        - { protocol: TCP, port: 3001 }
+    # AND THE TREE IT WAS SENT TO WORK ON. A placement clones its ticket's
+    # repository, and this rig's own git answers over TLS through the ingress
+    # rather than in-cluster -- a harness refuses to put a credential on a
+    # cleartext remote, so the in-cluster address is not one it may use. The
+    # rule names the pod behind traefik on its own container port, because
+    # kube-proxy rewrites the destination before a policy is evaluated and a
+    # rule naming the ingress address matches nothing. Without it the clone
+    # fails in milliseconds with `Could not connect to server`, which is the
+    # REJECT and not a server that is down.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: traefik }
+      ports:
+        - { protocol: TCP, port: 8443 }

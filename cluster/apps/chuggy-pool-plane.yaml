@@ -1,0 +1,252 @@
+# The outward-facing plane a worker pool polls, and the only chuggy listener a
+# machine outside this cluster is given a credential for.
+#
+# IT VERIFIES AND MINTS NOTHING. A pool's token is checked against the issuer's
+# published keys and its standing is asked of Keto; creating a pool's OAuth2
+# client needs Hydra's admin API, which is the api's to hold and is named
+# nowhere here. `.dependency-cruiser.cjs` in kasofsk/chuggy holds the process to
+# that, and the egress policy below is the same claim expressed where a packet
+# can be stopped.
+#
+# IT IS NOT LISTED IN kustomization.yaml YET. `src/roots/poolPlane.ts` does not
+# exist in the api image this file pins, so listing it before a release that
+# carries one is a CrashLoopBackOff and a red Kustomization. The release that
+# moves the digest is the change that adds the line.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chuggy-pool-plane
+  namespace: chuggy
+  labels: { app: chuggy-pool-plane }
+  annotations:
+    fabric.chuggy.dev/source-commit: 04dd2ce6
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: chuggy-pool-plane }
+  template:
+    metadata:
+      labels:
+        app: chuggy-pool-plane
+        chuggy.dev/postgres-client: "true"
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: pool-plane
+          image: registry.chuggy.internal/chuggy/api@sha256:e435958ceb6142ddc27976bb41087bf896dc1937831c2f784661d59674a86f89
+          imagePullPolicy: IfNotPresent
+          command: [node, --experimental-strip-types, src/roots/poolPlane.ts]
+          env:
+            # Its own login role, for the reason every other plane has one: each
+            # command asserts `current_user` at start-up, so a shared credential
+            # stops the others from starting rather than merely widening this
+            # one. `deploy/rig/postgres/postgres-roles.sql` in kasofsk/chuggy
+            # creates the pair and this password is generated beside the others
+            # by modules/chuggy-secrets.nix.
+            - name: CHUG_POOL_PLANE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chuggy-postgres-credentials
+                  key: pool-plane-password
+            - name: CHUG_POOL_PLANE_DATABASE_URL
+              value: postgres://chuggy_pool_plane_login:$(CHUG_POOL_PLANE_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy?options=-c%20role%3Dchuggy_pool_plane
+            # 0.0.0.0 rather than the default, which is loopback: a listener on
+            # 127.0.0.1 inside a pod is reachable by nothing.
+            - name: CHUG_POOL_PLANE_HOST
+              value: 0.0.0.0
+            - name: CHUG_POOL_PLANE_PORT
+              value: "3002"
+            # Where a pool's harness fetches what its assignment does not carry.
+            # It is the worker plane and never this one: a pool that could reach
+            # this listener as a harness would be holding a door its credential
+            # was given no key to.
+            #
+            # IT CARRIES THE ROUTE PREFIX AND IS NOT THE PLANE'S BARE ADDRESS.
+            # A harness resolves each route against this value -- `terminal`,
+            # `view`, `heartbeat` -- so a value ending at the port sends every
+            # one of them to the plane's root, and the plane answers 404 to a
+            # path it does not serve. The scheduler's own runner builds the
+            # same string with `new URL("/v1/ticket-execution", ...)` in
+            # src/roots/ticketExecution.ts; this variable is handed to the
+            # assignment verbatim, so the prefix is written here instead.
+            - name: CHUG_POOL_PLANE_CALLBACK_URL
+              value: http://chuggy-worker-plane.chuggy.svc.cluster.local:3001/v1/ticket-execution
+            # The same issuer and audience the api names. A pool is an ordinary
+            # OIDC principal of this installation, so a second issuer here would
+            # be a second answer to who a caller is.
+            - name: CHUG_POOL_PLANE_OIDC_ISSUER
+              value: https://gumbo-nuc-0.tail20c474.ts.net/oauth
+            - name: CHUG_POOL_PLANE_OIDC_AUDIENCE
+              value: https://gumbo-nuc-0.tail20c474.ts.net/api
+            - name: CHUG_POOL_PLANE_OIDC_ALGORITHMS
+              value: RS256
+            # Keto's read port and not its write port. This process answers
+            # whether a pool holds `Execute`; nothing here grants it.
+            - name: CHUG_POOL_PLANE_KETO_READ_URL
+              value: http://keto-read.ory.svc.cluster.local:4466
+          ports:
+            - name: http
+              containerPort: 3002
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+            seccompProfile: { type: RuntimeDefault }
+          livenessProbe:
+            httpGet: { path: /health/live, port: http }
+          readinessProbe:
+            httpGet: { path: /health/ready, port: http }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chuggy-pool-plane
+  namespace: chuggy
+spec:
+  selector: { app: chuggy-pool-plane }
+  ports:
+    - name: http
+      port: 3002
+      targetPort: http
+---
+# An Ingress of its own rather than a path added to the `chuggy` Ingress in
+# chuggy-ui.yaml. Traefik merges routers across Ingresses when their host and
+# path differ, and `/v1/assignments` collides with neither `/api/v1` nor `/`;
+# what that file warns against is two routers claiming the SAME host and path,
+# which this is not. Keeping it here is also what lets the whole plane arrive
+# and depart as one file.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chuggy-pool-plane
+  namespace: chuggy
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - gumbo-nuc-0.tail20c474.ts.net
+      secretName: tailnet-tls
+  rules:
+    - host: gumbo-nuc-0.tail20c474.ts.net
+      http:
+        paths:
+          # Unrewritten: the plane serves this prefix itself.
+          - path: /v1/assignments
+            pathType: Prefix
+            backend:
+              service:
+                name: chuggy-pool-plane
+                port: { number: 3002 }
+---
+# A POOL IS OUTSIDE THIS CLUSTER BY DESIGN, so this policy cannot be keyed on a
+# pod label the way the worker plane's is. What reaches this listener is
+# Traefik, carrying whatever the tailnet sent it, and the pool running natively
+# on this node -- whose traffic bears the node's own address and is ACCEPTed
+# above the policy jump by kube-router's rule for a pod's local node, which no
+# NetworkPolicy in this cluster can constrain either way.
+#
+# So the boundary here is the token and the relation, not the packet. The
+# ingress rule is what keeps everything else in the cluster out.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-pool-plane-ingress
+  namespace: chuggy
+spec:
+  podSelector:
+    matchLabels: { app: chuggy-pool-plane }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: traefik }
+      ports:
+        - { protocol: TCP, port: 3002 }
+    # The in-cluster pool, which polls this plane over the same route an
+    # outside pool does rather than being given one of its own.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy-pool-k8s
+          podSelector:
+            matchLabels: { app: chuggy-pool-client }
+      ports:
+        - { protocol: TCP, port: 3002 }
+---
+# Three destinations and no fourth. There is no public arm here: this process
+# mints nothing at a forge and fetches no key, so the hole the worker plane and
+# the finalizer need -- public HTTPS with the private ranges excepted -- is one
+# this plane can be denied outright.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-pool-plane-egress
+  namespace: chuggy
+spec:
+  podSelector:
+    matchLabels: { app: chuggy-pool-plane }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - podSelector:
+            matchLabels: { app: postgres }
+      ports:
+        - { protocol: TCP, port: 5432 }
+    # Keto's read port, and Hydra's public port for the issuer's discovery
+    # document and key set. Neither admin port is named.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ory
+          podSelector:
+            matchLabels: { app: keto }
+      ports:
+        - { protocol: TCP, port: 4466 }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ory
+          podSelector:
+            matchLabels: { app: hydra }
+      ports:
+        - { protocol: TCP, port: 4444 }
+    # THE ISSUER, WHICH IS THIS DEPLOYMENT'S OWN PUBLIC NAME. `iss` on a token
+    # is the tailnet URL, so the discovery this plane does at start-up is of
+    # that name and not of the in-cluster Service above -- a plane that
+    # discovered Hydra directly would be trusting a document that disagrees
+    # with every token it is handed.
+    #
+    # THE RULE NAMES TRAEFIK'S POD AND NOT THAT NAME. The name resolves to
+    # traefik's ClusterIP and kube-proxy rewrites the destination before a
+    # policy is evaluated, so what a policy sees is the pod behind it on its
+    # own container port. chuggy-api.yaml carries the same rule for the same
+    # reason; without it this plane cannot start, and it exits `fetch failed`
+    # without naming what it could not fetch.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: traefik }
+      ports:
+        - { protocol: TCP, port: 8443 }
