@@ -408,7 +408,7 @@ spec:
             # Rotating `git-sync` leaves this copy behind; re-run the command.
             - name: CHUG_API_REPOSITORY_CREDENTIAL_SOURCES
               value: >-
-                [{"repository":"http://git.chuggy-git.svc.cluster.local./chuggy.git","path":"/var/run/chuggy/rig-git/password"}]
+                [{"repository":"http://git.chuggy-git.svc.cluster.local./chuggy.git","path":"/var/run/chuggy/rig-git/password"},{"repository":"https://gumbo-nuc-0.tail20c474.ts.net/chuggy.git","path":"/var/run/chuggy/rig-git/password"}]
             - name: CHUG_API_GIT_CREDENTIAL_USERNAME
               value: sync
             # The image already sets this. Repeated because the source default
