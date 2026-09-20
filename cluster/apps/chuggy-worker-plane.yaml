@@ -69,7 +69,7 @@ spec:
             # than from a mount its launcher has to arrange.
             - name: CHUG_WORKER_PLANE_REPOSITORY_CREDENTIAL_SOURCES
               value: >-
-                [{"repository":"http://git.chuggy-git.svc.cluster.local./chuggy.git","path":"/var/run/chuggy/rig-git/password"}]
+                [{"repository":"http://git.chuggy-git.svc.cluster.local./chuggy.git","path":"/var/run/chuggy/rig-git/password"},{"repository":"https://gumbo-nuc-0.tail20c474.ts.net/chuggy.git","path":"/var/run/chuggy/rig-git/password"}]
             - name: CHUG_WORKER_PLANE_GIT_CREDENTIAL_USERNAME
               value: sync
           ports:
