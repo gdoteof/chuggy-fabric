@@ -85,7 +85,7 @@ metadata:
   namespace: chuggy-pool-k8s
   labels: { app: chuggy-pool-client }
   annotations:
-    fabric.chuggy.dev/source-commit: 9607f218
+    fabric.chuggy.dev/source-commit: 04dd2ce6
 spec:
   replicas: 1
   strategy: { type: Recreate }
@@ -106,7 +106,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: pool-client
-          image: registry.chuggy.internal/chuggy/api@sha256:6a962285f829ffa9e510e2b04d6304097ebff5e2891a5745c66b9086f530e0b3
+          image: registry.chuggy.internal/chuggy/api@sha256:e435958ceb6142ddc27976bb41087bf896dc1937831c2f784661d59674a86f89
           imagePullPolicy: IfNotPresent
           command: [node, --experimental-strip-types, src/roots/poolClient.ts]
           env:
