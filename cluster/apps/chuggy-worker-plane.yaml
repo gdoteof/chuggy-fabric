@@ -53,6 +53,25 @@ spec:
               value: "4728465"
             - name: CHUG_WORKER_PLANE_FORGE_APP_KEY_FILE
               value: /var/run/chuggy/forge-app/private-key
+            # THIS RIG'S OWN GIT IS NOT A FORGE AND IS NOT MINTED FOR, so the
+            # plane reads its credential from a file the way the api already
+            # does, and serves it to a pod over the same route the minted ones
+            # go out on. The mint is asked first and only its settled refusal
+            # falls through to here, so a repository the worker App covers is
+            # still answered by a token minted for the act and expiring with it.
+            #
+            # THE SAME SECRET THE API READS, and the same reader account: the
+            # copy of `git-sync` that chuggy-api.yaml's env block holds the
+            # command for, in this namespace, under the name below. A project
+            # bound to this rig's git binds it under the address in the mapping,
+            # and a pod placed anywhere -- a container here or a Nomad
+            # allocation on a Mac -- reads the credential from the plane rather
+            # than from a mount its launcher has to arrange.
+            - name: CHUG_WORKER_PLANE_REPOSITORY_CREDENTIAL_SOURCES
+              value: >-
+                [{"repository":"http://git.chuggy-git.svc.cluster.local./chuggy.git","path":"/var/run/chuggy/rig-git/password"}]
+            - name: CHUG_WORKER_PLANE_GIT_CREDENTIAL_USERNAME
+              value: sync
           ports:
             - name: http
               containerPort: 3001
@@ -61,6 +80,9 @@ spec:
               mountPath: /var/lib/chuggy/artifacts
             - name: forge-app
               mountPath: /var/run/chuggy/forge-app
+              readOnly: true
+            - name: rig-git
+              mountPath: /var/run/chuggy/rig-git
               readOnly: true
           resources:
             requests: { cpu: 100m, memory: 128Mi }
@@ -122,6 +144,23 @@ spec:
             items:
               - key: private-key
                 path: private-key
+        # THE RIG GIT READER'S PASSWORD, the one repository credential this pod
+        # reads rather than mints, and the same Secret chuggy-api.yaml mounts --
+        # whose env block holds the command that copies it out of `chuggy-git`
+        # and the argument for reusing `sync`. Rotating `git-sync` leaves both
+        # copies behind.
+        #
+        # 0444 and the key named, for the reasons the portal volume above argues
+        # in full: this pod declares no `fsGroup`, so a mode without the world
+        # bit leaves a file it cannot open, and naming the key makes a Secret
+        # without it a refusal rather than an empty directory.
+        - name: rig-git
+          secret:
+            secretName: chuggy-rig-git
+            defaultMode: 0444
+            items:
+              - key: password
+                path: password
 ---
 apiVersion: v1
 kind: Service
