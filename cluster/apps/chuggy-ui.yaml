@@ -155,7 +155,7 @@ metadata:
   name: chuggy-ui
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: bd63df14
+    fabric.chuggy.dev/source-commit: 62574ae8
   labels: { app: chuggy-ui }
 spec:
   replicas: 1
@@ -180,7 +180,7 @@ spec:
         runAsGroup: 101
       containers:
         - name: web
-          image: registry.chuggy.internal/chuggy/web@sha256:7bd04960bafbafade4db1f13915bacfd13257b954a6a3c85ec6f36c78c65ccb9
+          image: registry.chuggy.internal/chuggy/web@sha256:d65ab8ace52ee0d023efb919afb66fbcaa203d723a2f7e969c5af89453327677
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
