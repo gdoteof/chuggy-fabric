@@ -200,11 +200,9 @@ spec:
                   "domain": {
                     "nTickets": 256,
                     "nTasks": 8,
-                    "reworkPolicy": { "type": "BudgetedRework", "value": 2 },
-                    "gas": 1000,
-                    "finalizationPricing": "DeadlineOnly",
                     "maxStages": 4
                   },
+                  "rework": { "cyclesMax": 2 },
                   "owner": "$(CHUG_POD_NAME)",
                   "forge": {
                     "appId": "4708055",
