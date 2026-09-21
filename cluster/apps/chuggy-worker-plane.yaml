@@ -5,7 +5,7 @@ metadata:
   namespace: chuggy
   labels: { app: chuggy-worker-plane }
   annotations:
-    fabric.chuggy.dev/source-commit: 617675bb
+    fabric.chuggy.dev/source-commit: 21e970ea
 spec:
   replicas: 1
   strategy: { type: Recreate }
