@@ -126,7 +126,7 @@ metadata:
   name: chuggy-ticket-service
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: b2bc152f
+    fabric.chuggy.dev/source-commit: 617675bb
   labels: { app: chuggy-ticket-service }
 spec:
   replicas: 1
@@ -160,7 +160,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: ticket-service
-          image: registry.chuggy.internal/chuggy/api@sha256:b1bbb6aaf87cba4be2ee97779af98395bbc3f814c772d91752a6a10002866f6d
+          image: registry.chuggy.internal/chuggy/api@sha256:99449f111019ed3372aba8c4f6ab25e10c09f6c22cddab2b381f693c947f7363
           imagePullPolicy: IfNotPresent
           command:
             [
@@ -200,11 +200,9 @@ spec:
                   "domain": {
                     "nTickets": 256,
                     "nTasks": 8,
-                    "reworkPolicy": { "type": "BudgetedRework", "value": 2 },
-                    "gas": 1000,
-                    "finalizationPricing": "DeadlineOnly",
                     "maxStages": 4
                   },
+                  "rework": { "cyclesMax": 2 },
                   "owner": "$(CHUG_POD_NAME)",
                   "forge": {
                     "appId": "4708055",
