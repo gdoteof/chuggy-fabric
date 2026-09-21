@@ -1,0 +1,20 @@
+{
+  "builds": [
+    {
+      "dockerfile": "images/api/Dockerfile",
+      "request": "cde6a599a144dc2cf2f7e9b846726c195209122f9de2193e5a35a55256be2b81",
+      "result": "results/chuggy/ac99fb064380f0c80d7bad430e489f4436514c87/cde6a599a144dc2cf2f7e9b846726c195209122f9de2193e5a35a55256be2b81/build-cde6a599a144dc2cf2f7e9b846726c195209122f-a1.json"
+    },
+    {
+      "dockerfile": "images/chuggy-ui/Dockerfile",
+      "request": "6b46ca999a1877b7a13cccae35afc0a335ca99f9e9137e15c2dc17bfba4dece2",
+      "result": "results/chuggy/ac99fb064380f0c80d7bad430e489f4436514c87/6b46ca999a1877b7a13cccae35afc0a335ca99f9e9137e15c2dc17bfba4dece2/build-6b46ca999a1877b7a13cccae35afc0a335ca99f9-a1.json"
+    }
+  ],
+  "request": "requests/chuggy/ac99fb064380f0c80d7bad430e489f4436514c87/b6313ef95ff002dfaddc28a19a16773de88f36df4e116ef5749be02c4de51be6.json",
+  "source": {
+    "commit": "ac99fb064380f0c80d7bad430e489f4436514c87",
+    "repositoryId": "chuggy"
+  },
+  "version": 1
+}
