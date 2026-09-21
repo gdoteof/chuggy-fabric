@@ -145,7 +145,7 @@ metadata:
   name: chuggy-selector
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: b2bc152f
+    fabric.chuggy.dev/source-commit: 617675bb
   labels: { app: chuggy-selector }
 spec:
   # ONE, BECAUSE THERE IS FINALLY SOMETHING FOR IT TO ASK. The zero here was
@@ -196,7 +196,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: selector
-          image: registry.chuggy.internal/chuggy/api@sha256:b1bbb6aaf87cba4be2ee97779af98395bbc3f814c772d91752a6a10002866f6d
+          image: registry.chuggy.internal/chuggy/api@sha256:99449f111019ed3372aba8c4f6ab25e10c09f6c22cddab2b381f693c947f7363
           imagePullPolicy: IfNotPresent
           command:
             [
