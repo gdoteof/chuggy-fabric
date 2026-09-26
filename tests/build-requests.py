@@ -78,15 +78,16 @@ def reported():
 
 
 def tree(case):
-    """A checkout-shaped copy of what this repository carries under `builds/`
-    and `results/`, writable, with nothing requested yet."""
+    """A checkout-shaped copy of what this repository carries under `builds/`,
+    `requests/` and `results/`, writable. The requests come with the results
+    because a result that answers a request is refused by the results gate in a
+    tree that does not carry it."""
     root = WORK / case
     root.mkdir(parents=True)
-    for directory in ("builds", "results"):
+    for directory in ("builds", "requests", "results"):
         shutil.copytree(ROOT / directory, root / directory)
     for path in root.rglob("*"):
         path.chmod(path.stat().st_mode | 0o200)
-    (root / "requests").mkdir()
     return root
 
 
