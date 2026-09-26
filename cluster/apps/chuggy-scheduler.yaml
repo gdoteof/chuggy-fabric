@@ -195,6 +195,13 @@ spec:
               value: "3600"
             - name: CHUG_SCHEDULER_PASS_BOUNDS
               value: '{"attemptLeaseSecs":300}'
+            # Keto's read port. The scheduler asks it whether each pool a
+            # project registered still holds `Execute`, the question a pool's
+            # poll is admitted by, so a revoked pool is never one work waits
+            # for. Images from kasofsk/chuggy#762 on require it; an older image
+            # reads only the variables it names and ignores it.
+            - name: CHUG_SCHEDULER_KETO_READ_URL
+              value: http://keto-read.ory.svc.cluster.local:4466/
             # The PostgreSQL an attempt runs its gates against: a sidecar of
             # the attempt's own pod, running this image on the pod's loopback,
             # with the worker as its superuser. A repository's gates migrate
