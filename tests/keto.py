@@ -65,8 +65,8 @@ WRITE_SERVICE = "keto-write"
 POSTGRES_POLICY = "postgres-admits-labelled-clients"
 POSTGRES_CLIENT = ("chuggy.dev/postgres-client", "true")
 
-# The API and the scheduler are each told where the read port is, and each URL is
-# a second copy of the Service's own number. The selector holds a copy of its
+# The API and the scheduler are each told where the read port is, and each URL
+# is a second copy of the Service's own number. The selector holds a copy of its
 # own, and tests/selector-reach.py resolves that one against this Service and
 # against the selector's egress arm; this gate reads the other two, and the arm
 # each workload's own policy has to carry for its URL to be openable at all.
@@ -429,18 +429,20 @@ def main():
         if parts.port != read_published:
             refuse(f"{variable} reaches port {parts.port}, and {READ_SERVICE} publishes {read_published}")
 
-        # 8. And the reader's own egress admits that pod on the port the kernel
-        #    matches, which is the container's and not the one the URL publishes.
-        #    That policy isolates the reader for egress, so a destination it does not
-        #    admit is refused however correctly the URL above reads.
+        # 8. And the reader's own egress admits that pod on the port the
+        #    kernel matches, which is the container's and not the one the URL
+        #    publishes. That policy isolates the reader for egress, so a
+        #    destination it does not admit is refused however correctly the
+        #    URL above reads.
         #
-        #    WHICH IS A CLAIM ABOUT THE OBJECT'S IDENTITY BEFORE IT IS ONE ABOUT
-        #    ITS ARMS, and both halves of that identity are one line to get wrong.
-        #    `policyTypes` is authoritative when present, so an object naming
-        #    `Ingress` there isolates nothing for egress and every arm below is
-        #    inert; a `podSelector` naming another workload confines that one and
-        #    leaves the reader reaching anything anywhere. Each reads as correct on
-        #    the page and neither touches an arm.
+        #    WHICH IS A CLAIM ABOUT THE OBJECT'S IDENTITY BEFORE IT IS ONE
+        #    ABOUT ITS ARMS, and both halves of that identity are one line to
+        #    get wrong. `policyTypes` is authoritative when present, so an
+        #    object naming `Ingress` there isolates nothing for egress and
+        #    every arm below is inert; a `podSelector` naming another workload
+        #    confines that one and leaves the reader reaching anything
+        #    anywhere. Each reads as correct on the page and neither touches
+        #    an arm.
         egress = one(documents, "NetworkPolicy", policy, CONTROL)
         if "Egress" not in (egress["spec"].get("policyTypes") or []):
             refuse(

@@ -452,7 +452,7 @@ spec:
 #
 # So the rule permits everything except the pod and service networks. What it
 # buys is real -- this workload cannot open a connection to any other pod on
-# this cluster except the three named above -- and what it costs is named: the
+# this cluster except the ones its arms name -- and what it costs is named: the
 # house LAN and the public internet are both reachable from this pod, and
 # nothing here narrows that.
 #
