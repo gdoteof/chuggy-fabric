@@ -498,6 +498,14 @@ spec:
                     "operatingSystem": "Linux",
                     "architecture": "Amd64",
                     "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:23b3dea3eaea7cbd3ec134993ad618efb4f42b358381210a92a7c85a177f6861",
+                    "name": "chuggy-worker",
+                    "version": "0.30",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
                   }
                 ]
             # The memory limit is what chuggy's own `ci.sh` needs: Node sizes
@@ -765,16 +773,16 @@ spec:
             # field the session pod reads nothing out of: what tools a session
             # holds is its `agent_session.capabilities`, mapped in the image to
             # `allowedTools`/`disallowedTools`. Writing the lead's roster here
-            # would be a third copy of it -- after `src/interpreter/leadTools.ts`
-            # and `images/worker/chuggyTools.mjs` -- that nothing reads and
-            # nothing holds against the other two, which is a control described
-            # as stronger than it is.
+            # would be a third copy of it -- after chuggy's
+            # `src/interpreter/leadTools.ts` and chuggy-common's
+            # `chuggyTools.mjs` -- that nothing reads and nothing holds against
+            # the other two, which is a control described as stronger than it is.
             # `mayCompleteTask` is false for the reason it is false above: the
             # single journaled actor is what completes a ticket.
             - name: CHUG_SCHEDULER_SESSION_POLICY
               value: |
                 {
-                  "image": "registry.chuggy.internal/chuggy/worker@sha256:da990b14983166e03b6c7ac852c90c74c5bfa8e57517557100c22db121f5c846",
+                  "image": "registry.chuggy.internal/chuggy/worker@sha256:23b3dea3eaea7cbd3ec134993ad618efb4f42b358381210a92a7c85a177f6861",
                   "profile": "chuggy-development",
                   "runtimeVersion": "claude-code-latest",
                   "grant": {
