@@ -452,12 +452,15 @@ spec:
 #
 # So the rule permits everything except the pod and service networks. What it
 # buys is real -- this workload cannot open a connection to any other pod on
-# this cluster except the two named above -- and what it costs is named: the
+# this cluster except the three named above -- and what it costs is named: the
 # house LAN and the public internet are both reachable from this pod, and
 # nothing here narrows that.
 #
 # What would narrow it is a stable address for the API server: the node holding
 # a reserved lease, or `chuggy.k3s` publishing one. Both are the machine layer's.
+#
+# Keto is on its read port and not its write one, for the reason the selector's
+# rule gives: the scheduler only asks whether a pool still holds `Execute`.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -496,6 +499,16 @@ spec:
       ports:
         - protocol: TCP
           port: 3001
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ory
+          podSelector:
+            matchLabels:
+              app: keto
+      ports:
+        - protocol: TCP
+          port: 4466
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
