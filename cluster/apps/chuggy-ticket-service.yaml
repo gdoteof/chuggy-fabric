@@ -2,9 +2,9 @@
 # tickets through authoring, work, evaluation and completion.
 #
 # One responsibility, one pod, one command out of the shared image, one database
-# role. The five files beside this one -- selector, scheduler, finalizer,
-# worker plane, and the API -- are the same arrangement with a different command
-# and role, and the parts they share are argued here rather than six times.
+# role. The selector, scheduler, finalizer, worker plane, pool plane and API
+# beside it are the same arrangement with a different command and role, and the
+# parts they share are argued here rather than in each.
 #
 # ------------------------------------------------------- the shared image ----
 #
@@ -16,21 +16,18 @@
 # else builds, so every workload here selects its command from the image under
 # the name it has.
 #
-# SEVEN `image:` LINES CARRY THE DIGEST AND THEY MOVE TOGETHER: this, the selector,
-# the scheduler, the finalizer, the worker plane, the migration Job and
-# chuggy-api.yaml. A bump
+# ONE `image:` LINE IN EACH FILE OF THE RELEASE ROSTER CARRIES THE DIGEST, AND
+# THEY MOVE TOGETHER. The roster is `API_MANIFESTS` in
+# scripts/check-release-consistency. A bump
 # that misses one runs a mixed control plane against one database. What catches
 # the shape of that which matters is the `schema-compatible` precondition -- a
 # process whose image declares a different ledger than the database carries
 # refuses to serve -- and what it does not catch is a bump that changed no
-# schema. The release-images check requires all seven references to agree.
+# schema. The release-images check requires every file in the roster to agree.
 #
-# RE-PINNING TOUCHES MORE THAN THOSE SEVEN. The migration Job's `metadata.name`
-# repeats the tag, for the reason chuggy-migrate.yaml gives, and three comments
-# name it in prose -- one in chuggy-migrate.yaml, one in chuggy-api.yaml, one in
-# the README's prerequisite 1. Ten occurrences over seven files. The prose
-# ones break nothing when they go stale; they instead leave the repository
-# asserting a commit that is no longer the one running.
+# RE-PINNING TOUCHES MORE THAN THOSE LINES. The migration Job's `metadata.name`
+# repeats the tag, for the reason chuggy-migrate.yaml gives, and so does each
+# roster file's `fabric.chuggy.dev/source-commit` annotation.
 #
 # k3s maps the logical registry name to retained cluster storage;
 # chuggy-api.yaml carries that argument and it is not repeated.

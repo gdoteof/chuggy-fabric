@@ -1272,7 +1272,7 @@ only honest storage signal on this node.
 
 ## The chuggy control plane
 
-Five processes, one per responsibility, all out of one image:
+One process per responsibility, all out of one image:
 
 | Workload | Command | Database role | Listens |
 |---|---|---|---|
@@ -1281,6 +1281,8 @@ Five processes, one per responsibility, all out of one image:
 | `chuggy-selector` | `src/roots/selector.ts` | `chuggy_selector_service` | no |
 | `chuggy-scheduler` | `src/roots/scheduler.ts` | `chuggy_scheduler` | no |
 | `chuggy-finalizer` | `src/roots/finalizer.ts` | `chuggy_finalizer` | no |
+| `chuggy-worker-plane` | `src/roots/workerPlane.ts` | `chuggy_worker_plane` | yes, 3001 |
+| `chuggy-pool-plane` | `src/roots/poolPlane.ts` | `chuggy_pool_plane` | yes, 3002 |
 
 Plus `chuggy-migrate-<tag>`, a Job that applies the schema and is named after
 the image it applies it from. It waits for the database in an initContainer and
@@ -1366,8 +1368,9 @@ node. Thirty attempts and then a non-zero exit, so a database that is genuinely
 down ends as a failed Job rather than as a Job that hangs.
 
 The API image already contains every control-plane command: its Dockerfile
-copies the whole source tree and sets the API as its default. Seven workload
-`image:` fields carry one immutable digest and move together. The migration
+copies the whole source tree and sets the API as its default. The workloads
+`API_MANIFESTS` in `scripts/check-release-consistency` names carry one
+immutable digest in their `image:` fields and move together. The migration
 Job's name also changes when its pod template changes because Kubernetes makes
 that template immutable.
 
@@ -1534,7 +1537,7 @@ not after it.
    in this database, not a membership that is absent.
 
 2. **Build and publish an image** from that same checkout, verify its digest
-   through CRI, and re-pin the eight control-plane workloads together. The
+   through CRI, and re-pin the control-plane workloads together. The
    migration Job's `metadata.name` changes with its immutable pod template.
    A digest the registry does not hold leaves the new pod in
    `ImagePullBackOff`; at one replica the API's rolling update retains the old
@@ -1573,12 +1576,12 @@ not after it.
    the claim names its volume, so binding is two API objects agreeing and never
    touches the node.
 4. **Verify `chuggy-postgres-credentials` and the database agree before the
-   merge.** The generated inventory now has eight keys: owner, API, ticket
-   service, selector, scheduler, finalizer, worker plane, and configuration
-   importer. The database has the corresponding eight active login roles:
-   `chuggy_owner` and seven `*_login` roles. `chuggy_dispatcher_login` is legacy
-   and is not part of this Secret or any workload. Step 1 must have synchronized
-   all eight Secret values and applied those same values through
+   merge.** The generated inventory now has nine keys: owner, API, ticket
+   service, selector, scheduler, finalizer, worker plane, pool plane and
+   configuration importer. The database has the corresponding nine active login
+   roles: `chuggy_owner` and eight `*_login` roles. `chuggy_dispatcher_login` is
+   legacy and is not part of this Secret or any workload. Step 1 must have
+   synchronized all nine Secret values and applied those same values through
    `chuggy-pg-role-env`; a green Secret sync alone proves only host/cluster
    agreement, not that PostgreSQL accepts the value. Authenticate as every
    login over the cluster network before merging. In particular, verify

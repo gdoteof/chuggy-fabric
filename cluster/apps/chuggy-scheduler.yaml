@@ -3,12 +3,12 @@
 # a Kubernetes credential.
 #
 # One responsibility, one pod, one command, one database role. The shared image,
-# the seven places its digest is written, the login-role-becomes-group connection,
-# the password's URL-reserved-character constraint and the absence of a health
-# listener are argued in chuggy-ticket-service.yaml. The recovery epoch and the
-# insert that establishes it are argued in chuggy-finalizer.yaml; both processes
-# fence against the same epoch, which is why both read it from one Secret rather
-# than each carrying a copy.
+# the release roster its digest is written in, the login-role-becomes-group
+# connection, the password's URL-reserved-character constraint and the absence
+# of a health listener are argued in chuggy-ticket-service.yaml. The recovery
+# epoch and the insert that establishes it are argued in chuggy-finalizer.yaml;
+# both processes fence against the same epoch, which is why both read it from
+# one Secret rather than each carrying a copy.
 #
 # ------------------------------------------ the credential that is not a secret ----
 #

@@ -4,7 +4,8 @@
 # API asks it, and so does the selector's wake pass, which asks only whether the
 # member whose thread is waking may still `read` the project and skips that
 # thread for the pass where no tuple says so, and so does the scheduler, which
-# asks only whether a pool a project registered still holds `Execute`.
+# asks only whether a pool a project registered still holds `Execute` -- as the
+# pool plane asks of every pool that polls it.
 #
 # The model is `ory/namespaces.ts` -- object types, the relations a tuple may
 # state, and the permits computed from them. It is configuration for the reason

@@ -65,12 +65,12 @@ WRITE_SERVICE = "keto-write"
 POSTGRES_POLICY = "postgres-admits-labelled-clients"
 POSTGRES_CLIENT = ("chuggy.dev/postgres-client", "true")
 
-# The API and the scheduler are each told where the read port is, and each URL
-# is a second copy of the Service's own number. The selector holds a copy of its
-# own, and tests/selector-reach.py resolves that one against this Service and
-# against the selector's egress arm; this gate reads the other two, and the arm
-# each workload's own policy has to carry for its URL to be openable at all.
-# Each is (deployment, container, variable, egress policy).
+# The API, the scheduler and the pool plane are each told where the read port
+# is, and each URL is a second copy of the Service's own number. The selector
+# holds a copy of its own, and tests/selector-reach.py resolves that one against
+# this Service and against the selector's egress arm; this gate reads the other
+# three, and the arm each workload's own policy has to carry for its URL to be
+# openable at all. Each is (deployment, container, variable, egress policy).
 READERS = (
     ("chuggy-api", "api", "CHUG_API_KETO_READ_URL", "chuggy-api-egress"),
     (
@@ -78,6 +78,12 @@ READERS = (
         "scheduler",
         "CHUG_SCHEDULER_KETO_READ_URL",
         "chuggy-scheduler-egress",
+    ),
+    (
+        "chuggy-pool-plane",
+        "pool-plane",
+        "CHUG_POOL_PLANE_KETO_READ_URL",
+        "chuggy-pool-plane-egress",
     ),
 )
 
