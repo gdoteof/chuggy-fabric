@@ -192,10 +192,10 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   # The suffix changes whenever the immutable pod template's release transport does.
-  name: chuggy-migrate-5f05ab42-registry
+  name: chuggy-migrate-a1b3e203-registry
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: 5f05ab42
+    fabric.chuggy.dev/source-commit: a1b3e203
   labels: { app: chuggy-migrate }
 spec:
   # ONE ATTEMPT, because retrying this JOB was never what could survive the race
