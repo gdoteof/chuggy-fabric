@@ -267,7 +267,9 @@ spec:
                   "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\",\"credential\":\"chuggy-git-worker\",\"credentialUsername\":\"worker\"}}",
                   "CHUG_WORKER_WORKSPACE": "/workspace",
                   "CHUG_PG_URL": "postgres://postgres@127.0.0.1:5432/postgres",
-                  "CHUG_PG_WORKERS": "4"
+                  "CHUG_PG_WORKERS": "4",
+                  "BASH_DEFAULT_TIMEOUT_MS": "1800000",
+                  "BASH_MAX_TIMEOUT_MS": "3000000"
                 }
             # `CHUG_PG_URL` and `CHUG_PG_WORKERS` are kasofsk/chuggy's own: its
             # gates run against the server the first names, and the second is
@@ -275,6 +277,12 @@ spec:
             # the sidecar above, on the pod's loopback. Each suite has a
             # database of its own at any count, so the count is throughput and
             # the verdict does not depend on it.
+            # The two `BASH_` values are Claude Code's Bash tool timeouts. The
+            # worker core never lets a command move to the background, where a
+            # headless run would kill it unseen, so a command past its timeout
+            # is killed instead: the default is long enough for a whole
+            # `ci.sh`, and the most an agent may ask for is shorter than
+            # `CHUG_SCHEDULER_WORKER_DEADLINE_SECS`.
             # `chuggy.dev/worker` is what chuggy-work.yaml's egress policy
             # selects on. It is possession of a label and not authentication,
             # and it is not `chuggy.dev/postgres-client`: a worker's PostgreSQL
@@ -535,6 +543,14 @@ spec:
                     "image": "registry.chuggy.internal/chuggy/worker@sha256:44c5193a8e779f0ae3dee5a763d21a98727f7ec98039fc720b0f9afc35367a3c",
                     "name": "chuggy-worker",
                     "version": "0.32",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:4a5c7e7e58535e17611d455901ec2e4ed0d877d2747ec73a34027977843b7fb3",
+                    "name": "chuggy-worker",
+                    "version": "0.33",
                     "operatingSystem": "Linux",
                     "architecture": "Amd64",
                     "capabilities": ["Agent:Claude", "Agent:Codex"]
@@ -814,7 +830,7 @@ spec:
             - name: CHUG_SCHEDULER_SESSION_POLICY
               value: |
                 {
-                  "image": "registry.chuggy.internal/chuggy/worker@sha256:44c5193a8e779f0ae3dee5a763d21a98727f7ec98039fc720b0f9afc35367a3c",
+                  "image": "registry.chuggy.internal/chuggy/worker@sha256:4a5c7e7e58535e17611d455901ec2e4ed0d877d2747ec73a34027977843b7fb3",
                   "profile": "chuggy-development",
                   "runtimeVersion": "claude-code-latest",
                   "grant": {
