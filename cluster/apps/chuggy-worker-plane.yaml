@@ -137,7 +137,8 @@ spec:
 ---
 # Two kinds of pod in `chuggy-work` reach this listener, and each is admitted by
 # the label its own egress policy is keyed on rather than by the namespace: a
-# namespace rule alone would admit anything anyone ever places there.
+# namespace rule alone would admit anything anyone ever places there. Traefik is
+# the third, for a harness on a pool outside this cluster.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -168,6 +169,17 @@ spec:
           podSelector:
             matchLabels:
               chuggy.dev/session: "true"
+      ports:
+        - { protocol: TCP, port: 3001 }
+    # The kubelet's probes need no element, for the reason
+    # chuggy-control-plane-network-policy.yaml gives over the API's.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
       ports:
         - { protocol: TCP, port: 3001 }
 ---
@@ -212,3 +224,36 @@ spec:
               - 192.168.0.0/16
       ports:
         - { protocol: TCP, port: 443 }
+---
+# Where a pool's harness calls back: each assignment carries this host as its
+# callback URL (chuggy-pool-plane.yaml), and every route resolves against it.
+#
+# WHAT THIS PUBLISHES is every `/v1` route this plane serves, and each of them
+# authenticates an attempt's or a session's bearer before it reads or writes
+# anything (kasofsk/chuggy's `src/adapters/http/workerPlaneServer.ts`). A pool's
+# harness holds an attempt's bearer and calls the attempt routes; the session
+# routes are published beside them and refuse any bearer but a live session's.
+# The probes are outside `/v1`, so they are not published.
+#
+# Cloudflare refuses a proxied request body over 100 MB, and no body this plane
+# takes comes near it: an artifact is one PUT, and every body is bounded by
+# `CHUG_WORKER_PLANE_UPLOAD_BYTES_MAX` -- unset above, so chuggy's 4 MiB
+# `workerPlaneUploadBytesMax`. Raised past 100 MB, it would let a pod in this
+# cluster upload what the edge refuses a pool.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chuggy-worker-plane
+  namespace: chuggy
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: chuggy-worker.vteng.io
+      http:
+        paths:
+          - path: /v1
+            pathType: Prefix
+            backend:
+              service:
+                name: chuggy-worker-plane
+                port: { number: 3001 }
