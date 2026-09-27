@@ -2,9 +2,9 @@
 # commit, and the only writer of the artifact store.
 #
 # One responsibility, one pod, one command, one database role. The shared image,
-# the seven places its digest is written, the login-role-becomes-group connection,
-# the password's URL-reserved-character constraint and the absence of a health
-# listener are argued in chuggy-ticket-service.yaml.
+# the release roster its digest is written in, the login-role-becomes-group
+# connection, the password's URL-reserved-character constraint and the absence
+# of a health listener are argued in chuggy-ticket-service.yaml.
 #
 # THE IMAGE IS NO LONGER THE OPEN QUESTION. The finalizer's first precondition is
 # `git-available`: it runs `git --version` and requires a version that writes
