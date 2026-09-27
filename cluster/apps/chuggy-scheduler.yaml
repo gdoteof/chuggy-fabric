@@ -281,8 +281,8 @@ spec:
             # worker core never lets a command move to the background, where a
             # headless run would kill it unseen, so a command past its timeout
             # is killed instead: the default is long enough for a whole
-            # `ci.sh`, and the most an agent may ask for still ends inside
-            # `CHUG_SCHEDULER_WORKER_DEADLINE_SECS`, leaving it time to report.
+            # `ci.sh`, and the most an agent may ask for is shorter than
+            # `CHUG_SCHEDULER_WORKER_DEADLINE_SECS`.
             # `chuggy.dev/worker` is what chuggy-work.yaml's egress policy
             # selects on. It is possession of a label and not authentication,
             # and it is not `chuggy.dev/postgres-client`: a worker's PostgreSQL
