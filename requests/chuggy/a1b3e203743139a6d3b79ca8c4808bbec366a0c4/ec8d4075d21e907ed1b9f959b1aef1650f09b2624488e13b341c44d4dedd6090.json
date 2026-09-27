@@ -1,0 +1,1 @@
+{"apiVersion":"chuggy.dev/v1","kind":"ContainerBuildRequest","spec":{"builderProfile":"shipwright-buildkit-rootless-mini/v1","platforms":["linux/amd64"],"source":{"commit":"a1b3e203743139a6d3b79ca8c4808bbec366a0c4","repository":"https://github.com/kasofsk/chuggy.git"},"targetImageRepository":"registry.chuggy-registry.svc.cluster.local:5000/chuggy"}}
