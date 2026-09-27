@@ -1272,7 +1272,7 @@ only honest storage signal on this node.
 
 ## The chuggy control plane
 
-Five processes, one per responsibility, all out of one image:
+One process per responsibility, all out of one image:
 
 | Workload | Command | Database role | Listens |
 |---|---|---|---|
@@ -1281,6 +1281,8 @@ Five processes, one per responsibility, all out of one image:
 | `chuggy-selector` | `src/roots/selector.ts` | `chuggy_selector_service` | no |
 | `chuggy-scheduler` | `src/roots/scheduler.ts` | `chuggy_scheduler` | no |
 | `chuggy-finalizer` | `src/roots/finalizer.ts` | `chuggy_finalizer` | no |
+| `chuggy-worker-plane` | `src/roots/workerPlane.ts` | `chuggy_worker_plane` | yes, 3001 |
+| `chuggy-pool-plane` | `src/roots/poolPlane.ts` | `chuggy_pool_plane` | yes, 3002 |
 
 Plus `chuggy-migrate-<tag>`, a Job that applies the schema and is named after
 the image it applies it from. It waits for the database in an initContainer and
@@ -1574,12 +1576,12 @@ not after it.
    the claim names its volume, so binding is two API objects agreeing and never
    touches the node.
 4. **Verify `chuggy-postgres-credentials` and the database agree before the
-   merge.** The generated inventory now has eight keys: owner, API, ticket
-   service, selector, scheduler, finalizer, worker plane, and configuration
-   importer. The database has the corresponding eight active login roles:
-   `chuggy_owner` and seven `*_login` roles. `chuggy_dispatcher_login` is legacy
-   and is not part of this Secret or any workload. Step 1 must have synchronized
-   all eight Secret values and applied those same values through
+   merge.** The generated inventory now has nine keys: owner, API, ticket
+   service, selector, scheduler, finalizer, worker plane, pool plane and
+   configuration importer. The database has the corresponding nine active login
+   roles: `chuggy_owner` and eight `*_login` roles. `chuggy_dispatcher_login` is
+   legacy and is not part of this Secret or any workload. Step 1 must have
+   synchronized all nine Secret values and applied those same values through
    `chuggy-pg-role-env`; a green Secret sync alone proves only host/cluster
    agreement, not that PostgreSQL accepts the value. Authenticate as every
    login over the cluster network before merging. In particular, verify

@@ -230,10 +230,20 @@ spec:
 #
 # WHAT THIS PUBLISHES is every `/v1` route this plane serves, and each of them
 # authenticates an attempt's or a session's bearer before it reads or writes
-# anything (kasofsk/chuggy's `src/adapters/http/workerPlaneServer.ts`). A pool's
-# harness holds an attempt's bearer and calls the attempt routes; the session
-# routes are published beside them and refuse any bearer but a live session's.
-# The probes are outside `/v1`, so they are not published.
+# any stored state (kasofsk/chuggy's `src/adapters/http/workerPlaneServer.ts`).
+# A pool's harness holds an attempt's bearer and calls the attempt routes; the
+# session routes are published beside them and refuse any bearer but a live
+# session's. The probes are outside `/v1`, so they are not published.
+#
+# THE BODY COMES BEFORE THE BEARER, and that is accepted here rather than
+# solved. The server parses a request's whole body -- up to the 4 MiB bound
+# below, and a JSON body many times that in memory -- before any handler checks
+# who sent it, so a handful of concurrent requests from anyone on the internet
+# can take the pod past its memory limit, and stall every attempt in the cluster
+# for as long as they keep coming. It costs availability and nothing else, as
+# chuggy-api.yaml accepts of its probes. A Traefik inFlightReq does not bound
+# it: a few requests are enough, and a harness answered 429 fails its attempt.
+# The fix is the plane's own, kasofsk/chuggy#797.
 #
 # Cloudflare refuses a proxied request body over 100 MB, and no body this plane
 # takes comes near it: an artifact is one PUT, and every body is bounded by

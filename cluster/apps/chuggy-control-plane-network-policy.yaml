@@ -154,8 +154,8 @@ spec:
 # The API reaches the resolver, the database, Keto's read port and public
 # HTTPS. Every other pod on this cluster, the rig's own git service and the
 # house LAN are outside what it admits, and a destination missing from the list
-# below is an outage on the one workload the internet reaches rather than a
-# loop that stalls.
+# below is an outage on a workload the internet reaches rather than a loop
+# that stalls.
 #
 # THE PUBLIC ARM IS THREE DESTINATIONS AND NOT ONE, and NetworkPolicy can name
 # none of them: the finalizer's rule below argues why a hostname is not
