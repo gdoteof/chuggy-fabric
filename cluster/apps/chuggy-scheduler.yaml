@@ -253,12 +253,15 @@ spec:
                 {
                   "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\",\"credential\":\"chuggy-git-worker\",\"credentialUsername\":\"worker\"}}",
                   "CHUG_WORKER_WORKSPACE": "/workspace",
+                  "CHUG_PG_URL": "postgres://postgres@127.0.0.1:5432/postgres",
                   "CHUG_PG_WORKERS": "4"
                 }
-            # `CHUG_PG_WORKERS` is the concurrency `check-postgres` defaults to;
-            # the worker alone would run the gate's suites one after another.
-            # Each suite has a database of its own at any count, so the count
-            # is throughput and the verdict does not depend on it.
+            # `CHUG_PG_URL` and `CHUG_PG_WORKERS` are kasofsk/chuggy's own: its
+            # gates run against the server the first names, and the second is
+            # the concurrency `check-postgres` runs its suites at. The URL is
+            # the sidecar above, on the pod's loopback. Each suite has a
+            # database of its own at any count, so the count is throughput and
+            # the verdict does not depend on it.
             # `chuggy.dev/worker` is what chuggy-work.yaml's egress policy
             # selects on. It is possession of a label and not authentication,
             # and it is not `chuggy.dev/postgres-client`: a worker's PostgreSQL
