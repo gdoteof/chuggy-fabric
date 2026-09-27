@@ -74,6 +74,7 @@ API_MANIFESTS = (
     "chuggy-configuration-importer.yaml",
     "chuggy-finalizer.yaml",
     "chuggy-migrate.yaml",
+    "chuggy-pool-plane.yaml",
     "chuggy-scheduler.yaml",
     "chuggy-selector.yaml",
     "chuggy-ticket-service.yaml",

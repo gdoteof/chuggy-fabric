@@ -51,6 +51,7 @@ resources:
   - chuggy-control-plane-network-policy.yaml
   - chuggy-finalizer.yaml
   - chuggy-migrate.yaml
+  - chuggy-pool-plane.yaml
   - chuggy-scheduler.yaml
   - chuggy-selector.yaml
   - chuggy-storage.yaml
