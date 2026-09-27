@@ -158,6 +158,14 @@
     # so a console on a second name could not read it -- the split is Traefik's,
     # in cluster/apps/chuggy-ui.yaml, and this list cannot express it either
     # way.
+    #
+    # chuggy-pool and chuggy-worker are the two planes a worker pool on a
+    # machine outside this cluster calls: the one it polls for assignments, and
+    # the one each assignment's harness calls back. The harness resolves every
+    # route against the callback address's origin, so the worker plane cannot
+    # sit under a path on another name. The pool plane could, but only behind a
+    # rewrite, because it serves its routes from its root; its own name needs
+    # none.
     hostnames = [
       "whoami.vteng.io"
       "grafana.vteng.io"
@@ -165,6 +173,8 @@
       "auth.vteng.io"
       "id.vteng.io"
       "chuggy.vteng.io"
+      "chuggy-pool.vteng.io"
+      "chuggy-worker.vteng.io"
     ];
   };
 
