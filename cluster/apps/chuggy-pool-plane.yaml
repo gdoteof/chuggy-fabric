@@ -68,6 +68,11 @@ spec:
               value: http://keto-read.ory.svc.cluster.local:4466
             - name: CHUG_POOL_PLANE_CALLBACK_URL
               value: https://chuggy-worker.vteng.io
+            # An assignment names its image on the registry's public front,
+            # cluster/apps/registry-public.yaml, because a pool off this
+            # cluster cannot resolve the internal name.
+            - name: CHUG_POOL_PLANE_IMAGE_HOSTS
+              value: '{"registry.chuggy.internal":"chuggy-registry.vteng.io"}'
             - name: CHUG_POOL_PLANE_HOST
               value: 0.0.0.0
             - name: CHUG_POOL_PLANE_PORT
