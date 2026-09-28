@@ -166,6 +166,9 @@
     # sit under a path on another name. The pool plane could, but only behind a
     # rewrite, because it serves its routes from its root; its own name needs
     # none.
+    #
+    # chuggy-registry is the read-only registry front such a pool pulls its
+    # image from, cluster/apps/registry-public.yaml.
     hostnames = [
       "whoami.vteng.io"
       "grafana.vteng.io"
@@ -175,6 +178,7 @@
       "chuggy.vteng.io"
       "chuggy-pool.vteng.io"
       "chuggy-worker.vteng.io"
+      "chuggy-registry.vteng.io"
     ];
   };
 
