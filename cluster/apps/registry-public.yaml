@@ -1,0 +1,145 @@
+# A read-only front on the registry's storage, for worker pools outside this
+# cluster: `registry` has no authentication and accepts pushes, so it is a
+# second Distribution over the same volume rather than a route to that one.
+# Every request is put to the pool plane's /registry/authorize first, and
+# tests/registry-public.py holds the properties that keep this front read-only.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry-public
+  namespace: chuggy-registry
+  labels: { app: registry-public }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: registry-public }
+  template:
+    metadata:
+      # Never `app: registry`: the `registry` Service selects that label, and
+      # a push through it would land on this pod.
+      labels: { app: registry-public }
+    spec:
+      # The volume is a local one on the durable node, so this pod runs where
+      # `registry` does.
+      nodeSelector:
+        chuggy.dev/durable: "true"
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: registry
+          image: registry:3@sha256:1be55279f18a2fe1a74edf2664cac61c1bea305b7b4642dab412e7affdcb3e33
+          imagePullPolicy: IfNotPresent
+          args: [/etc/distribution/config.yml]
+          ports:
+            - name: registry
+              containerPort: 5000
+          readinessProbe:
+            httpGet: { path: /v2/, port: registry }
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet: { path: /v2/, port: registry }
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/distribution/config.yml
+              subPath: config.yml
+              readOnly: true
+            - name: storage
+              mountPath: /var/lib/registry
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: registry-public-config
+        - name: storage
+          persistentVolumeClaim:
+            claimName: registry
+            readOnly: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: registry-public
+  namespace: chuggy-registry
+spec:
+  selector: { app: registry-public }
+  ports:
+    - name: registry
+      port: 5000
+      targetPort: registry
+---
+# Traefik alone. The kubelet's probes need no element, for the reason
+# chuggy-control-plane-network-policy.yaml gives over the API's.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: registry-public-admits-traefik
+  namespace: chuggy-registry
+spec:
+  podSelector:
+    matchLabels: { app: registry-public }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - { protocol: TCP, port: 5000 }
+---
+# The pool plane decides from the X-Forwarded-Method and X-Forwarded-Uri
+# Traefik sets, so a client's own must not reach it. Its refusal, 401 challenge
+# included, is what the client is answered.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: pool-plane-authorizes-pulls
+  namespace: chuggy-registry
+spec:
+  forwardAuth:
+    address: http://chuggy-pool-plane.chuggy.svc.cluster.local:3002/registry/authorize
+    trustForwardHeader: false
+    authRequestHeaders: [Authorization]
+---
+# Without the middleware annotation this Ingress would publish the registry to
+# anyone. The host needs the tunnel hostname and CNAME chuggy-ui.yaml's "the
+# host, three ways" describes before it is reachable.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: registry-public
+  namespace: chuggy-registry
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: chuggy-registry-pool-plane-authorizes-pulls@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: chuggy-registry.vteng.io
+      http:
+        paths:
+          - path: /v2
+            pathType: Prefix
+            backend:
+              service:
+                name: registry-public
+                port: { number: 5000 }
