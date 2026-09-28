@@ -485,6 +485,14 @@ Workloads name `registry.chuggy.internal`, which ICANN reserves for private
 use. Every fabric node maps that logical name to the registry ClusterIP through
 k3s; it is not a public DNS record and the registry remains unexposed.
 
+Worker pools outside the cluster pull from `registry-public` instead: a second
+Distribution serving the same volume read-only at
+`chuggy-registry.vteng.io/v2`, where Traefik puts every request to the pool
+plane's `/registry/authorize` first. `cluster/apps/registry-public.yaml` is the
+front and `tests/registry-public.py` holds it read-only; the host is public
+only once it is also a tunnel hostname with a CNAME, as `chuggy-ui.yaml`'s
+"the host, three ways" describes.
+
 The registry cannot contain the image needed to start itself. Its pinned public
 image is therefore the bootstrap root, and the air-gap directory remains the
 recovery path when that upstream cannot be reached.
@@ -597,8 +605,8 @@ collection. Distribution garbage collection is stop-the-world: first stop the
 registry, run `registry garbage-collect --delete-untagged` in a one-shot pod
 that mounts the same config and PVC, then restore the Deployment. Do not run it
 beside a writable registry; a concurrent upload can lose a layer that the mark
-phase did not see. Verify every retained release digest again after the
-registry returns.
+phase did not see. `registry-public` never writes and need not be stopped.
+Verify every retained release digest again after the registry returns.
 
 Rollback changes only the consumer's digest. Keep the previous manifest in the
 registry, restore that digest in the workload declaration, and let Flux

@@ -1,0 +1,22 @@
+version: 0.1
+log:
+  level: info
+storage:
+  delete:
+    enabled: false
+  maintenance:
+    readonly:
+      enabled: true
+    # The purger deletes abandoned uploads, and this instance's volume is
+    # mounted read-only.
+    uploadpurging:
+      enabled: false
+  filesystem:
+    rootdirectory: /var/lib/registry
+http:
+  addr: :5000
+health:
+  storagedriver:
+    enabled: true
+    interval: 10s
+    threshold: 3

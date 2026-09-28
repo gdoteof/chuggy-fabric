@@ -71,6 +71,7 @@ resources:
   - ory-ui.yaml
   - postgres-network-policy.yaml
   - postgres.yaml
+  - registry-public.yaml
   - registry.yaml
   - sirdocalot-namespace.yaml
   - sirdocalot-source.yaml
@@ -103,6 +104,10 @@ configMapGenerator:
     namespace: chuggy-registry
     files:
       - config.yml=registry/config.yml
+  - name: registry-public-config
+    namespace: chuggy-registry
+    files:
+      - config.yml=registry/public.yml
   # The VM registry runs the release registry's configuration unchanged.
   - name: vm-registry-config
     namespace: chuggy-vm-registry

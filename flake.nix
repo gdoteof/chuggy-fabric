@@ -356,6 +356,10 @@
         # contract even though NixOS and Kubernetes consume different files.
         registry-wiring-gtr = registryWiring self.nixosConfigurations.gtr;
         registry-wiring-example = registryWiring self.nixosConfigurations.example;
+
+        # The registry's public front: an Ingress into its namespace puts every
+        # request to the pool plane first and reaches nothing that can write.
+        registry-public = import ./tests/registry-public.nix { inherit pkgs; };
         release-images = releaseImages;
 
         # The evaluator command a Chuggy ticket runs, and the only check that
