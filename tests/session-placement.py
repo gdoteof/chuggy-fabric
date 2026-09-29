@@ -618,11 +618,14 @@ def main():
     # Every arm that places a pod, because the slot is denied per placement: the
     # two attempt arms and the session's are three grants, and a row whose
     # credential one of them omits is a checkout that fails only on that arm.
+    # The policy's other keys, `projectRoutes`, grant nothing.
+    execution = json_variable(scheduled, EXECUTION_POLICY_VARIABLE)
     arms = {
         f"{EXECUTION_POLICY_VARIABLE}.{name}": set(
-            arm.get("grant", {}).get("credentials", [])
+            execution[name].get("grant", {}).get("credentials", [])
         )
-        for name, arm in json_variable(scheduled, EXECUTION_POLICY_VARIABLE).items()
+        for name in ("Work", "Evaluation")
+        if name in execution
     }
     arms[SESSION_POLICY_VARIABLE] = granted
     for reference, entry in repositories.items():
