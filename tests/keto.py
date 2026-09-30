@@ -42,8 +42,8 @@ label. A pod template that loses the label leaves a Deployment whose
 initContainer cannot reach the database it exists to migrate, which under
 `wait: true` stalls the reconcile rather than one workload.
 
-WHAT THIS GATE CANNOT RESOLVE IT REFUSES rather than passes: an ingress peer
-that is neither a bare podSelector nor a podSelector beside a namespaceSelector
+WHAT THIS GATE CANNOT RESOLVE IT REFUSES rather than passes: on an element
+admitting a port asked about here, an ingress peer that is neither a bare podSelector nor a podSelector beside a namespaceSelector
 naming one namespace by `kubernetes.io/metadata.name`, a peer outside `ory`
 that selects no workload the render places there, an element naming
 `endPort` -- a range this reads one port at a time, so a range that reached the
