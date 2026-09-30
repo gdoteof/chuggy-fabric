@@ -74,6 +74,16 @@ pkgs.runCommand "chuggy-build-platform" {
   test "$(grep -c 'tolerations:' "mini/$mini_path" || true)" = 0
   test "$mini_path" != "$first_path"
 
+  mkdir staged
+  staged_path=$(render staged --target generic)
+  grep -F -A1 -- '- name: target' "staged/$staged_path" | grep -F 'value: "generic"' >/dev/null
+  test "$(grep -c 'name: target' "first/$first_path" || true)" = 0
+  test "$staged_path" != "$first_path"
+  if render invalid-target --target 'two words'; then
+    echo "renderer accepted a target that is not a stage name" >&2
+    exit 1
+  fi
+
   mkdir results
   export RESULTS_PATH="$PWD/results"
   export BATCH_SIZE=1
