@@ -721,9 +721,13 @@ def main():
     def admitted_name(entry):
         return None if isinstance(entry, str) else entry.get("name")
 
+    # An unlabelled entry says nothing of which worker it releases, so it is
+    # read as a release of every one, and sessions placed on one answer to all.
     placed_name = admitted_name(admitted[images.index(policy.get("image"))])
     lineage = [
-        admitted_image(entry) for entry in admitted if admitted_name(entry) == placed_name
+        admitted_image(entry)
+        for entry in admitted
+        if placed_name is None or admitted_name(entry) in (placed_name, None)
     ]
     if policy.get("image") != lineage[-1]:
         refuse(

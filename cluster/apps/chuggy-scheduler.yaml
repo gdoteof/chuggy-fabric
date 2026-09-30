@@ -315,6 +315,8 @@ spec:
             # capabilities it carries, and names the operating system and the
             # architecture together or neither: that triple is what a task
             # requiring a capability rather than a digest resolves against.
+            # `generic-worker` names none, so it runs only where a task pins its
+            # digest, and a capability still resolves to `chuggy-worker`.
             - name: CHUG_SCHEDULER_ADMITTED_IMAGES
               value: |
                 [
@@ -574,10 +576,7 @@ spec:
                   {
                     "image": "registry.chuggy.internal/chuggy/worker-generic@sha256:2d00b0a9bbba5b5663c36850abfd5f2456c6d09f1bcc0c147c383896ad75f201",
                     "name": "generic-worker",
-                    "version": "0.1",
-                    "operatingSystem": "Linux",
-                    "architecture": "Amd64",
-                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                    "version": "0.1"
                   }
                 ]
             # The memory limit is what chuggy's own `ci.sh` needs: Node sizes
