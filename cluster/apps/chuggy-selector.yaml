@@ -12,7 +12,7 @@
 # running is left. `selector-source` was answered: the credential below is what
 # it was missing, and the client that credential names is registered out of
 # band, which is the whole of what it takes -- an empty project list is a pass,
-# so the membership row further down is what turns the pass into work rather
+# so the Keto tuple further down is what turns the pass into work rather
 # than what makes it one. `selector-policy` is not answered but withdrawn:
 # kasofsk/chuggy#503 deletes the protocol it asks after, in favour of what
 # decides instead, and the digest below is built from a commit that carries

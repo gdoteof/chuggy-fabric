@@ -18,8 +18,9 @@ a caller from another namespace as the rendered workloads it selects; each
 holds here unchanged. Only the admin ports are held here.
 
 WHAT THIS GATE CANNOT RESOLVE IT REFUSES rather than passes, as keto.py does: on
-an element admitting an admin port, a peer of another shape, `endPort`, a port
-that is a name or absent, a podSelector operator other than `In`, and a Service
+an element admitting an admin port, a peer of another shape, a peer outside
+`ory` that selects no workload the render places there, `endPort`, a port that
+is a name or absent, a podSelector operator other than `In`, and a Service
 publishing other than one port.
 """
 
@@ -52,7 +53,7 @@ ADMIN = "admin"
 
 CLUSTER_SUFFIX = ".svc.cluster.local"
 NAMESPACE_LABEL = "kubernetes.io/metadata.name"
-WORKLOADS = ("Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob")
+WORKLOADS = ("Pod", "Deployment", "ReplicaSet", "StatefulSet", "DaemonSet", "Job", "CronJob")
 
 
 def refuse(message):
@@ -99,6 +100,8 @@ def selects(selector, labels, described):
 
 
 def pod_labels(document):
+    if document["kind"] == "Pod":
+        return document["metadata"].get("labels") or {}
     spec = document["spec"]
     if document["kind"] == "CronJob":
         spec = spec["jobTemplate"]["spec"]
@@ -174,7 +177,8 @@ def served_admin_port(documents, deployment, entry):
 
 def peer_reach(documents, peer, described):
     """'namespace' for pods in `ory`, and each rendered workload a peer selects
-    in another namespace as (namespace, name)."""
+    in another namespace as (namespace, name) -- refused when it selects none,
+    since it then admits only pods made some other way."""
     if set(peer) == {"podSelector"}:
         return {"namespace"}
     namespaces = peer.get("namespaceSelector") or {}
@@ -188,15 +192,22 @@ def peer_reach(documents, peer, described):
             f"an ingress peer on {described} is neither a bare podSelector nor a podSelector "
             f"in one namespace named by {NAMESPACE_LABEL}, and this gate cannot resolve its reach"
         )
-    if named[NAMESPACE_LABEL] == ORY:
+    namespace = named[NAMESPACE_LABEL]
+    if namespace == ORY:
         return {"namespace"}
-    return {
-        (named[NAMESPACE_LABEL], document["metadata"]["name"])
+    selected = {
+        (namespace, document["metadata"]["name"])
         for document in documents
         if document.get("kind") in WORKLOADS
-        and document["metadata"].get("namespace") == named[NAMESPACE_LABEL]
+        and document["metadata"].get("namespace") == namespace
         and selects(peer["podSelector"], pod_labels(document), described)
     }
+    if not selected:
+        refuse(
+            f"an ingress peer on {described} selects no workload the render places in "
+            f"`{namespace}`, so what it admits is pods this gate cannot see"
+        )
+    return selected
 
 
 def spoken(reach):

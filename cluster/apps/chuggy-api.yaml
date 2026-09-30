@@ -191,11 +191,14 @@
 #
 #   kubectl -n chuggy create secret generic chuggy-github-app-portal-client \
 #     --from-file=client-secret=/var/lib/chuggy/secrets/github-app/chuggy-portal-client-secret
+#   kubectl -n chuggy rollout restart deployment/chuggy-api
 #
 # It is what a person's GitHub authorization code is exchanged with, which is
 # how a workspace proves it controls the account it claims. Its volume is
 # optional where the key's is not: without it the API starts and answers
-# NotConfigured to that proof alone.
+# NotConfigured to that proof alone. The API reads whether the file is there
+# when it starts, so a Secret created while it runs is used only after the
+# restart.
 #
 # --------------------------------------------------------------- the OIDC ----
 #

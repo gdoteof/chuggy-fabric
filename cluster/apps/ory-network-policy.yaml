@@ -49,7 +49,7 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: ory-admin-apis-are-namespace-local
+  name: ory-admin-apis-admit-ory-and-the-api
   namespace: ory
 spec:
   # Hydra, Kratos and Keto, and not ory-ui: the UI serves one port and it is
@@ -94,11 +94,12 @@ spec:
     # resolves that pairing for Keto's two, and tests/ory-admin.py for the
     # other two.
     #
-    # A SCRAPE WOULD NEED A THIRD ELEMENT. Hydra publishes Prometheus metrics on
-    # its admin port and Keto on a port no Service names, so a ServiceMonitor
-    # added in `monitoring` fails here -- silently, as a target that never comes
-    # up. Admit it the way flux-system/allow-scraping does, by namespace and
-    # metrics port, rather than by widening this element.
+    # A SCRAPE WOULD NEED AN ELEMENT OF ITS OWN. Hydra publishes Prometheus
+    # metrics on its admin port and Keto on a port no Service names, so a
+    # ServiceMonitor added in `monitoring` fails here -- silently, as a target
+    # that never comes up. Admit Keto's the way flux-system/allow-scraping does,
+    # by namespace and metrics port, rather than by widening this element.
+    # Hydra's is the admin API itself, and tests/ory-admin.py refuses it.
     - from:
         - podSelector: {}
       ports:

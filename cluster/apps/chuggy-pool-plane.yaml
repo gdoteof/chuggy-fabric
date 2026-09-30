@@ -130,9 +130,9 @@ spec:
 ---
 # chuggy-api-egress without GitHub or the ports that write: the resolver, the
 # database, Keto's read port for whether a pool still holds `execute`, and
-# public HTTPS for the issuer's discovery document and key set. That rule argues
-# the public arm's shape and the selector's why Keto is on its read port, and
-# both hold here unchanged.
+# public HTTPS for the issuer's discovery document and key set.
+# chuggy-api-egress argues the public arm's shape and chuggy-selector-egress
+# why Keto is on its read port, and both hold here unchanged.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

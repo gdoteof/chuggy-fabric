@@ -44,7 +44,8 @@ initContainer cannot reach the database it exists to migrate, which under
 
 WHAT THIS GATE CANNOT RESOLVE IT REFUSES rather than passes: an ingress peer
 that is neither a bare podSelector nor a podSelector beside a namespaceSelector
-naming one namespace by `kubernetes.io/metadata.name`, an element naming
+naming one namespace by `kubernetes.io/metadata.name`, a peer outside `ory`
+that selects no workload the render places there, an element naming
 `endPort` -- a range this reads one port at a time, so a range that reached the
 write port would read here as the number it starts at -- an element whose port
 is a name or is absent rather than a number, a podSelector this cannot
@@ -106,7 +107,7 @@ CLUSTER_SUFFIX = ".svc.cluster.local"
 NAMESPACE_LABEL = "kubernetes.io/metadata.name"
 
 # What a pod is rendered from, and so what a peer's podSelector is read against.
-WORKLOADS = ("Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob")
+WORKLOADS = ("Pod", "Deployment", "ReplicaSet", "StatefulSet", "DaemonSet", "Job", "CronJob")
 
 # The flag whose value names the file the server actually reads, and the keys
 # inside that file that decide what it binds.
@@ -250,6 +251,8 @@ def resolved_port(service, deployment):
 
 
 def pod_labels(document):
+    if document["kind"] == "Pod":
+        return document["metadata"].get("labels") or {}
     spec = document["spec"]
     if document["kind"] == "CronJob":
         spec = spec["jobTemplate"]["spec"]
@@ -262,7 +265,9 @@ def peer_reach(documents, peer, described):
 
     A bare podSelector is scoped to the policy's own namespace, so whatever it
     selects is inside `ory`. A peer in another namespace is resolved against
-    what the render puts there rather than against the label it names.
+    what the render puts there rather than against the label it names, and one
+    that selects nothing there is refused: what it admits is pods made some
+    other way.
     """
     if set(peer) == {"podSelector"}:
         return {"namespace"}
@@ -277,15 +282,22 @@ def peer_reach(documents, peer, described):
             f"an ingress peer on {described} is neither a bare podSelector nor a podSelector "
             f"in one namespace named by {NAMESPACE_LABEL}, and this gate cannot resolve its reach"
         )
-    if named[NAMESPACE_LABEL] == ORY:
+    namespace = named[NAMESPACE_LABEL]
+    if namespace == ORY:
         return {"namespace"}
-    return {
-        (named[NAMESPACE_LABEL], document["metadata"]["name"])
+    selected = {
+        (namespace, document["metadata"]["name"])
         for document in documents
         if document.get("kind") in WORKLOADS
-        and document["metadata"].get("namespace") == named[NAMESPACE_LABEL]
+        and document["metadata"].get("namespace") == namespace
         and selects(peer["podSelector"], pod_labels(document), described)
     }
+    if not selected:
+        refuse(
+            f"an ingress peer on {described} selects no workload the render places in "
+            f"`{namespace}`, so what it admits is pods this gate cannot see"
+        )
+    return selected
 
 
 def spoken(reach):
@@ -295,26 +307,22 @@ def spoken(reach):
     ) or ["nowhere"]
 
 
-def admission(documents, policies):
-    """Every ingress element as (who it admits, the TCP ports it admits).
+def admission(policies):
+    """Every ingress element as (its policy, its peers, the TCP ports it admits).
 
     Across all of them, because NetworkPolicies are additive: a port is
     reachable from wherever ANY policy selecting the pod admits it, and a
     second object admitting the write port would leave the first one reading
     exactly as it does now.
 
-    An element with no `from`, or an empty one, admits every pod on the
-    network; otherwise it admits the union of its peers.
+    Peers are resolved by admitted_by and not here, on the elements admitting
+    the port asked about, so an element on a port this gate never asks about
+    -- a scrape of Keto's metrics -- is not held to what the render can name.
     """
     found = []
     for policy in policies:
         name = policy["metadata"]["name"]
         for element in policy["spec"].get("ingress") or []:
-            peers = element.get("from")
-            if not peers:
-                reach = {"anywhere"}
-            else:
-                reach = set().union(*(peer_reach(documents, peer, name) for peer in peers))
             ports = set()
             for port in element.get("ports") or []:
                 if "endPort" in port:
@@ -338,12 +346,23 @@ def admission(documents, policies):
                     f"an ingress element on {name} names no TCP port, so it admits every "
                     "port on every pod it selects"
                 )
-            found.append((reach, ports))
+            found.append((name, element.get("from"), ports))
     return found
 
 
-def admitted_by(elements, port):
-    return set().union(*(reach for reach, ports in elements if port in ports))
+def admitted_by(documents, elements, port):
+    """Who is admitted to one port. An element with no `from`, or an empty
+    one, admits every pod on the network; otherwise it admits the union of its
+    peers."""
+    reach = set()
+    for name, peers, ports in elements:
+        if port not in ports:
+            continue
+        if not peers:
+            reach.add("anywhere")
+        for peer in peers or []:
+            reach |= peer_reach(documents, peer, name)
+    return reach
 
 
 def probe_ports(entry):
@@ -417,11 +436,11 @@ def main():
                 "there is not what the elements below are reasoned about"
             )
 
-    elements = admission(documents, policies)
+    elements = admission(policies)
 
     # 3. The write port grants permission, so it is admitted from inside `ory`
     #    and from each writer, and from nowhere else.
-    reach = admitted_by(elements, write_port)
+    reach = admitted_by(documents, elements, write_port)
     wanted = {"namespace"} | {(CONTROL, writer) for writer, _, _, _ in WRITERS}
     if reach != wanted:
         refuse(
@@ -432,7 +451,7 @@ def main():
 
     # 4. The read port answers checks and grants nothing, and it carries the
     #    health endpoints, so it is admitted from anywhere on the pod network.
-    if "anywhere" not in admitted_by(elements, read_port):
+    if "anywhere" not in admitted_by(documents, elements, read_port):
         refuse(
             f"{READ_SERVICE} lands on container port {read_port}, which {named} does not "
             "admit from anywhere on the pod network"
@@ -442,7 +461,7 @@ def main():
     #    podSelector, so one on a namespace-local port is answered only by the
     #    node-local ACCEPT that ory-network-policy.yaml declines to rely on.
     for probed in sorted(probe_ports(container(deployment, SERVER))):
-        if "anywhere" not in admitted_by(elements, probed):
+        if "anywhere" not in admitted_by(documents, elements, probed):
             refuse(
                 f"the {SERVER} container probes port {probed}, which {named} does not admit "
                 "from anywhere, so the kubelet reaches it only through the CNI exemption"
