@@ -209,6 +209,10 @@
         # looks correct in every file separately.
         keto = import ./tests/keto.nix { inherit pkgs; };
 
+        # Who may reach Hydra's and Kratos's admin ports, which register any
+        # client and create any identity: `ory`, and the API on Hydra's alone.
+        ory-admin = import ./tests/ory-admin.nix { inherit pkgs; };
+
         # Every repository `repositories.nix` declares, against the build
         # requests that clone it -- and the rendered cluster, which must carry
         # no per-repository token at all now that every pod mints its own.

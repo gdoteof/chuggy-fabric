@@ -29,7 +29,10 @@
 # this, and nothing in this file would report it.
 #
 # The other two are bounded by who may exec in `ory`, which is nobody outside
-# the operator today.
+# the operator today. The chuggy API is the one caller admitted from outside
+# `ory`, so exec in its pod, or a pod made in `chuggy` with its labels, reaches
+# hydra-admin and keto-write as well. Both are `edit` in `chuggy`, which the
+# paragraph on the stores below shows already reaches what those ports write.
 #
 # NOTHING HERE DEPENDS ON THAT CNI BEHAVIOUR TO WORK. The exemption is a leak
 # and not a mechanism: every probe in `ory` is on a port this policy admits
@@ -46,7 +49,7 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: ory-admin-apis-are-namespace-local
+  name: ory-admin-apis-admit-ory-and-the-api
   namespace: ory
 spec:
   # Hydra, Kratos and Keto, and not ory-ui: the UI serves one port and it is
@@ -80,22 +83,23 @@ spec:
           port: 4433 # kratos-public
         - protocol: TCP
           port: 4466 # keto-read
-    # The ports that administer, from this namespace only. A bare podSelector is
+    # The ports that administer, from this namespace. A bare podSelector is
     # scoped to the policy's own namespace, so this is ory-ui reaching
     # hydra-admin for consent and kratos-admin for identities, and Kratos
-    # reaching hydra-admin to resolve a login challenge -- and nothing outside
-    # `ory` writing a relationship.
+    # reaching hydra-admin to resolve a login challenge.
     #
     # These are pod ports, not Service ports. They coincide here because every
     # Service targets the container port by name and the numbers match; a future
     # Service that renumbers would not move this rule with it. tests/keto.py
-    # resolves that pairing for Keto's two.
+    # resolves that pairing for Keto's two, and tests/ory-admin.py for the
+    # other two.
     #
-    # A SCRAPE WOULD NEED A THIRD ELEMENT. Hydra publishes Prometheus metrics on
-    # its admin port and Keto on a port no Service names, so a ServiceMonitor
-    # added in `monitoring` fails here -- silently, as a target that never comes
-    # up. Admit it the way flux-system/allow-scraping does, by namespace and
-    # metrics port, rather than by widening this element.
+    # A SCRAPE WOULD NEED AN ELEMENT OF ITS OWN. Hydra publishes Prometheus
+    # metrics on its admin port and Keto on a port no Service names, so a
+    # ServiceMonitor added in `monitoring` fails here -- silently, as a target
+    # that never comes up. Admit Keto's the way flux-system/allow-scraping does,
+    # by namespace and metrics port, rather than by widening this element.
+    # Hydra's is the admin API itself, and tests/ory-admin.py refuses it.
     - from:
         - podSelector: {}
       ports:
@@ -103,5 +107,23 @@ spec:
           port: 4445 # hydra-admin
         - protocol: TCP
           port: 4434 # kratos-admin
+        - protocol: TCP
+          port: 4467 # keto-write
+    # The one caller from outside `ory`: the chuggy API, writing the tuples a
+    # created project and a registered pool are granted, and a pool's client.
+    # Not kratos-admin -- the API creates no identity. The element reaches all
+    # three servers and each number is served by one of them, so it admits
+    # hydra-admin and keto-write and nothing on Kratos. chuggy-api-egress is the
+    # other half.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy
+          podSelector:
+            matchLabels:
+              app: chuggy-api
+      ports:
+        - protocol: TCP
+          port: 4445 # hydra-admin
         - protocol: TCP
           port: 4467 # keto-write

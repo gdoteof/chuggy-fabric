@@ -12,7 +12,7 @@
 # running is left. `selector-source` was answered: the credential below is what
 # it was missing, and the client that credential names is registered out of
 # band, which is the whole of what it takes -- an empty project list is a pass,
-# so the membership row further down is what turns the pass into work rather
+# so the Keto tuple further down is what turns the pass into work rather
 # than what makes it one. `selector-policy` is not answered but withdrawn:
 # kasofsk/chuggy#503 deletes the protocol it asks after, in favour of what
 # decides instead, and the digest below is built from a commit that carries
@@ -64,11 +64,11 @@
 # is one that leaves no room for that retry.
 #
 # THE CLIENT ITSELF IS OUT OF BAND, like the secret it authenticates with, and
-# so is the API's opinion of it: a project membership row for the principal its
-# tokens carry is what turns a verified token into a project this selector may
-# read. The client and the secret are named under the Secrets below. The
-# membership row is not, and nothing here can write one -- it is granted through
-# the API, like any other project access.
+# so is the API's opinion of it: a Keto tuple for the principal its tokens carry
+# is what turns a verified token into a project this selector may read. The
+# client and the secret are named under the Secrets below. The tuple is not, and
+# nothing here can write one -- chuggy-scheduler.yaml writes down the command
+# that does.
 #
 # ------------------------------------------- the policy, and where it lives ----
 #
@@ -279,9 +279,9 @@ spec:
             # the project, so this process asks the read port itself instead of
             # reading the answer through the API; the arm that permits that is
             # in chuggy-control-plane-network-policy.yaml, and the write port is
-            # not admitted to anything outside `ory`. `requestTimeoutMs` is
-            # optional and unset is the code's own default, which is why it is
-            # not written -- the same reason `selector` is omitted above.
+            # admitted to nothing outside `ory` but the API. `requestTimeoutMs`
+            # is optional and unset is the code's own default, which is why it
+            # is not written -- the same reason `selector` is omitted above.
             #
             # It is required and the schema is strict, so an image built before
             # kasofsk/chuggy#635 refuses a document carrying it: this block and

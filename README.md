@@ -1399,15 +1399,15 @@ lease, so it permits everything but the pod and service networks; the file
 argues why and what would narrow it.
 
 **`chuggy-api` is bounded in both directions.** `chuggy-api-egress` admits the
-resolver, PostgreSQL, Keto's read port and public HTTPS on 443, and refuses the
-rest: every other pod on the cluster, the rig's own git service, and the house
-LAN, which the public arm excepts along with the pod and service networks. That
-443 arm is three destinations no rule here can name as hostnames — OIDC
-discovery and JWKS against `auth.vteng.io`, which leaves the cluster and comes
-back through the tunnel, `api.github.com` for the installation tokens the pod
-mints, and `github.com` for a bound repository's `ls-remote` and `fetch`. It is
-the only one of these the internet reaches, so it is the one whose rule fails as
-an outage rather than as a loop that stalls.
+resolver, PostgreSQL, Keto's read and write ports, Hydra's admin port and public
+HTTPS on 443, and refuses the rest: every other pod on the cluster, the rig's
+own git service, and the house LAN, which the public arm excepts along with the
+pod and service networks. That 443 arm is three destinations no rule here can
+name as hostnames — OIDC discovery and JWKS against `auth.vteng.io`, which
+leaves the cluster and comes back through the tunnel, `api.github.com` for the
+installation tokens the pod mints, and `github.com` for a bound repository's
+`ls-remote` and `fetch`. It is the only one of these the internet reaches, so it
+is the one whose rule fails as an outage rather than as a loop that stalls.
 
 **`chuggy-ui` is selected by none of the nine, in either direction**, and that
 is the state this PR leaves it in rather than a decision it argues. It is the
