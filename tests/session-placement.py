@@ -79,7 +79,7 @@ admitted in `CHUG_SCHEDULER_ADMITTED_IMAGES` and pinned in
 how many times or where -- so either site could carry a digest the other does
 not while that line stayed green. Held here, over the parsed render, in the
 direction a release moves them: the pinned image is admitted, and it is the
-newest admission.
+newest admission under its own name.
 
 AND THE ADMITTED LIST IS ONE THE SCHEDULER CAN PARSE AT ALL. Its parser refuses
 a list that admits one image twice or spells one (name, version) label twice,
@@ -681,7 +681,9 @@ def main():
     #    digest the other does not while that line stayed satisfied. Newest and
     #    not merely present, because admission order is release order: a policy
     #    on an older admitted image is a release that moved one site and not the
-    #    other.
+    #    other. Newest under its own name, because a second worker admitted
+    #    beside it -- `generic-worker`, which a repository with no image of its
+    #    own starts on -- is not a release of the one sessions run on.
     admitted = json_variable(scheduled, ADMITTED_IMAGES_VARIABLE)
 
     # 9a. And that list is one the scheduler's parser accepts: no image admitted
@@ -716,10 +718,18 @@ def main():
             f"{SESSION_POLICY_VARIABLE} places sessions on an image "
             f"{ADMITTED_IMAGES_VARIABLE} does not admit, so every placement is denied"
         )
-    if policy.get("image") != images[-1]:
+    def admitted_name(entry):
+        return None if isinstance(entry, str) else entry.get("name")
+
+    placed_name = admitted_name(admitted[images.index(policy.get("image"))])
+    lineage = [
+        admitted_image(entry) for entry in admitted if admitted_name(entry) == placed_name
+    ]
+    if policy.get("image") != lineage[-1]:
         refuse(
             f"{SESSION_POLICY_VARIABLE} places sessions on an image older than the newest "
-            f"{ADMITTED_IMAGES_VARIABLE} entry, so one of the two was repinned without the other"
+            f"{ADMITTED_IMAGES_VARIABLE} entry of its name, so one of the two was repinned "
+            "without the other"
         )
 
     # 10. A credential slot is named by whoever OPENS a session and enforced by

@@ -366,6 +366,11 @@ spec:
               value: "4728465"
             - name: CHUG_API_FORGE_WORKER_APP_KEY_FILE
               value: /var/run/chuggy/forge-app-worker/private-key
+            # The image a repository bound with no configuration of its own
+            # starts on: the scheduler's `generic-worker`, which carries no
+            # practices of chuggy's. Its bootstrap ticket is told to name it.
+            - name: CHUG_API_BOOTSTRAP_WORKER_IMAGE
+              value: registry.chuggy.internal/chuggy/worker-generic@sha256:2d00b0a9bbba5b5663c36850abfd5f2456c6d09f1bcc0c147c383896ad75f201
             # The named credential mount a member's thread speaks to the model
             # through, written on the API because the API is what opens a
             # thread's session. It is not free: `kubernetesSessionPodRequest`
