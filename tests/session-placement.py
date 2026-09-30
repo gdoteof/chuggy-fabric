@@ -79,7 +79,17 @@ admitted in `CHUG_SCHEDULER_ADMITTED_IMAGES` and pinned in
 how many times or where -- so either site could carry a digest the other does
 not while that line stayed green. Held here, over the parsed render, in the
 direction a release moves them: the pinned image is admitted, and it is the
-newest admission.
+newest admission under its own name or none.
+
+AND A TASK THAT ASKS FOR A CAPABILITY RUNS ON THAT SAME WORKER. The scheduler
+resolves a capability, rather than a digest, to the last admitted entry
+publishing it on the asked platform, so a second worker admitted after the
+session's -- `generic-worker`, which a repository with no image of its own
+starts on -- takes every such task while each check above stays green. The
+resolution is mirrored from `suppliedCapabilityAdmission` and `schedulerRuntime`
+in kasofsk/chuggy `src/adapters/supplied/schedulerPorts.ts` and
+`src/roots/schedulerConfig.ts`, an entry publishing no capabilities read as a
+Linux/Amd64 Claude worker as they read it; a copy, and it moves when they move.
 
 AND THE ADMITTED LIST IS ONE THE SCHEDULER CAN PARSE AT ALL. Its parser refuses
 a list that admits one image twice or spells one (name, version) label twice,
@@ -96,6 +106,7 @@ follows; a copy is what this is, and it moves when that moves.
 
 import json
 import sys
+from itertools import combinations
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -681,7 +692,9 @@ def main():
     #    digest the other does not while that line stayed satisfied. Newest and
     #    not merely present, because admission order is release order: a policy
     #    on an older admitted image is a release that moved one site and not the
-    #    other.
+    #    other. Newest under its own name, because a second worker admitted
+    #    beside it -- `generic-worker`, which a repository with no image of its
+    #    own starts on -- is not a release of the one sessions run on.
     admitted = json_variable(scheduled, ADMITTED_IMAGES_VARIABLE)
 
     # 9a. And that list is one the scheduler's parser accepts: no image admitted
@@ -716,11 +729,51 @@ def main():
             f"{SESSION_POLICY_VARIABLE} places sessions on an image "
             f"{ADMITTED_IMAGES_VARIABLE} does not admit, so every placement is denied"
         )
-    if policy.get("image") != images[-1]:
+    def admitted_name(entry):
+        return None if isinstance(entry, str) else entry.get("name")
+
+    # An unlabelled entry says nothing of which worker it releases, so it is
+    # read as a release of every one, and sessions placed on one answer to all.
+    placed_name = admitted_name(admitted[images.index(policy.get("image"))])
+    lineage = [
+        admitted_image(entry)
+        for entry in admitted
+        if placed_name is None or admitted_name(entry) in (placed_name, None)
+    ]
+    if policy.get("image") != lineage[-1]:
         refuse(
             f"{SESSION_POLICY_VARIABLE} places sessions on an image older than the newest "
-            f"{ADMITTED_IMAGES_VARIABLE} entry, so one of the two was repinned without the other"
+            f"{ADMITTED_IMAGES_VARIABLE} entry of its name or none, so one of the two was "
+            "repinned without the other"
         )
+
+    # 9b. Every capability a task can ask for resolves, by the scheduler's rule,
+    #     to an image of the session's own lineage.
+    def runtime(entry):
+        if isinstance(entry, str) or entry.get("capabilities") is None:
+            return (admitted_image(entry), ("Linux", "Amd64"), {"Agent:Claude"})
+        return (
+            entry.get("image"),
+            (entry.get("operatingSystem", "Linux"), entry.get("architecture", "Amd64")),
+            set(entry.get("capabilities")),
+        )
+
+    runtimes = [runtime(entry) for entry in admitted]
+    offered = sorted({capability for _, _, capabilities in runtimes for capability in capabilities})
+    for platform in sorted({platform for _, platform, _ in runtimes}):
+        for size in range(1, len(offered) + 1):
+            for asked in combinations(offered, size):
+                serving = [
+                    image
+                    for image, served, capabilities in runtimes
+                    if served == platform and set(asked) <= capabilities
+                ]
+                if serving and serving[-1] not in lineage:
+                    refuse(
+                        f"{ADMITTED_IMAGES_VARIABLE}: a task asking for {', '.join(asked)} on "
+                        f"{'/'.join(platform)} resolves to {serving[-1]}, the last entry "
+                        "publishing it, which is not the worker sessions run on"
+                    )
 
     # 10. A credential slot is named by whoever OPENS a session and enforced by
     #     whoever PLACES one, and those are different manifests. The api names
