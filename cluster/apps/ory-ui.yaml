@@ -116,11 +116,25 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 6
+          # Two of the image's views replaced; `ory/ui/` says why each one.
+          volumeMounts:
+            - name: views
+              mountPath: /usr/src/app/views/login.hbs
+              subPath: login.hbs
+              readOnly: true
+            - name: views
+              mountPath: /usr/src/app/views/layouts/welcome.hbs
+              subPath: welcome.hbs
+              readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
               drop: [ALL]
+      volumes:
+        - name: views
+          configMap:
+            name: ory-ui-views
 ---
 apiVersion: v1
 kind: Service

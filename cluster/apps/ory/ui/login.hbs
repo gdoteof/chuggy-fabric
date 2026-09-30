@@ -1,0 +1,16 @@
+<div id="login">
+  {{{card}}}
+
+  {{> js_setup nodes=nodes}}
+  {{#if extraPartial }}
+    {{> (extraPartial) }}
+  {{/if}}
+</div>
+{{! The image's own login.hbs with one addition. The card links sign-up and
+    recovery whether or not kratos.yaml enables them, and it enables neither. }}
+<style>
+  div:has(> a[data-testid="forgot-password-link"]),
+  div:has(> div > a[data-testid="signup-link"]) {
+    display: none;
+  }
+</style>

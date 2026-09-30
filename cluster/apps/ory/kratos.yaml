@@ -14,7 +14,7 @@ serve:
     base_url: http://kratos-admin.ory.svc.cluster.local:4434/
 
 selfservice:
-  default_browser_return_url: https://id.vteng.io/welcome
+  default_browser_return_url: https://chuggy.vteng.io/
   # An exhaustive list of where a flow may deposit a browser afterwards.
   # Anything absent is refused, which is what stops `?return_to=` being an
   # open redirect out of the login page.
