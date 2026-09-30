@@ -27,10 +27,10 @@
 # it -- no Cloudflare Access, no allow-list.
 #
 # The pod network is bounded, but not here: ory-network-policy.yaml admits 4445
-# from the `ory` namespace and nothing else, and carries the argument for what
-# that does and does not cover. The two Services below are not part of that
-# mechanism -- `hydra-public` and `hydra-admin` are separate objects so that an
-# Ingress cannot name the admin port by fat-fingering a number.
+# from the `ory` namespace and the chuggy API alone, and carries the argument
+# for what that does and does not cover. The two Services below are not part of
+# that mechanism -- `hydra-public` and `hydra-admin` are separate objects so
+# that an Ingress cannot name the admin port by fat-fingering a number.
 #
 # ------------------------------------------------------------ the migration ----
 #

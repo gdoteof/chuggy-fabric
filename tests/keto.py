@@ -3,10 +3,15 @@
 
 Keto's write port grants permission and authenticates nobody: one PUT on it
 makes any subject an administrator of any project. What holds it to callers
-inside `ory` is a list of label values on one NetworkPolicy, and the way that
-goes wrong is silent -- a pod whose `app` is not in the list is selected by no
-policy in the namespace, which is not a denial but the whole pod network on
-every port it listens on, with every file still reading correctly on its own.
+inside `ory` and the chuggy API is a list of label values on one NetworkPolicy,
+and the way that goes wrong is silent -- a pod whose `app` is not in the list is
+selected by no policy in the namespace, which is not a denial but the whole pod
+network on every port it listens on, with every file still reading correctly on
+its own.
+
+A CALLER FROM ANOTHER NAMESPACE IS READ AS THE RENDERED WORKLOADS IT SELECTS
+there, because that is the question: a peer selecting the API's pod by a label
+the ticket service also carries admits both, and reads as the API's either way.
 
 NETWORKPOLICIES ARE ADDITIVE, so the question is what the namespace admits and
 not what one object says. Reachability below is folded over every policy in
@@ -37,8 +42,9 @@ label. A pod template that loses the label leaves a Deployment whose
 initContainer cannot reach the database it exists to migrate, which under
 `wait: true` stalls the reconcile rather than one workload.
 
-WHAT THIS GATE CANNOT RESOLVE IT REFUSES rather than passes: an ingress element
-whose `from` is neither absent nor a bare podSelector, an element naming
+WHAT THIS GATE CANNOT RESOLVE IT REFUSES rather than passes: an ingress peer
+that is neither a bare podSelector nor a podSelector beside a namespaceSelector
+naming one namespace by `kubernetes.io/metadata.name`, an element naming
 `endPort` -- a range this reads one port at a time, so a range that reached the
 write port would read here as the number it starts at -- an element whose port
 is a name or is absent rather than a number, a podSelector this cannot
@@ -87,7 +93,20 @@ READERS = (
     ),
 )
 
+# The API is also told where the write port is, and it is the one caller from
+# outside `ory` that port admits. Its URL and egress arm are held as a reader's
+# are, and the admission from the other end: every writer's pod admitted, and
+# no other workload outside `ory`. The same shape as READERS.
+WRITERS = (("chuggy-api", "api", "CHUG_API_KETO_WRITE_URL", "chuggy-api-egress"),)
+
 CLUSTER_SUFFIX = ".svc.cluster.local"
+
+# The label a namespace is named by, which is the only namespaceSelector this
+# gate resolves: the API server sets it, so it names one namespace.
+NAMESPACE_LABEL = "kubernetes.io/metadata.name"
+
+# What a pod is rendered from, and so what a peer's podSelector is read against.
+WORKLOADS = ("Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob")
 
 # The flag whose value names the file the server actually reads, and the keys
 # inside that file that decide what it binds.
@@ -230,33 +249,72 @@ def resolved_port(service, deployment):
     return port["port"], numbers.pop()
 
 
-def admission(policies):
-    """Every ingress element as ('anywhere' | 'namespace', the TCP ports it admits).
+def pod_labels(document):
+    spec = document["spec"]
+    if document["kind"] == "CronJob":
+        spec = spec["jobTemplate"]["spec"]
+    return spec["template"]["metadata"].get("labels") or {}
+
+
+def peer_reach(documents, peer, described):
+    """Who one ingress peer admits: 'namespace' for pods in `ory`, and each
+    rendered workload it selects in another namespace as (namespace, name).
+
+    A bare podSelector is scoped to the policy's own namespace, so whatever it
+    selects is inside `ory`. A peer in another namespace is resolved against
+    what the render puts there rather than against the label it names.
+    """
+    if set(peer) == {"podSelector"}:
+        return {"namespace"}
+    namespaces = peer.get("namespaceSelector") or {}
+    named = namespaces.get("matchLabels") or {}
+    if (
+        set(peer) != {"namespaceSelector", "podSelector"}
+        or set(namespaces) != {"matchLabels"}
+        or set(named) != {NAMESPACE_LABEL}
+    ):
+        refuse(
+            f"an ingress peer on {described} is neither a bare podSelector nor a podSelector "
+            f"in one namespace named by {NAMESPACE_LABEL}, and this gate cannot resolve its reach"
+        )
+    if named[NAMESPACE_LABEL] == ORY:
+        return {"namespace"}
+    return {
+        (named[NAMESPACE_LABEL], document["metadata"]["name"])
+        for document in documents
+        if document.get("kind") in WORKLOADS
+        and document["metadata"].get("namespace") == named[NAMESPACE_LABEL]
+        and selects(peer["podSelector"], pod_labels(document), described)
+    }
+
+
+def spoken(reach):
+    return sorted(
+        who if who == "anywhere" else f"`{ORY}`" if who == "namespace" else "/".join(who)
+        for who in reach
+    ) or ["nowhere"]
+
+
+def admission(documents, policies):
+    """Every ingress element as (who it admits, the TCP ports it admits).
 
     Across all of them, because NetworkPolicies are additive: a port is
     reachable from wherever ANY policy selecting the pod admits it, and a
     second object admitting the write port would leave the first one reading
     exactly as it does now.
 
-    An element with no `from` admits every pod on the network; the one this
-    directory uses to mean "inside `ory`" is a single bare podSelector, which
-    NetworkPolicy scopes to the policy's own namespace. Anything else is a
-    shape whose reach this gate would have to guess at.
+    An element with no `from`, or an empty one, admits every pod on the
+    network; otherwise it admits the union of its peers.
     """
     found = []
     for policy in policies:
         name = policy["metadata"]["name"]
         for element in policy["spec"].get("ingress") or []:
             peers = element.get("from")
-            if peers is None:
-                reach = "anywhere"
-            elif peers == [{"podSelector": {}}]:
-                reach = "namespace"
+            if not peers:
+                reach = {"anywhere"}
             else:
-                refuse(
-                    f"an ingress element on {name} names a `from` that is neither absent nor "
-                    "a bare podSelector, and this gate cannot resolve its reach"
-                )
+                reach = set().union(*(peer_reach(documents, peer, name) for peer in peers))
             ports = set()
             for port in element.get("ports") or []:
                 if "endPort" in port:
@@ -285,7 +343,7 @@ def admission(policies):
 
 
 def admitted_by(elements, port):
-    return {reach for reach, ports in elements if port in ports}
+    return set().union(*(reach for reach, ports in elements if port in ports))
 
 
 def probe_ports(entry):
@@ -343,7 +401,7 @@ def main():
     #    Service's `targetPort` onto the container port, never off the number
     #    the Service or a URL publishes.
     read_published, read_port = resolved_port(one(documents, "Service", READ_SERVICE, ORY), deployment)
-    _, write_port = resolved_port(one(documents, "Service", WRITE_SERVICE, ORY), deployment)
+    write_published, write_port = resolved_port(one(documents, "Service", WRITE_SERVICE, ORY), deployment)
     resolved = {"read": read_port, "write": write_port}
 
     # 2b. And what the process binds, which is none of those. `containerPort`
@@ -359,15 +417,16 @@ def main():
                 "there is not what the elements below are reasoned about"
             )
 
-    elements = admission(policies)
+    elements = admission(documents, policies)
 
     # 3. The write port grants permission, so it is admitted from inside `ory`
-    #    and from nowhere else.
+    #    and from each writer, and from nowhere else.
     reach = admitted_by(elements, write_port)
-    if reach != {"namespace"}:
+    wanted = {"namespace"} | {(CONTROL, writer) for writer, _, _, _ in WRITERS}
+    if reach != wanted:
         refuse(
             f"{WRITE_SERVICE} lands on container port {write_port}, which {named} admits "
-            f"from {sorted(reach) or ['nowhere']} rather than from `{ORY}` alone -- that port "
+            f"from {spoken(reach)} rather than from {spoken(wanted)} alone -- that port "
             "makes any subject an administrator of any project"
         )
 
@@ -417,71 +476,76 @@ def main():
     if not any(selects(peer.get("podSelector") or {}, labels, POSTGRES_POLICY) for peer in arms):
         refuse(f"no `{ORY}` arm of {POSTGRES_POLICY} selects the {DEPLOYMENT} pod")
 
-    for reader, box, variable, policy in READERS:
-        # 7. And each reader's copy of the read port agrees with the Service it
-        #    names. The URL is a second copy of a number, and a Service that
-        #    renumbered would leave the reader reaching for the old one.
-        workload = one(documents, "Deployment", reader, CONTROL)
-        values = [
-            item.get("value")
-            for item in container(workload, box).get("env", [])
-            if item["name"] == variable
-        ]
-        if len(values) != 1 or not values[0]:
-            refuse(f"the {box} container does not name {variable} as a literal value")
-        parts = urlsplit(values[0])
-        if parts.hostname != f"{READ_SERVICE}.{ORY}{CLUSTER_SUFFIX}":
-            refuse(f"{variable} names {parts.hostname}, which is not {READ_SERVICE} in `{ORY}`")
-        if parts.port != read_published:
-            refuse(f"{variable} reaches port {parts.port}, and {READ_SERVICE} publishes {read_published}")
+    for callers, service, published, port in (
+        (READERS, READ_SERVICE, read_published, read_port),
+        (WRITERS, WRITE_SERVICE, write_published, write_port),
+    ):
+        for caller, box, variable, policy in callers:
+            # 7. And each caller's copy of its port agrees with the Service it
+            #    names. The URL is a second copy of a number, and a Service
+            #    that renumbered would leave the caller reaching for the old
+            #    one.
+            workload = one(documents, "Deployment", caller, CONTROL)
+            values = [
+                item.get("value")
+                for item in container(workload, box).get("env", [])
+                if item["name"] == variable
+            ]
+            if len(values) != 1 or not values[0]:
+                refuse(f"the {box} container does not name {variable} as a literal value")
+            parts = urlsplit(values[0])
+            if parts.hostname != f"{service}.{ORY}{CLUSTER_SUFFIX}":
+                refuse(f"{variable} names {parts.hostname}, which is not {service} in `{ORY}`")
+            if parts.port != published:
+                refuse(f"{variable} reaches port {parts.port}, and {service} publishes {published}")
 
-        # 8. And the reader's own egress admits that pod on the port the
-        #    kernel matches, which is the container's and not the one the URL
-        #    publishes. That policy isolates the reader for egress, so a
-        #    destination it does not admit is refused however correctly the
-        #    URL above reads.
-        #
-        #    WHICH IS A CLAIM ABOUT THE OBJECT'S IDENTITY BEFORE IT IS ONE
-        #    ABOUT ITS ARMS, and both halves of that identity are one line to
-        #    get wrong. `policyTypes` is authoritative when present, so an
-        #    object naming `Ingress` there isolates nothing for egress and
-        #    every arm below is inert; a `podSelector` naming another workload
-        #    confines that one and leaves the reader reaching anything
-        #    anywhere. Each reads as correct on the page and neither touches
-        #    an arm.
-        egress = one(documents, "NetworkPolicy", policy, CONTROL)
-        if "Egress" not in (egress["spec"].get("policyTypes") or []):
-            refuse(
-                f"{policy} does not name Egress in its policyTypes, so it isolates the "
-                f"{reader} pod for egress not at all and its arms admit nothing and "
-                "refuse nothing"
-            )
-        reader_labels = workload["spec"]["template"]["metadata"].get("labels", {})
-        if not selects(egress["spec"]["podSelector"], reader_labels, policy):
-            refuse(
-                f"the podSelector on {policy} does not select the {reader} pod, so "
-                "its arms bound some other workload and this one may open any connection anywhere"
-            )
-        reaching = any(
-            any(
-                port["port"] == read_port and port.get("protocol", "TCP") == "TCP"
-                for port in arm.get("ports") or []
-            )
-            and any(
-                (peer.get("namespaceSelector") or {}).get("matchLabels", {}).get(
-                    "kubernetes.io/metadata.name"
+            # 8. And the caller's own egress admits that pod on the port the
+            #    kernel matches, which is the container's and not the one the
+            #    URL publishes. That policy isolates the caller for egress, so
+            #    a destination it does not admit is refused however correctly
+            #    the URL above reads.
+            #
+            #    WHICH IS A CLAIM ABOUT THE OBJECT'S IDENTITY BEFORE IT IS ONE
+            #    ABOUT ITS ARMS, and both halves of that identity are one line
+            #    to get wrong. `policyTypes` is authoritative when present, so
+            #    an object naming `Ingress` there isolates nothing for egress
+            #    and every arm below is inert; a `podSelector` naming another
+            #    workload confines that one and leaves the caller reaching
+            #    anything anywhere. Each reads as correct on the page and
+            #    neither touches an arm.
+            egress = one(documents, "NetworkPolicy", policy, CONTROL)
+            if "Egress" not in (egress["spec"].get("policyTypes") or []):
+                refuse(
+                    f"{policy} does not name Egress in its policyTypes, so it isolates the "
+                    f"{caller} pod for egress not at all and its arms admit nothing and "
+                    "refuse nothing"
                 )
-                == ORY
-                and selects(peer.get("podSelector") or {}, labels, policy)
-                for peer in arm.get("to") or []
+            caller_labels = workload["spec"]["template"]["metadata"].get("labels", {})
+            if not selects(egress["spec"]["podSelector"], caller_labels, policy):
+                refuse(
+                    f"the podSelector on {policy} does not select the {caller} pod, so "
+                    "its arms bound some other workload and this one may open any connection anywhere"
+                )
+            reaching = any(
+                any(
+                    entry["port"] == port and entry.get("protocol", "TCP") == "TCP"
+                    for entry in arm.get("ports") or []
+                )
+                and any(
+                    (peer.get("namespaceSelector") or {}).get("matchLabels", {}).get(
+                        NAMESPACE_LABEL
+                    )
+                    == ORY
+                    and selects(peer.get("podSelector") or {}, labels, policy)
+                    for peer in arm.get("to") or []
+                )
+                for arm in egress["spec"].get("egress") or []
             )
-            for arm in egress["spec"].get("egress") or []
-        )
-        if not reaching:
-            refuse(
-                f"{policy} has no arm reaching the {DEPLOYMENT} pod in `{ORY}` on container "
-                f"port {read_port}, so {variable} names a destination this pod is refused"
-            )
+            if not reaching:
+                refuse(
+                    f"{policy} has no arm reaching the {DEPLOYMENT} pod in `{ORY}` on container "
+                    f"port {port}, so {variable} names a destination this pod is refused"
+                )
 
 
 if __name__ == "__main__":

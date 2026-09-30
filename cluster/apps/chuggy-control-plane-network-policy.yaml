@@ -151,11 +151,11 @@ spec:
         - protocol: TCP
           port: 3000
 ---
-# The API reaches the resolver, the database, Keto's read port and public
-# HTTPS. Every other pod on this cluster, the rig's own git service and the
-# house LAN are outside what it admits, and a destination missing from the list
-# below is an outage on a workload the internet reaches rather than a loop
-# that stalls.
+# The API reaches the resolver, the database, Keto's read and write ports,
+# Hydra's admin port and public HTTPS. Every other pod on this cluster, the
+# rig's own git service and the house LAN are outside what it admits, and a
+# destination missing from the list below is an outage on a workload the
+# internet reaches rather than a loop that stalls.
 #
 # THE PUBLIC ARM IS THREE DESTINATIONS AND NOT ONE, and NetworkPolicy can name
 # none of them: the finalizer's rule below argues why a hostname is not
@@ -164,11 +164,13 @@ spec:
 # Cloudflare edge and comes back through the tunnel rather than reaching
 # hydra-public over the pod network, as chuggy-api.yaml argues; `api.github.com`
 # for the installation tokens this pod mints and the installations it claims;
-# and `github.com` for the `ls-remote` and `fetch` of a repository being bound.
+# and `github.com` for the `ls-remote` and `fetch` of a repository being bound
+# and for exchanging a person's authorization code.
 #
-# KETO IS ON ITS READ PORT AND NOT ITS WRITE ONE. `ory-network-policy.yaml`
-# admits 4466 from anywhere on the pod network and 4467 from `ory` alone, so a
-# write arm here would be permitted at this end and refused at the other.
+# KETO'S WRITE PORT AND HYDRA'S ADMIN PORT ARE WHERE THIS POD GRANTS: the tuples
+# a created project and a registered pool hold, and a pool's client.
+# `ory-network-policy.yaml` admits both from `ory` and from this pod alone, and
+# neither end admits Kratos's admin port -- the API creates no identity.
 #
 # The rig's own git service is not among its destinations: this pod's
 # configuration names no repository on it.
@@ -213,6 +215,26 @@ spec:
       ports:
         - protocol: TCP
           port: 4466
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ory
+          podSelector:
+            matchLabels:
+              app: keto
+      ports:
+        - protocol: TCP
+          port: 4467
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ory
+          podSelector:
+            matchLabels:
+              app: hydra
+      ports:
+        - protocol: TCP
+          port: 4445
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -298,8 +320,8 @@ spec:
 # the selector checks what a principal may do, and the tuples it checks are
 # written out of band by kasofsk/chuggy's `src/roots/provisionProjectAccess.ts`
 # and never by this pod. `ory-network-policy.yaml` admits 4466 from anywhere on
-# the pod network and 4467 from `ory` alone, so an arm for the write port would
-# be permitted at this end and refused at the other.
+# the pod network and 4467 from `ory` and the API alone, so an arm for the write
+# port would be permitted at this end and refused at the other.
 #
 # POSTGRESQL IS ALSO WHERE ITS DECISIONS COME FROM, which is why the rule did
 # not change when the policy did. The selector asks the project's lead for a

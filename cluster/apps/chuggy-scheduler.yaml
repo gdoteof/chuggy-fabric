@@ -883,35 +883,29 @@ spec:
             # NOT A MANIFEST, AND NOT BECAUSE NOBODY GOT TO IT. The session this
             # deployment places for a project's lead authenticates as the
             # `chuggy-selector` principal chuggy-selector.yaml registers, and
-            # what that principal may do on a project is one `project_membership`
-            # row. That table has exactly one door -- `provisionProjectAccess.ts`
-            # in kasofsk/chuggy, run as the table's owner -- and the row is not
-            # journalled state, so no migration seeds it and none should: a
-            # migration cannot know which projects exist. A Job here would be
-            # the same command with a Kubernetes object wrapped round it,
-            # re-created under a new name at every release and re-running a
-            # grant for a project list this repository does not have either.
+            # what that principal may do on a project is one Keto tuple,
+            # `Project#developers`. kasofsk/chuggy's `provisionProjectAccess.ts`
+            # writes it on Keto's write port, and it is not journalled state,
+            # so no migration seeds it and none should: a migration cannot know
+            # which projects exist. A Job here would be the same command with a
+            # Kubernetes object wrapped round it, re-created under a new name at
+            # every release and re-running a grant for a project list this
+            # repository does not have either.
             #
             # So it is a command, run once per project, and this is where it is
             # written down -- beside the grant and the API origin above, which
             # are the other two things that must all be true before a lead's
-            # tool reaches anything. As the owner identity, from the node:
+            # tool reaches anything. From the API's pod, which
+            # ory-network-policy.yaml admits to Keto's write port:
             #
-            #   PW=$(kubectl -n chuggy get secret chuggy-postgres-credentials \
-            #          -o go-template='{{index .data "owner-password" | base64decode}}')
             #   kubectl -n chuggy exec deploy/chuggy-api -- env \
-            #     CHUG_PROVISION_DATABASE_URL="postgres://chuggy_owner:$PW@postgres.chuggy.svc.cluster.local:5432/chuggy" \
+            #     CHUG_PROVISION_KETO_WRITE_URL=http://keto-write.ory.svc.cluster.local:4467 \
             #     CHUG_PROVISION_ACTION=grant \
             #     CHUG_API_OIDC_ISSUER=<the issuer chuggy-api.yaml states> \
             #     CHUG_PROVISION_SUBJECT=chuggy-selector \
             #     CHUG_PROVISION_TENANT=vteng CHUG_PROVISION_PROJECT=chuggy \
-            #     CHUG_PROVISION_ACCESS=Read,Mutate,ProposeDispatch \
-            #     CHUG_PROVISION_AUTHORITY_KIND=OidcUser \
-            #     CHUG_PROVISION_AUTHORITY_SUBJECT=chuggy-selector \
+            #     CHUG_PROVISION_RELATION=developers \
             #     node --experimental-strip-types src/roots/provisionProjectAccess.ts
-            #
-            # The whole of it runs inside one bare ssh so the owner password
-            # never leaves the node.
             #
             # THE ISSUER IS THE STRING AND NOT A DESCRIPTION OF ONE. That root
             # derives the principal from issuer and subject, and a principal
@@ -919,14 +913,15 @@ spec:
             # authenticates perfectly and is refused `NotFound` on every project
             # call, with nothing anywhere saying why. chuggy-selector.yaml's
             # `identity.principal` is that same derivation already written out,
-            # so the two can be read against each other before the row is.
+            # so the two can be read against each other before the tuple is.
             #
-            # THE THREE VERBS ARE THE CEILING AND THE TWO THAT ARE ABSENT ARE
-            # THE POINT. `DispatchTicket` is withheld, so a pod that ignored its
-            # whole tool roster still could not dispatch past a project's
-            # approval gate; `ManageProjectSelector` is withheld, so it cannot
-            # rewrite its own objectives. Those are the controls, and they are
-            # in the database rather than in the pod being controlled.
+            # THE RELATION IS THE CEILING AND WHAT IT LEAVES OUT IS THE POINT.
+            # `developers` permits read, develop, propose and execute. Not
+            # `dispatch`, so a pod that ignored its whole tool roster still
+            # could not dispatch past a project's approval gate; not
+            # `manage_selector`, so it cannot rewrite its own objectives. Those
+            # are the controls, and they are in Keto rather than in the pod
+            # being controlled.
             #
             # ------------------------------------- and the Automatic switch ----
             #

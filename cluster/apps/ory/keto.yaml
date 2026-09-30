@@ -14,8 +14,8 @@ serve:
   read:
     host: 0.0.0.0
     port: 4466
-  # Writes relationships, and authenticates nobody. Namespace-local in that
-  # same policy.
+  # Writes relationships, and authenticates nobody. That same policy admits it
+  # from `ory` and the chuggy API alone.
   write:
     host: 0.0.0.0
     port: 4467

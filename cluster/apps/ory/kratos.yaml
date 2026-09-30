@@ -53,11 +53,10 @@ selfservice:
     #
     # What that would NOT grant is worth stating, because it is the reason
     # this is a decision rather than an emergency: an identity carries no
-    # authorization here. Access is a `project_membership` row, written
-    # only by an operator holding the database owner's credential, and the
-    # API role is refused every privilege on that table. A stranger who
-    # registered would hold a valid token and see 404 on every resource.
-    # The cost is unbounded identity creation, not access.
+    # authorization here. Access is a relation tuple in Keto, and registering
+    # writes none: a stranger who registered would hold a valid token and see
+    # 404 on every resource no tuple grants them. The cost is unbounded
+    # identity creation, not access to anything already here.
     #
     # Disabling the flow is what refuses it. Removing `ui_url` alone would
     # not: the flow would still be created and the browser sent nowhere

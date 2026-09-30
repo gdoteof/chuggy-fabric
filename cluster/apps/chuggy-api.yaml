@@ -185,6 +185,18 @@
 # What bounds it is the App's own permission set and the ruleset on each
 # repository's protected branch, which AGENTS.md states.
 #
+# THE PORTAL APP'S CLIENT SECRET is the operator's too: generated in the App's
+# settings, kept as root-only host state beside the key, and copied in the same
+# way, on the node as root:
+#
+#   kubectl -n chuggy create secret generic chuggy-github-app-portal-client \
+#     --from-file=client-secret=/var/lib/chuggy/secrets/github-app/chuggy-portal-client-secret
+#
+# It is what a person's GitHub authorization code is exchanged with, which is
+# how a workspace proves it controls the account it claims. Its volume is
+# optional where the key's is not: without it the API starts and answers
+# NotConfigured to that proof alone.
+#
 # --------------------------------------------------------------- the OIDC ----
 #
 # The issuer string is compared for equality against the one the discovery
@@ -203,10 +215,10 @@
 #
 # WHERE THIS POD MAY GO is chuggy-api-egress in
 # chuggy-control-plane-network-policy.yaml: the resolver, the database, Keto's
-# read port, and public HTTPS -- which is how the issuer above is reached,
-# since discovery leaves the cluster. Everything else is refused, the rest of
-# the pod network and the house LAN included, so a destination this process
-# gains needs an arm there before it can be opened.
+# read and write ports, Hydra's admin port, and public HTTPS -- which is how the
+# issuer above is reached, since discovery leaves the cluster. Everything else
+# is refused, the rest of the pod network and the house LAN included, so a
+# destination this process gains needs an arm there before it can be opened.
 #
 # The other direction is bounded by the same file: it admits Traefik and
 # chuggy.dev/api-client pods in `chuggy` and `chuggy-work` to port 3000, and
@@ -311,11 +323,17 @@ spec:
             # written here.
             - name: CHUG_API_OIDC_ALGORITHMS
               value: RS256
-            # Keto's read port, which is the only one of its two this pod may
-            # reach: ory-network-policy.yaml admits the write port from `ory`
-            # alone. Nothing in the image above reads this name yet.
+            # Keto's read port, and the two unauthenticated ports this pod
+            # writes to: Keto's, for the tuples a created project and a
+            # registered pool are granted, and Hydra's admin, for a pool's
+            # client. ory-network-policy.yaml admits those two from `ory` and
+            # from this pod alone.
             - name: CHUG_API_KETO_READ_URL
               value: http://keto-read.ory.svc.cluster.local:4466
+            - name: CHUG_API_KETO_WRITE_URL
+              value: http://keto-write.ory.svc.cluster.local:4467
+            - name: CHUG_API_HYDRA_ADMIN_URL
+              value: http://hydra-admin.ory.svc.cluster.local:4445
             # The portal App this process mints its own installation tokens
             # from, in place of reading the per-repository token files below.
             # The id is the same one hosts/gtr gives
@@ -327,6 +345,9 @@ spec:
               value: "4708055"
             - name: CHUG_API_FORGE_APP_KEY_FILE
               value: /var/run/chuggy/forge-app/private-key
+            # The portal App's client secret, from the optional volume below.
+            - name: CHUG_API_FORGE_APP_CLIENT_SECRET_FILE
+              value: /var/run/chuggy/forge-app-client/client-secret
             # The worker App this process verifies a worker-App installation
             # claim as: it reads the installation as that App and mints an
             # installation-wide `read` token to enumerate the installation's
@@ -442,6 +463,9 @@ spec:
             - name: forge-app
               mountPath: /var/run/chuggy/forge-app
               readOnly: true
+            - name: forge-app-client
+              mountPath: /var/run/chuggy/forge-app-client
+              readOnly: true
             - name: forge-app-worker
               mountPath: /var/run/chuggy/forge-app-worker
               readOnly: true
@@ -516,6 +540,16 @@ spec:
             items:
               - key: private-key
                 path: private-key
+        # The portal App's client secret: 0444 and the key named, as above,
+        # but optional, for the reason the header gives.
+        - name: forge-app-client
+          secret:
+            secretName: chuggy-github-app-portal-client
+            defaultMode: 0444
+            items:
+              - key: client-secret
+                path: client-secret
+            optional: true
         # THE WORKER APP'S KEY, MOUNTED A SECOND TIME. chuggy-worker-plane.yaml
         # holds the command that copies it into this Secret, and it is the same
         # key file on the same host: nothing new is created for this pod.
