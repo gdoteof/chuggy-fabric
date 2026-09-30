@@ -130,3 +130,8 @@ configMapGenerator:
     files:
       - kratos.yaml=ory/kratos.yaml
       - identity.default.schema.json=ory/identity.default.schema.json
+  - name: ory-ui-views
+    namespace: ory
+    files:
+      - login.hbs=ory/ui/login.hbs
+      - welcome.hbs=ory/ui/welcome.hbs
