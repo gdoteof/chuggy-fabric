@@ -61,17 +61,23 @@ def request_from(arguments):
     require_source_endpoint(arguments.source_url)
     require_output_endpoint(arguments.target_image_repository)
     profile = PROFILES[arguments.profile]
+    source = {
+        "repositoryId": arguments.repository_id,
+        "url": arguments.source_url,
+        "commit": arguments.source_commit,
+        "credentialRole": "source-read",
+        "credentialRef": arguments.source_secret,
+        "contextDir": arguments.context_dir,
+        "dockerfile": arguments.dockerfile,
+    }
+    # Absent rather than empty when unset, so a request naming no stage keeps
+    # the digest it had before stages could be named.
+    if arguments.target is not None:
+        require(arguments.target, r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", "target")
+        source["target"] = arguments.target
     return {
         "renderer": RENDERER,
-        "source": {
-            "repositoryId": arguments.repository_id,
-            "url": arguments.source_url,
-            "commit": arguments.source_commit,
-            "credentialRole": "source-read",
-            "credentialRef": arguments.source_secret,
-            "contextDir": arguments.context_dir,
-            "dockerfile": arguments.dockerfile,
-        },
+        "source": source,
         "output": {
             "repository": arguments.target_image_repository,
             "credentialRole": "registry-push",
@@ -99,6 +105,9 @@ def render(request):
       effect: NoSchedule
 """
     image = f'{output["repository"]}:request-{digest_hex}'
+    target = "" if "target" not in source else f"""    - name: target
+      value: {quoted(source['target'])}
+"""
     manifest = f"""apiVersion: shipwright.io/v1beta1
 kind: Build
 metadata:
@@ -129,7 +138,7 @@ spec:
       value: {quoted(source['dockerfile'])}
     - name: cache
       value: {request['cache']}
-  output:
+{target}  output:
     image: {quoted(image)}
     pushSecret: {output['credentialRef']}
     insecure: {str(urlparse(f"//{output['repository']}").port == 5000).lower()}
@@ -178,6 +187,7 @@ def main():
     parser.add_argument("--output-secret", required=True)
     parser.add_argument("--context-dir", default=".")
     parser.add_argument("--dockerfile", default="Dockerfile")
+    parser.add_argument("--target")
     parser.add_argument("--cache", choices=("registry", "disabled"), default="registry")
     parser.add_argument("--platform", choices=("linux/amd64",), default="linux/amd64")
     parser.add_argument("--profile", choices=tuple(PROFILES), default="dedicated")
