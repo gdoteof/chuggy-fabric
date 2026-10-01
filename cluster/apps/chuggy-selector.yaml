@@ -290,10 +290,11 @@ spec:
             #
             # `identity.principal` is not what gets this workload past the
             # API -- the token is, and the HTTP client discards this value on
-            # every call, so nothing observable turns on what is written here
-            # today. It is written as the principal the API derives from the
-            # same token anyway, because the day something does read it, a value
-            # that was never that principal is two names for one actor.
+            # every call. It is the principal whose hosted runs the selector
+            # asks a project's tenant for before it opens or turns that
+            # project's lead, so it must be the principal the API derives from
+            # the same token: a value that was never that principal is granted
+            # nothing, and no lead runs anywhere.
             #
             # That derivation is `oidcPrincipal` in kasofsk/chuggy: the issuer's
             # length, a colon, the issuer, then the subject, so that no pair of

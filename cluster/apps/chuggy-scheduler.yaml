@@ -926,6 +926,14 @@ spec:
             #     CHUG_PROVISION_RELATION=developers \
             #     node --experimental-strip-types src/roots/provisionProjectAccess.ts
             #
+            # A LEAD SPENDS THE SHARED CLAUDE CREDENTIAL, so the selector opens
+            # none for a project until the project's TENANT grants the same
+            # principal hosted runs. That is once per tenant: the same command
+            # with `CHUG_PROVISION_PROJECT=` empty and
+            # `CHUG_PROVISION_RELATION=hosted_execution`. Without it the
+            # selector writes `HostedRunsNotGranted` for the project to stderr
+            # and its lead never runs.
+            #
             # THE ISSUER IS THE STRING AND NOT A DESCRIPTION OF ONE. That root
             # derives the principal from issuer and subject, and a principal
             # that differs from the one the token carries by a character
