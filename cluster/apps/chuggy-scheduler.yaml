@@ -576,6 +576,14 @@ spec:
                     "capabilities": ["Agent:Claude", "Agent:Codex"]
                   },
                   {
+                    "image": "registry.chuggy.internal/chuggy/worker-generic@sha256:ad6336b57803c276d5dd0ae49d8c2accf65eeba00df00f504c0cb2927658dfb7",
+                    "name": "generic-worker",
+                    "version": "0.2",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
                     "image": "registry.chuggy.internal/chuggy/worker@sha256:ca67620f116530f797308dfa749ca37c13749974d3c0d7610b59743b4cfab9c6",
                     "name": "chuggy-worker",
                     "version": "0.35",
