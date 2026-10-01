@@ -339,7 +339,9 @@ spec:
               value: http://hydra-admin.ory.svc.cluster.local:4445
             # What a runner's pool file names, which redeeming its registration
             # token answers whole: where its client asks for a bearer, the pool
-            # plane, and the public front it pulls worker images through.
+            # plane, and the public front it pulls worker images through. The
+            # image above reads none of these; the release that answers the
+            # whole file reads all three.
             - name: CHUG_API_POOL_TOKEN_URL
               value: https://auth.vteng.io/oauth2/token
             - name: CHUG_API_POOL_PLANE_URL
