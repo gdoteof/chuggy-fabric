@@ -192,10 +192,10 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   # The suffix changes whenever the immutable pod template's release transport does.
-  name: chuggy-migrate-0c5392f6-registry
+  name: chuggy-migrate-193829a6-registry
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: 0c5392f6
+    fabric.chuggy.dev/source-commit: 193829a6
   labels: { app: chuggy-migrate }
 spec:
   # ONE ATTEMPT, because retrying this JOB was never what could survive the race
@@ -300,7 +300,7 @@ spec:
             seccompProfile: { type: RuntimeDefault }
       containers:
         - name: migrate
-          image: registry.chuggy.internal/chuggy/api@sha256:7bf02268f637dd580a7dbce6e7af5ca05cd8f5668363475205aebd98c37c8a74
+          image: registry.chuggy.internal/chuggy/api@sha256:029aef318efd49c6ac1df4c5a2b5bbd606cb80bbab74e1aa5cfff0987993078c
           imagePullPolicy: IfNotPresent
           # Exec form with node as PID 1, for the reason the image's Dockerfile
           # gives: the process is handed SIGTERM itself rather than through a
