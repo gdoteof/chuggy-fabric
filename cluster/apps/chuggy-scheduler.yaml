@@ -878,6 +878,11 @@ spec:
             # the other two, which is a control described as stronger than it is.
             # `mayCompleteTask` is false for the reason it is false above: the
             # single journaled actor is what completes a ticket.
+            #
+            # `routes` places a project's threads and lead as the execution
+            # policy places its work: on its own registered runners unless the
+            # project chose this cluster (kasofsk/chuggy#843). Every project
+            # that stood before that release was given a row keeping it here.
             - name: CHUG_SCHEDULER_SESSION_POLICY
               value: |
                 {
@@ -890,7 +895,8 @@ spec:
                     "network": true,
                     "filesystem": "WriteWorkspace",
                     "mayCompleteTask": false
-                  }
+                  },
+                  "routes": { "Thread": "Pool", "Lead": "Pool" }
                 }
             # THE RELEASE COMMIT REWRITES THE VALUE ABOVE, and it rewrites the
             # whole of it: this variable is one JSON document, so moving the
@@ -902,7 +908,9 @@ spec:
             # fabric holds a credential for.
             # `tests/session-placement.py` is what makes that loud rather than
             # silent: it refuses a grant naming a credential the mounts above do
-            # not carry.
+            # not carry. `routes` dropped is silent too, and nothing refuses it:
+            # a project created afterwards runs its threads here, where a tenant
+            # without hosted runs cannot chat.
             #
             # CHUG_SCHEDULER_SESSION_POD_NAME_PREFIX and _ANNOTATIONS are unset
             # on purpose. Each has a published default in
