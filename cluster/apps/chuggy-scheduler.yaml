@@ -601,6 +601,11 @@ spec:
                   "memoryLimit": "4Gi",
                   "ephemeralStorageLimit": "20Gi"
                 }
+            # A project's work and evaluations run on its own registered pools
+            # unless the project chose this cluster, which only a member the
+            # tenant granted hosted runs may choose (kasofsk/chuggy#810). Every
+            # project that stood before that release was given a row keeping it
+            # here, so this default reaches only projects created since.
             - name: CHUG_SCHEDULER_EXECUTION_POLICY
               value: |
                 {
@@ -613,7 +618,8 @@ spec:
                       "network": true,
                       "filesystem": "WriteWorkspace",
                       "mayCompleteTask": false
-                    }
+                    },
+                    "route": "Pool"
                   },
                   "Evaluation": {
                     "profile": "chuggy-development",
@@ -624,7 +630,8 @@ spec:
                       "network": true,
                       "filesystem": "WriteWorkspace",
                       "mayCompleteTask": false
-                    }
+                    },
+                    "route": "Pool"
                   }
                 }
             # D39: one project, and it is this rig's own repository. The digest
