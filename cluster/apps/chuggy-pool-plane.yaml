@@ -73,6 +73,11 @@ spec:
             # cluster cannot resolve the internal name.
             - name: CHUG_POOL_PLANE_IMAGE_HOSTS
               value: '{"registry.chuggy.internal":"chuggy-registry.vteng.io"}'
+            # The API's public origin, which a session a pool runs calls its
+            # tools on. The tools' paths carry `/api/v1` themselves, so this is
+            # the host and nothing after it; naming none hands no session out.
+            - name: CHUG_POOL_PLANE_SESSION_API_URL
+              value: https://chuggy.vteng.io
             - name: CHUG_POOL_PLANE_HOST
               value: 0.0.0.0
             - name: CHUG_POOL_PLANE_PORT
