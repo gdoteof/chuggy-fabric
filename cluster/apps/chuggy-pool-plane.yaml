@@ -29,7 +29,7 @@ metadata:
   namespace: chuggy
   labels: { app: chuggy-pool-plane }
   annotations:
-    fabric.chuggy.dev/source-commit: b9476a9c
+    fabric.chuggy.dev/source-commit: 8a153f05
 spec:
   replicas: 1
   selector:
