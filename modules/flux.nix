@@ -66,7 +66,7 @@ let
       url: ${cfg.repositoryUrl}
       ref:
         branch: ${cfg.branch}
-    ${lib.optionalString (cfg.secretRef != null) "      secretRef:\n        name: ${cfg.secretRef}\n"}
+    ${lib.optionalString (cfg.secretRef != null) "  secretRef:\n    name: ${cfg.secretRef}\n"}
     ---
     apiVersion: kustomize.toolkit.fluxcd.io/v1
     kind: Kustomization
