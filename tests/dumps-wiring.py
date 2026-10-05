@@ -67,7 +67,7 @@ def main():
             f"and the host creates {host_path}"
         )
 
-    print(f"clean: {NAMESPACE}/{CLAIM} binds {bound}, which the host creates")
+    print(f"clean: {NAMESPACE}/{CLAIM} names a volume over {bound}, which the host creates")
 
 
 if __name__ == "__main__":
