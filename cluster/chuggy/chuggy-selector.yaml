@@ -34,8 +34,9 @@
 # -------------------------------------- the token, and where it comes from ----
 #
 # THE SELECTOR MINTS ITS OWN AND REPLACES IT BEFORE IT EXPIRES. `ory/hydra.yaml`
-# -- the document kustomization.yaml turns into the ConfigMap ory-hydra.yaml
-# mounts -- sets `ttl.access_token` to fifteen minutes, deliberately, because
+# -- the document cluster/apps/kustomization.yaml turns into the ConfigMap
+# ory-hydra.yaml mounts -- sets `ttl.access_token` to fifteen minutes,
+# deliberately, because
 # nothing revokes an offline-verified JWT, so a token written into this file by
 # hand is refused 401 a quarter of an hour after somebody typed it while the pod
 # stays up. `source.credential` therefore names a token endpoint and a client
@@ -173,7 +174,7 @@ spec:
   #
   # A Deployment with no available replica never passes `wait: true`, which
   # health-checks every object in this directory; at zero this object was out of
-  # that set and it is now in it, beside chuggy-finalizer.
+  # that set and it is now in it.
   replicas: 1
   strategy: { type: Recreate }
   selector:

@@ -1,4 +1,5 @@
-# The cluster state this repository declares.
+# What cluster/apps/ declares. No part of a chuggy release is in it: that is
+# `chuggy-migrate` and then `chuggy`, each waiting on the layer before it.
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization

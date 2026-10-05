@@ -37,11 +37,15 @@ only by their own directory.
     cluster/flux-system/            the vendored Flux install
     cluster/flux/                   what Flux reconciles from this repo, one
                                     Kustomization each
-    cluster/apps/                   the cluster state this repo declares
+    cluster/apps/                   the cluster state the `apps` layer
+                                    applies: no part of a chuggy release
     cluster/apps/kustomization.yaml the enumeration of that state, and the
                                     generated ConfigMaps
     cluster/apps/ory/               config documents those ConfigMaps carry --
                                     not manifests, and not in `resources`
+    cluster/chuggy-migrate/         a chuggy release's migration Job, and the
+                                    dump it takes first
+    cluster/chuggy/                 a chuggy release's services
 
     hosts/gtr/default.nix           geoff's Beelink GTR: hostname, radios, mesh, k3s, tunnel
     hosts/gtr/hardware-configuration.nix
@@ -63,7 +67,7 @@ with a different card, so it lives in the host file.
 
 `nixos-live/` is history, not input. Nothing imports it.
 
-What `cluster/apps/` declares is deliberately less than what the cluster runs.
+What `cluster/` declares is deliberately less than what the cluster runs.
 The `chuggy-git` and `chuggy-work` namespaces were both bootstrapped by hand from
 the [chuggy](https://github.com/kasofsk/chuggy) repo as deployment rehearsal
 fixtures — transient by intent, so declaring one would have committed Flux to
@@ -82,8 +86,10 @@ That remaining fixture is a **second Flux control loop**, which is why the
 `Kustomization/rig` in `chuggy-git` follows an in-cluster git server and
 reconciles a ConfigMap beside it every minute, so that object carries
 `kustomize.toolkit.fluxcd.io/name: rig` — Flux-managed, and no business of this
-repo. What this repo owns is `name: apps` in `namespace: flux-system`. Anything
-else, labelled or not, came from somewhere that is not `cluster/apps/`.
+repo. What this repo owns carries the name of a layer `cluster/flux/` declares
+— `apps`, `chuggy-migrate` or `chuggy`, and the build layers — in `namespace:
+flux-system`. Anything else, labelled or not, came from somewhere that is not
+this repo.
 
 ## Workflow
 
@@ -299,7 +305,8 @@ durability guarantee is reading one this tree does not give. The volume and
 that they do; a mismatch mounts an empty directory and reports healthy. For the
 dumps directory the same pair is checked: `tests/dumps-wiring.nix` holds
 `chuggy.state.dumps.path` on gtr to the volume `cluster/apps/chuggy-dumps.yaml`
-declares.
+declares, and `tests/rollout-order.nix` holds the directory's owner to the uid
+the migration Job's `dump` container writes as.
 
 **Where the two layers both have an opinion, this one wins.** A
 PersistentVolume names a host path; it does not create it and does not set its
@@ -781,10 +788,11 @@ writes it. Given the chuggy commit to release, it reads the live commit off the
 manifests' `fabric.chuggy.dev/source-commit` annotation, decides which images
 moved by diffing the paths each Dockerfile copies between those two commits,
 selects a moved image's digest from a verified result under `results/`, carries
-an unmoved image's digest forward, and rewrites `cluster/apps`: the digest where
-an image moved, the annotation on every manifest
-`scripts/check-release-consistency` names, and the migrate Job named for the
-release. It then runs that check over what it wrote and surfaces its verdict.
+an unmoved image's digest forward, and rewrites the release under
+`cluster/chuggy-migrate` and `cluster/chuggy`: the digest where an image moved,
+the annotation on every manifest `scripts/check-release-consistency` names, and
+the migrate Job named for the release. It then runs that check over what it
+wrote and surfaces its verdict.
 
     scripts/render-release --target-commit <the full chuggy commit to release>
 
@@ -894,8 +902,9 @@ it beforehand. Switch, chown, restart.
 
 ## GitOps
 
-Cluster state is reconciled by **Flux**, not applied by hand. `cluster/apps/` is
-the desired state; if the cluster drifts from it, Flux corrects it.
+Cluster state is reconciled by **Flux**, not applied by hand. What
+`cluster/flux/` names is the desired state; if the cluster drifts from it, Flux
+corrects it.
 
 ### Three layers, three change rates
 
@@ -940,9 +949,10 @@ the Kubernetes API and `flux-system` namespace that hold it.
 file. `chuggy.flux.repositoryUrl` and `.branch` generate the `GitRepository` and
 one root `Kustomization`, both named `fabric`, and no other Flux object. The
 root applies `cluster/flux/`, where each part of this repository Flux
-reconciles is declared as its own `Kustomization` — `apps`,
-`build-prerequisites`, `build-system` and `builds` — so what Flux reconciles
-from it, and in what order, is changed by a commit and not by a host rebuild. The controller install is a checked-in manifest too,
+reconciles is declared as its own `Kustomization` — `apps`, `chuggy-migrate`,
+`chuggy`, `build-prerequisites`, `build-system` and `builds` — so what Flux
+reconciles from it, and in what order, is changed by a commit and not by a host
+rebuild. The controller install is a checked-in manifest too,
 because that is a vendored upstream artifact identical on every adopter. A box
 being brought up, or one being used to try a change, has to be able to follow
 something other than whatever the shared branch holds at that moment, and a
@@ -952,7 +962,7 @@ The [bootstrap and recovery runbook](docs/bootstrap-and-recovery.md) defines the
 external recovery root, private-source provisioning, single-authority cutover,
 rollback, and the state required for same-authority disaster recovery.
 
-The object names are not options. Nothing in `cluster/apps/` reads the label;
+The object names are not options. Nothing in `cluster/` reads the label;
 [Verified](#verified) below does, and so does anyone telling this repo's objects
 from the rehearsal's second control loop — **by value**, which is what makes the
 name a contract rather than a setting.
@@ -979,6 +989,11 @@ If the app needs to be public it also needs a hostname in
 
 `prune: true` is set, so deleting a file deletes the resource. Without it,
 removals in git are silently ignored.
+
+**A workload that runs a chuggy release image is not an app in this sense.** It
+goes in `cluster/chuggy/`, in that directory's `kustomization.yaml` and in the
+roster in `scripts/check-release-consistency`, so that it rolls after the
+release's migration. The `rollout-order-gtr` check refuses one anywhere else.
 
 **Add the file to `cluster/apps/kustomization.yaml` as well.** That directory
 carries its own kustomization now — needed so the Ory ConfigMaps get a name
@@ -1028,9 +1043,9 @@ and the Secret is the host's to mint:
        systemctl list-units --all 'chuggy-github-app-token-*-refresh.service'
        kubectl get secret --all-namespaces -l chuggy.dev/managed-by=github-app-token
 
-4. Merge to `main`. Flux reconciles `cluster/apps` from `main` within its
-   interval, and gdoteof/chuggy-fabric is itself the repository Flux reconciles
-   this cluster from, so this same merge is what Flux then applies.
+4. Merge to `main`. Flux reconciles from `main` within its interval, and
+   gdoteof/chuggy-fabric is itself the repository Flux reconciles this cluster
+   from, so this same merge is what Flux then applies.
 
 One thing is not this repository's to do. The owner's repository needs a ruleset
 that reserves updates to its default branch to the portal App integration and
@@ -1303,9 +1318,21 @@ One process per responsibility, all out of one image:
 | `chuggy-worker-plane` | `src/roots/workerPlane.ts` | `chuggy_worker_plane` | yes, 3001 |
 | `chuggy-pool-plane` | `src/roots/poolPlane.ts` | `chuggy_pool_plane` | yes, 3002 |
 
-Plus `chuggy-migrate-<tag>`, a Job that applies the schema and is named after
-the image it applies it from. It waits for the database in an initContainer and
-then migrates once, `backoffLimit: 0`.
+Plus `chuggy-migrate-<tag>`, a Job that dumps the database and then applies the
+schema, named after the image it applies it from. It waits for the database in
+one initContainer, dumps it in the next, and then migrates once,
+`backoffLimit: 0`.
+
+**A release rolls out in order: the dump, the migration, the services.** The
+Job is a Flux layer of its own, `chuggy-migrate`, and the services are another,
+`chuggy`, which depends on it; `apps` applies neither. So the services of a
+release are applied only once its Job has completed, and when the dump or the
+migration fails they stay as they were: `chuggy` reads `DependencyNotReady` and
+applies nothing. That holds every later change to the services as well, until
+the Job is cleared. Nothing restores the dump — it is on the `chuggy-dumps`
+volume for a person to restore from.
+`cluster/chuggy-migrate/chuggy-migrate.yaml` argues the order and says what it
+costs.
 
 **Retrying the Job was never able to survive the NetworkPolicy warm-up, and the
 rig says so.** kube-router admits a pod *IP*, and it needs a few seconds after
@@ -1317,26 +1344,25 @@ same sandbox was admitted on its second attempt, two seconds in. That is also
 why `chuggy-api` gets past it on a kubelet restart — a restart keeps the pod,
 and so keeps the address that has by then been admitted.
 
-**A migration that fails is terminal and needs a human.** Naming the Job after
-the tag makes a re-tag a new object, but when the tag has not changed there is
-nothing for Flux to re-create: it re-applies an identical `Failed` Job every
-five minutes, the API server accepts it as unchanged, and the migration never
-runs again.
+**A dump or a migration that fails is terminal and needs a human.** Naming the
+Job after the tag makes a re-tag a new object, but when nothing about the Job
+has changed there is nothing for Flux to re-create: it re-applies an identical
+`Failed` Job every five minutes, the API server accepts it as unchanged, and
+neither runs again.
 
-**The Kustomization reports it.** `wait: true` health-checks every object this
-directory applies, and kstatus reads a `Failed` Job as failed, so `flux get
-kustomization apps` goes `Ready=False` with the Job among the objects its
-message names. That is the loudest signal this repo has, and it is quieter than
-it sounds: Alertmanager is off and `notification-controller` is not installed,
-so nothing routes it anywhere, and — see [what does not work
-yet](#what-does-not-work-yet-and-why) — `apps` is `Ready=False` already, held
-there by a Deployment that never reaches an available replica. Read the message,
-not the bit.
+**The Kustomization reports it.** `wait: true` health-checks every object the
+layer applies, and kstatus reads a `Failed` Job as failed, so `flux get
+kustomization chuggy-migrate` goes `Ready=False` with the Job in its message,
+and `chuggy` behind it reads `DependencyNotReady`. That layer applies the Job
+and its script and nothing else, so no other workload is in that bit. It is
+still quieter than it sounds: Alertmanager is off and `notification-controller`
+is not installed, so nothing routes it anywhere.
 
 Read the pod, fix the cause, then delete the Job so the next reconcile builds it
 afresh:
 
-    kubectl -n chuggy logs job/chuggy-migrate-<tag>
+    kubectl -n chuggy logs job/chuggy-migrate-<tag> -c dump
+    kubectl -n chuggy logs job/chuggy-migrate-<tag> -c migrate
     kubectl -n chuggy delete job chuggy-migrate-<tag>
 
 Nothing has put this rig in that state — treat it as argued from the mechanism,
@@ -1379,7 +1405,8 @@ An image the registry does not hold is not this case — that pod waits in
 `ImagePullBackOff` with the Job still active, and publishing the expected digest
 is enough.
 The Job carries no `activeDeadlineSeconds`, which is the same decision: a
-deadline would turn that wait into the terminal `Failed` state above.
+deadline would turn that wait into the terminal `Failed` state above. While it
+waits, the services are held as they are for a failure.
 
 The wait for the database is bounded anyway, and does not cost that back: it
 runs in the initContainer, so its clock cannot start until the image is on the
@@ -1390,8 +1417,9 @@ The API image already contains every control-plane command: its Dockerfile
 copies the whole source tree and sets the API as its default. The workloads
 `API_MANIFESTS` in `scripts/check-release-consistency` names carry one
 immutable digest in their `image:` fields and move together. The migration
-Job's name also changes when its pod template changes because Kubernetes makes
-that template immutable.
+Job's name changes with the release because Kubernetes makes its pod template
+immutable; an edit to the Job that is not a release is what `force` on its
+layer is for.
 
 Four of the five open no socket, so they have no probe and no Service. They
 report an unmet precondition by name and exit; the kubelet restarts them. A
@@ -1438,10 +1466,10 @@ of the one thing that has to work before anything else does.
 
 Six things, none of which a manifest can do, and each argued in the file that
 needs it. **Steps 1, 2 and 4 are ordered — 1 and 4 must both finish before 2 —
-and the order is not enforceable from here**: Flux applies
-`cluster/apps/` as one set on the reconcile after the merge, so anything a human
-must do to the database or the image store has to be done *before* that merge,
-not after it.
+and the order is not enforceable from here**: Flux starts applying the
+release on the reconcile after the merge and nothing in it waits for a person,
+so anything a human must do to the database or the image store has to be done
+*before* that merge, not after it.
 
 1. **Generate and synchronize the importer password, then apply it to the
    database from exactly Chuggy `e92cce9`.** The order inside this step is
@@ -1754,17 +1782,6 @@ not after it.
   namespace, its RBAC, the image allowlist and the resource budgets are the next
   stage's.
 
-**`apps` stays NotReady after this.** `wait: true` health-checks every object,
-and `flux get kustomizations -A` names the one it stops on:
-`Deployment/chuggy/chuggy-finalizer status: 'Failed'` — a Deployment past its
-progress deadline with no available replica. Git in the image was the other half
-of that and is now in the tag above, so the credential Secret is the only thing
-left between this and a green `apps`, which is why the finalizer is left at
-one. The zero above takes the selector out of that set instead, because nothing
-clears its blocker and a Deployment nobody can make available is one more red
-object for a real one to hide behind. That is also why a failed migration Job
-adds a line to a list rather than raising a flag.
-
 ### Storage, and what it does and does not survive
 
 Artifacts are a static `PersistentVolume` over a host directory, in a
@@ -1784,12 +1801,17 @@ back, and nothing has rebooted the box. What would prove it is exactly that —
 write through the finalizer, delete the pod, read through the API; then reboot
 and repeat.
 
-**Database dumps have a volume and nothing writing to it.**
+**Database dumps have a volume, and the migration Job writes to it.**
 `cluster/apps/chuggy-dumps.yaml` declares a volume in the same class over
-`chuggy.state.dumps.path`, and a claim in `chuggy` that nothing mounts yet. It
-is on the same disk as the database: a dump kept there protects against a
-migration that damages the data, not against losing the disk, and it is not the
-off-installation backup `docs/bootstrap-and-recovery.md` calls for.
+`chuggy.state.dumps.path` and a claim in `chuggy`, and the migration Job's
+`dump` container mounts that claim. Before it migrates, the Job writes an
+archive of the `chuggy` database and the server's roles there, and keeps as
+many as `CHUG_DUMP_KEEP` in its manifest says; the server's other databases,
+Ory's among them, are not in it. It is on the same disk as the database: a dump
+kept there protects against a migration that damages the data, not against
+losing the disk, and it is not the off-installation backup
+`docs/bootstrap-and-recovery.md` calls for. Nothing restores from it
+automatically.
 
 ## Giving someone else access
 
@@ -1798,7 +1820,7 @@ Two separable questions, and conflating them is the trap: *what may they do*
 
 ### Deploying is a git question, not a cluster question
 
-Cluster state comes from `cluster/apps/`, so the way to let someone ship
+Cluster state comes from `cluster/`, so the way to let someone ship
 something is a pull request, not a kubeconfig. Flux applies it and the audit
 trail is the commit history.
 

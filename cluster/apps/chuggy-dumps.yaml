@@ -1,6 +1,7 @@
 # Somewhere in the cluster for a dump of the database to land: a retained
-# directory on this node and a claim over it in `chuggy`. Nothing in
-# `cluster/apps/` mounts the claim yet.
+# directory on this node and a claim over it in `chuggy`. The migration Job
+# mounts the claim and writes a dump to it before it migrates:
+# cluster/chuggy-migrate/chuggy-migrate.yaml, and dump.sh beside it.
 #
 # The directory is the machine layer's: `chuggy.state.dumps.path` in
 # `modules/chuggy-state.nix` creates it and sets its owner and mode, and the
@@ -14,7 +15,7 @@
 # THIS VOLUME IS ON THE SAME DISK AS THE DATABASE. A dump kept here protects
 # against a migration that damages the data, not against losing the disk, and
 # it is not the off-installation backup docs/bootstrap-and-recovery.md calls
-# for.
+# for. Nothing restores from it automatically either.
 #
 # THE CLAIM IS THE SEAM. A host with separate storage binds this claim to a
 # different volume, and nothing that mounts the claim changes.

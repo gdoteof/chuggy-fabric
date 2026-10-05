@@ -40,7 +40,7 @@ what it leaves for `nix flake check`. Read it there.
 Name in your verdict the `nix flake check` entries the change still needs run,
 reading them off `flake.nix`, because a passing check stage covers none of
 them. A change to `scripts/` is the sharp case: the check stage runs one of
-those scripts over an untouched `cluster/apps` and exits 0 while the tests that
+those scripts over an untouched `cluster/` and exits 0 while the tests that
 hold them never ran.
 
 **A control-plane component added without its manifest added to the check's own
@@ -57,10 +57,10 @@ The rules you reject by number. Each is stated elsewhere in this tree; read it
 at its home, and where this table and a home disagree, the home is right.
 
 1. **Generated files are generated.** A build request under `builds/` comes
-   from `scripts/render-build-request`, a release under `cluster/apps` --
-   image digests, source-commit annotations, migrate Job name -- from
-   `scripts/render-release`. A hand-edited one is a finding whatever it
-   says. Stated in `AGENTS.md`.
+   from `scripts/render-build-request`, a release under `cluster/chuggy-migrate`
+   and `cluster/chuggy` -- image digests, source-commit annotations, migrate
+   Job name -- from `scripts/render-release`. A hand-edited one is a finding
+   whatever it says. Stated in `AGENTS.md`.
 2. **A build request is immutable.** It pins a full source commit, and is
    retried or retired with `scripts/retry-build-request` and
    `scripts/retire-build-request` rather than edited in place. Stated in

@@ -2,7 +2,7 @@
 # The release manifests `scripts/check-release-consistency` names identify one
 # source.
 #
-# That script states and enforces the rule; this runs it over `cluster/apps`,
+# That script states and enforces the rule; this runs it over `cluster/`,
 # where it reads the manifests its own `API_MANIFESTS` and `WEB_MANIFESTS` name
 # and no other file in the directory. It holds that those control-plane
 # manifests select one API image digest, that all of them annotate the same
@@ -23,7 +23,7 @@ set -o errexit -o nounset -o pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 check=$root/scripts/check-release-consistency
-manifests=$root/cluster/apps
+manifests=$root/cluster
 
 command -v python3 >/dev/null 2>&1 ||
   { echo "cannot run: python3 is not on PATH" >&2; exit 2; }
@@ -42,4 +42,4 @@ case $status in
   *) echo "cannot run: $check exited $status" >&2; exit 2 ;;
 esac
 
-echo "clean: the manifests scripts/check-release-consistency names in cluster/apps identify one source; nix flake check did not run"
+echo "clean: the manifests scripts/check-release-consistency names in cluster/ identify one source; nix flake check did not run"

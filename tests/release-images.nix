@@ -4,7 +4,9 @@ pkgs.runCommand "chuggy-release-images" {
   nativeBuildInputs = [ pkgs.python3 ];
 } ''
   set -eu
-  cp -R ${../cluster/apps} manifests
+  mkdir manifests
+  cp -R ${../cluster/chuggy-migrate} manifests/chuggy-migrate
+  cp -R ${../cluster/chuggy} manifests/chuggy
   chmod -R u+w manifests
   check=${../scripts/check-release-consistency}
 
@@ -25,7 +27,7 @@ pkgs.runCommand "chuggy-release-images" {
   }
 
   python3 "$check" manifests
-  test "$(grep -Fc 'credentialReference:' manifests/chuggy-ticket-service.yaml || true)" -eq 0
+  test "$(grep -Fc 'credentialReference:' manifests/chuggy/chuggy-ticket-service.yaml || true)" -eq 0
 
   set +e
   python3 "$check" 2>usage-error
@@ -36,36 +38,36 @@ pkgs.runCommand "chuggy-release-images" {
     cat usage-error >&2
     exit 1
   fi
-  grep -F 'usage: check-release-consistency APP_MANIFEST_DIRECTORY' usage-error
+  grep -F 'usage: check-release-consistency CLUSTER_DIRECTORY' usage-error
 
   # Retiring or renaming a component is how a manifest the check names stops
   # being in the directory, and the check has to say so rather than raise: a
   # traceback reaches the caller as a script it could not run.
   cp -R manifests retired-component
-  rm retired-component/chuggy-selector.yaml
-  refused retired-component 'the release does not carry retired-component/chuggy-selector.yaml'
+  rm retired-component/chuggy/chuggy-selector.yaml
+  refused retired-component 'the release does not carry retired-component/chuggy/chuggy-selector.yaml'
 
   # Every value the check compares is read through one_match, which refuses a
   # manifest naming its image or its commit twice rather than taking the first.
   cp -R manifests duplicate-image
   duplicate=$(grep -E '^[ \t]*image: registry\.chuggy\.internal/chuggy/api@sha256:' \
-    duplicate-image/chuggy-api.yaml)
-  printf '%s\n' "$duplicate" >>duplicate-image/chuggy-api.yaml
+    duplicate-image/chuggy/chuggy-api.yaml)
+  printf '%s\n' "$duplicate" >>duplicate-image/chuggy/chuggy-api.yaml
   refused duplicate-image 'chuggy-api.yaml image: expected one match, found 2'
 
   cp -R manifests mixed-digest
   sed -i '0,/sha256:/s/sha256:[0-9a-f]*/sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/' \
-    mixed-digest/chuggy-api.yaml
+    mixed-digest/chuggy/chuggy-api.yaml
   refused mixed-digest 'control-plane manifests do not select one API image digest'
 
   cp -R manifests mixed-console-source
   sed -i '0,/source-commit:/s/source-commit: .*/source-commit: abcdef0/' \
-    mixed-console-source/chuggy-ui.yaml
+    mixed-console-source/chuggy/chuggy-ui.yaml
   refused mixed-console-source 'release manifests do not identify one source commit'
 
   cp -R manifests stale-migration
   sed -i '0,/name: chuggy-migrate-/s/name: chuggy-migrate-[a-z0-9-]*/name: chuggy-migrate-abcdef0-registry/' \
-    stale-migration/chuggy-migrate.yaml
+    stale-migration/chuggy-migrate/chuggy-migrate.yaml
   refused stale-migration \
     'migration Job identity does not match the release source commit'
 

@@ -10,12 +10,12 @@
 
 let
   python = pkgs.python3.withPackages (ps: [ ps.pyyaml ]);
+  rendered = import ./rendered-cluster.nix { inherit pkgs; };
 in
 pkgs.runCommand "chuggy-keto" {
-  nativeBuildInputs = [ pkgs.kubectl python ];
+  nativeBuildInputs = [ python ];
 } ''
   set -eu
-  kubectl kustomize ${../cluster/apps} > rendered.yaml
-  python3 ${./keto.py} rendered.yaml
+  python3 ${./keto.py} ${rendered}/cluster.yaml
   touch "$out"
 ''

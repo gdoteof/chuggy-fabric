@@ -3,9 +3,10 @@
 #
 # The finalizer writes a completed task's declared outputs here and the API
 # serves them back through `/api/v1`. Those are the only two readers of this
-# volume in `cluster/apps/`, and they are in two different pods, which is the
-# whole reason it is a volume rather than an `emptyDir` in each of them --
-# chuggy-api.yaml carried that emptyDir and said what would replace it.
+# volume in `cluster/`, and they are in two different pods, which is the whole
+# reason it is a volume rather than an `emptyDir` in each of them --
+# cluster/chuggy/chuggy-api.yaml carried that emptyDir and said what would
+# replace it.
 #
 # ------------------------------------------------------- who makes the path ----
 #

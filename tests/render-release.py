@@ -3,9 +3,10 @@
 refusal it states.
 
 WHAT IS REAL HERE AND WHAT IS FIXTURE. The manifests are this repository's own
-`cluster/apps`, re-annotated to the fixture's live commit: the script edits the
-files a release is made of rather than a sketch of them, so a manifest that
-grows a second image line or loses its annotation fails here. The source
+`cluster/chuggy-migrate` and `cluster/chuggy`, with `cluster/apps` beside them,
+re-annotated to the fixture's live commit: the script edits the files a release
+is made of rather than a sketch of them, so a manifest that grows a second
+image line or loses its annotation fails here. The source
 history is a fixture repository whose paths are the ones the image map names,
 because the map's claim -- that these paths are what each Dockerfile copies --
 is about chuggy's tree, which no check in this repository can see. That claim
@@ -69,18 +70,23 @@ DOCKERFILES = {
     "api": ("images/api/Dockerfile", "api"),
     "chuggy-ui": ("images/chuggy-ui/Dockerfile", "web"),
 }
+MIGRATION = "chuggy-migrate/chuggy-migrate.yaml"
 API_MANIFESTS = (
-    "chuggy-api.yaml",
-    "chuggy-configuration-importer.yaml",
-    "chuggy-finalizer.yaml",
-    "chuggy-migrate.yaml",
-    "chuggy-pool-plane.yaml",
-    "chuggy-scheduler.yaml",
-    "chuggy-selector.yaml",
-    "chuggy-ticket-service.yaml",
-    "chuggy-worker-plane.yaml",
+    "chuggy/chuggy-api.yaml",
+    "chuggy/chuggy-configuration-importer.yaml",
+    "chuggy/chuggy-finalizer.yaml",
+    MIGRATION,
+    "chuggy/chuggy-pool-plane.yaml",
+    "chuggy/chuggy-scheduler.yaml",
+    "chuggy/chuggy-selector.yaml",
+    "chuggy/chuggy-ticket-service.yaml",
+    "chuggy/chuggy-worker-plane.yaml",
 )
-RELEASE_MANIFESTS = API_MANIFESTS + ("chuggy-ui.yaml",)
+RELEASE_MANIFESTS = API_MANIFESTS + ("chuggy/chuggy-ui.yaml",)
+# The directories of `cluster/` a release is in, and the one it left: the
+# network policy that names the Job's pods is still there, so a render that
+# reached into it is a render this would otherwise not see.
+DIRECTORIES = ("apps", "chuggy-migrate", "chuggy")
 
 failures = []
 
@@ -148,13 +154,14 @@ def fabric(name, deployed):
     fixture history."""
     root = WORK / name
     root.mkdir(parents=True)
-    apps = root / "cluster" / "apps"
-    shutil.copytree(ROOT / "cluster" / "apps", apps)
+    cluster = root / "cluster"
+    for directory in DIRECTORIES:
+        shutil.copytree(ROOT / "cluster" / directory, cluster / directory)
     # The copy may have come from a read-only store path, and what is under test
     # is a command that edits these files in place.
-    for path in apps.rglob("*"):
+    for path in cluster.rglob("*"):
         path.chmod(path.stat().st_mode | 0o200)
-    for path in apps.glob("*.yaml"):
+    for path in cluster.rglob("*.yaml"):
         path.write_text(
             re.sub(
                 r"^([ \t]*fabric\.chuggy\.dev/source-commit:[ \t]*).*$",
@@ -163,9 +170,10 @@ def fabric(name, deployed):
                 flags=re.MULTILINE,
             )
         )
-    # Only where the Job is: the same name reads in the network policy beside it,
-    # and a fixture that re-seeded that one would not be this tree any more.
-    job = apps / "chuggy-migrate.yaml"
+    # Only where the Job is: the same name reads in the network policy in
+    # `cluster/apps`, and a fixture that re-seeded that one would not be this
+    # tree any more.
+    job = cluster / MIGRATION
     job.write_text(
         re.sub(
             r"^([ \t]*name: chuggy-migrate-)[a-z0-9-]*$",
@@ -302,7 +310,7 @@ def annotations(root):
     for name in RELEASE_MANIFESTS:
         for match in re.finditer(
             r"^[ \t]*fabric\.chuggy\.dev/source-commit:[ \t]*([0-9a-f]+)[ \t]*$",
-            (root / "cluster" / "apps" / name).read_text(),
+            (root / "cluster" / name).read_text(),
             re.MULTILINE,
         ):
             values.add(match.group(1))
@@ -312,7 +320,7 @@ def annotations(root):
 def digest_of(root, manifest, repository):
     match = re.search(
         rf"^[ \t]*image: registry\.chuggy\.internal/chuggy/{repository}@(sha256:[0-9a-f]{{64}})[ \t]*$",
-        (root / "cluster" / "apps" / manifest).read_text(),
+        (root / "cluster" / manifest).read_text(),
         re.MULTILINE,
     )
     return match.group(1) if match else None
@@ -320,7 +328,7 @@ def digest_of(root, manifest, repository):
 
 def accepts(case, root):
     completed = subprocess.run(
-        [str(SCRIPTS / "check-release-consistency"), str(root / "cluster" / "apps")],
+        [str(SCRIPTS / "check-release-consistency"), str(root / "cluster")],
         capture_output=True,
         text=True,
         check=False,
@@ -330,10 +338,11 @@ def accepts(case, root):
 
 
 def fingerprint(root):
-    apps = root / "cluster" / "apps"
+    cluster = root / "cluster"
     return {
-        path.name: hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in sorted(apps.glob("*.yaml"))
+        path.relative_to(cluster).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(cluster.rglob("*"))
+        if path.is_file()
     }
 
 
@@ -350,13 +359,13 @@ def main():
     # manifest takes a digest and every manifest takes the commit.
     case = "console-only"
     root = fabric(case, base)
-    carried_api = digest_of(root, "chuggy-api.yaml", "api")
+    carried_api = digest_of(root, "chuggy/chuggy-api.yaml", "api")
     selected = record(root, commits["ui"], "chuggy-ui", NEW_UI)
     if expect(case, render(root, commits["ui"], source), 0, ["moved, selected from " + selected]):
         accepts(case, root)
-        if digest_of(root, "chuggy-ui.yaml", "web") != NEW_UI:
+        if digest_of(root, "chuggy/chuggy-ui.yaml", "web") != NEW_UI:
             report(case, "chuggy-ui.yaml does not select the recorded digest")
-        if digest_of(root, "chuggy-api.yaml", "api") != carried_api:
+        if digest_of(root, "chuggy/chuggy-api.yaml", "api") != carried_api:
             report(case, "the api did not keep the digest it is deployed at")
         if annotations(root) != {commits["ui"][:8]}:
             report(case, f"the release does not annotate one commit: {annotations(root)}")
@@ -365,18 +374,18 @@ def main():
     # digest, which is the half a per-manifest edit gets wrong.
     case = "api-only"
     root = fabric(case, base)
-    carried_ui = digest_of(root, "chuggy-ui.yaml", "web")
+    carried_ui = digest_of(root, "chuggy/chuggy-ui.yaml", "web")
     record(root, commits["api"], "api", NEW_API)
     if expect(case, render(root, commits["api"], source), 0, ["api"]):
         accepts(case, root)
         for manifest in API_MANIFESTS:
             if digest_of(root, manifest, "api") != NEW_API:
                 report(case, f"{manifest} does not select the recorded api digest")
-        if digest_of(root, "chuggy-ui.yaml", "web") != carried_ui:
+        if digest_of(root, "chuggy/chuggy-ui.yaml", "web") != carried_ui:
             report(case, "the console did not keep the digest it is deployed at")
         job = re.search(
             r"^[ \t]*name: (chuggy-migrate-[a-z0-9-]+)[ \t]*$",
-            (root / "cluster" / "apps" / "chuggy-migrate.yaml").read_text(),
+            (root / "cluster" / MIGRATION).read_text(),
             re.MULTILINE,
         )
         if job is None or job.group(1) != f"chuggy-migrate-{commits['api'][:8]}-registry":
@@ -389,9 +398,9 @@ def main():
     record(root, commits["both"], "chuggy-ui", NEW_UI)
     if expect(case, render(root, commits["both"], source), 0, []):
         accepts(case, root)
-        if digest_of(root, "chuggy-api.yaml", "api") != NEW_API:
+        if digest_of(root, "chuggy/chuggy-api.yaml", "api") != NEW_API:
             report(case, "the api did not move")
-        if digest_of(root, "chuggy-ui.yaml", "web") != NEW_UI:
+        if digest_of(root, "chuggy/chuggy-ui.yaml", "web") != NEW_UI:
             report(case, "the console did not move")
 
     # A release no image is in: the annotations and the Job move, and nothing
@@ -552,7 +561,7 @@ def main():
     # off manifests that do not agree on it, so nothing is rendered over them.
     case = "inconsistent-tree"
     root = fabric(case, base)
-    manifest = root / "cluster" / "apps" / "chuggy-selector.yaml"
+    manifest = root / "cluster" / "chuggy" / "chuggy-selector.yaml"
     manifest.write_text(
         re.sub(
             r"^([ \t]*fabric\.chuggy\.dev/source-commit:[ \t]*).*$",

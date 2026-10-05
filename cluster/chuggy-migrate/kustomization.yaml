@@ -1,0 +1,22 @@
+# The migration of a chuggy release: the Job that dumps the database and then
+# applies the schema, the script its dump runs, and nothing else.
+#
+# A FILE THAT IS NOT IN `resources` IS NOT APPLIED, and what stops being
+# applied is pruned. cluster/apps/kustomization.yaml states that cost in full,
+# and it is this directory's as well.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - chuggy-migrate.yaml
+
+# The name ends in a hash of the script, and kustomize rewrites the Job's
+# volume to it. So an edit to dump.sh is an edit to the Job's pod template
+# under a name that did not change, which is the case
+# cluster/flux/chuggy-migrate.yaml sets `force` for: the Job is created again
+# and runs again, with the script this directory now carries.
+configMapGenerator:
+  - name: chuggy-dump-script
+    namespace: chuggy
+    files:
+      - dump.sh

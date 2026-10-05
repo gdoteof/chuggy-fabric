@@ -30,15 +30,15 @@
     },
     "brief": {
       "motivation": [
-        "Land the release of what chuggy main is now: the manifests scripts/render-release writes under cluster/apps from the results this site recorded for the build the previous ticket asked for. Nothing in a brief names a commit or a digest; the command resolves the commit itself."
+        "Land the release of what chuggy main is now: the manifests scripts/render-release writes under cluster/chuggy-migrate and cluster/chuggy from the results this site recorded for the build the previous ticket asked for. Nothing in a brief names a commit or a digest; the command resolves the commit itself."
       ],
       "acceptanceCriteria": [
-        "The diff is what scripts/rollout-from-results wrote under cluster/apps and nothing else, every manifest in it names one source commit, and scripts/check-release-consistency accepts cluster/apps."
+        "The diff is what scripts/rollout-from-results wrote under cluster/chuggy-migrate and cluster/chuggy and nothing else, every manifest in it names one source commit, and scripts/check-release-consistency accepts cluster/."
       ],
       "constraints": [
         "The work is the one command below, once, from the repository root, committing nothing it did not write. It waits for this site's record of the build, bounded, then renders the release; its account is on stderr and its result is one JSON line on stdout.",
         "The bound is sized by the rule in docs/build-operations-runbook.md: under the deadline of the pod that runs it, with the clone before and the render after in hand, and never past the wait's own cap. A wait occupies this site's one worker for its whole life.",
-        "A refusal (exit 3) is this ticket's failure and its attempts are its budget: this site has not answered within the bound, the release cannot be cut from what it answered (a failed build is the fabric operator's, per the runbook), or cluster/apps already releases the commit. Never edit a manifest by hand instead.",
+        "A refusal (exit 3) is this ticket's failure and its attempts are its budget: this site has not answered within the bound, the release cannot be cut from what it answered (a failed build is the fabric operator's, per the runbook), or the tree already releases the commit. Never edit a manifest by hand instead.",
         "Digests come only from recorded results under results/; the command reads no registry and contacts no cluster. main is live: the merge this ticket lands by deploys the release, and how it lands is the fabric binding's default in Chuggy, not this file's. Do not reconcile Flux, apply manifests, restart infrastructure, reset data, or deploy by any other path."
       ]
     },

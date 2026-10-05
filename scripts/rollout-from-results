@@ -55,12 +55,12 @@ the way of the merge -- is not the checkout a ticket has, and is could-not-run
 with an account saying so rather than a tree thrown away to render from.
 
 NOTHING TO RELEASE IS A REFUSAL. `render-release` writes nothing and exits 0
-when `cluster/apps` already releases the commit, which is the right answer to a
+when the tree already releases the commit, which is the right answer to a
 person and the wrong one to a ticket: a work stage that writes nothing lands an
 empty change, which the finalizer refuses as contradictory and which is a pull
-request with no commits. So the manifests are compared before and after, by
-bytes rather than by the renderer's account, and a render that moved nothing is
-3 here with an account that says so.
+request with no commits. So `cluster/` is compared before and after, by bytes
+rather than by the renderer's account, and a render that moved nothing is 3
+here with an account that says so.
 
 STDOUT IS THE RESULT AND NOTHING ELSE: one JSON object naming the commit
 released and the records the wait found. The wait's stdout is read here as its
@@ -183,11 +183,12 @@ def advanced(root, remote, branch, deadline):
     account(f"{root} is at {ref}")
 
 
-def fingerprint(apps):
-    """The release as bytes, which is what a work stage lands or does not."""
+def fingerprint(cluster):
+    """What the renderer may write, as bytes, which is what a work stage lands
+    or does not."""
     return {
-        path.relative_to(apps).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in sorted(apps.rglob("*"))
+        path.relative_to(cluster).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(cluster.rglob("*"))
         if path.is_file()
     }
 
@@ -225,9 +226,9 @@ def main():
     url = arguments.source_url or renderer.SOURCE_URL
     ref = arguments.source_ref or renderer.SOURCE_REF
     root = arguments.fabric_root
-    apps = root / "cluster" / "apps"
-    if not apps.is_dir():
-        unrunnable(f"{apps} is not a directory, so there is no release to render")
+    cluster = root / "cluster"
+    if not cluster.is_dir():
+        unrunnable(f"{cluster} is not a directory, so there is no release to render")
 
     deadline = time.monotonic() + arguments.within_secs
     commit = resolved(url, ref, deadline)
@@ -256,7 +257,7 @@ def main():
         unrunnable("await-build-results printed something that is not its result")
 
     advanced(root, arguments.remote, arguments.branch, deadline)
-    before = fingerprint(apps)
+    before = fingerprint(cluster)
     rendering = [
         sys.executable,
         str(sibling("render-release")),
@@ -275,8 +276,8 @@ def main():
         refuse(f"the release of {commit} is refused")
     if rendered.returncode != 0:
         passed_on(rendered, "render-release")
-    if fingerprint(apps) == before:
-        refuse(f"cluster/apps already releases {commit}, so this run has nothing to land")
+    if fingerprint(cluster) == before:
+        refuse(f"the tree already releases {commit}, so this run has nothing to land")
 
     print(json.dumps({"released": commit, "records": records}))
 

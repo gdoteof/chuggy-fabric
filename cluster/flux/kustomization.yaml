@@ -18,3 +18,5 @@ resources:
   - build-prerequisites.yaml
   - build-system.yaml
   - builds.yaml
+  - chuggy-migrate.yaml
+  - chuggy.yaml

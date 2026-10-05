@@ -68,7 +68,7 @@ stderr, so a ticket engine reads the result and a person reads the reason.
 `--within-secs` is the rollout command's whole life: the resolve, the wait,
 the fast-forward and the render each get what is left of it. It has to undercut the deadline
 of the pod that runs it -- `CHUG_SCHEDULER_WORKER_DEADLINE_SECS` in
-`cluster/apps/chuggy-scheduler.yaml` -- by the clone and setup before the
+`cluster/chuggy/chuggy-scheduler.yaml` -- by the clone and setup before the
 command, because a pod killed at its deadline has reached no verdict: what
 follows is another attempt from the beginning, not a decision about the
 build. It cannot exceed the cap `scripts/await-build-results` states, past

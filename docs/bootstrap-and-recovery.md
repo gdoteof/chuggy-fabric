@@ -44,7 +44,8 @@ material in Nix options: expressions and generated manifests are store-readable.
    values require an explicit adoption or recovery decision.
 5. Activate the pinned configuration. Confirm new secrets were generated,
    PostgreSQL initialized an empty journal, `GitRepository/fabric` reports the
-   expected revision, and `Kustomization/apps` becomes Ready.
+   expected revision, and `Kustomization/apps` becomes Ready, then
+   `chuggy-migrate`, then `chuggy`: each waits on the one before.
 6. Complete [Chuggy #272] and record its generated installation identity before
    declaring the installation an autonomous ticket authority. A fresh volume
    and independently generated secrets prove fresh infrastructure, not an
@@ -90,7 +91,7 @@ cutover; do not put its bytes in Nix configuration.
 ## Cut over to installation-owned Git
 
 Cutover changes the one machine-layer `GitRepository/fabric`; it never adds a
-second reconciler for `cluster/apps`.
+second reconciler for anything under `cluster/`.
 
 1. Mirror the exact currently reconciled fabric commit into the destination.
    Verify that commit and the configured path there.
@@ -102,8 +103,8 @@ second reconciler for `cluster/apps`.
    action: use `nixos-rebuild test` first, inspect the generated source, and
    only then `switch` from the same SHA.
 5. Confirm `GitRepository/fabric` reports the destination revision and
-   `Kustomization/apps` is Ready at the expected commit. Confirm exactly one
-   Kustomization owns each object set.
+   `Kustomization/apps`, `chuggy-migrate` and `chuggy` are Ready at the
+   expected commit. Confirm exactly one Kustomization owns each object set.
 6. Revoke the old read credential only after those checks succeed.
 
 Rollback means activating another committed machine revision that restores the
@@ -131,6 +132,8 @@ This repository does not yet implement database, Git, registry, or identity
 backup jobs. Until each passes a restore rehearsal, this is a backup contract,
 not a demonstrated disaster-recovery claim.
 
-The `chuggy-dumps` volume does not change that. It is a directory on the node's
-own disk, nothing writes to it yet, and a dump kept beside the database it was
-taken from is not an off-installation backup.
+The `chuggy-dumps` volume does not change that. The migration Job writes a dump
+of the database there before it migrates, and it is a directory on the node's
+own disk: a dump kept beside the database it was taken from guards against a
+migration that damages the data, not against losing the disk, and is not an
+off-installation backup. Nothing restores from it automatically.

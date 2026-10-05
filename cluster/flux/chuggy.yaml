@@ -1,0 +1,31 @@
+# The second half of a chuggy release: the services that run its images.
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: chuggy
+  namespace: flux-system
+spec:
+  # What orders a release. This layer and `chuggy-migrate` read one source, and
+  # kustomize-controller applies a revision here only once that layer is Ready
+  # and has applied the same revision. Until then this one reads `Ready=False`
+  # with reason `DependencyNotReady` and applies nothing: the Deployments keep
+  # the pods they have, and a change made by hand is not undone either.
+  #
+  # So a dump or a migration that failed holds every later change to the
+  # services, a change that is not a release included, until that Job is
+  # replaced by a release or cleared by hand.
+  dependsOn:
+    - name: chuggy-migrate
+  interval: 5m
+  path: ./cluster/chuggy
+  sourceRef:
+    kind: GitRepository
+    name: fabric
+  # No `deletionPolicy: Orphan`, which `apps` sets for the data under it: what
+  # this layer applies holds none.
+  prune: true
+  wait: true
+  # What one reconcile waits for every Deployment here to roll. It bounds a
+  # hang: a roll still going when it elapses is left going.
+  timeout: 15m

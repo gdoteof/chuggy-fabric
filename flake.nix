@@ -132,6 +132,8 @@
       firewallRules = host: import ./tests/firewall-rules.nix { inherit pkgs lib host; };
       registryWiring = host: import ./tests/registry-wiring.nix { inherit pkgs host; };
       dumpsWiring = host: import ./tests/dumps-wiring.nix { inherit pkgs host; };
+      rolloutOrder = host: import ./tests/rollout-order.nix { inherit pkgs host; };
+      dumpScript = import ./tests/dump-script.nix { inherit pkgs; };
       releaseImages = import ./tests/release-images.nix { inherit pkgs; };
       chugCi = import ./tests/chug-ci.nix { inherit pkgs; };
       fluxWiring = host: expectSecretRef:
@@ -373,6 +375,17 @@
         # cluster gtr follows and the example follows a repository of its own.
         dumps-wiring-gtr = dumpsWiring self.nixosConfigurations.gtr;
 
+        # What makes a release roll out in order that the layer declarations
+        # do not say: which rendered directory each object is in, and the
+        # order inside the pod that dumps and then migrates. gtr, for the
+        # reason above and because the uid that pod writes the dump as is held
+        # to the owner gtr gives the directory.
+        rollout-order-gtr = rolloutOrder self.nixosConfigurations.gtr;
+
+        # And the dump itself: the script that pod mounts, run by the command
+        # the pod gives it, against a PostgreSQL started for the purpose.
+        dump-script = dumpScript;
+
         # The registry's public front: an Ingress into its namespace puts every
         # request to the pool plane first and reaches nothing that can write.
         registry-public = import ./tests/registry-public.nix { inherit pkgs; };
@@ -424,7 +437,7 @@
         build-results-publish = buildResultsPublish;
 
         # And what a release is made of: the manifests rendered from those
-        # records, over this repository's own `cluster/apps`, driven through
+        # records, over this repository's own `cluster/`, driven through
         # every refusal the renderer states.
         render-release = renderRelease;
 

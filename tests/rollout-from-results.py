@@ -5,8 +5,9 @@ makes of it and every verdict it reaches instead.
 WHAT THE FIXTURE IS. A bare repository standing in for the branch Flux
 follows, carrying the request a source ticket landed and the record this site
 answered it with; a clone of it standing in for the rollout ticket's checkout,
-with this repository's own `cluster/apps` copied in and re-annotated to the
-fixture's live commit; and a chuggy-shaped history whose branches are the
+with this repository's own release -- `cluster/chuggy-migrate` and
+`cluster/chuggy`, and `cluster/apps` beside them -- copied in and re-annotated
+to the fixture's live commit; and a chuggy-shaped history whose branches are the
 commits a case wants released, so that which commit the command resolves is
 read off `--source-ref` and never told to it. No case moves an image's inputs
 except the one about the renderer's refusal, so no case needs a verified
@@ -194,15 +195,16 @@ def land(case, files, message):
 
 
 def deployed(clone, commit):
-    """This repository's `cluster/apps`, moved back to the fixture's live
-    commit so that what the renderer reads as deployed is the base of the
-    history. The copy may have come from a read-only store path, and what is
-    under test edits these files in place."""
-    apps = clone / "cluster" / "apps"
-    shutil.copytree(ROOT / "cluster" / "apps", apps)
-    for path in apps.rglob("*"):
+    """This repository's release, moved back to the fixture's live commit so
+    that what the renderer reads as deployed is the base of the history. The
+    copy may have come from a read-only store path, and what is under test
+    edits these files in place."""
+    cluster = clone / "cluster"
+    for directory in ("apps", "chuggy-migrate", "chuggy"):
+        shutil.copytree(ROOT / "cluster" / directory, cluster / directory)
+    for path in cluster.rglob("*"):
         path.chmod(path.stat().st_mode | 0o200)
-    for path in apps.glob("*.yaml"):
+    for path in cluster.rglob("*.yaml"):
         path.write_text(
             re.sub(
                 r"^([ \t]*fabric\.chuggy\.dev/source-commit:[ \t]*).*$",
@@ -211,7 +213,7 @@ def deployed(clone, commit):
                 flags=re.MULTILINE,
             )
         )
-    job = apps / "chuggy-migrate.yaml"
+    job = cluster / "chuggy-migrate" / "chuggy-migrate.yaml"
     job.write_text(
         re.sub(
             r"^([ \t]*name: chuggy-migrate-)[a-z0-9-]*$",
@@ -220,12 +222,12 @@ def deployed(clone, commit):
             flags=re.MULTILINE,
         )
     )
-    return apps
+    return cluster
 
 
-def annotations(apps):
+def annotations(cluster):
     values = set()
-    for path in apps.glob("*.yaml"):
+    for path in cluster.rglob("*.yaml"):
         for match in re.finditer(
             r"^[ \t]*fabric\.chuggy\.dev/source-commit:[ \t]*([0-9a-f]+)[ \t]*$",
             path.read_text(),
@@ -235,8 +237,12 @@ def annotations(apps):
     return values
 
 
-def fingerprint(apps):
-    return {path.name: path.read_bytes() for path in sorted(apps.glob("*.yaml"))}
+def fingerprint(cluster):
+    return {
+        path.relative_to(cluster).as_posix(): path.read_bytes()
+        for path in sorted(cluster.rglob("*"))
+        if path.is_file()
+    }
 
 
 def stalled(case):
@@ -376,15 +382,15 @@ def main():
     case = "releases-the-commit-the-branch-answered"
     target = commits["documentation"]
     clone = branch(case, requested(target) | answered(target))
-    apps = deployed(clone, base)
+    cluster = deployed(clone, base)
     if expect(
         case,
         rollout(clone, source, "refs/heads/documentation"),
         RELEASED,
         [json.dumps({"released": target, "records": [f"results/chuggy/{target}/request-{DIGEST}.json"]})],
         [f"refs/heads/documentation at {source} is {target}"],
-    ) and annotations(apps) != {target[:8]}:
-        report(case, f"the release does not annotate the resolved commit: {annotations(apps)}")
+    ) and annotations(cluster) != {target[:8]}:
+        report(case, f"the release does not annotate the resolved commit: {annotations(cluster)}")
 
     # The record lands on the branch while the run waits, and the checkout the
     # run was given is the branch before it: the wait reads the branch, the
@@ -395,7 +401,7 @@ def main():
     target = commits["documentation"]
     record = f"results/chuggy/{target}/request-{DIGEST}.json"
     clone = branch(case, requested(target))
-    apps = deployed(clone, base)
+    cluster = deployed(clone, base)
     if expect(
         case,
         rollout(
@@ -408,8 +414,8 @@ def main():
         RELEASED,
         [json.dumps({"released": target, "records": [record]})],
         [f"{clone} is at origin/main"],
-    ) and annotations(apps) != {target[:8]}:
-        report(case, f"the release does not annotate the resolved commit: {annotations(apps)}")
+    ) and annotations(cluster) != {target[:8]}:
+        report(case, f"the release does not annotate the resolved commit: {annotations(cluster)}")
     if not (clone / record).is_file():
         report(case, "the checkout the render read does not carry the record the wait found")
     if git(clone, "rev-parse", "HEAD") != git(clone, "rev-parse", "origin/main"):
@@ -421,12 +427,12 @@ def main():
     case = "cannot-run-when-the-checkout-does-not-fast-forward"
     target = commits["documentation"]
     clone = branch(case, requested(target))
-    apps = deployed(clone, base)
+    cluster = deployed(clone, base)
     write(clone, "docs/its-own", "a commit the branch does not have\n")
     git(clone, "add", "docs/its-own")
     git(clone, "commit", "--quiet", "-m", "its own")
     land(case, answered(target), "the record, after the checkout diverged")
-    before = fingerprint(apps)
+    before = fingerprint(cluster)
     head = git(clone, "rev-parse", "HEAD")
     if expect(
         case,
@@ -435,8 +441,8 @@ def main():
         [],
         [f"the checkout at {clone} does not fast-forward to origin/main"],
     ):
-        if fingerprint(apps) != before:
-            report(case, "cluster/apps was edited from a checkout that was not advanced")
+        if fingerprint(cluster) != before:
+            report(case, "the release was edited from a checkout that was not advanced")
         if git(clone, "rev-parse", "HEAD") != head:
             report(case, "the checkout was moved off its own commit")
 
@@ -445,16 +451,16 @@ def main():
     # which is a pull request with no commits.
     case = "refuses-a-release-that-changes-nothing"
     clone = branch(case, requested(base) | answered(base))
-    apps = deployed(clone, base)
-    before = fingerprint(apps)
+    cluster = deployed(clone, base)
+    before = fingerprint(cluster)
     if expect(
         case,
         rollout(clone, source, "refs/heads/base"),
         REFUSAL,
         [],
         [f"already releases {base}", "nothing to land"],
-    ) and fingerprint(apps) != before:
-        report(case, "the refused run still edited cluster/apps")
+    ) and fingerprint(cluster) != before:
+        report(case, "the refused run still edited the release")
 
     # The wait's deadline is a refusal and not a render: nothing is written for
     # a build this site has not answered, and the ticket's attempts are its
@@ -462,16 +468,16 @@ def main():
     case = "gives-up-when-the-wait-does"
     target = commits["documentation"]
     clone = branch(case, requested(target))
-    apps = deployed(clone, base)
-    before = fingerprint(apps)
+    cluster = deployed(clone, base)
+    before = fingerprint(cluster)
     if expect(
         case,
         rollout(clone, source, "refs/heads/documentation"),
         REFUSAL,
         [],
         [f"has no record for {DIGEST}", "has not answered the request"],
-    ) and fingerprint(apps) != before:
-        report(case, "cluster/apps was edited for a build with no record")
+    ) and fingerprint(cluster) != before:
+        report(case, "the release was edited for a build with no record")
 
     # The wait's deadline is its verdict even when its rounds are slow: a
     # resolve and a fetch that each take most of a second inside the bound
@@ -572,7 +578,7 @@ def main():
         rollout(clone, source, "refs/heads/base"),
         UNRUNNABLE,
         [],
-        ["cluster/apps is not a directory"],
+        ["cluster is not a directory"],
     )
 
     raise SystemExit(reported())

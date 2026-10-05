@@ -26,8 +26,9 @@
 # schema. The release-images check requires every file in the roster to agree.
 #
 # RE-PINNING TOUCHES MORE THAN THOSE LINES. The migration Job's `metadata.name`
-# repeats the tag, for the reason chuggy-migrate.yaml gives, and so does each
-# roster file's `fabric.chuggy.dev/source-commit` annotation.
+# repeats the tag, for the reason cluster/chuggy-migrate/chuggy-migrate.yaml
+# gives, and so does each roster file's `fabric.chuggy.dev/source-commit`
+# annotation.
 #
 # k3s maps the logical registry name to retained cluster storage;
 # chuggy-api.yaml carries that argument and it is not repeated.

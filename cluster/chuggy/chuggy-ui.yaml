@@ -129,10 +129,10 @@
 #
 # ------------------------------------------------- the network policy posture ----
 #
-# NONE. No policy in this directory selects this console in either direction, so
-# nothing restricts what may reach this pod or where it may go. That is the state
-# chuggy-control-plane-network-policy.yaml leaves it in; bounding it is worth
-# doing and is not that change.
+# NONE. No policy in `cluster/apps/` selects this console in either direction,
+# so nothing restricts what may reach this pod or where it may go. That is the
+# state chuggy-control-plane-network-policy.yaml leaves it in; bounding it is
+# worth doing and is not that change.
 ---
 apiVersion: v1
 kind: ConfigMap

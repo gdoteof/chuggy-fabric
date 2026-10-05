@@ -271,8 +271,10 @@ in
         default = 1000;
         description = ''
           Numeric owner of the dumps directory, matching the uid the migration
-          Job's pod runs as: `runAsUser` in cluster/apps/chuggy-migrate.yaml.
-          See `artifacts.user` for what uid 1000 is on a NixOS host.
+          Job's pod runs as: `runAsUser` in
+          cluster/chuggy-migrate/chuggy-migrate.yaml, which the
+          `rollout-order-gtr` check holds this to. See `artifacts.user` for what
+          uid 1000 is on a NixOS host.
         '';
       };
 

@@ -126,7 +126,7 @@ let
   # options below. A site that needed a different set of keys would not have a
   # different rig -- it would have a different chuggy.
   #
-  # Key names match what the workloads in cluster/apps/ read. They are the
+  # Key names match what the workloads under cluster/ read. They are the
   # contract; changing one here without changing it there produces a pod that
   # will not start, which is the loud failure and the one to prefer.
   inventory = {
@@ -162,9 +162,9 @@ let
   envVarFor = key: "CHUG_PG_" + lib.toUpper (lib.replaceStrings [ "-" ] [ "_" ] key);
 
   # Hex, not base64. These values are pasted into a PostgreSQL connection URI by
-  # cluster/apps/, and `/`, `+` and `=` all mean something inside one. A
-  # password that has to be percent-encoded to be usable is a password that will
-  # eventually not be.
+  # the manifests under cluster/, and `/`, `+` and `=` all mean something inside
+  # one. A password that has to be percent-encoded to be usable is a password
+  # that will eventually not be.
   generate = pkgs.writeShellApplication {
     name = "chuggy-secrets-generate";
     runtimeInputs = [ pkgs.openssl pkgs.coreutils ];

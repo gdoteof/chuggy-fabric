@@ -1,0 +1,25 @@
+# The services of a chuggy release: the manifests that run its images, and
+# every one of them.
+#
+# A FILE THAT IS NOT IN `resources` IS NOT APPLIED, and what stops being
+# applied is pruned. cluster/apps/kustomization.yaml states that cost in full,
+# and it is this directory's as well: the list is what a reviewer reads against
+# `ls`.
+#
+# NOTHING HERE IS GENERATED. `chuggy-ui-config` stays a plain object in
+# chuggy-ui.yaml, because that file argues that nginx re-reads it per request
+# and the console picks up a change on the next page load. Hashing it would roll
+# the console for a change it does not need a rollout for.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - chuggy-api.yaml
+  - chuggy-configuration-importer.yaml
+  - chuggy-finalizer.yaml
+  - chuggy-pool-plane.yaml
+  - chuggy-scheduler.yaml
+  - chuggy-selector.yaml
+  - chuggy-ticket-service.yaml
+  - chuggy-ui.yaml
+  - chuggy-worker-plane.yaml
