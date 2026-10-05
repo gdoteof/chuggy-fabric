@@ -49,6 +49,8 @@ THE CASES, and the half of the script each is the only reader of:
   way, which only a writer that fails when a write does stands behind.
   `pg_dumpall`, writing the file itself, is first shown to exit 0 there over
   globals that end as a dump does and lack their beginning;
+- a `sync` that will not put the globals on the disk ends the same way, which
+  only asking it to before either rename stands behind;
 - a `mv` that will not rename the globals leaves no archive under a final
   name, which is the order of the two renames;
 - each of those leaves every file that was already there, which is the rule
@@ -578,20 +580,19 @@ def write_refused(environment):
         failing(case, environment, "File too large", PATH=path)
 
 
-def rename_refused(environment):
-    """A `mv` that renames anything but the globals. Whichever rename the
-    script makes first, no archive may be left under its final name without
-    them."""
+def refusing(case, environment, program, said):
+    """A run in which `program` does what it is asked to anything but the
+    globals, under either name, and of them says `said` and fails."""
     failing(
-        "rename-refused",
+        case,
         environment,
-        "the globals are not renamed",
+        said,
         PATH=stand_in(
-            "rename-refused",
-            "mv",
+            case,
+            program,
             "for argument; do\n"
-            "  case $argument in *.globals.sql.partial)\n"
-            '    echo "the globals are not renamed" >&2; exit 1 ;;\n'
+            "  case $argument in *.globals.sql | *.globals.sql.partial)\n"
+            f'    echo "{said}" >&2; exit 1 ;;\n'
             "  esac\n"
             "done\n"
             'exec "$real" "$@"\n',
@@ -828,7 +829,11 @@ def main():
         globals_short(environment)
         globals_failed(environment)
         write_refused(environment)
-        rename_refused(environment)
+        # A `sync` that will not put the globals on the disk, and a `mv` that
+        # will not rename them. Whichever rename the script makes first, no
+        # archive may be left under its final name without them.
+        refusing("sync-refused", environment, "sync", "the globals are not synced")
+        refusing("rename-refused", environment, "mv", "the globals are not renamed")
         failing(
             "zero-count", environment, "CHUG_DUMP_KEEP is '0'", untouched=True, CHUG_DUMP_KEEP="0"
         )

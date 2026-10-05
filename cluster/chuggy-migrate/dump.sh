@@ -22,10 +22,12 @@
 # `pg_dumpall` DOES NOT REPORT A WRITE THAT FAILED. Writing the file itself on
 # a volume with no room for its first writes and room again for its last, it
 # exits 0 over globals that end as a dump does and lack their beginning. So
-# `cat` writes the file, and fails when a write does. That is all `cat` answers
-# for. A `pg_dumpall` that stopped early and still exited 0 hands it less than
-# a dump, which is what holding the file to the lines `pg_dumpall` ends a dump
-# with is for: as its own last lines and not as lines somewhere in it.
+# `cat` writes the file, and fails when a write does; `sync` then has it put on
+# the disk, which `pg_dumpall` did of a file it wrote and `cat` does not. That
+# is all the two answer for. A `pg_dumpall` that stopped early and still exited
+# 0 hands them less than a dump, which is what holding the file to the lines
+# `pg_dumpall` ends a dump with is for: as its own last lines and not as lines
+# somewhere in it.
 #
 # RETENTION RUNS AFTER A DUMP THAT SUCCEEDED, AND ONLY THEN. It keeps the pair
 # just written and the newest of the others, CHUG_DUMP_KEEP archives in all,
@@ -89,6 +91,7 @@ done
 pg_dump -w -U postgres -Fc -f "$archive.partial" chuggy
 pg_restore -f /dev/null "$archive.partial"
 pg_dumpall -w -U postgres --globals-only | cat > "$globals.partial"
+sync -- "$globals.partial"
 closing=$'--\n-- PostgreSQL database cluster dump complete\n--'
 [ "$(tail -n 4 -- "$globals.partial")" = "$closing" ] ||
   refuse "$globals.partial does not end as pg_dumpall ends a dump, so it is not whole"
