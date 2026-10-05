@@ -65,8 +65,8 @@ THE CASES, and the half of the script each is the only reader of:
 WHAT THIS CANNOT SEE. The image: the pod runs these bytes with the `bash` and
 the PostgreSQL clients of `postgres:18.3-trixie`, and this runs them with the
 ones nixpkgs pins, an earlier major. Nothing here uses an option the two do
-not share, and that is an argument rather than a check. The NetworkPolicy,
-the Secret and the volume are `tests/rollout-order.py`'s.
+not share, and that is an argument rather than a check. The Secret and the
+volume are `tests/rollout-order.py`'s.
 """
 
 import os
