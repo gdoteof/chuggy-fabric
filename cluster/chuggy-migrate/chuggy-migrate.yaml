@@ -6,36 +6,63 @@
 # repository knows what the schema is -- which is the point: the image carries
 # its own migrations and this file only says which database and as whom.
 #
+# AND BEFORE IT, A DUMP. The pod below takes one of the database it is about to
+# change and migrates only if it could: `dump`, further down, and dump.sh.
+#
 # THIS COMMAND DOES NOT EXIST BEFORE kasofsk/chuggy#242. The image tag below
 # must be built from a commit that carries it; a tag that does not has no
 # `src/roots/migrate.ts` and the container exits on a module that is not there.
 #
 # ------------------------------------------------------------ the ordering ----
 #
-# A JOB DOES NOT BLOCK THE DEPLOYMENTS BESIDE IT. kustomize-controller applies
-# this directory as one set, so the five control-plane workloads start while
-# this is still running, and on a fresh database they start against a schema
-# that is not there yet.
+# THE SERVICES WAIT FOR THIS JOB. `cluster/flux/` declares three layers over one
+# source: `apps`, then `chuggy-migrate`, which applies this directory, then
+# `chuggy`, which applies the services of a release. Each depends on the one
+# before and waits for what it applied to be healthy, so the services of a
+# release are applied only once this Job has completed for that release. Inside
+# the pod the order is the kubelet's: the wait for PostgreSQL, the dump, the
+# migration, each started only when the one before it exited 0.
 #
-# That is safe, and it is safe because of the processes rather than because of
-# anything here. Every command asserts `schema-compatible` before it serves --
-# the applied ledger against the contract its own image declares -- and reports
-# a mismatch as could-not-run. So the sequence on a fresh database is: pods
-# start, report the schema they do not have, exit, and the kubelet backs them
-# off; this Job commits; the next restart finds the schema and the pods come up.
-# The ordering is enforced by the thing that would be wrong without it.
+# WHEN THE DUMP OR THE MIGRATION FAILS, THE SERVICES STAY AS THEY WERE. `chuggy`
+# applies nothing while `chuggy-migrate` is not Ready, so every Deployment keeps
+# the pods and the image it had. Nothing restores the dump either: it is kept
+# for a person to restore from.
 #
-# The alternative was a second Flux Kustomization with `dependsOn`, which would
-# order the apply -- and would buy nothing the precondition does not already
-# guarantee, at the cost of splitting `cluster/apps/` into two reconcilers with
-# their own intervals and their own failure modes.
+# WHEN THE MIGRATION SUCCEEDS, THE RELEASE BEFORE THIS ONE RUNS ON ITS SCHEMA
+# FOR A WHILE. The pods `chuggy` has not rolled yet are the previous release's,
+# and from this Job's commit until that roll they run against the schema this
+# release declares. Nothing here holds a migration to being one they can run
+# on.
+#
+# THE PROCESSES ASSERT THE SCHEMA TOO, AND THAT IS NOT WHAT ORDERS THEM. Every
+# command asserts `schema-compatible` before it serves -- the applied ledger
+# against the contract its own image declares -- and reports a mismatch as
+# could-not-run. That makes any order CORRECT: a pod started ahead of its schema
+# exits rather than serves. It does not make any order AVAILABLE. A Deployment
+# whose strategy is `Recreate` has stopped the pods of the release before by the
+# time the new ones find their schema missing, and a migration that never
+# commits leaves it with none. The layers are what keep the old pods running
+# until the migration has succeeded.
+#
+# WHAT THE ORDER COSTS is that each of the three can hold a release alone.
+# While `apps` is not Ready -- over any object it applies, and it applies
+# everything else this repository declares -- this Job is not applied. While
+# this Job is failed, no change to the services is applied, one that is not a
+# release included. cluster/flux/chuggy-migrate.yaml and cluster/flux/chuggy.yaml
+# say so where each dependency is declared.
 #
 # ----------------------------------------------- the name tracks the template ----
 #
-# A Job's pod template is immutable, so re-applying this file with a new image
-# under the same name is rejected by the API server -- the reconcile fails and
-# nothing migrates. The name changes with the release or its image transport,
-# so Flux creates a new object and prunes the old one in the same pass.
+# A Job's pod template is immutable, so the API server rejects an apply that
+# changes it under a name that did not change. A release does not meet that:
+# the name changes with the release or its image transport, so Flux creates a
+# new object and prunes the old one in the same pass. An edit that is not a
+# release does meet it -- an edit to this file, or to dump.sh, whose ConfigMap
+# is named by a hash of its content that the volume below follows -- and for
+# that cluster/flux/chuggy-migrate.yaml sets `force`: kustomize-controller
+# deletes the Job and creates it again. EITHER WAY THE JOB RUNS AGAIN, the dump
+# first. A migration with nothing pending applies nothing and says so; a dump
+# is another pair of files on the volume.
 #
 # It also makes the run visible. `kubectl -n chuggy get jobs` names the exact
 # image whose schema this database was last brought to.
@@ -45,32 +72,33 @@
 # minutes forever. It is idempotent -- a second run applies nothing and says so
 # -- but a rerun loop is not what an idempotent command is for.
 #
-# WHICH MAKES A FAILED MIGRATION TERMINAL, AND THAT NEEDS A HUMAN. The two
-# properties above are for a CHANGED image reference. When the name does not
-# change and the run exhausts `backoffLimit` below -- which at 0 is its single pod failing --
-# this object is `Failed` and stays that way: Flux re-applies a byte-identical
-# Job every five minutes, the API server accepts it as unchanged, and NOTHING
-# RUNS AGAIN. There is no self-healing path.
+# WHICH MAKES A FAILED JOB TERMINAL, AND THAT NEEDS A HUMAN. The two properties
+# above are for a CHANGED Job. When nothing about it changes and the run
+# exhausts `backoffLimit` below -- which at 0 is its single pod failing, in the
+# dump or in the migration -- this object is `Failed` and stays that way: Flux
+# re-applies a byte-identical Job every five minutes, the API server accepts it
+# as unchanged, `force` has nothing rejected to act on, and NOTHING RUNS AGAIN.
+# There is no self-healing path.
 #
 # THE KUSTOMIZATION DOES NOT STAY GREEN, AND SAYING IT DID WOULD COST THE ONE
-# SIGNAL THERE IS. The `apps` Kustomization sets `wait: true`, which
-# `cluster/flux/apps.yaml` declares, and which health-checks every
+# SIGNAL THERE IS. The `chuggy-migrate` Kustomization sets `wait: true`, which
+# `cluster/flux/chuggy-migrate.yaml` declares, and which health-checks every
 # object this directory applies with kstatus, and kstatus reads a Job carrying
-# `Failed=True` as failed rather than as merely finished. So `apps` goes
-# `Ready=False` with this Job among the objects its message names, and stays
-# there until a human clears it.
+# `Failed=True` as failed rather than as merely finished. So `chuggy-migrate`
+# goes `Ready=False` with this Job in its message, `chuggy` behind it reads
+# `DependencyNotReady`, and both stay there until a human clears it.
 #
-# WHAT THAT SIGNAL IS WORTH IS LESS THAN IT SOUNDS, for the reason the README's
-# "what does not work yet" gives: a Deployment beside this Job never reaches an
-# available replica either, so `apps` is `Ready=False` before it has run at all
-# and a failure here adds a line to a list that is already long. Nothing routes
-# it anywhere -- Alertmanager is off and notification-controller is not
-# installed -- so it is read by looking. Read the message, not the bit.
+# NO OTHER WORKLOAD IS IN THAT SIGNAL, AND NOTHING CARRIES IT ANYWHERE. This
+# directory applies the Job and the script it mounts and nothing else, so a
+# Deployment that never becomes available holds `chuggy` red and not this
+# layer. But Alertmanager is off and notification-controller is not installed,
+# so it is read by looking.
 #
 # The recovery is to read the pod, fix the cause, and delete the Job so the
 # next reconcile builds it afresh:
 #
-#   kubectl -n chuggy logs job/chuggy-migrate-<release>
+#   kubectl -n chuggy logs job/chuggy-migrate-<release> -c dump
+#   kubectl -n chuggy logs job/chuggy-migrate-<release> -c migrate
 #   kubectl -n chuggy delete job chuggy-migrate-<release>
 #
 # NOTHING HAS PUT THIS RIG IN THAT STATE. It is a possibility argued from the
@@ -157,6 +185,11 @@
 # own. What it costs is that a migration wedged on a lock waits forever, which
 # is the trade a single-node rig with one operator can make.
 #
+# WHILE IT WAITS, THE SERVICES ARE HELD AS THEY ARE FOR A FAILURE. A Job that
+# is still `Active` has not completed, so each reconcile of `chuggy-migrate`
+# gives up at that layer's `timeout` and the next one waits again, and `chuggy`
+# applies nothing until one of them sees the Job complete.
+#
 # THE WAIT FOR THE DATABASE IS BOUNDED ALL THE SAME, and does not cost that
 # trade back. Its clock starts when the initContainer starts, so it cannot run
 # while a pod is still waiting for its image; the argument is beside the
@@ -172,6 +205,11 @@
 # It holds CREATEROLE, which is what lets the migration create its own group
 # roles. That is not superuser, and kasofsk/chuggy's `deploy/rig/postgres/postgres-roles.sql`
 # carries the argument for why the difference is load-bearing.
+#
+# THE POD HOLDS A SECOND CREDENTIAL, AND THAT ONE IS THE SUPERUSER'S. `dump`
+# connects as `postgres`, for the reason dump.sh gives. The password is in that
+# container's environment and no other's, and `tests/rollout-order.py` holds
+# that across everything this repository renders.
 #
 # OWNING THE RELATIONS IS NOT ENOUGH ON ITS OWN. Part of what the schema
 # declares is owned by `chuggy_boundary_owner` rather than by this role -- that
@@ -221,8 +259,8 @@ spec:
   # identically -- a lock it cannot take, a statement the schema refuses, a
   # ledger this image is behind. A pod that does not get past the wait is
   # looking at a database that is genuinely down, and a second pod would spend
-  # the same bound discovering it again. So: one pod, one log to read, and the
-  # terminal `Failed` state above reached in about a minute rather than five.
+  # the same bound discovering it again. So: one pod to read, and the terminal
+  # `Failed` state above reached in about a minute rather than five.
   backoffLimit: 0
   template:
     metadata:
@@ -298,6 +336,64 @@ spec:
             capabilities:
               drop: [ALL]
             seccompProfile: { type: RuntimeDefault }
+        # THE DUMP, AND THE MIGRATION DOES NOT START WITHOUT IT. An initContainer
+        # that exits non-zero fails the pod before `migrate` is created, so a
+        # dump that could not be taken or read back is a migration that did not
+        # run. dump.sh is the whole of what it does and states its own rules;
+        # kustomization.yaml generates the ConfigMap it is mounted from.
+        #
+        # AFTER THE WAIT, for the wait's own reason: by then this pod's IP is
+        # admitted, and this container is the same pod. It opens nothing the
+        # wait did not -- DNS and 5432 on the server, which is what
+        # `chuggy-migrate-egress` permits and what `postgres-admits-labelled-clients`
+        # admits this pod's label for.
+        #
+        # THE SUPERUSER, IN THIS CONTAINER AND NO OTHER. dump.sh argues why the
+        # dump needs it. The migration does not, and holds `chuggy_owner` for
+        # the reason given above, so the Secret is in this container's
+        # environment and must stay out of the pod's and out of `migrate`'s.
+        #
+        # THE SAME IMAGE AS THE WAIT, and here its version is load-bearing:
+        # `pg_dump` refuses a server newer than itself, and this is the tag
+        # postgres.yaml runs the server from.
+        #
+        # WHAT IT WRITES IS AS OF ITS OWN START. The services are still running
+        # the release before this one and still writing, so a restore from this
+        # dump is without whatever they wrote after it began.
+        - name: dump
+          image: postgres:18.3-trixie
+          imagePullPolicy: IfNotPresent
+          command: [bash, /etc/chuggy-migrate/dump.sh]
+          env:
+            - name: PGHOST
+              value: postgres.chuggy.svc.cluster.local
+            - name: PGPORT
+              value: "5432"
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef: { name: postgres-superuser, key: password }
+            - name: CHUG_DUMP_DIR
+              value: /dumps
+            # How many dumps the volume holds once this one is written.
+            - name: CHUG_DUMP_KEEP
+              value: "5"
+            # The Job controller labels the pod with the Job's name, and the
+            # files are named for it: a dump says which release took it.
+            - name: CHUG_DUMP_JOB
+              valueFrom:
+                fieldRef: { fieldPath: "metadata.labels['job-name']" }
+          volumeMounts:
+            - { name: dumps, mountPath: /dumps }
+            - { name: dump-script, mountPath: /etc/chuggy-migrate, readOnly: true }
+          resources:
+            requests: { cpu: 100m, memory: 64Mi }
+            limits: { memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile: { type: RuntimeDefault }
       containers:
         - name: migrate
           image: registry.chuggy.internal/chuggy/api@sha256:efe95d1170a2669b9b91683ffa5dcf8da3bc4343aa83176a428e68719c24c307
@@ -334,3 +430,13 @@ spec:
       # the pod mid-transaction does not corrupt anything -- PostgreSQL rolls
       # the transaction back -- but it loses the report of what was applied.
       terminationGracePeriodSeconds: 120
+      volumes:
+        # chuggy-dumps.yaml declares the claim and argues the volume under it.
+        # The directory is the host's, owned by the uid this pod runs as and
+        # closed to every other, which is why this pod sets NO `fsGroup`: with
+        # one the kubelet would hand the directory to that group and widen the
+        # mode `chuggy.state.dumps` set.
+        - name: dumps
+          persistentVolumeClaim: { claimName: chuggy-dumps }
+        - name: dump-script
+          configMap: { name: chuggy-dump-script }
