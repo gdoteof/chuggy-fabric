@@ -1,0 +1,47 @@
+# One build of chuggy's worker image, started by hand.
+#
+# NOT APPLIED, and in no ConfigMap either: nothing in the cluster creates
+# this. An operator writes the commit in and creates it:
+#
+#   sed 's/@chuggy-commit@/<full commit hash>/' cluster/build-system/worker-image-run.yaml |
+#     kubectl create --filename -
+#
+# WHY BY HAND. No manifest under cluster/ runs the worker image, so no release
+# moves it: the image a run uses is named by digest in a Chuggy configuration,
+# and a new one is admitted by a fabric change that writes the digest this
+# TaskRun reports as its `digest` result.
+#
+# THE SAME TASK AND THE SAME PLACEMENT AS A RELEASE'S BUILDS. release-run.yaml
+# argues the pod template; a TaskRun carries it at the top of its spec.
+# `target` is the Dockerfile stage, and without it the build is of the last
+# one, which is the worker.
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: worker-image-
+  namespace: chuggy-build
+spec:
+  taskRef:
+    name: build-image
+  params:
+    - name: url
+      value: https://github.com/kasofsk/chuggy.git
+    - name: commit
+      value: "@chuggy-commit@"
+    - name: image
+      value: registry.chuggy-registry.svc.cluster.local:5000/chuggy/worker
+    - name: dockerfile
+      value: images/worker/Dockerfile
+  timeout: 1h
+  serviceAccountName: builder
+  podTemplate:
+    automountServiceAccountToken: false
+    nodeSelector:
+      chuggy.dev/node-role: builder
+      kubernetes.io/os: linux
+      kubernetes.io/arch: amd64
+    tolerations:
+      - key: chuggy.dev/node-role
+        operator: Equal
+        value: builder
+        effect: NoSchedule

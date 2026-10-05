@@ -1,0 +1,311 @@
+# The release pipeline: chuggy's two images at one commit, then one artifact
+# that releases them.
+#
+# A RUN IS A FUNCTION OF ITS PARAMETERS. Each names a repository and a full
+# commit hash, and no task reads the API server, a Flux source or a branch for
+# anything else. The same four values give the same release whoever starts the
+# run.
+#
+# NO TASK HAS A TOKEN OR A ROUTE TO THE API SERVER. Every pod here runs as
+# `builder`, which mounts none, under release-run.yaml's pod template, which
+# says so again; platform.yaml's `build-egress` is the whole of where a task
+# pod may go. tests/release-pipeline.py holds each of those.
+#
+# WHAT A STEP RUNS IS A FILE, NOT A STRING IN THIS ONE. kustomization.yaml
+# brings fetch.sh, build.sh and publish.sh in as `release-pipeline-scripts`,
+# and each argues its own rules in its own header. Every step names its
+# `command`: without one Tekton asks the image's registry for its entrypoint.
+---
+# One image of one commit. General over the repository, the Dockerfile and
+# the image, because the worker image is built by this Task as well, by hand,
+# from worker-image-run.yaml.
+#
+# THE `build` STEP CARRIES WHAT ROOTLESS BUILDKIT NEEDS, which the Shipwright
+# strategy beside this file carried before it: the two capabilities
+# RootlessKit maps ids with, no seccomp or AppArmor profile, the daemon's
+# flag, its state and runtime directories as volumes because the root
+# filesystem is read-only, and the resources of a build. Which node a build
+# runs on is the run's to say, not this Task's.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: build-image
+  namespace: chuggy-build
+spec:
+  params:
+    - name: url
+      description: The repository the image is built from.
+      type: string
+    - name: commit
+      description: The full hash of the commit to build. It is also the image's tag.
+      type: string
+    - name: image
+      description: The registry and repository the image is pushed to, with no tag.
+      type: string
+    - name: dockerfile
+      description: The Dockerfile, as a path from the repository's root.
+      type: string
+    - name: context
+      description: The build context, as a path from the repository's root.
+      type: string
+      default: "."
+    - name: target
+      description: The Dockerfile stage to build. Empty builds the last.
+      type: string
+      default: ""
+  results:
+    - name: digest
+      description: The digest the registry serves the image under at the commit's tag.
+      type: string
+  volumes:
+    - name: scripts
+      configMap:
+        name: release-pipeline-scripts
+    - name: tmp
+      emptyDir: {}
+    - name: buildkit-state
+      emptyDir: {}
+    - name: buildkit-runtime
+      emptyDir: {}
+  steps:
+    - name: fetch
+      image: moby/buildkit:v0.26.2-rootless@sha256:0ffa2fcf6b8757c47d569b3ef0f03f9d5eb3b9ff5ce68d858f994f89b749da0c
+      imagePullPolicy: IfNotPresent
+      command: [/bin/sh, /scripts/fetch.sh]
+      env:
+        - { name: URL, value: $(params.url) }
+        - { name: COMMIT, value: $(params.commit) }
+        - { name: DIRECTORY, value: /workspace/source }
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+        readOnlyRootFilesystem: true
+        seccompProfile: { type: RuntimeDefault }
+      computeResources:
+        requests: { cpu: 100m, memory: 128Mi }
+        limits: { memory: 1Gi }
+      volumeMounts:
+        - { name: scripts, mountPath: /scripts, readOnly: true }
+        - { name: tmp, mountPath: /tmp }
+    - name: build
+      image: moby/buildkit:v0.26.2-rootless@sha256:0ffa2fcf6b8757c47d569b3ef0f03f9d5eb3b9ff5ce68d858f994f89b749da0c
+      imagePullPolicy: IfNotPresent
+      command: [/bin/sh, /scripts/build.sh]
+      env:
+        - { name: XDG_RUNTIME_DIR, value: /home/user/.local/tmp }
+        - { name: BUILDKITD_FLAGS, value: --oci-worker-no-process-sandbox }
+        # Where buildctl makes its client configuration directory, whether or
+        # not it has anything to keep there. The image's own is on the
+        # read-only root.
+        - { name: DOCKER_CONFIG, value: /tekton/home/.docker }
+        - { name: IMAGE, value: $(params.image) }
+        - { name: COMMIT, value: $(params.commit) }
+        - { name: SOURCE, value: /workspace/source }
+        - { name: CONTEXT, value: $(params.context) }
+        - { name: DOCKERFILE, value: $(params.dockerfile) }
+        - { name: TARGET, value: $(params.target) }
+        - { name: RESULT_DIGEST, value: $(results.digest.path) }
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        allowPrivilegeEscalation: true
+        capabilities:
+          add: [SETGID, SETUID]
+          drop: [ALL]
+        readOnlyRootFilesystem: true
+        seccompProfile: { type: Unconfined }
+        appArmorProfile: { type: Unconfined }
+      computeResources:
+        requests: { cpu: "1", memory: 2Gi, ephemeral-storage: 10Gi }
+        limits: { cpu: "4", memory: 8Gi, ephemeral-storage: 40Gi }
+      volumeMounts:
+        - { name: scripts, mountPath: /scripts, readOnly: true }
+        - { name: tmp, mountPath: /tmp }
+        - { name: buildkit-state, mountPath: /home/user/.local/share/buildkit }
+        - { name: buildkit-runtime, mountPath: /home/user/.local/tmp }
+---
+# One release as one artifact in the cluster's registry.
+#
+# TWO STEPS BECAUSE NO PINNED IMAGE HAS BOTH HALVES. The fabric's manifests
+# are fetched with git, which the BuildKit image carries; the artifact is
+# rendered and pushed with `kubectl` and `flux`, which the Flux CLI image
+# carries. The second step runs as that image's own user and reads what the
+# first wrote under /workspace.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: publish-release
+  namespace: chuggy-build
+spec:
+  params:
+    - name: chuggy-url
+      description: The repository the two images were built from.
+      type: string
+    - name: chuggy-commit
+      description: The full hash of the commit they were built at.
+      type: string
+    - name: manifests-url
+      description: The repository that carries cluster/chuggy-migrate and cluster/chuggy.
+      type: string
+    - name: manifests-commit
+      description: The full hash of the commit those two directories are read at.
+      type: string
+    - name: api-image
+      description: The API image as the manifests name it, with no digest.
+      type: string
+    - name: api-digest
+      description: The digest this release runs it at.
+      type: string
+    - name: console-image
+      description: The console image as the manifests name it, with no digest.
+      type: string
+    - name: console-digest
+      description: The digest this release runs it at.
+      type: string
+    - name: release
+      description: The registry and repository the artifact is pushed to, with no tag.
+      type: string
+  results:
+    - name: version
+      description: The tag the artifact was pushed under, which is the one Flux selects by.
+      type: string
+    - name: digest
+      description: The artifact's digest.
+      type: string
+  volumes:
+    - name: scripts
+      configMap:
+        name: release-pipeline-scripts
+    - name: tmp
+      emptyDir: {}
+  steps:
+    - name: fetch
+      image: moby/buildkit:v0.26.2-rootless@sha256:0ffa2fcf6b8757c47d569b3ef0f03f9d5eb3b9ff5ce68d858f994f89b749da0c
+      imagePullPolicy: IfNotPresent
+      command: [/bin/sh, /scripts/fetch.sh]
+      env:
+        - { name: URL, value: $(params.manifests-url) }
+        - { name: COMMIT, value: $(params.manifests-commit) }
+        - { name: DIRECTORY, value: /workspace/manifests }
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+        readOnlyRootFilesystem: true
+        seccompProfile: { type: RuntimeDefault }
+      computeResources:
+        requests: { cpu: 100m, memory: 128Mi }
+        limits: { memory: 1Gi }
+      volumeMounts:
+        - { name: scripts, mountPath: /scripts, readOnly: true }
+        - { name: tmp, mountPath: /tmp }
+    - name: publish
+      image: ghcr.io/fluxcd/flux-cli:v2.6.4@sha256:d6734ea180b0f5135e6a343482da1a669c526ef85525da53a6415c6a9f359861
+      imagePullPolicy: IfNotPresent
+      command: [/bin/sh, /scripts/publish.sh]
+      env:
+        - { name: HOME, value: /tmp }
+        - { name: SOURCE, value: /workspace/manifests }
+        - { name: WORK, value: /workspace/release }
+        - { name: CHUGGY_URL, value: $(params.chuggy-url) }
+        - { name: CHUGGY_COMMIT, value: $(params.chuggy-commit) }
+        - { name: API_IMAGE, value: $(params.api-image) }
+        - { name: API_DIGEST, value: $(params.api-digest) }
+        - { name: CONSOLE_IMAGE, value: $(params.console-image) }
+        - { name: CONSOLE_DIGEST, value: $(params.console-digest) }
+        - { name: RELEASE, value: $(params.release) }
+        - { name: RESULT_VERSION, value: $(results.version.path) }
+        - { name: RESULT_DIGEST, value: $(results.digest.path) }
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+        readOnlyRootFilesystem: true
+        seccompProfile: { type: RuntimeDefault }
+      computeResources:
+        requests: { cpu: 100m, memory: 128Mi }
+        limits: { memory: 1Gi }
+      volumeMounts:
+        - { name: scripts, mountPath: /scripts, readOnly: true }
+        - { name: tmp, mountPath: /tmp }
+---
+# The two builds side by side, then the release of what they built.
+#
+# AN IMAGE HAS TWO NAMES HERE AND THEY ARE ONE REPOSITORY. A build pushes to
+# the registry's Service, which is the only name a pod can reach it by. The
+# manifests name `registry.chuggy.internal`, which is the node's containerd
+# mirror for that same registry and resolves nowhere else. So each image is
+# written twice below, once per name, with one path.
+#
+# EACH TASK RETRIES, which is Tekton's answer to a fetch or a push that failed
+# once. A run that still fails is the trigger's to start again.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: chuggy-release
+  namespace: chuggy-build
+spec:
+  params:
+    - name: chuggy-url
+      description: The chuggy repository.
+      type: string
+    - name: chuggy-commit
+      description: The full hash of the chuggy commit to build and release.
+      type: string
+    - name: manifests-url
+      description: The fabric repository.
+      type: string
+    - name: manifests-commit
+      description: The full hash of the fabric commit whose two release directories are released.
+      type: string
+  results:
+    - name: version
+      description: The tag the release was published under.
+      value: $(tasks.publish.results.version)
+    - name: digest
+      description: The digest of the published artifact.
+      value: $(tasks.publish.results.digest)
+  tasks:
+    - name: build-api
+      retries: 2
+      taskRef:
+        name: build-image
+      params:
+        - { name: url, value: $(params.chuggy-url) }
+        - { name: commit, value: $(params.chuggy-commit) }
+        - { name: image, value: registry.chuggy-registry.svc.cluster.local:5000/chuggy/api }
+        - { name: dockerfile, value: images/api/Dockerfile }
+    - name: build-console
+      retries: 2
+      taskRef:
+        name: build-image
+      params:
+        - { name: url, value: $(params.chuggy-url) }
+        - { name: commit, value: $(params.chuggy-commit) }
+        - { name: image, value: registry.chuggy-registry.svc.cluster.local:5000/chuggy/web }
+        - { name: dockerfile, value: images/chuggy-ui/Dockerfile }
+    - name: publish
+      retries: 2
+      taskRef:
+        name: publish-release
+      params:
+        - { name: chuggy-url, value: $(params.chuggy-url) }
+        - { name: chuggy-commit, value: $(params.chuggy-commit) }
+        - { name: manifests-url, value: $(params.manifests-url) }
+        - { name: manifests-commit, value: $(params.manifests-commit) }
+        - { name: api-image, value: registry.chuggy.internal/chuggy/api }
+        - { name: api-digest, value: $(tasks.build-api.results.digest) }
+        - { name: console-image, value: registry.chuggy.internal/chuggy/web }
+        - { name: console-digest, value: $(tasks.build-console.results.digest) }
+        - { name: release, value: registry.chuggy-registry.svc.cluster.local:5000/chuggy/release }

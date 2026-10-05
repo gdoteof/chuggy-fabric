@@ -1,0 +1,189 @@
+# The release trigger: each minute, whether a release run is started.
+#
+# A NAMESPACE OF ITS OWN, BECAUSE IT IS THE ONE PART THAT READS THE API
+# SERVER. `chuggy-build` denies everything by default and no pod in it mounts
+# a token; a trigger there would be the exception to both. Here its token and
+# its route are the only things in the namespace.
+#
+# WHAT ITS TOKEN CAN DO IS THREE VERBS AND ONE READ. `get` on the two sources
+# it compares, by name, in `flux-system`; `list`, `create` and `delete` on
+# PipelineRuns in `chuggy-build`. It cannot read a run's pods or logs, a
+# Secret anywhere, or any other source.
+#
+# trigger.sh, in the ConfigMap kustomization.yaml generates beside
+# release-run.yaml, argues what it decides.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: chuggy-release-trigger
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-trigger
+  namespace: chuggy-release-trigger
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-trigger-reads-sources
+  namespace: flux-system
+rules:
+  - apiGroups: [source.toolkit.fluxcd.io]
+    resources: [gitrepositories]
+    resourceNames: [chuggy, fabric-release]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-trigger-reads-sources
+  namespace: flux-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-trigger-reads-sources
+subjects:
+  - kind: ServiceAccount
+    name: release-trigger
+    namespace: chuggy-release-trigger
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-trigger-runs
+  namespace: chuggy-build
+rules:
+  - apiGroups: [tekton.dev]
+    resources: [pipelineruns]
+    verbs: [list, create, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-trigger-runs
+  namespace: chuggy-build
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-trigger-runs
+subjects:
+  - kind: ServiceAccount
+    name: release-trigger
+    namespace: chuggy-release-trigger
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: release-trigger-default-deny
+  namespace: chuggy-release-trigger
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# THE API SERVER IS A HOST ADDRESS, NOT A POD. It listens on the node, whose
+# address is a DHCP lease, so the rule is everything outside the pod and
+# Service ranges: cluster/apps/chuggy-control-plane-network-policy.yaml argues
+# the same shape for the scheduler. This one is narrowed to the port the API
+# server listens on, which a rule is matched against after the `kubernetes`
+# Service's address has been rewritten to the node's.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: release-trigger-egress
+  namespace: chuggy-release-trigger
+spec:
+  podSelector:
+    matchLabels: { app: release-trigger }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.42.0.0/16
+              - 10.43.0.0/16
+      ports:
+        - { protocol: TCP, port: 6443 }
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: release-trigger
+  namespace: chuggy-release-trigger
+  labels: { app: release-trigger }
+spec:
+  schedule: "* * * * *"
+  # SUSPENDED: nothing here starts a run by itself. The pipeline is proved by
+  # a run started by hand before this is taken out, and the two release layers
+  # still read git until a later commit moves them.
+  suspend: true
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 30
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      # What bounds a trigger that hangs. `Forbid` holds every later tick back
+      # while this one's Job is active.
+      activeDeadlineSeconds: 45
+      template:
+        metadata:
+          labels: { app: release-trigger }
+        spec:
+          serviceAccountName: release-trigger
+          automountServiceAccountToken: true
+          restartPolicy: Never
+          terminationGracePeriodSeconds: 5
+          nodeSelector:
+            kubernetes.io/os: linux
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: trigger
+              image: ghcr.io/fluxcd/flux-cli:v2.6.4@sha256:d6734ea180b0f5135e6a343482da1a669c526ef85525da53a6415c6a9f359861
+              imagePullPolicy: IfNotPresent
+              command: [/bin/sh, /trigger/trigger.sh]
+              env:
+                # kubectl keeps a discovery cache under it.
+                - { name: HOME, value: /tmp }
+                - { name: SOURCES_NAMESPACE, value: flux-system }
+                - { name: RUNS_NAMESPACE, value: chuggy-build }
+                - { name: PIPELINE, value: chuggy-release }
+                - { name: RUN_MANIFEST, value: /trigger/release-run.yaml }
+                - { name: RETRY_DELAY_SECONDS, value: "300" }
+                - { name: KEEP_RUNS, value: "10" }
+              resources:
+                requests: { cpu: 25m, memory: 64Mi }
+                limits: { memory: 256Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - { name: trigger, mountPath: /trigger, readOnly: true }
+                - { name: tmp, mountPath: /tmp }
+          volumes:
+            - name: trigger
+              configMap:
+                name: release-trigger
+            - name: tmp
+              emptyDir: {}

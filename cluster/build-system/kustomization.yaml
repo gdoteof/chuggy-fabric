@@ -1,3 +1,9 @@
+# The build controllers, the namespace builds run in, and the release
+# pipeline with its trigger.
+#
+# A FILE THAT IS NOT IN `resources` IS NOT APPLIED. Two manifests here are
+# left out on purpose and say so in their own headers: release-run.yaml,
+# which the trigger creates, and worker-image-run.yaml, which a person does.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -6,6 +12,31 @@ resources:
   - webhook-certificate.yaml
   - platform.yaml
   - buildkit-rootless-v1.yaml
+  - release-pipeline.yaml
+  - release-trigger.yaml
+
+configMapGenerator:
+  # What the pipeline's steps run. The name carries no hash because a Task is
+  # not a kind kustomize rewrites a ConfigMap's name in, so a hashed name is
+  # one no Task would mount. Nothing is lost by it: a task pod is created for
+  # one run and mounts what the name holds then, so there is no running pod
+  # for a new name to replace.
+  - name: release-pipeline-scripts
+    namespace: chuggy-build
+    files:
+      - fetch.sh
+      - build.sh
+      - publish.sh
+    options:
+      disableNameSuffixHash: true
+  # What the trigger runs, and the run it creates. Hashed, and kustomize
+  # rewrites the CronJob's volume to the name.
+  - name: release-trigger
+    namespace: chuggy-release-trigger
+    files:
+      - trigger.sh
+      - release-run.yaml
+
 patches:
   - target:
       group: apiextensions.k8s.io
