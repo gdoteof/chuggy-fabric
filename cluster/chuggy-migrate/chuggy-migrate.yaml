@@ -91,8 +91,8 @@
 # NO OTHER WORKLOAD IS IN THAT SIGNAL, AND NOTHING CARRIES IT ANYWHERE. This
 # directory applies the Job and the script it mounts and nothing else, so a
 # Deployment that never becomes available holds `chuggy` red and not this
-# layer. But Alertmanager is off and notification-controller is not installed,
-# so it is read by looking.
+# layer. But Alertmanager is off and no Alert is declared for
+# notification-controller, so it is read by looking.
 #
 # The recovery is to read the pod, fix the cause, and delete the Job so the
 # next reconcile builds it afresh:

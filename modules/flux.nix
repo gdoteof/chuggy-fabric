@@ -17,10 +17,11 @@
 # already here. A public source needs no credential; a private one names a
 # separately provisioned read credential with secretRef.
 #
-# source-controller, kustomize-controller and helm-controller are installed.
-# helm-controller was added when the monitoring stack needed it -- kube-prometheus-
-# stack is a Helm chart and there is no sensible plain-manifest equivalent.
-# notification-controller is still omitted; nothing alerts outward yet.
+# source-controller, kustomize-controller, helm-controller and
+# notification-controller are installed. helm-controller was added when the
+# monitoring stack needed it -- kube-prometheus-stack is a Helm chart and there
+# is no sensible plain-manifest equivalent. notification-controller has nothing
+# to act on: nothing under cluster/ declares an Alert, a Provider or a Receiver.
 #
 # Note which layer this file belongs to. The controllers and the objects below
 # are applied by k3s auto-deploy, not by Flux, so changing either is a
