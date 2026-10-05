@@ -8,7 +8,7 @@ metadata:
 spec:
   # `apps` applies what the Job stands on: the namespace, PostgreSQL, the claim
   # the dump is written to and the policies that admit the pod. It also applies
-  # everything else this repository declares, and its `wait` holds all of it. So
+  # everything else in cluster/apps/, and its `wait` holds all of it. So
   # anything `apps` reads as unhealthy -- a HelmRelease in `monitoring`, the
   # `sirdocalot` Kustomization it carries -- holds a release, whether or not
   # the release touches it.

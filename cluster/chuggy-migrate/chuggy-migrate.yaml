@@ -45,11 +45,11 @@
 # until the migration has succeeded.
 #
 # WHAT THE ORDER COSTS is that each of the three can hold a release alone.
-# While `apps` is not Ready -- over any object it applies, and it applies
-# everything else this repository declares -- this Job is not applied. While
-# this Job is failed, no change to the services is applied, one that is not a
-# release included. cluster/flux/chuggy-migrate.yaml and cluster/flux/chuggy.yaml
-# say so where each dependency is declared.
+# While `apps` is not Ready -- over any object it applies, which is everything
+# in cluster/apps/ -- this Job is not applied. While this Job is failed, no
+# change to the services is applied, one that is not a release included.
+# cluster/flux/chuggy-migrate.yaml and cluster/flux/chuggy.yaml say so where
+# each dependency is declared.
 #
 # ----------------------------------------------- the name tracks the template ----
 #
