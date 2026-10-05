@@ -10,8 +10,8 @@
 # which belong to the server and are in no database's archive. Both are written
 # under a name ending in `.partial`, the archive is read back whole, the
 # globals are held to the lines `pg_dumpall` ends on, and only then is each
-# renamed. The globals are renamed first, so an archive under its final name
-# has its globals beside it.
+# renamed. The globals are renamed first, so a run that stops between the two
+# renames leaves no archive under its final name.
 #
 # THE READ-BACK READS EVERY BLOCK AND ASKS NO SERVER. `pg_restore` given a file
 # to write and no database turns the archive back into SQL, which takes its
@@ -19,10 +19,15 @@
 # refused wherever the cut falls. The SQL goes to /dev/null. Nothing runs it:
 # this reads that the archive is all there, not that a server would take it.
 #
-# `pg_dumpall` DOES NOT REPORT A WRITE THAT FAILED. On a volume that fills while
-# it writes, it exits 0 over globals that are short or empty. So the file is
-# held to the lines `pg_dumpall` ends a dump with, as its own last lines and
-# not as lines somewhere in it.
+# `pg_dumpall` DOES NOT REPORT A WRITE THAT FAILED. Writing the file itself on
+# a volume with no room for its first writes and room again for its last, it
+# exits 0 over globals that end as a dump does and lack their beginning. So
+# `cat` writes the file, and fails when a write does; `sync` then has it put on
+# the disk, which `pg_dumpall` did of a file it wrote and `cat` does not. That
+# is all the two answer for. A `pg_dumpall` that stopped early and still exited
+# 0 hands them less than a dump, which is what holding the file to the lines
+# `pg_dumpall` ends a dump with is for: as its own last lines and not as lines
+# somewhere in it.
 #
 # RETENTION RUNS AFTER A DUMP THAT SUCCEEDED, AND ONLY THEN. It keeps the pair
 # just written and the newest of the others, CHUG_DUMP_KEEP archives in all,
@@ -37,7 +42,7 @@
 # unless its archive was under its final name when this run looked -- that
 # rename is a run's last, so an archive without it is a run not yet done. A run
 # that started earlier is not told from one that failed: a later run that
-# finishes first removes its partial files, and it fails.
+# finishes first removes what it has written so far.
 #
 # WHERE, AND WITH WHAT PASSWORD, IS THE POD'S TO SAY. PGHOST, PGPORT and
 # PGPASSWORD are libpq's own variables; the directory, the count and the Job's
@@ -85,7 +90,8 @@ done
 
 pg_dump -w -U postgres -Fc -f "$archive.partial" chuggy
 pg_restore -f /dev/null "$archive.partial"
-pg_dumpall -w -U postgres --globals-only -f "$globals.partial"
+pg_dumpall -w -U postgres --globals-only | cat > "$globals.partial"
+sync -- "$globals.partial"
 closing=$'--\n-- PostgreSQL database cluster dump complete\n--'
 [ "$(tail -n 4 -- "$globals.partial")" = "$closing" ] ||
   refuse "$globals.partial does not end as pg_dumpall ends a dump, so it is not whole"

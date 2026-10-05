@@ -205,9 +205,10 @@ def main():
         if document is migration:
             continue
         kind, home, name = identity(document)
-        if (kind, home) != ("ConfigMap", namespace) or name not in maps:
+        version = document.get("apiVersion")
+        if (version, kind, home) != ("v1", "ConfigMap", namespace) or name not in maps:
             refuse(
-                f"{described(document)} is rendered by cluster/{MIGRATION_LAYER}, which "
+                f"{version} {described(document)} is rendered by cluster/{MIGRATION_LAYER}, which "
                 "applies the migration and the ConfigMaps its pod mounts and nothing "
                 "else: `force` there acts on every object it renders"
             )
