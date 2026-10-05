@@ -51,6 +51,8 @@ THE CASES, and the half of the script each is the only reader of:
   first even when that many archives are stamped later than it, removes what
   failed runs left, and removes nothing it did not name -- a file, a directory
   and a link, each named almost like its own;
+- retention keeps the same count in the ordinary run, where nothing is stamped
+  later and the pair just written is itself among the newest;
 - a count of zero, a Job's name retention would not know for its own, and a
   password the pod was not given are each refused by name, with the directory
   exactly as it was;
@@ -295,6 +297,10 @@ def seed(directory, base, endings=(".dump", ".globals.sql")):
         (directory / f"{base}{ending}").write_text(f"seeded {base}{ending}\n")
 
 
+def stamped(second):
+    return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(second))
+
+
 def good(environment, job):
     case = "good-run"
     directory = directory_for(case)
@@ -461,8 +467,7 @@ def collision(environment, job):
     directory = directory_for(case)
     now = int(time.time())
     for second in range(now, now + AHEAD):
-        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(second))
-        seed(directory, f"{stamp}-{job}", endings=(".dump",))
+        seed(directory, f"{stamped(second)}-{job}", endings=(".dump",))
     before = listing(directory)
     completed = run(case, environment, CHUG_DUMP_DIR=str(directory))
     if completed.returncode == 0:
@@ -471,6 +476,29 @@ def collision(environment, job):
         report(case, f"failed for another reason than its name being taken: {completed.stderr}")
     if listing(directory) != before:
         report(case, "a run whose name was taken wrote, replaced or removed something")
+
+
+def written(case, before, after, job):
+    """The one pair a run that succeeded added, or None with the reason
+    reported."""
+    added = {
+        OWN.match(name).group(1) for name in after if OWN.match(name) and name not in before
+    }
+    if not added:
+        report(case, "the pair the run had just written is not there: retention removed it")
+        return None
+    if len(added) != 1 or not next(iter(added)).endswith(f"-{job}"):
+        report(case, f"expected the run to add one pair named for {job}, found {sorted(added)}")
+        return None
+    return added.pop()
+
+
+def archives_in(listed):
+    return sorted(
+        name[: -len(".dump")]
+        for name in listed
+        if OWN.match(name) and name.endswith(".dump") and listed[name][0] == "file"
+    )
 
 
 def retention(environment, job):
@@ -511,23 +539,10 @@ def retention(environment, job):
         report(case, f"exit {completed.returncode}: {completed.stderr}")
         return
     after = listing(directory)
-    written = {
-        OWN.match(name).group(1)
-        for name in after
-        if OWN.match(name) and name not in before
-    }
-    if not written:
-        report(case, "the pair the run had just written is not there: retention removed it")
+    mine = written(case, before, after, job)
+    if mine is None:
         return
-    if len(written) != 1 or not next(iter(written)).endswith(f"-{job}"):
-        report(case, f"expected the run to add one pair named for {job}, found {sorted(written)}")
-        return
-    mine = written.pop()
-    archives = sorted(
-        name[: -len(".dump")]
-        for name in after
-        if OWN.match(name) and name.endswith(".dump") and after[name][0] == "file"
-    )
+    archives = archives_in(after)
     expected = sorted([mine] + sorted(later, reverse=True)[: keep - 1])
     if mine not in archives:
         report(case, "retention removed the archive the run had just written")
@@ -556,6 +571,39 @@ def retention(environment, job):
     for name in untouched:
         if after.get(name) != before[name]:
             report(case, f"{name} is not this script's and is gone or changed")
+
+
+def newest(environment, job):
+    """The ordinary run: nothing is stamped after the pair just written, so
+    that pair is itself among the newest the count is taken over."""
+    case = "retention-newest"
+    directory = directory_for(case)
+    keep = int(environment["CHUG_DUMP_KEEP"])
+    start_of_2020 = calendar.timegm((2020, 1, 1, 0, 0, 0))
+    earlier = [
+        f"{stamped(start_of_2020 + n)}-chuggy-migrate-earlier{n}" for n in range(keep + 2)
+    ]
+    for base in earlier:
+        seed(directory, base)
+    before = listing(directory)
+    completed = run(case, environment, CHUG_DUMP_DIR=str(directory))
+    if completed.returncode != 0:
+        report(case, f"exit {completed.returncode}: {completed.stderr}")
+        return
+    after = listing(directory)
+    mine = written(case, before, after, job)
+    if mine is None:
+        return
+    expected = sorted([mine] + sorted(earlier, reverse=True)[: keep - 1])
+    if archives_in(after) != expected:
+        report(
+            case,
+            f"retention kept {len(archives_in(after))} archives and not the {keep} that "
+            f"are the pair just written and the newest before it: {archives_in(after)}",
+        )
+    pairs = sorted(f"{base}{ending}" for base in expected for ending in (".dump", ".globals.sql"))
+    if sorted(after) != pairs:
+        report(case, f"retention left {sorted(set(after) - set(pairs))} beside the pairs it kept")
 
 
 def main():
@@ -612,6 +660,7 @@ def main():
         )
         collision(environment, name)
         retention(environment, name)
+        newest(environment, name)
     finally:
         stop()
 
