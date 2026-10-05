@@ -36,12 +36,20 @@
 # checked-in file: it is a vendored upstream artifact, identical on every
 # adopter, and generating it would mean owning a copy of Flux's installer.
 #
-# THE OBJECT NAMES ARE NOT OPTIONS. Nothing in cluster/apps/ reads the label --
-# what reads `kustomize.toolkit.fluxcd.io/name: apps` by value is the README and
-# whoever is standing in front of the cluster, telling what this repo owns from
-# what the rehearsal's second control loop put there. That is enough to make the
-# name a contract rather than a setting: a host that changed it would be telling
-# the truth to Flux and a lie to every reader.
+# THAT REASON COVERS THE SOURCE AND ONE ROOT, AND STOPS THERE. The root applies
+# a directory of the source, cluster/flux/, and every Kustomization that reads
+# this source is declared there, a layer each. What a layer applies,
+# what it depends on and how its health is read are the same on every host that
+# follows the repository, and generated here each would change by a rebuild of
+# every box instead of by a commit.
+#
+# THE OBJECT NAMES ARE NOT OPTIONS, here or in cluster/flux/. Nothing in
+# cluster/apps/ reads the label -- what reads
+# `kustomize.toolkit.fluxcd.io/name: apps` by value is the README and whoever is
+# standing in front of the cluster, telling what this repo owns from what the
+# rehearsal's second control loop put there. That is enough to make the name a
+# contract rather than a setting: a change to it would be telling the truth to
+# Flux and a lie to every reader.
 
 let
   cfg = config.chuggy.flux;
@@ -66,100 +74,32 @@ let
       url: ${cfg.repositoryUrl}
       ref:
         branch: ${cfg.branch}
-    ${lib.optionalString (cfg.secretRef != null) "      secretRef:\n        name: ${cfg.secretRef}\n"}
+    ${lib.optionalString (cfg.secretRef != null) "  secretRef:\n    name: ${cfg.secretRef}\n"}
     ---
     apiVersion: kustomize.toolkit.fluxcd.io/v1
     kind: Kustomization
     metadata:
-      name: apps
+      name: fabric
       namespace: flux-system
     spec:
       interval: ${cfg.interval}
-      # kustomize-controller synthesises a kustomization when the path has none
-      # and obeys the one it finds when it does -- which is the case that
-      # bites. A directory carrying a kustomization.yaml applies exactly its
-      # `resources:` list, so a manifest dropped into the directory and not
-      # added to that list is one this Kustomization stops applying, and
-      # `prune` below then deletes what it had applied before.
       path: ${cfg.path}
       sourceRef:
         kind: GitRepository
         name: fabric
-      # Deleting a file deletes the resource. Without this, removals in git are
-      # silently ignored and the cluster accumulates things nobody declared.
-      prune: ${lib.boolToString cfg.prune}
-      wait: true
+      # A layer whose declaration leaves the path is deleted, and what it had
+      # applied goes by that layer's own deletionPolicy.
+      prune: true
+      # The path holds Kustomization objects and nothing else. Waiting on them
+      # would make this one unready whenever any layer is, and `builds` is
+      # unready for as long as a failed BuildRun stays declared.
+      wait: false
+      # k3s deletes an object that leaves this manifest. The default policy
+      # mirrors `prune`, so this object deleted would delete every layer, and a
+      # layer deleted deletes what it applied unless it orphans as well.
+      # Pruning at reconcile is unaffected.
+      deletionPolicy: Orphan
       timeout: ${cfg.timeout}
-    ---
-    apiVersion: kustomize.toolkit.fluxcd.io/v1
-    kind: Kustomization
-    metadata:
-      name: build-prerequisites
-      namespace: flux-system
-    spec:
-      interval: ${cfg.interval}
-      path: ${cfg.buildPrerequisitesPath}
-      sourceRef:
-        kind: GitRepository
-        name: fabric
-      prune: ${lib.boolToString cfg.prune}
-      wait: true
-      timeout: ${cfg.timeout}
-    ---
-    apiVersion: kustomize.toolkit.fluxcd.io/v1
-    kind: Kustomization
-    metadata:
-      name: build-system
-      namespace: flux-system
-    spec:
-      dependsOn:
-        - name: build-prerequisites
-      interval: ${cfg.interval}
-      path: ${cfg.buildSystemPath}
-      sourceRef:
-        kind: GitRepository
-        name: fabric
-      prune: ${lib.boolToString cfg.prune}
-      wait: true
-      timeout: ${cfg.timeout}
-    ---
-    apiVersion: kustomize.toolkit.fluxcd.io/v1
-    kind: Kustomization
-    metadata:
-      name: builds
-      namespace: flux-system
-    spec:
-      dependsOn:
-        - name: build-system
-      interval: ${cfg.interval}
-      path: ${cfg.buildsPath}
-      sourceRef:
-        kind: GitRepository
-        name: fabric
-      prune: ${lib.boolToString cfg.prune}
-      wait: true
-      timeout: ${cfg.buildTimeout}
-      healthCheckExprs:
-        - apiVersion: shipwright.io/v1beta1
-          kind: BuildRun
-          inProgress: >-
-            !has(status.conditions) ||
-            status.conditions.filter(e, e.type == 'Succeeded').all(e, e.status == 'Unknown')
-          failed: >-
-            has(status.conditions) &&
-            (status.conditions.filter(e, e.type == 'Succeeded').exists(e, e.status == 'False') ||
-            (status.conditions.filter(e, e.type == 'Succeeded').exists(e, e.status == 'True') &&
-            (!has(status.source) || !has(status.source.git) ||
-            status.source.git.commitSha != metadata.annotations['fabric.chuggy.dev/source-commit'] ||
-            !has(status.output) || !has(status.output.digest) ||
-            !status.output.digest.matches('^sha256:[0-9a-f]{64}$'))))
-          current: >-
-            has(status.conditions) &&
-            status.conditions.filter(e, e.type == 'Succeeded').exists(e, e.status == 'True') &&
-            has(status.source) && has(status.source.git) &&
-            status.source.git.commitSha == metadata.annotations['fabric.chuggy.dev/source-commit'] &&
-            has(status.output) && has(status.output.digest) &&
-            status.output.digest.matches('^sha256:[0-9a-f]{64}$')
   '';
 in
 {
@@ -203,26 +143,12 @@ in
 
     path = lib.mkOption {
       type = lib.types.str;
-      default = "./cluster/apps";
-      description = "Directory inside the repository holding the desired cluster state.";
-    };
-
-    buildSystemPath = lib.mkOption {
-      type = lib.types.str;
-      default = "./cluster/build-system";
-      description = "Directory holding pinned build controllers and the builder profile.";
-    };
-
-    buildPrerequisitesPath = lib.mkOption {
-      type = lib.types.str;
-      default = "./cluster/build-prerequisites";
-      description = "Directory holding the pinned certificate controller required by Shipwright.";
-    };
-
-    buildsPath = lib.mkOption {
-      type = lib.types.str;
-      default = "./builds";
-      description = "Directory holding immutable build requests materialized from release handoffs.";
+      default = "./cluster/flux";
+      description = ''
+        Directory inside the repository declaring the layers, one Flux
+        Kustomization object each and nothing else. The root applies it; each
+        layer names the directory it applies.
+      '';
     };
 
     sourceInterval = lib.mkOption {
@@ -235,31 +161,19 @@ in
       type = lib.types.str;
       default = "5m";
       description = ''
-        How often kustomize-controller reapplies the directory. This is the
-        window a hand-run kubectl change survives in, which matters more than it
-        sounds: a repair applied by hand inside it is undone without an error.
+        How often kustomize-controller reapplies the layer declarations under
+        path. How often a layer reapplies its own directory is that layer's
+        interval, in the declaration.
       '';
     };
 
     timeout = lib.mkOption {
       type = lib.types.str;
       default = "3m";
-      description = "How long one reconciliation may take before it is reported failed.";
-    };
-
-    buildTimeout = lib.mkOption {
-      type = lib.types.str;
-      default = "75m";
-      description = "Health timeout for a materialized BuildRun.";
-    };
-
-    prune = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
       description = ''
-        Whether deleting a file deletes the resource. On, because the
-        alternative is a cluster that accumulates objects nobody declares and
-        still reports itself reconciled.
+        How long one apply of the layer declarations may take before it is
+        reported failed. The root waits on nothing, so no layer's health is
+        inside it.
       '';
     };
   };

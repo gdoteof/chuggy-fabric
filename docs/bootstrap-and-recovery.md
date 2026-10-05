@@ -33,10 +33,11 @@ material in Nix options: expressions and generated manifests are store-readable.
 1. Create a host entry from `hosts/example`; replace every documentation
    address, hostname, account/key, storage path, budget, and ingress value. Do
    not copy `/var/lib/chuggy`, a PostgreSQL volume, or another host's secrets.
-2. Point `chuggy.flux.repositoryUrl`, `.branch`, and `.path` at an anonymously
-   readable external bootstrap source and leave `.secretRef = null`. This is
-   stage one: Kubernetes and `flux-system` do not exist before first activation,
-   so a Secret inside them cannot authenticate that first fetch.
+2. Point `chuggy.flux.repositoryUrl` and `.branch` at an anonymously readable
+   external bootstrap source, `.path` at the directory in it that declares what
+   Flux reconciles (`./cluster/flux` here), and leave `.secretRef = null`. This
+   is stage one: Kubernetes and `flux-system` do not exist before first
+   activation, so a Secret inside them cannot authenticate that first fetch.
 3. Run `nix flake check`; build the host from the same full commit SHA.
 4. Before activation, record that the target database volume and
    `/var/lib/chuggy/secrets` do not exist or are intentionally empty. Existing

@@ -35,6 +35,8 @@ only by their own directory.
     modules/flux.nix                bootstraps Flux, chuggy.flux.*
 
     cluster/flux-system/            the vendored Flux install
+    cluster/flux/                   what Flux reconciles from this repo, one
+                                    Kustomization each
     cluster/apps/                   the cluster state this repo declares
     cluster/apps/kustomization.yaml the enumeration of that state, and the
                                     generated ConfigMaps
@@ -627,7 +629,8 @@ changing only the option creates a healthy registry over the wrong directory.
 
 ### Immutable image builds
 
-Flux reconciles three independent paths from the host-selected fabric source:
+Flux reconciles three independent paths from the host-selected fabric source,
+each declared in `cluster/flux/`:
 `cluster/build-prerequisites/` installs pinned certificate management,
 `cluster/build-system/` installs pinned Tekton and Shipwright controllers plus
 the fabric-owned BuildKit strategy, and `builds/` contains immutable requests.
@@ -931,7 +934,11 @@ the Kubernetes API and `flux-system` namespace that hold it.
 
 **Which repository and branch it follows are host inputs**, not a committed
 file. `chuggy.flux.repositoryUrl` and `.branch` generate the `GitRepository` and
-`Kustomization`; only the controller install is still a checked-in manifest,
+one root `Kustomization`, both named `fabric`, and no other Flux object. The
+root applies `cluster/flux/`, where each part of this repository Flux
+reconciles is declared as its own `Kustomization` — `apps`,
+`build-prerequisites`, `build-system` and `builds` — so what Flux reconciles
+from it, and in what order, is changed by a commit and not by a host rebuild. The controller install is a checked-in manifest too,
 because that is a vendored upstream artifact identical on every adopter. A box
 being brought up, or one being used to try a change, has to be able to follow
 something other than whatever the shared branch holds at that moment, and a

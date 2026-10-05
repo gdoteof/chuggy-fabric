@@ -54,7 +54,7 @@
 #
 # THE KUSTOMIZATION DOES NOT STAY GREEN, AND SAYING IT DID WOULD COST THE ONE
 # SIGNAL THERE IS. The `apps` Kustomization sets `wait: true`, which
-# `modules/flux.nix` generates, and which health-checks every
+# `cluster/flux/apps.yaml` declares, and which health-checks every
 # object this directory applies with kstatus, and kstatus reads a Job carrying
 # `Failed=True` as failed rather than as merely finished. So `apps` goes
 # `Ready=False` with this Job among the objects its message names, and stays

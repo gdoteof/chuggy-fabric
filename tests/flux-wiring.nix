@@ -2,20 +2,17 @@
 
 let
   manifest = host.config.services.k3s.manifests.flux-sync.source;
-  assertion = if expectSecretRef == null then ''
-    if grep -q 'secretRef:' "$manifest"; then
-      echo "public Flux source unexpectedly carries a secretRef" >&2
-      exit 1
-    fi
-  '' else ''
-    grep -F '      secretRef:' "$manifest"
-    grep -F '        name: ${expectSecretRef}' "$manifest"
-  '';
+  python = pkgs.python3.withPackages (ps: [ ps.pyyaml ]);
+  # What the manifest is held to: the host's own options, and the credential
+  # reference the caller states apart from them.
+  expected = pkgs.writeText "flux-wiring-expected.json" (builtins.toJSON {
+    inherit (host.config.chuggy.flux)
+      repositoryUrl branch sourceInterval path interval timeout;
+    secretRef = expectSecretRef;
+  });
 in
-pkgs.runCommand "chuggy-flux-wiring" { } ''
+pkgs.runCommand "chuggy-flux-wiring" { nativeBuildInputs = [ python ]; } ''
   manifest=${manifest}
-  grep -F 'url: ${host.config.chuggy.flux.repositoryUrl}' "$manifest"
-  grep -F 'branch: ${host.config.chuggy.flux.branch}' "$manifest"
   # `results/` is provenance the host publishes into this repository, and the
   # README says Flux applies none of it. A Kustomization pointed there would
   # hand kustomize-controller a directory of JSON records carrying no
@@ -24,6 +21,7 @@ pkgs.runCommand "chuggy-flux-wiring" { } ''
     echo "a Kustomization applies ./results, where nothing is a manifest" >&2
     exit 1
   fi
-  ${assertion}
+  # The argument for each assertion is in flux-wiring.py's own header.
+  python3 ${./flux-wiring.py} "$manifest" ${expected}
   touch "$out"
 ''

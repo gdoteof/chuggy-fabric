@@ -135,6 +135,7 @@
       chugCi = import ./tests/chug-ci.nix { inherit pkgs; };
       fluxWiring = host: expectSecretRef:
         import ./tests/flux-wiring.nix { inherit pkgs host expectSecretRef; };
+      fluxLayers = host: import ./tests/flux-layers.nix { inherit pkgs host; };
       buildPlatform = import ./tests/build-platform.nix { inherit pkgs; };
       buildRequests = import ./tests/build-requests.nix { inherit pkgs; };
       awaitBuildResults = import ./tests/await-build-results.nix { inherit pkgs; };
@@ -384,6 +385,10 @@
             }];
           })
           "fabric-source-auth";
+
+        # The layers gtr's root Kustomization applies, rendered from the
+        # directory it names, against the spec each is held to.
+        flux-layers = fluxLayers self.nixosConfigurations.gtr;
         build-platform = buildPlatform;
 
         # What a source's build request is, and what it is answered with: the
