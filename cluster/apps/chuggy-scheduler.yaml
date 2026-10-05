@@ -268,6 +268,7 @@ spec:
                   "CHUG_WORKER_WORKSPACE": "/workspace",
                   "CHUG_PG_URL": "postgres://postgres@127.0.0.1:5432/postgres",
                   "CHUG_PG_WORKERS": "4",
+                  "VITEST_MAX_WORKERS": "4",
                   "BASH_DEFAULT_TIMEOUT_MS": "1800000",
                   "BASH_MAX_TIMEOUT_MS": "3000000"
                 }
@@ -277,6 +278,10 @@ spec:
             # the sidecar above, on the pod's loopback. Each suite has a
             # database of its own at any count, so the count is throughput and
             # the verdict does not depend on it.
+            # `VITEST_MAX_WORKERS` is the console suite's, and it is the CPU
+            # limit below stated again: the suite's runner counts the node's
+            # cores and cannot see the limit, so left alone it starts a worker
+            # a core and they share the limit between them.
             # The two `BASH_` values are Claude Code's Bash tool timeouts. The
             # worker core never lets a command move to the background, where a
             # headless run would kill it unseen, so a command past its timeout
@@ -619,7 +624,13 @@ spec:
             # The memory limit is what chuggy's own `ci.sh` needs: Node sizes
             # its heap from the container's limit, and the typed lint stage of
             # `check-source` over the whole tree outgrew the limit this used to
-            # carry, dying on heap exhaustion inside an evaluation. The rest is
+            # carry, dying on heap exhaustion inside an evaluation. The CPU
+            # limit is the builder's allowance for the worker image's own
+            # build, which runs the same gates: at one CPU a container was
+            # throttled in most of its periods on a node that sat idle, an
+            # attempt afforded few runs of `ci.sh` inside its deadline, and
+            # the console tests that watch text arrive at a pace went red on
+            # trees that pass anywhere else (kasofsk/chuggy#683). The rest is
             # PR 5's, provisional: D30 says the adopting machine must supply
             # these and that the shared module provides no guessed defaults,
             # and they are here because the command will not parse without
@@ -628,7 +639,7 @@ spec:
               value: |
                 {
                   "cpuRequest": "250m",
-                  "cpuLimit": "1",
+                  "cpuLimit": "4",
                   "memoryRequest": "1Gi",
                   "memoryLimit": "4Gi",
                   "ephemeralStorageLimit": "20Gi"
