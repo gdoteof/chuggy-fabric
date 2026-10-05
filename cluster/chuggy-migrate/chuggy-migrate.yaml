@@ -222,9 +222,10 @@
 #
 # The database is `chuggy`, which every object in this namespace that holds a
 # chuggy role names. The one it must never be is `chuggy_suite_fixtures`, which
-# chuggy-api.yaml describes: its ledger stops at 2, and 2 is a valid prefix of
-# this Job's, so nothing here would refuse it -- the Job would apply 3 upward to
-# the fixtures and fail partway through on the rows that stopped it.
+# cluster/chuggy/chuggy-api.yaml describes: its ledger stops at 2, and 2 is a
+# valid prefix of this Job's, so nothing here would refuse it -- the Job would
+# apply 3 upward to the fixtures and fail partway through on the rows that
+# stopped it.
 ---
 apiVersion: batch/v1
 kind: Job
@@ -238,13 +239,13 @@ metadata:
 spec:
   # ONE ATTEMPT, because retrying this JOB was never what could survive the race
   # it used to be budgeted for. This Job's pod is a newly labelled
-  # `chuggy.dev/postgres-client` pod, and chuggy-api.yaml records that such a
-  # pod's first connection loses a race with the policy controller and arrives
-  # as `ECONNREFUSED`. A budget answers that only if a later attempt is better
-  # placed than the first, and none is: kube-router admits a POD IP, and
-  # `restartPolicy: Never` means a losing attempt is REPLACED by a new pod whose
-  # IP is as new as the first one's was. Every attempt draws the same hand at
-  # the same moment of its own pod's life, so the delay between them buys
+  # `chuggy.dev/postgres-client` pod, and cluster/chuggy/chuggy-api.yaml records
+  # that such a pod's first connection loses a race with the policy controller
+  # and arrives as `ECONNREFUSED`. A budget answers that only if a later attempt
+  # is better placed than the first, and none is: kube-router admits a POD IP,
+  # and `restartPolicy: Never` means a losing attempt is REPLACED by a new pod
+  # whose IP is as new as the first one's was. Every attempt draws the same hand
+  # at the same moment of its own pod's life, so the delay between them buys
   # nothing.
   #
   # MEASURED HERE, against `postgres-admits-labelled-clients` as this rig runs

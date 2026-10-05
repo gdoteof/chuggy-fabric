@@ -35,7 +35,7 @@ entry names a member of it rather than restating it.
 WHY CHUGGY'S WORKER IMAGE IS NOT LISTED. It is built here and it renders by the
 same renderer -- `builds/chuggy/f8dc9194f2d2b88a50619225c521363b5f2822c8/` is
 one such request -- but `scripts/render-release` cannot move it: the image a run
-uses is named in a Chuggy configuration and no manifest under `cluster/apps`
+uses is named in a Chuggy configuration and no manifest under `cluster/`
 selects it, so a request that built it would leave a result no release reads and
 a Chuggy ticket waiting for one. A worker change stays a `fabric-change` ticket
 and a configuration bump. When that stops being true, the worker is one more

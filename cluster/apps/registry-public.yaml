@@ -122,8 +122,9 @@ spec:
     authRequestHeaders: [Authorization]
 ---
 # Without the middleware annotation this Ingress would publish the registry to
-# anyone. The host needs the tunnel hostname and CNAME chuggy-ui.yaml's "the
-# host, three ways" describes before it is reachable.
+# anyone. The host needs the tunnel hostname and CNAME
+# cluster/chuggy/chuggy-ui.yaml's "the host, three ways" describes before it is
+# reachable.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

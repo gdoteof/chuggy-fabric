@@ -437,7 +437,7 @@
         build-results-publish = buildResultsPublish;
 
         # And what a release is made of: the manifests rendered from those
-        # records, over this repository's own `cluster/apps`, driven through
+        # records, over this repository's own `cluster/`, driven through
         # every refusal the renderer states.
         render-release = renderRelease;
 

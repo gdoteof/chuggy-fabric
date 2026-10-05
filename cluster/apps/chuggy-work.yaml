@@ -83,9 +83,10 @@ spec:
       ports:
         - { protocol: TCP, port: 8080 }
     # No PostgreSQL. The server an attempt runs the repository's gates against
-    # is a sidecar of its own pod, on loopback (chuggy-scheduler.yaml's
-    # CHUG_SCHEDULER_WORKER_SIDECARS), so nothing agent-authored has a route to
-    # the server the control plane holds its authority in.
+    # is a sidecar of its own pod, on loopback
+    # (cluster/chuggy/chuggy-scheduler.yaml's CHUG_SCHEDULER_WORKER_SIDECARS),
+    # so nothing agent-authored has a route to the server the control plane
+    # holds its authority in.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

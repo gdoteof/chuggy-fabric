@@ -157,7 +157,7 @@
     # chuggy is one name for two backends: the console at / and the web API at
     # /api/v1. They share it because the API answers no cross-origin preflight,
     # so a console on a second name could not read it -- the split is Traefik's,
-    # in cluster/apps/chuggy-ui.yaml, and this list cannot express it either
+    # in cluster/chuggy/chuggy-ui.yaml, and this list cannot express it either
     # way.
     #
     # chuggy-pool and chuggy-worker are the two planes a worker pool on a
@@ -195,8 +195,8 @@
 
   # -------------------------------------------------------------- gitops ----
 
-  # k3s applies Flux at startup; Flux reconciles cluster/apps from this repo.
-  # Nothing in the cluster is applied by hand.
+  # k3s applies Flux at startup; Flux reconciles what cluster/flux/ declares
+  # from this repo. Nothing in the cluster is applied by hand.
   #
   # `main` is the live branch: a push to it changes this cluster inside the
   # source interval. That is the whole reason the branch is stated per host
@@ -218,9 +218,9 @@
   # which the worker plane mints an agent-executed pod's git credential from and
   # the api reads a claimed installation as, minting an installation-wide read
   # token to enumerate its repositories and nothing for an act.
-  # `cluster/apps/chuggy-api.yaml` holds the first command and
-  # `cluster/apps/chuggy-worker-plane.yaml` the second, and every manifest that
-  # mounts a key says what that pod may mint.
+  # `cluster/chuggy/chuggy-api.yaml` holds the first command and
+  # `cluster/chuggy/chuggy-worker-plane.yaml` the second, and every manifest
+  # that mounts a key says what that pod may mint.
   chuggy.githubAppTokens = {
     enable = true;
     apps = {
@@ -240,7 +240,7 @@
     # The token the provenance publisher above pushes with. It is written here
     # rather than derived from `repositories.nix` because it is this host's own
     # path into the repository Flux follows and no pod's credential: nothing in
-    # `cluster/apps` mounts it, and this site builds no image from the fabric.
+    # `cluster/` mounts it, and this site builds no image from the fabric.
     # The installation is the portal App's on `gdoteof`, the owner of
     # `chuggy.flux.repositoryUrl` above.
     tokens.finalizer-chuggy-fabric = {

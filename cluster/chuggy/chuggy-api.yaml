@@ -69,10 +69,11 @@
 # THE REMEDY THERE IS NOT TO RUN THAT ONE STATEMENT BY HAND. Running it closes
 # that gap and leaves the one beside it -- the same file is what makes
 # `chuggy_owner` a member of `chuggy_boundary_owner`, without which 17 commits
-# while granting nothing and no re-run repairs it. chuggy-migrate.yaml argues
-# that at length, including why it has to happen BEFORE the Job runs. Re-run the
-# whole file, once, before any of this starts -- and read prerequisite 4 first,
-# because the file re-issues every login password.
+# while granting nothing and no re-run repairs it.
+# cluster/chuggy-migrate/chuggy-migrate.yaml argues that at length, including
+# why it has to happen BEFORE the Job runs. Re-run the whole file, once, before
+# any of this starts -- and read prerequisite 4 first, because the file
+# re-issues every login password.
 #
 # What the grant widens is what `chuggy_api_login` inherits on its ordinary
 # connection -- two more SELECTs, on tables this same process already reads
@@ -273,10 +274,11 @@ spec:
         # attempt is free. A REPLACEMENT pod is issued a new address and starts
         # the same wait over from nothing.
         #
-        # That is why chuggy-migrate.yaml cannot get past this the way this
+        # That is why the migration Job cannot get past this the way this
         # Deployment does. It is a Job, its pods are replaced rather than
         # restarted, and no `backoffLimit` reaches the state a restart reaches
-        # for free -- so it waits inside its pod instead. Measured there.
+        # for free -- so it waits inside its pod instead. Measured in
+        # cluster/chuggy-migrate/chuggy-migrate.yaml.
         chuggy.dev/postgres-client: "true"
     spec:
       # This process calls no Kubernetes API, so the token the kubelet would

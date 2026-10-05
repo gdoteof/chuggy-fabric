@@ -34,8 +34,9 @@
 # on chuggy-api, which are the rules here that stand in front of something that
 # already works, and the egress rule on chuggy-migrate, which stands in
 # front of something that has to work before anything else does -- and whose
-# failure mode, a database the Job cannot reach, is one chuggy-migrate.yaml
-# reports as a could-not-run rather than as a policy.
+# failure mode, a database the Job cannot reach, is one
+# cluster/chuggy-migrate/chuggy-migrate.yaml reports as a could-not-run rather
+# than as a policy.
 #
 # ---------------------------------------------- what "egress: nothing" means ----
 #
@@ -162,10 +163,10 @@ spec:
 # expressible here, and this arm has that arm's shape and that arm's reach.
 # `auth.vteng.io` for OIDC discovery and JWKS, which leaves the cluster for the
 # Cloudflare edge and comes back through the tunnel rather than reaching
-# hydra-public over the pod network, as chuggy-api.yaml argues; `api.github.com`
-# for the installation tokens this pod mints and the installations it claims;
-# and `github.com` for the `ls-remote` and `fetch` of a repository being bound
-# and for exchanging a person's authorization code.
+# hydra-public over the pod network, as cluster/chuggy/chuggy-api.yaml argues;
+# `api.github.com` for the installation tokens this pod mints and the
+# installations it claims; and `github.com` for the `ls-remote` and `fetch` of a
+# repository being bound and for exchanging a person's authorization code.
 #
 # KETO'S WRITE PORT AND HYDRA'S ADMIN PORT ARE WHERE THIS POD GRANTS: the tuples
 # a created project and a registered pool hold, and a pool's client.
@@ -328,8 +329,8 @@ spec:
 # decision by offering a turn on the lead session's mailbox, and that mailbox is
 # a set of functions on the database this arm already permits. The lead adds no
 # destination and there is no policy service to name -- the protocol that wanted
-# one is retired by the commit chuggy-selector.yaml names, which argues that
-# where the configuration used to name it.
+# one is retired by the commit cluster/chuggy/chuggy-selector.yaml names, which
+# argues that where the configuration used to name it.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -545,8 +546,9 @@ spec:
 # `chuggy_owner`, the one credential here that owns the relations and carries
 # CREATEROLE, and until this rule existed that credential ran in a pod that
 # could open a connection to anything on the pod network, the house LAN or the
-# internet. It lives for a minute at a time, which bounds the window and does
-# not bound the reach.
+# internet. Its `dump` container holds the server's superuser password as well,
+# under the same rule. The pod lives for as long as a dump and a migration take,
+# which bounds the window and does not bound the reach.
 #
 # The rule is chuggy-ticket-service-egress with a different selector, because
 # the two pods want the same world: the resolver and the database. The Job
