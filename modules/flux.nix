@@ -43,13 +43,15 @@
 # follows the repository, and generated here each would change by a rebuild of
 # every box instead of by a commit.
 #
-# THE OBJECT NAMES ARE NOT OPTIONS, here or in cluster/flux/. Nothing in
-# cluster/apps/ reads the label -- what reads
-# `kustomize.toolkit.fluxcd.io/name: apps` by value is the README and whoever is
-# standing in front of the cluster, telling what this repo owns from what the
-# rehearsal's second control loop put there. That is enough to make the name a
-# contract rather than a setting: a change to it would be telling the truth to
-# Flux and a lie to every reader.
+# THE OBJECT NAMES ARE NOT OPTIONS, here or in cluster/flux/. Nothing under
+# cluster/ reads the label -- what reads `kustomize.toolkit.fluxcd.io/name` by
+# value is the README and whoever is standing in front of the cluster, telling
+# what this repo owns from what the rehearsal's second control loop put there.
+# The value is the name of the Kustomization that applied the object:
+# `chuggy-migrate` or `chuggy` on a chuggy release's objects, `apps` on what
+# cluster/apps/ declares. That is enough to make each name a contract rather
+# than a setting: a change to one would be telling the truth to Flux and a lie
+# to every reader.
 
 let
   cfg = config.chuggy.flux;
