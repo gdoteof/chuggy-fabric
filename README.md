@@ -1782,17 +1782,6 @@ so anything a human must do to the database or the image store has to be done
   namespace, its RBAC, the image allowlist and the resource budgets are the next
   stage's.
 
-**`chuggy` stays NotReady after this.** `wait: true` health-checks every object
-that layer applies, and `flux get kustomizations -A` names the one it stops on:
-`Deployment/chuggy/chuggy-finalizer status: 'Failed'` — a Deployment past its
-progress deadline with no available replica. Git in the image was the other half
-of that and is now in the tag above, so the credential Secret is the only thing
-left between this and a green `chuggy`, which is why the finalizer is left at
-one. The zero above takes the selector out of that set instead, because nothing
-clears its blocker and a Deployment nobody can make available is one more red
-object for a real one to hide behind. A failed migration Job is not in that
-list: it is the `chuggy-migrate` layer's, which applies no other workload.
-
 ### Storage, and what it does and does not survive
 
 Artifacts are a static `PersistentVolume` over a host directory, in a

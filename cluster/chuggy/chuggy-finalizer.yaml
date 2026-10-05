@@ -14,20 +14,11 @@
 # verified by running `git --version` in a pod on this rig at that tag, not read
 # off the Dockerfile.
 #
-# WHAT IS LEFT IS ONE SECRET, AND IT IS NOT THIS FILE'S TO ANSWER. The fourth
-# precondition is `repository-credentials-available`;
-# `chuggy-finalizer-credentials` is created by hand and is not on this rig, so
-# the kubelet cannot mount the volume, the container is never built, and no
-# precondition is reached at all. `ContainerCreating` on a `FailedMount` is the
-# state `kubectl get pods` shows today.
-#
-# IT IS DEPLOYED AT ONE REPLICA BECAUSE THAT BLOCKER IS REACHABLE, which is also
-# why this is the one object holding `chuggy` red rather than a zero like the
-# selector's. `composeFinalizerRuntime` orders `git-scratch-writable` and
-# `artifact-root-writable` between the two, and the volumes below answer both --
+# THE VOLUMES BELOW ANSWER THE NEXT TWO. `composeFinalizerRuntime` orders
+# `git-scratch-writable` and `artifact-root-writable` between `git-available`
+# and `repository-credentials-available`, and the volumes below answer both --
 # the scratch is an emptyDir, and the artifact root is the host directory the
-# README's prerequisite 3 creates, owned by the uid this pod runs as. So the
-# Secret is the whole of the remaining gap.
+# README's prerequisite 3 creates, owned by the uid this pod runs as.
 #
 # THE MODE ON THE CREDENTIAL VOLUME BELOW IS NOW OBSERVABLE, and it was not
 # before: `git-available` used to fail ahead of it, so getting that mode wrong

@@ -174,7 +174,7 @@ spec:
   #
   # A Deployment with no available replica never passes `wait: true`, which
   # health-checks every object in this directory; at zero this object was out of
-  # that set and it is now in it, beside chuggy-finalizer.
+  # that set and it is now in it.
   replicas: 1
   strategy: { type: Recreate }
   selector:
