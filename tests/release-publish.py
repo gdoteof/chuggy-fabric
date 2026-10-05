@@ -34,23 +34,27 @@ THE CASES, and the part of the script each is the only reader of:
   Deployment, CronJob and Job annotated and the Job named for the commit;
 - a commit whose first characters read as a number still annotates with a
   string, which only the quotes in the overlay stand behind;
-- an overlay that also changes a field, or drops an object, is refused: the
-  comparison of the two renders;
+- an overlay that also changes a field, drops an object, moves a third
+  image or renames an object that is not the Job is refused: the comparison
+  of the two renders;
 - an overlay that selects by the annotation annotates nothing over `bare`,
   one that leaves the Job's name alone, and one that leaves an image out,
   are each refused: the reading of the render with the overlay alone;
 - a tree that names an image where no overlay writes, that carries the
-  annotation with another value on a pod, that has a Job in `chuggy`, or
-  that lacks a directory, is refused; so is an image name nothing runs;
-- the version is `<seconds>.0.0` and is pushed only when every tag that
-  could be a version is below it: an equal one, a later one, one with a
-  `v`, a pre-release of the same second are each refused, and tags that are
-  no version are not;
-- a tag list the registry did not give whole -- an error, another body, a
-  link to a next page -- is refused, and a repository that does not exist
-  yet has no tags;
+  annotation with another value on a pod, that has a Job in `chuggy` or none
+  in `chuggy-migrate`, or that lacks a directory, is refused;
+- a parameter that is not what its name says is refused before anything is
+  read: an image name nothing runs, one with no repository, one that is not
+  a name, the two the same, a digest or a commit that is not one;
+- the version is `<seconds>.0.0` and is pushed only when the first number of
+  every tag that could be a version is below it, as a number: an equal one,
+  a later one, one with more digits, one with a `v`, a pre-release of the
+  same second are each refused, and tags that are no version are not;
+- a tag list the registry did not give whole -- an error, another body,
+  another repository's, a link to a next page -- is refused, and a
+  repository that does not exist yet, or lists nothing, has no tags;
 - nothing is pushed, tagged or written as a result by any run that was
-  refused.
+  refused, and a push that reports no digest writes no result.
 """
 
 import json
@@ -77,6 +81,7 @@ MANIFESTS_COMMIT = "c" * 40
 COMMIT = "f22d1b8b70070de0cb53dc2b628335b7a069d5f3"
 API_DIGEST = "sha256:" + "1" * 64
 CONSOLE_DIGEST = "sha256:" + "2" * 64
+PUSHED_DIGEST = "sha256:" + "a" * 64
 NOW = 1791239106
 
 FAILURES = []
@@ -228,7 +233,7 @@ if argv[:2] == ["push", "artifact"]:
     shutil.copytree(argv[argv.index("--path") + 1], {str(case / 'pushed')!r})
     reference = argv[2]
     repository, _, tag = reference[len("oci://"):].rpartition(":")
-    digest = "sha256:" + "a" * 64
+    digest = open({str(case / 'reported')!r}).read()
     print(json.dumps({{"url": f"oci://{{repository}}@{{digest}}", "repository": repository, "tag": tag, "digest": digest}}, indent=2))
 elif argv[:2] != ["tag", "artifact"]:
     sys.exit(f"stand-in flux: not a call this suite answers: {{argv}}")
@@ -367,7 +372,7 @@ class Suite:
         self.work = Path(work)
         self.kubectl = Path(shutil.which("kubectl")).parent
 
-    def case(self, name, tree="pinned", commit=COMMIT, tags=None, registry=None, now=NOW, script=None, change=None, run=None):
+    def case(self, name, tree="pinned", commit=COMMIT, tags=None, registry=None, now=NOW, script=None, change=None, run=None, reported=PUSHED_DIGEST):
         """Lay one case out and run the step in it."""
         case = self.work / name
         (case / "results").mkdir(parents=True)
@@ -393,6 +398,7 @@ class Suite:
             )
         (case / "registry.json").write_text(json.dumps(registry))
         (case / "now").write_text(str(now))
+        (case / "reported").write_text(reported)
         programs = stand_ins(case)
         (case / "script").write_text(script or self.step.script)
         values = {
@@ -444,7 +450,7 @@ class Suite:
         if asked != [f"http://{registry}/v2/{repository}/tags/list"]:
             report(name, f"the tags were asked of {asked}")
         results = {path.name: path.read_text() for path in (case / "results").iterdir()}
-        if results != {"version": version, "digest": "sha256:" + "a" * 64}:
+        if results != {"version": version, "digest": PUSHED_DIGEST}:
             report(name, f"the results are {results}")
         images = {
             environment["API_IMAGE"]: API_DIGEST,
@@ -491,8 +497,9 @@ def main():
     over_bare = suite.published("bare", tree="bare")
     if pinned is not None and over_bare is not None and pinned != over_bare:
         report("bare", "the release rendered from the bare tree is not the one rendered from the pinned tree")
-    suite.published("tags-below", tags=[f"{NOW - 1}.0.0", "1.2.3", "a" * 40, "latest", "2026.10.05"])
+    suite.published("tags-below", tags=[f"{NOW - 1}.0.0", "1.2.3", "9.0.0", "a" * 40, "latest", "2026.10.05"])
     suite.published("no-tags", registry={"status": 200, "body": '{"name":"chuggy/release","tags":null}\n'})
+    suite.published("no-tags-as-a-list", registry={"status": 200, "body": '{"name":"chuggy/release","tags":[]}\n'})
     for commit in ("12345678" + "a" * 32, "1234e567" + "a" * 32, "00000000" + "a" * 32):
         suite.published(f"numeric-{commit[:8]}", tree="bare", commit=commit)
 
@@ -517,6 +524,16 @@ def main():
             "      kind: Ingress\n      metadata:\n        name: chuggy\n"
             + annotation_patch,
         ),
+    )
+    suite.refused(
+        "overlay-changes-another-image",
+        "the overlay changes more of cluster/chuggy-migrate than",
+        script=suite.variant("images:\n", 'images:\n  - name: postgres\n    newTag: "0"\n'),
+    )
+    suite.refused(
+        "overlay-renames-another-object",
+        "the overlay changes more of cluster/chuggy-migrate than",
+        script=suite.variant("  - target:\n      kind: Job\n", "  - target:\n      kind: (Job|ConfigMap)\n"),
     )
     suite.refused(
         "overlay-selects-by-annotation",
@@ -550,7 +567,7 @@ def main():
     )
     suite.refused(
         "tree-annotates-a-pod",
-        "source-commit annotations",
+        "an object is annotated",
         change=edited(
             "chuggy/chuggy-ui.yaml",
             "      labels: { app: chuggy-ui }\n    spec:",
@@ -569,6 +586,12 @@ def main():
         ),
     )
 
+    suite.refused(
+        "tree-has-no-migration",
+        "it renders 0 Jobs, not the one migration",
+        change=edited("chuggy-migrate/chuggy-migrate.yaml", "kind: Job\n", "kind: CronJob\n"),
+    )
+
     def without_migration(manifests):
         shutil.rmtree(manifests / "chuggy-migrate")
 
@@ -578,18 +601,26 @@ def main():
         change=without_migration,
     )
 
-    console = suite.step.passed["console-image"]
-    renamed = console + "-renamed"
     passed = dict(suite.step.passed)
-    suite.step.passed = {**passed, "console-image": renamed}
-    suite.refused("image-nothing-runs", f"nothing in the release runs {renamed}")
+    for case, given, said in (
+        ("api-image-nothing-runs", {"api-image": passed["api-image"] + "-renamed"}, "nothing in the release runs"),
+        ("console-image-nothing-runs", {"console-image": passed["console-image"] + "-renamed"}, "nothing in the release runs"),
+        ("image-is-no-repository", {"console-image": "web"}, "web names no repository under a registry"),
+        ("image-is-not-a-name", {"api-image": passed["api-image"] + " "}, "is not a registry and a repository"),
+        ("images-are-one", {"console-image": passed["api-image"]}, "the two images have one name"),
+        ("release-is-no-repository", {"release": "release"}, "release names no repository under a registry"),
+    ):
+        suite.step.passed = {**passed, **given}
+        suite.refused(case, said)
     suite.step.passed = passed
-    suite.refused(
-        "digest-is-not-one",
-        "is not an image digest",
-        run={"tasks.build-api.results.digest": "sha256:" + "1" * 63},
-    )
+    for case, digest in (
+        ("digest-is-short", "sha256:" + "1" * 63),
+        ("digest-is-not-hex", "sha256:" + "g" * 64),
+        ("digest-has-no-algorithm", "1" * 64),
+    ):
+        suite.refused(case, "is not an image digest", run={"tasks.build-console.results.digest": digest})
     suite.refused("commit-is-not-whole", "is not a full commit hash", commit=COMMIT[:39])
+    suite.refused("commit-is-not-a-hash", "is not a commit hash", commit="g" * 40)
 
     above = "is not above every version"
     suite.refused("version-tied", above, tags=[f"{NOW}.0.0"])
@@ -597,6 +628,7 @@ def main():
     suite.refused("version-tied-with-a-v", above, tags=[f"v{NOW}.0.0"])
     suite.refused("version-tied-with-a-prerelease", above, tags=[f"{NOW}.0.0-rc.1"])
     suite.refused("version-below-a-minor", above, tags=[f"{NOW}.1.0"])
+    suite.refused("version-far-behind", above, tags=["1000000000000000.0.0"])
     suite.refused("registry-fails", "did not list the tags", registry={"status": 500, "body": ""})
     suite.refused("registry-unreachable", "did not list the tags", registry={"status": None, "body": ""})
     suite.refused(
@@ -618,6 +650,12 @@ def main():
             "body": json.dumps({"name": "chuggy/release", "tags": ["1.0.0"]}),
         },
     )
+
+    case, completed, calls, _ = suite.case("flux-reports-no-digest", reported="")
+    if completed.returncode == 0 or "reported no digest" not in completed.stderr:
+        report("flux-reports-no-digest", f"exited {completed.returncode}: {completed.stderr.strip()}")
+    if [call[:2] for call in calls] != [["push", "artifact"]] or any((case / "results").iterdir()):
+        report("flux-reports-no-digest", f"went on after a push with no digest: {calls}")
 
     if FAILURES:
         raise SystemExit(f"release-publish: {len(FAILURES)} failed: {', '.join(FAILURES)}")

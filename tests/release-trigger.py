@@ -41,8 +41,8 @@ THE CASES, by the line of the decision each is the only reader of:
 - a run of another pipeline is neither unfinished nor newest nor deleted;
 - a source with no artifact starts nothing and is not a failure; a source
   that is not there, a read the API server refuses, a revision that names no
-  commit and an address that could not be written into the manifest are
-  failures, and start nothing;
+  commit, and an address or a digest that could not be written into the
+  manifest, are failures, and start nothing;
 - a second run created in the same moment has this one delete its own and
   nothing else;
 - retention deletes the finished runs before the newest the manifest says to
@@ -336,7 +336,7 @@ def source(name, url, commit=COMMIT, digest=DIGEST, revision=None):
         found["status"] = {
             "artifact": {
                 "revision": revision or f"main@sha1:{commit}",
-                "digest": digest,
+                **({"digest": digest} if digest else {}),
                 "url": f"http://source-controller.flux-system.svc.cluster.local./gitrepository/flux-system/{name}/{commit}.tar.gz",
             },
             "conditions": [{"type": "Ready", "status": "True", "lastTransitionTime": stamp(0)}],
@@ -598,6 +598,11 @@ def main():
             says="holds no artifact yet",
             **sources,
         )
+    suite.nothing(
+        "no-digest-fabric",
+        fabric=source("fabric-release", FABRIC_URL, commit=FABRIC_COMMIT, digest=None),
+        says="holds no artifact yet",
+    )
     suite.expect(
         suite.case("source-is-not-there", chuggy=False), fails=True, says="NotFound"
     )
@@ -618,12 +623,17 @@ def main():
         fails=True,
         says="is not a branch and a commit",
     )
-    for case, url in (("address-would-rewrite", "https://example.invalid/a&b"), ("address-holds-a-placeholder", "https://example.invalid/@chuggy-commit@")):
-        suite.expect(
-            suite.case(case, fabric=source("fabric-release", url, commit=FABRIC_COMMIT)),
-            fails=True,
-            says="is not one this writes into a manifest",
-        )
+    suite.expect(
+        suite.case("revision-names-no-hash", chuggy=source("chuggy", CHUGGY_URL, revision="main@sha1:" + "g" * 40)),
+        fails=True,
+        says="names no commit hash",
+    )
+    for case, sources in (
+        ("address-would-rewrite", {"fabric": source("fabric-release", "https://example.invalid/a&b", commit=FABRIC_COMMIT)}),
+        ("address-holds-a-placeholder", {"chuggy": source("chuggy", "https://example.invalid/@chuggy-commit@")}),
+        ("digest-would-rewrite", {"fabric": source("fabric-release", FABRIC_URL, commit=FABRIC_COMMIT, digest=DIGEST[:-1] + "&")}),
+    ):
+        suite.expect(suite.case(case, **sources), fails=True, says="is not one this writes into a manifest")
     suite.expect(suite.case("keep-none", env={"KEEP_RUNS": "0"}), fails=True, says="would delete the run")
     suite.expect(suite.case("delay-is-no-count", env={"RETRY_DELAY_SECONDS": "5m"}), fails=True, says="are counts")
 

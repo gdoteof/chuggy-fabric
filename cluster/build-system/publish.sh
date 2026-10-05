@@ -32,12 +32,13 @@
 # another value of it. The release has one Job, the migration's, under this
 # commit's name.
 #
-# THE VERSION IS THE CLOCK, AND IT MUST BE STRICTLY THE HIGHEST. The source
-# takes the highest tag that is a semantic version and skips every other tag
-# without a word, so the version is `<seconds>.0.0`, which is one. A tag here
-# that could be a version and is not below this one -- a tie, a clock that was
-# ahead once, a clock that is behind now -- is a release the source would
-# never select, so it is a failed run instead. Such a tag is deleted from the
+# THE VERSION IS THE CLOCK, AND ITS FIRST NUMBER MUST BE THE HIGHEST. The
+# source takes the highest tag that is a semantic version and skips every
+# other tag without a word, so the version is `<seconds>.0.0`, which is one.
+# A tag here that could be a version and whose first number is not below this
+# one's -- a tie, a clock that was ahead once, a clock that is behind now --
+# fails the run: published beside it, this release is one the source would
+# not select, or one that takes another's tag. Such a tag is deleted from the
 # registry only to undo a version taken from a wrong clock.
 #
 # THE TAG LIST IS READ WHOLE OR THE RUN FAILS. A body that is not the list
@@ -209,13 +210,13 @@ tags() {
     refuse "the registry listed part of the tags of $RELEASE and a link to the rest"
   fi
   body=$(tr -d ' \t\r\n' < "$WORK/tags")
-  listed=${body#"{\"name\":\"${RELEASE#*/}\",\"tags\":"}
-  [ "$listed" != "$body" ] || refuse "the registry answered the tag list of $RELEASE with $body"
-  case $listed in
-    'null}' | '[]}') return 0 ;;
-    '["'*'"]}') ;;
+  opening="{\"name\":\"${RELEASE#*/}\",\"tags\":"
+  case $body in
+    "$opening"'null}' | "$opening"'[]}') return 0 ;;
+    "$opening"'["'*'"]}') ;;
     *) refuse "the registry answered the tag list of $RELEASE with $body" ;;
   esac
+  listed=${body#"$opening"}
   listed=${listed#'["'}
   listed=${listed%'"]}'}
   printf '%s\n' "$listed" | sed 's/","/ /g' | tr ' ' '\n'
