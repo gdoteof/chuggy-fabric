@@ -57,15 +57,17 @@ def hold(described, document, expected):
         refuse(f"{described} is not the spec held here -- " + "; ".join(differing))
 
 
-def one(documents, kind):
+def one(documents, api_version, kind):
     found = [
         document
         for document in documents
-        if document.get("kind") == kind
+        if (document.get("apiVersion"), document.get("kind")) == (api_version, kind)
         and document["metadata"] == {"name": NAME, "namespace": NAMESPACE}
     ]
     if len(found) != 1:
-        refuse(f"expected one {kind} named {NAME} in `{NAMESPACE}`, found {len(found)}")
+        refuse(
+            f"expected one {api_version} {kind} named {NAME} in `{NAMESPACE}`, found {len(found)}"
+        )
     return found[0]
 
 
@@ -89,11 +91,11 @@ def main():
     }
     if host["secretRef"] is not None:
         source["secretRef"] = {"name": host["secretRef"]}
-    hold(f"the {SOURCE}", one(documents, SOURCE), source)
+    hold(f"the {SOURCE}", one(documents, "source.toolkit.fluxcd.io/v1", SOURCE), source)
 
     hold(
         f"the root {ROOT}",
-        one(documents, ROOT),
+        one(documents, "kustomize.toolkit.fluxcd.io/v1", ROOT),
         {
             "interval": host["interval"],
             "path": host["path"],
