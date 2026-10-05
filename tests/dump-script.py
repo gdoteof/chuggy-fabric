@@ -39,10 +39,18 @@ THE CASES, and the half of the script each is the only reader of:
 - a `pg_dump` that exits 0 over an archive that has lost its last bytes, its
   table of contents whole, ends non-zero with nothing under a final name,
   which only a read-back of every block stands behind;
-- a `pg_dumpall` that exits 0 over globals that have lost their last bytes, or
-  all of them, ends the same way, which only the hold on the lines it ends a
+- a `pg_dumpall` that exits 0 having written a dump without its last bytes,
+  or nothing, ends the same way, which only the hold on the lines it ends a
   dump with stands behind. A role's comment here carries those lines, so a
-  hold that found them anywhere would pass the file that was cut;
+  hold that found them anywhere would pass what was cut;
+- a `pg_dumpall` that writes all of a dump and then fails ends the same way,
+  which only reading its status through the pipe stands behind;
+- globals whose writes are refused end the same way, which only a writer
+  that fails when a write does stands behind. `pg_dumpall`, writing the file
+  itself with its first writes refused and its last not, is first shown to
+  exit 0 over globals that end as a dump does and lack their beginning;
+- a `sync` that will not put the globals on the disk ends the same way, which
+  only asking it to before either rename stands behind;
 - a `mv` that will not rename the globals leaves no archive under a final
   name, which is the order of the two renames;
 - each of those leaves every file that was already there, which is the rule
@@ -55,26 +63,33 @@ THE CASES, and the half of the script each is the only reader of:
   later and the pair just written is itself among the newest;
 - retention leaves what a run stamped no earlier than this one has written so
   far -- at its archive, at its globals, and between its two renames -- and
-  removes the same files of a run stamped earlier;
+  removes the same files of a run stamped earlier. The run is kept from
+  ending in the second it started in, so the second it is stamped with is not
+  the one retention runs in;
 - a count of zero, a Job's name retention would not know for its own, and a
   password the pod was not given are each refused by name, with the directory
   exactly as it was;
 - a pair already under the name this run would take is refused rather than
   written over.
 
-WHAT THIS CANNOT SEE. The image: the pod runs these bytes with the `bash` and
-the PostgreSQL clients of `postgres:18.3-trixie`, and this runs them with the
-ones nixpkgs pins, an earlier major. Nothing here uses an option the two do
-not share, and that is an argument rather than a check. The Secret and the
-volume are `tests/rollout-order.py`'s.
+WHAT THIS CANNOT SEE. The image: the pod runs these bytes with the `bash`, the
+coreutils and the PostgreSQL clients of `postgres:18.3-trixie`, and this runs
+them with the ones nixpkgs pins, the clients an earlier major. Nothing here
+uses an option the two do not share, and that is an argument rather than a
+check. A volume with no room: the write that is refused here is refused for the
+size of its file, which this can arrange and a full volume it cannot. The
+Secret and the volume are `tests/rollout-order.py`'s.
 """
 
+import calendar
+import contextlib
 import os
 import re
+import resource
 import shutil
-import calendar
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -95,8 +110,16 @@ ROWS = 1000
 # How many seconds ahead `collision` takes the name of. A run that started
 # later than that would find its name free, succeed, and fail the case.
 AHEAD = 120
-# The line `pg_dumpall` closes a dump with, between two that are `--` alone.
+# The line `pg_dumpall` closes a dump with, between two that are `--` alone,
+# and the one it opens a dump with.
 CLOSING = "-- PostgreSQL database cluster dump complete"
+OPENING = "-- PostgreSQL database cluster dump"
+# A catalog `pg_dumpall` reads after it has put out the roles and their
+# comments, and how many words one role's comment runs to. Held at that
+# catalog, `pg_dumpall` has made writes and has its last still to make;
+# `write_refused` refuses to go on where that is not so.
+READ_LATE = "pg_catalog.pg_parameter_acl"
+WORDS = 1 << 16
 
 # Set from the render before anything runs: the command the container gives,
 # and the port its environment names, which the server here listens under.
@@ -238,6 +261,12 @@ def start():
     postgres("-c", "CREATE ROLE chuggy_api LOGIN PASSWORD 'a-service-password'")
     # The lines `pg_dumpall` ends a dump with, somewhere other than its end.
     postgres("-c", f"COMMENT ON ROLE chuggy_api IS 'kept\n--\n{CLOSING}\n--\n'")
+    postgres("-c", "CREATE ROLE chuggy_long")
+    postgres(
+        "-c",
+        "DO $$ BEGIN EXECUTE format("
+        f"'COMMENT ON ROLE chuggy_long IS %L', repeat('long ', {WORDS})); END $$",
+    )
     postgres("-c", f"CREATE DATABASE {DATABASE} OWNER {SUPERUSER}")
     postgres(
         "-c",
@@ -385,9 +414,9 @@ def failing(case, environment, expected, untouched=False, **changed):
 
 def stand_in(case, program, script):
     """A PATH on which `program` is `script`, which is given the real one as
-    `$real`."""
+    `$real`. A case that stands in for two programs gets the one PATH."""
     shadow = WORK / "shadow" / case
-    shadow.mkdir(parents=True)
+    shadow.mkdir(parents=True, exist_ok=True)
     (shadow / program).write_text(
         f"#!{shutil.which('bash')}\nreal={shutil.which(program)}\n{script}"
     )
@@ -424,38 +453,148 @@ def cut_short(environment):
 
 
 def globals_short(environment):
-    """Globals without their last bytes, and globals with none: what
-    `pg_dumpall` leaves, at exit 0, on a volume that filled while it wrote.
-    What the cut leaves is read here, so it is known to carry the closing line
-    still -- the one in the role's comment -- where a hold that found that
-    line anywhere would pass the file."""
+    """A `pg_dumpall` that exits 0 having written a dump without its last
+    bytes, and one having written nothing. What the cut leaves is read here,
+    so it is known to carry the closing line still -- the one in the role's
+    comment -- where a hold that found that line anywhere would pass the
+    file."""
     left = {}
-    for case, size in (("globals-cut-short", "-50"), ("globals-empty", "0")):
+    for case, script in (
+        ("globals-cut-short", 'set -o pipefail\n"$real" "$@" | head --bytes=-50\n'),
+        ("globals-empty", '"$real" "$@" > /dev/null\n'),
+    ):
         left[case] = failing(
             case,
             environment,
             "does not end as pg_dumpall ends a dump",
-            PATH=stand_in(case, "pg_dumpall", SHORT_WRITE + f'truncate --size={size} "$target"\n'),
+            PATH=stand_in(case, "pg_dumpall", script),
         )
     cut = [path.read_text() for path in left["globals-cut-short"] if ".globals.sql" in path.name]
     if len(cut) != 1 or CLOSING not in cut[0].splitlines():
         refuse("globals-cut-short left no globals that carry the closing line and not the end")
 
 
-def rename_refused(environment):
-    """A `mv` that renames anything but the globals. Whichever rename the
-    script makes first, no archive may be left under its final name without
-    them."""
+def globals_failed(environment):
+    """A `pg_dumpall` that puts out all of a dump and then fails: the file
+    ends as it should, so only the status says the dump is not one."""
     failing(
-        "rename-refused",
+        "globals-failed",
         environment,
-        "the globals are not renamed",
+        "failed after its last line",
         PATH=stand_in(
-            "rename-refused",
-            "mv",
+            "globals-failed",
+            "pg_dumpall",
+            '"$real" "$@"\necho "pg_dumpall failed after its last line" >&2\nexit 1\n',
+        ),
+    )
+
+
+# A program no write of which to a file succeeds: its file size limit is
+# nothing, and the signal that would end it at such a write is ignored, so the
+# write is refused as a full volume refuses one. The limit is the soft one,
+# which is what lets it be lifted from outside.
+NO_ROOM = 'trap "" XFSZ\nulimit -S -f 0\nexec "$real" "$@"\n'
+
+
+@contextlib.contextmanager
+def room_once_it_waits(pid_file):
+    """Holds `pg_dumpall` at READ_LATE. Once it waits there, the limit on the
+    process `pid_file` names is lifted and the lock is let go."""
+    pid_file.unlink(missing_ok=True)
+    holder = subprocess.Popen(
+        ["psql", "-Xq", "-v", "ON_ERROR_STOP=1", "-U", ADMIN, "-d", "postgres"],
+        env={**os.environ, "PGHOST": str(SOCKET), "PGPORT": PORT, "PGPASSWORD": ADMIN_PASSWORD},
+        stdin=subprocess.PIPE,
+        text=True,
+    )
+    holder.stdin.write(f"BEGIN;\nLOCK TABLE {READ_LATE} IN ACCESS EXCLUSIVE MODE;\n")
+    holder.stdin.flush()
+    held = (
+        f"SELECT count(*) FROM pg_locks WHERE relation = '{READ_LATE}'::regclass "
+        "AND mode = 'AccessExclusiveLock' AND granted"
+    )
+    waiting = (
+        f"SELECT count(*) FROM pg_locks WHERE relation = '{READ_LATE}'::regclass AND NOT granted"
+    )
+    while postgres("-c", held) != "1":
+        if holder.poll() is not None:
+            refuse(f"no lock on {READ_LATE} could be taken")
+        time.sleep(0.01)
+    over = threading.Event()
+
+    def release():
+        try:
+            while not over.is_set() and postgres("-c", waiting, check=False) in ("", "0"):
+                time.sleep(0.01)
+            if not over.is_set():
+                with contextlib.suppress(OSError, ValueError):
+                    pid = int(pid_file.read_text())
+                    _, hard = resource.prlimit(pid, resource.RLIMIT_FSIZE)
+                    resource.prlimit(pid, resource.RLIMIT_FSIZE, (hard, hard))
+        finally:
+            holder.stdin.close()
+            holder.wait()
+
+    thread = threading.Thread(target=release)
+    thread.start()
+    try:
+        yield
+    finally:
+        over.set()
+        thread.join()
+
+
+def write_refused(environment):
+    """Globals whose first writes are refused and whose last is not, as on a
+    volume that is full and then is not. Each of `pg_dumpall` and `cat` is
+    refused every write it makes to a file. `pg_dumpall` alone stops being
+    refused, once it waits to read READ_LATE with the lines it ends on still
+    to put out; `cat` never does.
+
+    What `pg_dumpall` makes of that, writing the file itself, is read first:
+    it is why the script does not let it, and a `pg_dumpall` that reported the
+    write would leave this case showing nothing."""
+    case = "write-refused"
+    stand_in(case, "cat", NO_ROOM)
+    path = stand_in(case, "pg_dumpall", 'echo $$ > "$0.pid"\n' + NO_ROOM)
+    pid_file = WORK / "shadow" / case / "pg_dumpall.pid"
+    own = WORK / f"{case}.sql"
+    with room_once_it_waits(pid_file):
+        completed = subprocess.run(
+            ["pg_dumpall", "-w", "-U", SUPERUSER, "--globals-only", "-f", str(own)],
+            env={**environment, "PATH": path},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    text = own.read_text() if own.exists() else ""
+    if (
+        completed.returncode != 0
+        or not text.endswith(f"--\n{CLOSING}\n--\n\n")
+        or OPENING in text.splitlines()
+    ):
+        refuse(
+            f"{case}: pg_dumpall, writing the file itself, did not exit 0 over globals "
+            f"that end as a dump does and lack their beginning: exit {completed.returncode}, "
+            f"{len(text)} bytes, {completed.stderr.strip() or 'nothing said'}"
+        )
+    with room_once_it_waits(pid_file):
+        failing(case, environment, "File too large", PATH=path)
+
+
+def refusing(case, environment, program, said):
+    """A run in which `program` does what it is asked to anything but the
+    globals, under either name, and of them says `said` and fails."""
+    failing(
+        case,
+        environment,
+        said,
+        PATH=stand_in(
+            case,
+            program,
             "for argument; do\n"
-            "  case $argument in *.globals.sql.partial)\n"
-            '    echo "the globals are not renamed" >&2; exit 1 ;;\n'
+            "  case $argument in *.globals.sql | *.globals.sql.partial)\n"
+            f'    echo "{said}" >&2; exit 1 ;;\n'
             "  esac\n"
             "done\n"
             'exec "$real" "$@"\n',
@@ -616,7 +755,11 @@ def in_flight(environment, job):
     """Another run's files, at each point a run can be at: taking its archive,
     taking its globals, and between its two renames. Stamped no earlier than
     this run they are left, the second this run starts in included; stamped
-    earlier they are what a failed run leaves, and go."""
+    earlier they are what a failed run leaves, and go.
+
+    A run that ended in the second it started in would pass a retention that
+    read the clock again for what to leave. So `pg_dump` here does not return
+    until the second it finished in is over."""
     case = "in-flight"
     directory = directory_for(case)
     points = (
@@ -634,7 +777,14 @@ def in_flight(environment, job):
     for stamp in window:
         seed(directory, f"{stamp}-another-job", (".dump.partial",))
     before = listing(directory)
-    completed = run(case, environment, CHUG_DUMP_DIR=str(directory))
+    path = stand_in(
+        case,
+        "pg_dump",
+        '"$real" "$@" || exit\n'
+        "second=$(date +%s)\n"
+        'while [ "$(date +%s)" = "$second" ]; do sleep 0.1; done\n',
+    )
+    completed = run(case, environment, CHUG_DUMP_DIR=str(directory), PATH=path)
     if completed.returncode != 0:
         report(case, f"exit {completed.returncode}: {completed.stderr}")
         return
@@ -690,7 +840,13 @@ def main():
             postgres("-c", f"ALTER ROLE {SUPERUSER} SUPERUSER")
         cut_short(environment)
         globals_short(environment)
-        rename_refused(environment)
+        globals_failed(environment)
+        write_refused(environment)
+        # A `sync` that will not put the globals on the disk, and a `mv` that
+        # will not rename them. Whichever rename the script makes first, no
+        # archive may be left under its final name without them.
+        refusing("sync-refused", environment, "sync", "the globals are not synced")
+        refusing("rename-refused", environment, "mv", "the globals are not renamed")
         failing(
             "zero-count", environment, "CHUG_DUMP_KEEP is '0'", untouched=True, CHUG_DUMP_KEEP="0"
         )
