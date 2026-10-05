@@ -1,0 +1,11 @@
+# The migration of a chuggy release: the Job that applies its schema, and
+# nothing else.
+#
+# A FILE THAT IS NOT IN `resources` IS NOT APPLIED, and what stops being
+# applied is pruned. cluster/apps/kustomization.yaml states that cost in full,
+# and it is this directory's as well.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - chuggy-migrate.yaml
