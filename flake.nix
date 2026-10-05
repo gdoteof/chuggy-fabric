@@ -131,6 +131,7 @@
 
       firewallRules = host: import ./tests/firewall-rules.nix { inherit pkgs lib host; };
       registryWiring = host: import ./tests/registry-wiring.nix { inherit pkgs host; };
+      dumpsWiring = host: import ./tests/dumps-wiring.nix { inherit pkgs host; };
       releaseImages = import ./tests/release-images.nix { inherit pkgs; };
       chugCi = import ./tests/chug-ci.nix { inherit pkgs; };
       fluxWiring = host: expectSecretRef:
@@ -254,6 +255,11 @@
             { chuggy.state.registry.path = lib.mkForce null; }
             "chuggy.state.registry.path is unset";
 
+        refuses-without-dumps-path =
+          refuses "without-dumps-path"
+            { chuggy.state.dumps.path = lib.mkForce null; }
+            "chuggy.state.dumps.path is unset";
+
         refuses-without-build-results-path =
           refuses "without-build-results-path"
             { chuggy.state.buildResults.path = lib.mkForce null; }
@@ -361,6 +367,11 @@
         # contract even though NixOS and Kubernetes consume different files.
         registry-wiring-gtr = registryWiring self.nixosConfigurations.gtr;
         registry-wiring-example = registryWiring self.nixosConfigurations.example;
+
+        # The dumps directory is one path written twice, as a host option and
+        # as a PersistentVolume's. gtr alone, because `cluster/apps` is the
+        # cluster gtr follows and the example follows a repository of its own.
+        dumps-wiring-gtr = dumpsWiring self.nixosConfigurations.gtr;
 
         # The registry's public front: an Ingress into its namespace puts every
         # request to the pool plane first and reaches nothing that can write.

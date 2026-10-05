@@ -132,6 +132,7 @@ pkgs.testers.runNixOSTest {
       artifacts.path = "/var/lib/chuggy/artifacts";
       registry.path = "/var/lib/chuggy/registry";
       buildResults.path = "/var/lib/chuggy/build-results";
+      dumps.path = "/var/lib/chuggy/dumps";
     };
     chuggy.secrets.enable = true;
     chuggy.images.enable = true;
@@ -178,6 +179,7 @@ pkgs.testers.runNixOSTest {
     artifacts_stat = "750 1000 1000"
     registry_stat = "750 1000 1000"
     build_results_stat = "700 0 0"
+    dumps_stat = "700 1000 1000"
 
 
     def read_secrets():
@@ -241,6 +243,10 @@ pkgs.testers.runNixOSTest {
         assert (
             machine.succeed("stat -c '%a %u %g' /var/lib/chuggy/build-results").strip()
             == build_results_stat
+        )
+        assert (
+            machine.succeed("stat -c '%a %u %g' /var/lib/chuggy/dumps").strip()
+            == dumps_stat
         )
         assert (
             machine.succeed("stat -c '%a %U %G' /var/lib/chuggy/secrets").strip()

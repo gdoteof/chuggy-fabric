@@ -130,3 +130,7 @@ authority and must never be presented as recovery of the old one.
 This repository does not yet implement database, Git, registry, or identity
 backup jobs. Until each passes a restore rehearsal, this is a backup contract,
 not a demonstrated disaster-recovery claim.
+
+The `chuggy-dumps` volume does not change that. It is a directory on the node's
+own disk, nothing writes to it yet, and a dump kept beside the database it was
+taken from is not an off-installation backup.

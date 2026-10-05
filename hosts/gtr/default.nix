@@ -112,6 +112,7 @@
     registry.path = "/var/lib/chuggy/registry";
     vmRegistry.path = "/var/lib/chuggy/vm-registry";
     buildResults.path = "/var/lib/chuggy/build-results";
+    dumps.path = "/var/lib/chuggy/dumps";
   };
 
   # What this box builds is recorded on that path and committed to the
