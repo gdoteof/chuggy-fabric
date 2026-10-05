@@ -53,6 +53,9 @@ THE CASES, and the half of the script each is the only reader of:
   and a link, each named almost like its own;
 - retention keeps the same count in the ordinary run, where nothing is stamped
   later and the pair just written is itself among the newest;
+- retention leaves what a run stamped no earlier than this one has written so
+  far -- at its archive, at its globals, and between its two renames -- and
+  removes the same files of a run stamped earlier;
 - a count of zero, a Job's name retention would not know for its own, and a
   password the pod was not given are each refused by name, with the directory
   exactly as it was;
@@ -517,9 +520,11 @@ def retention(environment, job):
         endings=(".dump.partial", ".globals.sql.partial"),
     )
     seed(directory, "20200202T000000Z-chuggy-migrate-interrupted", endings=(".globals.sql",))
-    # Not this script's, each one edit away from a name that is. The directory
-    # and the link carry a name that IS one, stamped after everything else, so
-    # a count that took them for archives would keep them in place of two.
+    # Not this script's, each one edit away from a name that is. The
+    # directories and the links carry a name that IS one. Stamped after
+    # everything else, a count that took them for archives would keep them in
+    # place of two; stamped before everything else, they are among what
+    # retention removes unless it asks what each one is.
     foreign = [
         "operator-notes.txt",
         "chuggy.dump",
@@ -530,8 +535,10 @@ def retention(environment, job):
     ]
     for name in foreign:
         (directory / name).write_text(f"foreign {name}\n")
-    (directory / "21000103T000000Z-a-directory.dump").mkdir()
-    (directory / "21000104T000000Z-a-link.dump").symlink_to("operator-notes.txt")
+    for year in ("2019", "2100"):
+        (directory / f"{year}0103T000000Z-a-directory.dump").mkdir()
+        (directory / f"{year}0104T000000Z-a-link.dump").symlink_to("operator-notes.txt")
+        foreign += [f"{year}0103T000000Z-a-directory.dump", f"{year}0104T000000Z-a-link.dump"]
     before = listing(directory)
 
     completed = run(case, environment, CHUG_DUMP_DIR=str(directory))
@@ -567,8 +574,7 @@ def retention(environment, job):
     )
     if leftovers:
         report(case, f"retention left {leftovers}, which are this script's and no kept pair's")
-    untouched = foreign + ["21000103T000000Z-a-directory.dump", "21000104T000000Z-a-link.dump"]
-    for name in untouched:
+    for name in foreign:
         if after.get(name) != before[name]:
             report(case, f"{name} is not this script's and is gone or changed")
 
@@ -604,6 +610,46 @@ def newest(environment, job):
     pairs = sorted(f"{base}{ending}" for base in expected for ending in (".dump", ".globals.sql"))
     if sorted(after) != pairs:
         report(case, f"retention left {sorted(set(after) - set(pairs))} beside the pairs it kept")
+
+
+def in_flight(environment, job):
+    """Another run's files, at each point a run can be at: taking its archive,
+    taking its globals, and between its two renames. Stamped no earlier than
+    this run they are left, the second this run starts in included; stamped
+    earlier they are what a failed run leaves, and go."""
+    case = "in-flight"
+    directory = directory_for(case)
+    points = (
+        ("archiving", (".dump.partial",)),
+        ("globals", (".dump.partial", ".globals.sql.partial")),
+        ("renaming", (".dump.partial", ".globals.sql")),
+    )
+    for year in ("2020", "2099"):
+        for second, (point, endings) in enumerate(points):
+            seed(directory, f"{year}0101T00000{second}Z-chuggy-migrate-{point}", endings)
+    # One for every second this run could start in, since which it will be is
+    # not known here.
+    now = int(time.time())
+    window = [stamped(second) for second in range(now, now + AHEAD)]
+    for stamp in window:
+        seed(directory, f"{stamp}-another-job", (".dump.partial",))
+    before = listing(directory)
+    completed = run(case, environment, CHUG_DUMP_DIR=str(directory))
+    if completed.returncode != 0:
+        report(case, f"exit {completed.returncode}: {completed.stderr}")
+        return
+    after = listing(directory)
+    mine = written(case, before, after, job)
+    if mine is None:
+        return
+    start = mine[: len(window[0])]
+    if start not in window:
+        refuse(f"{case} started at {start}, outside the seconds it seeded")
+    for name, content in before.items():
+        if name[: len(start)] >= start and after.get(name) != content:
+            report(case, f"{name} is a run's that started no earlier, and is gone or changed")
+        if name[: len(start)] < start and name in after:
+            report(case, f"retention left {name}, which a run that started earlier left")
 
 
 def main():
@@ -661,6 +707,7 @@ def main():
         collision(environment, name)
         retention(environment, name)
         newest(environment, name)
+        in_flight(environment, name)
     finally:
         stop()
 

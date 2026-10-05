@@ -31,6 +31,14 @@
 # this script's and is never removed. A run that fails removes nothing, its own
 # partial files included.
 #
+# RETENTION LEAVES A LATER RUN THAT IS STILL WRITING. Two runs share the
+# directory when a Job is replaced while its dump is being taken and its pod
+# has not yet stopped. So a file stamped no earlier than this run's own is left
+# unless its archive was under its final name when this run looked -- that
+# rename is a run's last, so an archive without it is a run not yet done. A run
+# that started earlier is not told from one that failed: a later run that
+# finishes first removes its partial files, and it fails.
+#
 # WHERE, AND WITH WHAT PASSWORD, IS THE POD'S TO SAY. PGHOST, PGPORT and
 # PGPASSWORD are libpq's own variables; the directory, the count and the Job's
 # name arrive as CHUG_DUMP_DIR, CHUG_DUMP_KEEP and CHUG_DUMP_JOB. That is what
@@ -42,7 +50,8 @@
 # take a user name from, which chuggy-migrate.yaml argues beside the wait.
 set -o errexit -o nounset -o pipefail
 umask 077
-# The order a glob expands in, which is the order retention reads as age.
+# The order a glob expands in and `<` compares in, which retention reads as
+# age.
 export LC_ALL=C
 
 refuse() {
@@ -87,17 +96,20 @@ echo "dump: wrote $archive and $globals"
 
 # The pair just written is kept whatever its place in the order: a clock that
 # went backwards between two runs must not make this run remove its own dump.
-declare -A kept=(["$name"]=1)
+# Every archive under its final name is noted as well, kept or not, which is
+# what the loop after this one tells a finished run from an unfinished one by.
+declare -A kept=(["$name"]=1) whole=()
 others=$((keep - 1))
 shopt -s nullglob
 archives=("$directory"/*.dump)
-for ((index = ${#archives[@]} - 1; index >= 0 && others > 0; index--)); do
+for ((index = ${#archives[@]} - 1; index >= 0; index--)); do
   path=${archives[index]}
   base=${path##*/}
   base=${base%.dump}
   [[ $base =~ $own ]] || continue
   [ -f "$path" ] && [ ! -L "$path" ] || continue
-  [ "$base" != "$name" ] || continue
+  whole[$base]=1
+  [ "$base" != "$name" ] && ((others > 0)) || continue
   kept[$base]=1
   others=$((others - 1))
 done
@@ -113,6 +125,7 @@ for path in "$directory"/*; do
   esac
   [[ $base =~ $own ]] || continue
   [ -z "${kept[$base]:-}" ] || continue
+  [[ ${base%%-*} < ${name%%-*} ]] || [ -n "${whole[$base]:-}" ] || continue
   [ -f "$path" ] && [ ! -L "$path" ] || continue
   rm -f -- "$path"
   echo "dump: removed $path"
