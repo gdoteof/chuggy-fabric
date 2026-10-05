@@ -43,6 +43,8 @@ THE CASES, and the half of the script each is the only reader of:
   all of them, ends the same way, which only the hold on the lines it ends a
   dump with stands behind. A role's comment here carries those lines, so a
   hold that found them anywhere would pass the file that was cut;
+- a `mv` that will not rename the globals leaves no archive under a final
+  name, which is the order of the two renames;
 - each of those leaves every file that was already there, which is the rule
   that a run that failed removes nothing;
 - retention keeps the count the manifest sets, counts the pair just written
@@ -431,6 +433,27 @@ def globals_short(environment):
         refuse("globals-cut-short left no globals that carry the closing line and not the end")
 
 
+def rename_refused(environment):
+    """A `mv` that renames anything but the globals. Whichever rename the
+    script makes first, no archive may be left under its final name without
+    them."""
+    failing(
+        "rename-refused",
+        environment,
+        "the globals are not renamed",
+        PATH=stand_in(
+            "rename-refused",
+            "mv",
+            "for argument; do\n"
+            "  case $argument in *.globals.sql.partial)\n"
+            '    echo "the globals are not renamed" >&2; exit 1 ;;\n'
+            "  esac\n"
+            "done\n"
+            'exec "$real" "$@"\n',
+        ),
+    )
+
+
 def collision(environment, job):
     """An archive already under the name this run would take, whichever second
     it starts in: it is refused, and nothing is written over or removed."""
@@ -573,6 +596,7 @@ def main():
             postgres("-c", f"ALTER ROLE {SUPERUSER} SUPERUSER")
         cut_short(environment)
         globals_short(environment)
+        rename_refused(environment)
         failing(
             "zero-count", environment, "CHUG_DUMP_KEEP is '0'", untouched=True, CHUG_DUMP_KEEP="0"
         )
