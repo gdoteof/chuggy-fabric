@@ -8,7 +8,15 @@ metadata:
     fabric.chuggy.dev/source-commit: e01626da
 spec:
   replicas: 1
-  strategy: { type: Recreate }
+  # A POD THAT HOLDS AN ATTEMPT KEEPS ITS LEASE THROUGH THIS SERVICE, and gives
+  # up on itself well before the lease would lapse, so a release must not leave
+  # a moment with no plane serving: the old pod is kept until the new one
+  # answers ready. Two planes at once are safe for that long because every move
+  # an attempt makes is fenced in the database, and the artifact volume is
+  # already shared by pods on its one node.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
   selector:
     matchLabels: { app: chuggy-worker-plane }
   template:
