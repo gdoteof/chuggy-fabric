@@ -13,6 +13,12 @@ SO THE THREE RENDERS ARE READ AS THREE, never as one stream. An object is held
 to the layer that renders it, and a release image is read off the pod that
 runs it rather than off the name of the file it came from.
 
+THE MIGRATION'S LAYER IS HELD TO EVERYTHING IN IT, not to its workloads alone.
+`force` is set on that layer for the Job, and it acts on every object the
+layer renders: one the API server will not change in place is deleted and
+created again. So that render is the Job and the ConfigMaps its pod mounts, and
+an object of any other kind, or a ConfigMap nothing there mounts, is refused.
+
 THEN THE POD THAT MIGRATES IS HELD TO THE ORDER INSIDE IT, since the dump and
 the migration are one pod and the layers cannot see into it. `dump` is an
 initContainer, so it has exited 0 before `migrate` is created; an initContainer
@@ -183,14 +189,32 @@ def main():
             f"`{MIGRATION_LAYER}` is the layer the services wait on"
         )
 
+    # Everything that layer renders, workload or not.
+    namespace = migration["metadata"].get("namespace")
+    mounted = {
+        mount["name"]
+        for _, container in containers_of(pod)
+        for mount in container.get("volumeMounts") or []
+    }
+    maps = {
+        (volume.get("configMap") or {}).get("name")
+        for volume in pod.get("volumes") or []
+        if volume["name"] in mounted
+    }
+    for document in rendered[MIGRATION_LAYER]:
+        if document is migration:
+            continue
+        kind, home, name = identity(document)
+        if (kind, home) != ("ConfigMap", namespace) or name not in maps:
+            refuse(
+                f"{described(document)} is rendered by cluster/{MIGRATION_LAYER}, which "
+                "applies the migration and the ConfigMaps its pod mounts and nothing "
+                "else: `force` there acts on every object it renders"
+            )
+
     for layer, document, other in workloads:
         if document is migration:
             continue
-        if layer == MIGRATION_LAYER:
-            refuse(
-                f"{described(document)} is rendered by cluster/{MIGRATION_LAYER}, which "
-                "applies the migration and no other workload"
-            )
         if layer != SERVICE_LAYER and releases(other):
             refuse(
                 f"{described(document)} runs a release image in {', '.join(releases(other))} "
@@ -266,7 +290,6 @@ def main():
             f"`{DUMP}` is told to write {directory} by {DIRECTORY_VARIABLE} and mounts "
             f"claim {CLAIM} at {mounts[0]['mountPath']}"
         )
-    namespace = migration["metadata"].get("namespace")
     claims = [
         document
         for document in rendered["apps"]
@@ -331,8 +354,10 @@ def main():
             "pg_dump refuses a server newer than itself"
         )
 
+    beside = [described(other) for other in rendered[MIGRATION_LAYER] if other is not migration]
     print(
-        f"clean: {described(migration)} is the only workload in cluster/{MIGRATION_LAYER}, "
+        f"clean: all cluster/{MIGRATION_LAYER} renders is {described(migration)} and what "
+        f"it mounts ({', '.join(beside) or 'nothing'}); "
         f"`{DUMP}` runs before any release image in it, and {len(services)} workloads "
         f"running release images are all in cluster/{SERVICE_LAYER}"
     )
