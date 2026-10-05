@@ -530,10 +530,18 @@ def main():
         "the overlay changes more of cluster/chuggy-migrate than",
         script=suite.variant("images:\n", 'images:\n  - name: postgres\n    newTag: "0"\n'),
     )
+    # A NetworkPolicy, because nothing refers to one by name: kustomize rewrites
+    # a reference to a renamed object, and the reference would then be what
+    # the comparison saw.
     suite.refused(
         "overlay-renames-another-object",
-        "the overlay changes more of cluster/chuggy-migrate than",
-        script=suite.variant("  - target:\n      kind: Job\n", "  - target:\n      kind: (Job|ConfigMap)\n"),
+        "the overlay changes more of cluster/chuggy than",
+        script=suite.variant(
+            annotation_patch,
+            "  - target:\n      kind: NetworkPolicy\n      name: chuggy-pool-plane-egress\n"
+            "    patch: |-\n      - op: replace\n        path: /metadata/name\n        value: renamed\n"
+            + annotation_patch,
+        ),
     )
     suite.refused(
         "overlay-selects-by-annotation",

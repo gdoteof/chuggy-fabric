@@ -146,7 +146,7 @@ start() {
   fi
 }
 
-if [ -z "$chuggy_revision" ] || [ -z "$fabric_revision" ] || [ -z "$fabric_digest" ]; then
+if [ -z "$chuggy_revision" ] || [ -z "$fabric_digest" ]; then
   say "a source holds no artifact yet (chuggy '$chuggy_revision', fabric-release '$fabric_revision'): nothing is started"
 else
   chuggy_commit=$(commit_of "$chuggy_revision")

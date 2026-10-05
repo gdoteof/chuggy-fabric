@@ -204,7 +204,9 @@ def kubectl(state_path, argv):
     elif argv[:1] == ["get"] and len(argv) == 4 and argv[1] == RUNS and argv[2] == "--output":
         if not allowed(state, namespace, RUNS, "list") or RUNS in state["refused"]:
             forbidden(RUNS, "list", namespace)
-        listed = {"kind": "List", "items": state["runs"].get(namespace, [])}
+        # By name, which is the order the API server lists in.
+        named = sorted(state["runs"].get(namespace, []), key=lambda run: run["metadata"]["name"])
+        listed = {"kind": "List", "items": named}
         sys.stdout.write(evaluate(argv[3].removeprefix("jsonpath="), listed))
     elif argv == ["create", "--filename", "-", "--output", "name"]:
         made = yaml.safe_load(sys.stdin.read())
@@ -336,7 +338,7 @@ def source(name, url, commit=COMMIT, digest=DIGEST, revision=None):
         found["status"] = {
             "artifact": {
                 "revision": revision or f"main@sha1:{commit}",
-                **({"digest": digest} if digest else {}),
+                "digest": digest,
                 "url": f"http://source-controller.flux-system.svc.cluster.local./gitrepository/flux-system/{name}/{commit}.tar.gz",
             },
             "conditions": [{"type": "Ready", "status": "True", "lastTransitionTime": stamp(0)}],
@@ -598,13 +600,11 @@ def main():
             says="holds no artifact yet",
             **sources,
         )
-    suite.nothing(
-        "no-digest-fabric",
-        fabric=source("fabric-release", FABRIC_URL, commit=FABRIC_COMMIT, digest=None),
-        says="holds no artifact yet",
-    )
     suite.expect(
         suite.case("source-is-not-there", chuggy=False), fails=True, says="NotFound"
+    )
+    suite.expect(
+        suite.case("fabric-source-is-not-there", fabric=False), fails=True, says="NotFound"
     )
     suite.expect(
         suite.case("source-read-refused", refused=[SOURCES]), fails=True, says="Forbidden"
