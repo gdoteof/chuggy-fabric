@@ -37,8 +37,8 @@ only by their own directory.
     cluster/flux-system/            the vendored Flux install
     cluster/flux/                   what Flux reconciles from this repo, one
                                     Kustomization each
-    cluster/apps/                   the cluster state this repo declares,
-                                    less a chuggy release
+    cluster/apps/                   the cluster state the `apps` layer
+                                    applies: no part of a chuggy release
     cluster/apps/kustomization.yaml the enumeration of that state, and the
                                     generated ConfigMaps
     cluster/apps/ory/               config documents those ConfigMaps carry --
