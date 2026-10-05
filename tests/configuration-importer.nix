@@ -5,9 +5,9 @@ pkgs.runCommand "chuggy-configuration-importer" {
 } ''
   set -eu
   root=${../.}
-  manifest="$root/cluster/apps/chuggy-configuration-importer.yaml"
+  manifest="$root/cluster/chuggy/chuggy-configuration-importer.yaml"
 
-  kubectl kustomize "$root/cluster/apps" > rendered.yaml
+  kubectl kustomize "$root/cluster/chuggy" > rendered.yaml
   grep -F 'name: chuggy-configuration-importer' rendered.yaml >/dev/null
 
   # The run is the estate and not a list. A repository, a commit or a partition

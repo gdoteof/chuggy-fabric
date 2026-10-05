@@ -10,17 +10,17 @@
 
 let
   python = pkgs.python3.withPackages (ps: [ ps.pyyaml ]);
+  rendered = import ./rendered-cluster.nix { inherit pkgs; };
 in
 pkgs.runCommand "chuggy-github-repository-transition" {
-  nativeBuildInputs = [ pkgs.gnugrep pkgs.kubectl python ];
+  nativeBuildInputs = [ pkgs.gnugrep python ];
   roster = builtins.toJSON (import ../repositories.nix);
   passAsFile = [ "roster" ];
 } ''
   set -eu
   root=${../.}
 
-  kubectl kustomize "$root/cluster/apps" > rendered.yaml
-  python3 ${./github-repository-transition.py} "$rosterPath" rendered.yaml "$root"
+  python3 ${./github-repository-transition.py} "$rosterPath" ${rendered}/cluster.yaml "$root"
 
   # Reaching a forge at all is the half of the cutover that is not per
   # repository, and these two lines read occurrence counts and nothing else:

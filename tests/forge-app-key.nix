@@ -10,14 +10,14 @@
 
 let
   python = pkgs.python3.withPackages (ps: [ ps.pyyaml ]);
+  rendered = import ./rendered-cluster.nix { inherit pkgs; };
 in
 pkgs.runCommand "chuggy-forge-app-key" {
-  nativeBuildInputs = [ pkgs.kubectl python ];
+  nativeBuildInputs = [ python ];
   apps = builtins.toJSON apps;
   passAsFile = [ "apps" ];
 } ''
   set -eu
-  kubectl kustomize ${../cluster/apps} > rendered.yaml
-  python3 ${./forge-app-key.py} "$appsPath" rendered.yaml
+  python3 ${./forge-app-key.py} "$appsPath" ${rendered}/cluster.yaml
   touch "$out"
 ''

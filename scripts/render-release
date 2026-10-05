@@ -2,14 +2,15 @@
 """Render the release of one Chuggy commit into this tree's application
 manifests, from build results this repository already carries.
 
-WHAT A RELEASE IS. Flux reconciles `cluster/apps`, so the release is those
-manifests: each names its image by registry digest and annotates the source
-commit it was built from, and the migrate Job is named after that commit.
-`scripts/check-release-consistency` is the rule they are held to, and this
-command is what writes a tree that satisfies it. It writes and nothing else:
-no commit, no push, no registry read, no cluster contact. The pull request a
-caller opens over the edit is the deployment decision, and it is not this
-command's.
+WHAT A RELEASE IS. Flux reconciles `cluster/`, and the release is the manifests
+under it that `scripts/check-release-consistency` lists -- the migrate Job in
+`cluster/chuggy-migrate` and the services in `cluster/chuggy`. Each names its
+image by registry digest and annotates the source commit it was built from,
+and the migrate Job is named after that commit. That check is the rule they
+are held to, and this command is what writes a tree that satisfies it. It
+writes and nothing else: no commit, no push, no registry read, no cluster
+contact. The pull request a caller opens over the edit is the deployment
+decision, and it is not this command's.
 
 WHAT MOVED IS READ FROM THE SOURCE, NOT DECLARED. The manifests say which
 commit is live; an image is rebuilt when a path its Dockerfile copies changed
@@ -145,8 +146,8 @@ def images(roster):
     rather than a second copy here, so a control-plane component added there is
     annotated and moved by this command without a second edit. The worker image
     is out of this command's scope: the scheduler admits it by its own change
-    and no manifest in `cluster/apps` selects it."""
-    consoles = {"chuggy-ui.yaml"}
+    and no manifest of the release selects it."""
+    consoles = {"chuggy/chuggy-ui.yaml"}
     if set(roster.WEB_MANIFESTS) != consoles:
         unrunnable(
             "check-release-consistency names console manifests this command does "
@@ -173,7 +174,7 @@ def images(roster):
                 "package.json",
                 "package-lock.json",
             ),
-            manifests=("chuggy-ui.yaml",),
+            manifests=("chuggy/chuggy-ui.yaml",),
         ),
     )
 
@@ -224,12 +225,12 @@ def roster_of(scripts):
     return module
 
 
-def consistency(scripts, apps, description):
+def consistency(scripts, cluster, description):
     """The check's own protocol kept: it exits REFUSAL to refuse the manifests
     and anything else non-zero is a run that did not happen."""
     try:
         completed = subprocess.run(
-            [sys.executable, str(scripts / "check-release-consistency"), str(apps)],
+            [sys.executable, str(scripts / "check-release-consistency"), str(cluster)],
             capture_output=True,
             text=True,
             check=False,
@@ -276,8 +277,8 @@ def job_pattern():
     )
 
 
-def manifest_text(apps, name):
-    path = apps / name
+def manifest_text(cluster, name):
+    path = cluster / name
     if not path.is_file():
         refuse(f"the release does not carry {path}")
     return path.read_text()
@@ -424,8 +425,8 @@ def listed(paths):
     return shown if len(paths) <= 3 else f"{shown} and others"
 
 
-def rewrite(apps, name, pattern, replacement, description):
-    path = apps / name
+def rewrite(cluster, name, pattern, replacement, description):
+    path = cluster / name
     text = path.read_text()
     one(pattern, text, f"{name} {description}")
     edited = pattern.sub(replacement, text)
@@ -435,7 +436,7 @@ def rewrite(apps, name, pattern, replacement, description):
 
 def parse():
     parser = argparse.ArgumentParser(
-        description="Render a Chuggy release into cluster/apps from recorded build results."
+        description="Render a Chuggy release into cluster/ from recorded build results."
     )
     parser.add_argument(
         "--target-commit", required=True, help="the chuggy commit to release, in full"
@@ -457,20 +458,20 @@ def main():
     arguments = parse()
     scripts = Path(__file__).resolve().parent
     fabric = arguments.fabric_root
-    apps = fabric / "cluster" / "apps"
-    if not apps.is_dir():
-        unrunnable(f"{apps} is not a directory, so there is no release to render")
+    cluster = fabric / "cluster"
+    if not cluster.is_dir():
+        unrunnable(f"{cluster} is not a directory, so there is no release to render")
     target = arguments.target_commit
 
     roster = roster_of(scripts)
     release = images(roster)
-    consistency(scripts, apps, "the fabric is not at a release this command can move")
+    consistency(scripts, cluster, "the fabric is not at a release this command can move")
 
     # Any manifest of the roster answers what is live: the check above has
     # already held every one of them to one source commit.
     live = release[0].manifests[0]
     deployed = one(
-        annotation_pattern(), manifest_text(apps, live), f"{live} source commit"
+        annotation_pattern(), manifest_text(cluster, live), f"{live} source commit"
     ).group("value")
     # The label the release is annotated with is the target abbreviated to the
     # length the live manifests already use: the tree states its own convention,
@@ -480,7 +481,7 @@ def main():
     carried = {
         image.name: one(
             image_pattern(image.repository),
-            manifest_text(apps, image.manifests[0]),
+            manifest_text(cluster, image.manifests[0]),
             f"{image.manifests[0]} image",
         ).group("digest")
         for image in release
@@ -495,7 +496,7 @@ def main():
         deployed_commit = resolve(source, deployed, "what is live cannot be read")
         target_commit = resolve(source, target, "the target commit cannot be read")
         if deployed_commit == target_commit:
-            print(f"render-release: cluster/apps is already at {deployed}; nothing to render")
+            print(f"render-release: the release is already at {deployed}; nothing to render")
             return
         moved = {
             image.name: moved_paths(source, deployed_commit, target_commit, image.paths)
@@ -557,19 +558,19 @@ def main():
         if record is None:
             continue
         for name in image.manifests:
-            rewrite(apps, name, image_pattern(image.repository), rf"\g<prefix>{digest}", "image")
+            rewrite(cluster, name, image_pattern(image.repository), rf"\g<prefix>{digest}", "image")
     for image in release:
         for name in image.manifests:
             rewrite(
-                apps,
+                cluster,
                 name,
                 annotation_pattern(),
                 rf"\g<prefix>\g<quote>{label}\g<quote>",
                 "source commit",
             )
-    rewrite(apps, "chuggy-migrate.yaml", job_pattern(), rf"\g<prefix>{label}-registry", "Job name")
+    rewrite(cluster, roster.MIGRATION, job_pattern(), rf"\g<prefix>{label}-registry", "Job name")
 
-    consistency(scripts, apps, "the rendered release does not identify one source")
+    consistency(scripts, cluster, "the rendered release does not identify one source")
 
     print(f"render-release: {deployed} -> {label} ({target})")
     for image in release:

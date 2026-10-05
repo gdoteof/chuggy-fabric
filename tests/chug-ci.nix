@@ -7,14 +7,15 @@ pkgs.runCommand "chuggy-chug-ci" {
   full=$PATH
   # Everything ci.sh itself calls, and no python3.
   unequipped=${pkgs.coreutils}/bin
-  clean_line='clean: the manifests scripts/check-release-consistency names in cluster/apps identify one source; nix flake check did not run'
+  clean_line='clean: the manifests scripts/check-release-consistency names in cluster/ identify one source; nix flake check did not run'
 
   # ci.sh locates what it runs from its own path, so a case is a whole tree.
   plant() {
     mkdir -p "$1/.chug/tasks" "$1/scripts" "$1/cluster"
     cp ${../.chug/tasks/ci.sh} "$1/.chug/tasks/ci.sh"
     cp ${../scripts/check-release-consistency} "$1/scripts/check-release-consistency"
-    cp -R ${../cluster/apps} "$1/cluster/apps"
+    cp -R ${../cluster/chuggy-migrate} "$1/cluster/chuggy-migrate"
+    cp -R ${../cluster/chuggy} "$1/cluster/chuggy"
     chmod -R u+w "$1"
     set +u
     patchShebangs "$1/.chug/tasks/ci.sh"
@@ -61,11 +62,11 @@ pkgs.runCommand "chuggy-chug-ci" {
     { echo "a clean run wrote to stderr, which the stage report carries" >&2; cat clean.err >&2; exit 1; }
 
   # One refused tree is the whole of what this file does with a finding: it
-  # runs the check over cluster/apps and hands back what the check said. The
+  # runs the check over cluster/ and hands back what the check said. The
   # defects that check refuses are held in tests/release-images.nix.
   plant refused
   sed -i '0,/sha256:/s/sha256:[0-9a-f]*/sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/' \
-    refused/cluster/apps/chuggy-api.yaml
+    refused/cluster/chuggy/chuggy-api.yaml
   expect refused 1 "mixed control-plane image digests"
   says refused.err 'control-plane manifests do not select one API image digest' \
     "exit 1 without the refusal that earned it"
@@ -87,7 +88,7 @@ pkgs.runCommand "chuggy-chug-ci" {
   # with broken-check still green. Bytes that are not text raise where such a
   # handler would stand.
   plant undecodable-manifest
-  printf '\377\376 not text\n' >undecodable-manifest/cluster/apps/chuggy-api.yaml
+  printf '\377\376 not text\n' >undecodable-manifest/cluster/chuggy/chuggy-api.yaml
   expect undecodable-manifest 2 "a manifest the check cannot read as text"
   says undecodable-manifest.err 'undecodable-manifest/scripts/check-release-consistency exited' \
     "exit 2 without naming the script that could not run"
@@ -107,9 +108,9 @@ pkgs.runCommand "chuggy-chug-ci" {
   silent missing-check.out "the clean line beside a missing check script"
 
   plant missing-manifests
-  rm -r missing-manifests/cluster/apps
+  rm -r missing-manifests/cluster
   expect missing-manifests 2 "the manifest directory missing"
-  says missing-manifests.err 'missing-manifests/cluster/apps is not a directory' \
+  says missing-manifests.err 'missing-manifests/cluster is not a directory' \
     "exit 2 without naming the missing manifest directory"
   silent missing-manifests.out "the clean line beside a missing manifest directory"
 
