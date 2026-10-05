@@ -377,7 +377,7 @@ spec:
               value: /dumps
             # How many dumps the volume holds once this one is written.
             - name: CHUG_DUMP_KEEP
-              value: "0"
+              value: "30"
             # The Job controller labels the pod with the Job's name, and the
             # files are named for it: a dump says which release took it.
             - name: CHUG_DUMP_JOB
@@ -416,7 +416,7 @@ spec:
                 secretKeyRef:
                   { name: chuggy-postgres-credentials, key: owner-password }
             - name: CHUG_MIGRATE_DATABASE_URL
-              value: postgres://chuggy_owner:$(CHUG_PG_OWNER_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy
+              value: postgres://chuggy_owner:rehearsal-not-the-password@postgres.chuggy.svc.cluster.local:5432/chuggy
           resources:
             requests: { cpu: 100m, memory: 128Mi }
             limits: { memory: 512Mi }
