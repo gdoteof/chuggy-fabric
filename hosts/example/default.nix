@@ -85,6 +85,7 @@
     artifacts.path = "/var/lib/chuggy/artifacts";
     registry.path = "/var/lib/chuggy/registry";
     buildResults.path = "/var/lib/chuggy/build-results";
+    dumps.path = "/var/lib/chuggy/dumps";
   };
 
   chuggy.secrets.enable = true;

@@ -49,6 +49,7 @@ resources:
   - chuggy-artifacts.yaml
   - chuggy-configuration-importer.yaml
   - chuggy-control-plane-network-policy.yaml
+  - chuggy-dumps.yaml
   - chuggy-finalizer.yaml
   - chuggy-migrate.yaml
   - chuggy-pool-plane.yaml

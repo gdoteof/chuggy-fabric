@@ -248,6 +248,49 @@ in
         description = "Mode enforced on retained build-result storage at activation.";
       };
     };
+
+    dumps = {
+      path = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "/var/lib/chuggy/dumps";
+        description = ''
+          Filesystem path retained for dumps of the database. Required: the
+          static PersistentVolume in cluster/apps/chuggy-dumps.yaml binds this
+          path on every host that reconciles that directory, and a pod that
+          mounts a volume whose directory is absent sits in `ContainerCreating`
+          rather than reporting a missing feature.
+
+          That file says what a dump kept here does and does not protect
+          against.
+        '';
+      };
+
+      user = lib.mkOption {
+        type = lib.types.int;
+        default = 1000;
+        description = ''
+          Numeric owner of the dumps directory, matching the uid the migration
+          Job's pod runs as: `runAsUser` in cluster/apps/chuggy-migrate.yaml.
+          See `artifacts.user` for what uid 1000 is on a NixOS host.
+        '';
+      };
+
+      group = lib.mkOption {
+        type = lib.types.int;
+        default = 1000;
+        description = "Numeric group of the dumps directory. See `user`.";
+      };
+
+      mode = lib.mkOption {
+        type = lib.types.str;
+        default = "0700";
+        description = ''
+          Mode enforced on the dumps directory at activation. Owner-only: a dump
+          that includes the cluster's roles carries their password hashes.
+        '';
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -268,6 +311,14 @@ in
           module will not guess a filesystem for retained data.
         '';
       }
+      {
+        assertion = cfg.dumps.path != null;
+        message = ''
+          chuggy.state.enable is on but chuggy.state.dumps.path is unset.
+          Name the directory this host keeps database dumps in; the module will
+          not guess a filesystem for retained data.
+        '';
+      }
     ];
 
     systemd.tmpfiles.rules = [
@@ -279,6 +330,8 @@ in
     ++ lib.optional (cfg.vmRegistry.path != null)
       "d ${cfg.vmRegistry.path} ${cfg.vmRegistry.mode} ${toString cfg.vmRegistry.user} ${toString cfg.vmRegistry.group} -"
     ++ lib.optional (cfg.buildResults.path != null)
-      "d ${cfg.buildResults.path} ${cfg.buildResults.mode} ${toString cfg.buildResults.user} ${toString cfg.buildResults.group} -";
+      "d ${cfg.buildResults.path} ${cfg.buildResults.mode} ${toString cfg.buildResults.user} ${toString cfg.buildResults.group} -"
+    ++ lib.optional (cfg.dumps.path != null)
+      "d ${cfg.dumps.path} ${cfg.dumps.mode} ${toString cfg.dumps.user} ${toString cfg.dumps.group} -";
   };
 }
