@@ -139,6 +139,8 @@
       fluxWiring = host: expectSecretRef:
         import ./tests/flux-wiring.nix { inherit pkgs host expectSecretRef; };
       fluxLayers = host: import ./tests/flux-layers.nix { inherit pkgs host; };
+      fluxReleaseSource = host:
+        import ./tests/flux-release-source.nix { inherit pkgs host; };
       buildPlatform = import ./tests/build-platform.nix { inherit pkgs; };
       buildRequests = import ./tests/build-requests.nix { inherit pkgs; };
       awaitBuildResults = import ./tests/await-build-results.nix { inherit pkgs; };
@@ -413,6 +415,11 @@
         # The layers gtr's root Kustomization applies, rendered from the
         # directory it names, against the spec each is held to.
         flux-layers = fluxLayers self.nixosConfigurations.gtr;
+
+        # The files gtr's narrowed source keeps of this repository. The lines
+        # that narrow it are the module's and no host's, so one host reads
+        # them for all.
+        flux-release-source = fluxReleaseSource self.nixosConfigurations.gtr;
         build-platform = buildPlatform;
 
         # What a source's build request is, and what it is answered with: the

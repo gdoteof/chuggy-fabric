@@ -90,8 +90,9 @@ cutover; do not put its bytes in Nix configuration.
 
 ## Cut over to installation-owned Git
 
-Cutover changes the one machine-layer `GitRepository/fabric`; it never adds a
-second reconciler for anything under `cluster/`.
+Cutover changes the two machine-layer sources, `GitRepository/fabric` and
+`GitRepository/fabric-release`, which one host change moves together; it never
+adds a second reconciler for anything under `cluster/`.
 
 1. Mirror the exact currently reconciled fabric commit into the destination.
    Verify that commit and the configured path there.
@@ -102,13 +103,14 @@ second reconciler for anything under `cluster/`.
 4. Run `nix flake check`, then build from that SHA. Activation is an operator
    action: use `nixos-rebuild test` first, inspect the generated source, and
    only then `switch` from the same SHA.
-5. Confirm `GitRepository/fabric` reports the destination revision and
+5. Confirm `GitRepository/fabric` and `GitRepository/fabric-release` report the
+   destination revision and
    `Kustomization/apps`, `chuggy-migrate` and `chuggy` are Ready at the
    expected commit. Confirm exactly one Kustomization owns each object set.
 6. Revoke the old read credential only after those checks succeed.
 
 Rollback means activating another committed machine revision that restores the
-old URL, branch, and credential reference. Do not add a second GitRepository or
+old URL, branch, and credential reference. Do not add another GitRepository or
 Kustomization: overlapping reconcilers make ownership ambiguous and can prune
 each other's objects.
 

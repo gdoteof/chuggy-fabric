@@ -946,8 +946,11 @@ that Secret and activates a pinned cutover revision. The Secret cannot precede
 the Kubernetes API and `flux-system` namespace that hold it.
 
 **Which repository and branch it follows are host inputs**, not a committed
-file. `chuggy.flux.repositoryUrl` and `.branch` generate the `GitRepository` and
-one root `Kustomization`, both named `fabric`, and no other Flux object. The
+file. `chuggy.flux.repositoryUrl` and `.branch` generate two `GitRepository`
+objects, `fabric` and `fabric-release`, and one root `Kustomization` named
+`fabric`, and no other Flux object. `fabric-release` is the same repository and
+branch with `spec.ignore` keeping only the files under `cluster/chuggy-migrate/`
+and `cluster/chuggy/`, and no `Kustomization` reads it. The
 root applies `cluster/flux/`, where each part of this repository Flux
 reconciles is declared as its own `Kustomization` — `apps`, `chuggy-migrate`,
 `chuggy`, `build-prerequisites`, `build-system` and `builds` — so what Flux
