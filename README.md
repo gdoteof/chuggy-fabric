@@ -243,6 +243,7 @@ that builds clean and is not actually supported.
 | `chuggy.k3s.apiAllowedSources` | `k3s-server.nix` | the safe guess refuses the workstation; the convenient one is every network the box can see |
 | `chuggy.state.artifacts.path` | `chuggy-state.nix` | durable data on whichever filesystem happened to have room |
 | `chuggy.state.registry.path` | `chuggy-state.nix` | OCI content on an incidental or boot-constrained filesystem |
+| `chuggy.state.dumps.path` | `chuggy-state.nix` | database dumps on an incidental filesystem |
 | `chuggy.work.worker.cpu`, `.memory`, `.ephemeralStorage` | `chuggy-work.nix` | one task starves the control plane, or cannot finish — neither looks like a missing setting |
 | `chuggy.flux.repositoryUrl` | `flux.nix` | Flux installed and following nothing, reporting no error |
 
@@ -293,7 +294,10 @@ behind; on a host where no such volume has been reconciled, what exists is a
 directory with the right owner and nothing mounting it — and reading that as a
 durability guarantee is reading one this tree does not give. The volume and
 `chuggy.state.artifacts.path` have to name the same path and nothing checks
-that they do; a mismatch mounts an empty directory and reports healthy.
+that they do; a mismatch mounts an empty directory and reports healthy. For the
+dumps directory the same pair is checked: `tests/dumps-wiring.nix` holds
+`chuggy.state.dumps.path` on gtr to the volume `cluster/apps/chuggy-dumps.yaml`
+declares.
 
 **Where the two layers both have an opinion, this one wins.** A
 PersistentVolume names a host path; it does not create it and does not set its
@@ -1772,6 +1776,13 @@ argument, not the evidence: nothing here has replaced a pod and read the data
 back, and nothing has rebooted the box. What would prove it is exactly that —
 write through the finalizer, delete the pod, read through the API; then reboot
 and repeat.
+
+**Database dumps have a volume and nothing writing to it.**
+`cluster/apps/chuggy-dumps.yaml` declares a volume in the same class over
+`chuggy.state.dumps.path`, and a claim in `chuggy` that nothing mounts yet. It
+is on the same disk as the database: a dump kept there protects against a
+migration that damages the data, not against losing the disk, and it is not the
+off-installation backup `docs/bootstrap-and-recovery.md` calls for.
 
 ## Giving someone else access
 

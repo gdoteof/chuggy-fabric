@@ -1,0 +1,52 @@
+# Somewhere in the cluster for a dump of the database to land: a retained
+# directory on this node and a claim over it in `chuggy`. Nothing in
+# `cluster/apps/` mounts the claim yet.
+#
+# The directory is the machine layer's: `chuggy.state.dumps.path` in
+# `modules/chuggy-state.nix` creates it and sets its owner and mode, and the
+# path below is what `hosts/gtr` sets that option to. The `dumps-wiring-gtr`
+# check holds the two together. chuggy-artifacts.yaml argues the rest of this
+# shape and none of it is repeated here: why the class is named, why a claim
+# that names its volume binds before any pod exists, why `Bound` is no evidence
+# that the directory is there, what `Retain` costs, and why the capacity is a
+# field a volume must carry rather than a ceiling.
+#
+# THIS VOLUME IS ON THE SAME DISK AS THE DATABASE. A dump kept here protects
+# against a migration that damages the data, not against losing the disk, and
+# it is not the off-installation backup docs/bootstrap-and-recovery.md calls
+# for.
+#
+# THE CLAIM IS THE SEAM. A host with separate storage binds this claim to a
+# different volume, and nothing that mounts the claim changes.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: chuggy-dumps
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: chuggy-retained
+  local:
+    path: /var/lib/chuggy/dumps
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: chuggy.dev/durable
+              operator: In
+              values: ["true"]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: chuggy-dumps
+  namespace: chuggy
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: chuggy-retained
+  resources:
+    requests:
+      storage: 10Gi
+  volumeName: chuggy-dumps
