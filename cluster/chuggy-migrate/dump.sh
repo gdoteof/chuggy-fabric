@@ -8,13 +8,15 @@
 # A PAIR IS WHOLE OR IT IS NAMED `.partial`. A dump is two files: the archive
 # of the `chuggy` database, and the globals -- the roles and their passwords,
 # which belong to the server and are in no database's archive. Both are written
-# under a name ending in `.partial`, the archive's table of contents is read
-# back, and only then is each renamed. The globals are renamed first, so an
-# archive under its final name has its globals beside it.
+# under a name ending in `.partial`, the archive is read back whole, and only
+# then is each renamed. The globals are renamed first, so an archive under its
+# final name has its globals beside it.
 #
-# WHAT THE READ-BACK READS IS THE CONTENTS AND NOT THE ROWS. `pg_restore --list`
-# refuses an archive cut short before the end of its table of contents, an
-# empty one included, and passes one cut short after it.
+# THE READ-BACK READS EVERY BLOCK AND ASKS NO SERVER. `pg_restore` given a file
+# to write and no database turns the archive back into SQL, which takes its
+# table of contents and all the data behind it, so an archive cut short is
+# refused wherever the cut falls. The SQL goes to /dev/null. Nothing runs it:
+# this reads that the archive is all there, not that a server would take it.
 #
 # RETENTION RUNS AFTER A DUMP THAT SUCCEEDED, AND ONLY THEN. It keeps the pair
 # just written and the newest of the others, CHUG_DUMP_KEEP archives in all,
@@ -67,7 +69,7 @@ for path in "$archive" "$globals" "$archive.partial" "$globals.partial"; do
 done
 
 pg_dump -w -U postgres -Fc -f "$archive.partial" chuggy
-pg_restore --list "$archive.partial" >/dev/null
+pg_restore -f /dev/null "$archive.partial"
 pg_dumpall -w -U postgres --globals-only -f "$globals.partial"
 
 mv -- "$globals.partial" "$globals"

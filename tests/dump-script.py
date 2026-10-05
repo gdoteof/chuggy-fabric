@@ -36,9 +36,9 @@ THE CASES, and the half of the script each is the only reader of:
 - a role that can dump the database and cannot read the globals ends non-zero
   with nothing under a final name, though the archive was written and read
   back -- the case for renaming neither file before both are whole;
-- a `pg_dump` that exits 0 over an archive cut short before the end of its
-  table of contents ends non-zero with nothing under a final name, which only
-  the read-back stands behind;
+- a `pg_dump` that exits 0 over an archive that has lost its last bytes, its
+  table of contents whole, ends non-zero with nothing under a final name,
+  which only a read-back of every block stands behind;
 - each of those leaves every file that was already there, which is the rule
   that a run that failed removes nothing;
 - retention keeps the count the manifest sets, counts the pair just written
@@ -54,10 +54,8 @@ THE CASES, and the half of the script each is the only reader of:
 WHAT THIS CANNOT SEE. The image: the pod runs these bytes with the `bash` and
 the PostgreSQL clients of `postgres:18.3-trixie`, and this runs them with the
 ones nixpkgs pins, an earlier major. Nothing here uses an option the two do
-not share, and that is an argument rather than a check. An archive cut short
-after its table of contents: the script's read-back passes it, there and
-here, and dump.sh says so. The NetworkPolicy, the Secret and the volume are
-`tests/rollout-order.py`'s.
+not share, and that is an argument rather than a check. The NetworkPolicy,
+the Secret and the volume are `tests/rollout-order.py`'s.
 """
 
 import os
@@ -365,9 +363,10 @@ def failing(case, environment, expected, untouched=False, **changed):
 
 
 def cut_short(environment):
-    """The real `pg_dump`, and then its archive cut off before the end of its
-    table of contents with the exit status left at 0: a short write nothing
-    reported."""
+    """The real `pg_dump`, and then its archive without its last bytes and
+    the exit status left at 0: a short write nothing reported. The stand-in
+    lists what it leaves, so the cut is known to fall after the table of
+    contents, where a read-back that stopped at the contents would pass it."""
     shadow = WORK / "shadow"
     shadow.mkdir()
     real, bash = shutil.which("pg_dump"), shutil.which("bash")
@@ -375,7 +374,10 @@ def cut_short(environment):
         f"#!{bash}\n"
         f'"{real}" "$@" || exit\n'
         'while [ $# -gt 1 ]; do [ "$1" != -f ] || target=$2; shift; done\n'
-        'truncate --size 64 "$target"\n'
+        'truncate --size=-50 "$target"\n'
+        'pg_restore --list "$target" >/dev/null 2>&1 && exit\n'
+        'echo "the cut reached the table of contents" >&2\n'
+        "exit 1\n"
     )
     (shadow / "pg_dump").chmod(0o755)
     failing(
