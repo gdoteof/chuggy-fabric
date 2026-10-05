@@ -1,0 +1,37 @@
+# The first half of a chuggy release: a dump of the database, then its schema.
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: chuggy-migrate
+  namespace: flux-system
+spec:
+  # `apps` applies what the Job stands on: the namespace, PostgreSQL, the claim
+  # the dump is written to and the policies that admit the pod. It also applies
+  # everything else this repository declares, and its `wait` holds all of it. So
+  # anything `apps` reads as unhealthy -- a HelmRelease in `monitoring`, the
+  # `sirdocalot` Kustomization it carries -- holds a release, whether or not
+  # the release touches it.
+  dependsOn:
+    - name: apps
+  interval: 5m
+  path: ./cluster/chuggy-migrate
+  sourceRef:
+    kind: GitRepository
+    name: fabric
+  prune: true
+  # A Job's pod template is immutable. An edit to the Job under a name that did
+  # not change is an apply the API server rejects, and without this the layer
+  # stays failed on it. With it kustomize-controller deletes the Job and creates
+  # it again, and the Job runs again. A Job that failed and was not edited is
+  # not that case: nothing is rejected, so nothing is created again.
+  force: true
+  # kstatus reads a Job as current once it has completed and as failed once it
+  # has failed, so this layer is Ready only after the dump and the migration
+  # both succeeded. `chuggy` depends on exactly that.
+  wait: true
+  # What one reconcile waits for the Job: the wait for PostgreSQL, the dump and
+  # the migration. It bounds a hang and is not the Job's deadline -- a Job still
+  # running when it elapses is left running, and the next reconcile waits on it
+  # again.
+  timeout: 30m
