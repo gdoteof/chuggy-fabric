@@ -10,8 +10,8 @@
 # which belong to the server and are in no database's archive. Both are written
 # under a name ending in `.partial`, the archive is read back whole, the
 # globals are held to the lines `pg_dumpall` ends on, and only then is each
-# renamed. The globals are renamed first, so an archive under its final name
-# has its globals beside it.
+# renamed. The globals are renamed first, so a run that stops between the two
+# renames leaves no archive under its final name.
 #
 # THE READ-BACK READS EVERY BLOCK AND ASKS NO SERVER. `pg_restore` given a file
 # to write and no database turns the archive back into SQL, which takes its
@@ -42,7 +42,7 @@
 # unless its archive was under its final name when this run looked -- that
 # rename is a run's last, so an archive without it is a run not yet done. A run
 # that started earlier is not told from one that failed: a later run that
-# finishes first removes its partial files, and it fails.
+# finishes first removes what it has written so far.
 #
 # WHERE, AND WITH WHAT PASSWORD, IS THE POD'S TO SAY. PGHOST, PGPORT and
 # PGPASSWORD are libpq's own variables; the directory, the count and the Job's
