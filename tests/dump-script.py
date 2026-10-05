@@ -45,10 +45,10 @@ THE CASES, and the half of the script each is the only reader of:
   hold that found them anywhere would pass what was cut;
 - a `pg_dumpall` that writes all of a dump and then fails ends the same way,
   which only reading its status through the pipe stands behind;
-- globals whose first writes are refused and whose last is not end the same
-  way, which only a writer that fails when a write does stands behind.
-  `pg_dumpall`, writing the file itself, is first shown to exit 0 there over
-  globals that end as a dump does and lack their beginning;
+- globals whose writes are refused end the same way, which only a writer
+  that fails when a write does stands behind. `pg_dumpall`, writing the file
+  itself with its first writes refused and its last not, is first shown to
+  exit 0 over globals that end as a dump does and lack their beginning;
 - a `sync` that will not put the globals on the disk ends the same way, which
   only asking it to before either rename stands behind;
 - a `mv` that will not rename the globals leaves no archive under a final
@@ -72,13 +72,13 @@ THE CASES, and the half of the script each is the only reader of:
 - a pair already under the name this run would take is refused rather than
   written over.
 
-WHAT THIS CANNOT SEE. The image: the pod runs these bytes with the `bash` and
-the PostgreSQL clients of `postgres:18.3-trixie`, and this runs them with the
-ones nixpkgs pins, an earlier major. Nothing here uses an option the two do
-not share, and that is an argument rather than a check. A volume with no room:
-the write that is refused here is refused for the size of its file, which this
-can arrange and a full volume it cannot. The Secret and the volume are
-`tests/rollout-order.py`'s.
+WHAT THIS CANNOT SEE. The image: the pod runs these bytes with the `bash`, the
+coreutils and the PostgreSQL clients of `postgres:18.3-trixie`, and this runs
+them with the ones nixpkgs pins, the clients an earlier major. Nothing here
+uses an option the two do not share, and that is an argument rather than a
+check. A volume with no room: the write that is refused here is refused for the
+size of its file, which this can arrange and a full volume it cannot. The
+Secret and the volume are `tests/rollout-order.py`'s.
 """
 
 import calendar
