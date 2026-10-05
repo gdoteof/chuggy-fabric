@@ -235,7 +235,7 @@ metadata:
   name: chuggy-api
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: c9e35a22
+    fabric.chuggy.dev/source-commit: 7c10aeac
   labels: { app: chuggy-api }
 spec:
   # One. The journal makes concurrent writers safe, so this is not a
