@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Refuse a generated Flux manifest whose source is not what the host states.
+"""Refuse a generated Flux manifest that is not the source and one root.
 
 THE MANIFEST IS PARSED, because k3s parses it and applies nothing from a file
 it cannot. A key at the wrong depth is text a grep finds and is not a manifest.
@@ -8,6 +8,22 @@ THE SOURCE IS HELD WHOLE against the host's own options. The one thing stated
 apart from them is the credential reference, so that a host is held to carrying
 none -- the bootstrap, which runs before the namespace a Secret would live in
 exists -- or to exactly the one named.
+
+THE SOURCE AND THE ROOT, AND NO LAYER. k3s applies this manifest on every start
+and whenever a rebuild changes it, and the layers are declared under the path
+the root applies. One generated here as well is a single object that k3s and
+the root both reapply, each from its own text.
+
+THE ROOT ORPHANS. k3s deletes an object that has left this manifest, and the
+default deletion policy mirrors `prune`: a root deleted without
+`deletionPolicy: Orphan` would delete every layer, and a layer deleted deletes
+what it applied unless it orphans as well.
+
+THE ROOT DOES NOT WAIT, because a root that waited would be unready whenever
+any layer is; AND IT PRUNES, because a layer whose declaration was deleted
+would otherwise go on applying a directory nothing in git names it for. The
+rest of its spec is the host's options, and it is held whole like the source,
+so a field nobody argued for is a refusal too.
 """
 
 import json
@@ -19,6 +35,7 @@ import yaml
 NAMESPACE = "flux-system"
 NAME = "fabric"
 SOURCE = "GitRepository"
+ROOT = "Kustomization"
 
 
 def refuse(message):
@@ -73,6 +90,30 @@ def main():
     if host["secretRef"] is not None:
         source["secretRef"] = {"name": host["secretRef"]}
     hold(f"the {SOURCE}", one(documents, SOURCE), source)
+
+    hold(
+        f"the root {ROOT}",
+        one(documents, ROOT),
+        {
+            "interval": host["interval"],
+            "path": host["path"],
+            "sourceRef": {"kind": SOURCE, "name": NAME},
+            "prune": True,
+            "wait": False,
+            "deletionPolicy": "Orphan",
+            "timeout": host["timeout"],
+        },
+    )
+
+    if len(documents) != 2:
+        held = sorted(
+            f"{document.get('kind')}/{document['metadata'].get('name')}"
+            for document in documents
+        )
+        refuse(
+            f"the manifest holds {', '.join(held)}: more than the {SOURCE} and the "
+            f"root, and a layer is declared under the path the root applies"
+        )
 
 
 if __name__ == "__main__":

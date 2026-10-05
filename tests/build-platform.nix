@@ -346,16 +346,16 @@ pkgs.runCommand "chuggy-build-platform" {
     exit 1
   fi
 
-  grep -F 'kind: BuildRun' "$root/modules/flux.nix" >/dev/null
-  if grep -F 'has(status)' "$root/modules/flux.nix" >/dev/null; then
+  grep -F 'kind: BuildRun' "$root/cluster/flux/builds.yaml" >/dev/null
+  if grep -F 'has(status)' "$root/cluster/flux/builds.yaml" >/dev/null; then
     echo "Flux CEL cannot use has() for the top-level status property" >&2
     exit 1
   fi
-  grep -F 'has(status.conditions)' "$root/modules/flux.nix" >/dev/null
-  grep -F "e.status == 'False'" "$root/modules/flux.nix" >/dev/null
-  grep -F "e.status == 'True'" "$root/modules/flux.nix" >/dev/null
-  grep -F "status.source.git.commitSha == metadata.annotations" "$root/modules/flux.nix" >/dev/null
-  grep -F "status.output.digest.matches" "$root/modules/flux.nix" >/dev/null
+  grep -F 'has(status.conditions)' "$root/cluster/flux/builds.yaml" >/dev/null
+  grep -F "e.status == 'False'" "$root/cluster/flux/builds.yaml" >/dev/null
+  grep -F "e.status == 'True'" "$root/cluster/flux/builds.yaml" >/dev/null
+  grep -F "status.source.git.commitSha == metadata.annotations" "$root/cluster/flux/builds.yaml" >/dev/null
+  grep -F "status.output.digest.matches" "$root/cluster/flux/builds.yaml" >/dev/null
   grep -F 'healthCheckExprs:' "$root/cluster/flux-system/gotk-components.yaml" >/dev/null
   grep -F 'kustomize-controller:v1.5.1@sha256:b89935f9428764c389c5192fdb8f6c53b66e365fa09ac8cec597e82273e9f518' "$root/cluster/flux-system/gotk-components.yaml" >/dev/null
   grep -F 'chuggy-build-attempt-alerts' "$root/modules/build-provenance.nix" >/dev/null

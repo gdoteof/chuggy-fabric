@@ -7,7 +7,7 @@ let
   # reference the caller states apart from them.
   expected = pkgs.writeText "flux-wiring-expected.json" (builtins.toJSON {
     inherit (host.config.chuggy.flux)
-      repositoryUrl branch sourceInterval;
+      repositoryUrl branch sourceInterval path interval timeout;
     secretRef = expectSecretRef;
   });
 in

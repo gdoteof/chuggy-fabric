@@ -1,0 +1,31 @@
+# The cluster state this repository declares.
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: apps
+  namespace: flux-system
+spec:
+  # How often kustomize-controller reapplies the directory. This is the window a
+  # hand-run kubectl change survives in, which matters more than it sounds: a
+  # repair applied by hand inside it is undone without an error.
+  interval: 5m
+  # kustomize-controller synthesises a kustomization when the path has none
+  # and obeys the one it finds when it does -- which is the case that
+  # bites. A directory carrying a kustomization.yaml applies exactly its
+  # `resources:` list, so a manifest dropped into the directory and not
+  # added to that list is one this Kustomization stops applying, and
+  # `prune` below then deletes what it had applied before.
+  path: ./cluster/apps
+  sourceRef:
+    kind: GitRepository
+    name: fabric
+  # Deleting a file deletes the resource. Without this, removals in git are
+  # silently ignored and the cluster accumulates things nobody declared.
+  prune: true
+  # Deleting this object is another matter. The default policy mirrors `prune`,
+  # so it would delete everything this layer applied: the namespaces, and with
+  # `chuggy` the `local-path` claim PostgreSQL's data is on.
+  deletionPolicy: Orphan
+  wait: true
+  timeout: 3m

@@ -1,0 +1,20 @@
+# The layers Flux reconciles this cluster in, one Kustomization object each.
+#
+# `modules/flux.nix` generates the source every layer reads and one root
+# Kustomization, both named `fabric`, and the root applies this directory. So a
+# layer changes by a commit; which repository and branch it is read from
+# changes by a host rebuild.
+#
+# A file that is not in `resources` below is a layer the root does not apply,
+# and the root prunes: a layer taken out of this list is deleted, and a deleted
+# layer deletes everything it applied unless it sets `deletionPolicy: Orphan`.
+#
+# The layer names are a contract -- THE OBJECT NAMES ARE NOT OPTIONS, in
+# `modules/flux.nix`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - apps.yaml
+  - build-prerequisites.yaml
+  - build-system.yaml
+  - builds.yaml
