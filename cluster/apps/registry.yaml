@@ -122,10 +122,13 @@ spec:
       port: 5000
       targetPort: registry
 ---
+# Who reaches the registry from a pod: a build or a release that pushes to
+# it, and Flux's source-controller, which reads the release artifact
+# `chuggy-release` names in cluster/flux/sources.yaml.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: registry-admits-build-pushes
+  name: registry-admits-builds-and-flux
   namespace: chuggy-registry
 spec:
   podSelector:
@@ -140,5 +143,10 @@ spec:
             matchExpressions:
               - key: tekton.dev/taskRun
                 operator: Exists
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: flux-system
+          podSelector:
+            matchLabels: { app: source-controller }
       ports:
         - { protocol: TCP, port: 5000 }
