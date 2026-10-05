@@ -167,8 +167,6 @@ spec:
       # PostgreSQL through nothing. Everything it reads it reads through the
       # API, with the caller's own token.
       labels: { app: chuggy-ui }
-      annotations:
-        fabric.chuggy.dev/rehearsal: "2026-10-05"
     spec:
       # An nginx over a directory of files calls no Kubernetes API, so the token
       # the kubelet would mount here is a cluster credential on the disk of a
