@@ -17,10 +17,11 @@
 # already here. A public source needs no credential; a private one names a
 # separately provisioned read credential with secretRef.
 #
-# source-controller, kustomize-controller and helm-controller are installed.
-# helm-controller was added when the monitoring stack needed it -- kube-prometheus-
-# stack is a Helm chart and there is no sensible plain-manifest equivalent.
-# notification-controller is still omitted; nothing alerts outward yet.
+# source-controller, kustomize-controller, helm-controller and
+# notification-controller are installed. helm-controller was added when the
+# monitoring stack needed it -- kube-prometheus-stack is a Helm chart and there
+# is no sensible plain-manifest equivalent. notification-controller has nothing
+# to act on: nothing under cluster/ declares an Alert, a Provider or a Receiver.
 #
 # Note which layer this file belongs to. The controllers and the objects below
 # are applied by k3s auto-deploy, not by Flux, so changing either is a
@@ -36,9 +37,13 @@
 # checked-in file: it is a vendored upstream artifact, identical on every
 # adopter, and generating it would mean owning a copy of Flux's installer.
 #
-# THAT REASON COVERS THE SOURCE AND ONE ROOT, AND STOPS THERE. The root applies
-# a directory of the source, cluster/flux/, and every Kustomization that reads
-# this source is declared there, a layer each. What a layer applies,
+# THAT REASON COVERS THE TWO SOURCES AND ONE ROOT, AND STOPS THERE.
+# `fabric-release` is `fabric` read again -- the same repository, branch,
+# interval and credential -- with `spec.ignore` keeping only the files under
+# cluster/chuggy-migrate/ and cluster/chuggy/, so it is a host's to state for
+# the reason `fabric` is. No Kustomization reads it. The root applies a
+# directory of `fabric`, cluster/flux/, and every Kustomization that reads
+# that source is declared there, a layer each. What a layer applies,
 # what it depends on and how its health is read are the same on every host that
 # follows the repository, and generated here each would change by a rebuild of
 # every box instead of by a commit.
@@ -55,6 +60,10 @@
 
 let
   cfg = config.chuggy.flux;
+
+  # Empty for a public source, and both sources below carry the same one.
+  secretRef = lib.optionalString (cfg.secretRef != null)
+    "  secretRef:\n    name: ${cfg.secretRef}\n";
 
   # Named for the manifest k3s auto-deploy is given below, so the store path and
   # the file that lands in the manifests directory are one name, not two.
@@ -76,7 +85,27 @@ let
       url: ${cfg.repositoryUrl}
       ref:
         branch: ${cfg.branch}
-    ${lib.optionalString (cfg.secretRef != null) "  secretRef:\n    name: ${cfg.secretRef}\n"}
+    ${secretRef}
+    ---
+    # source-controller decides a path by the last of these lines that matches
+    # it: the first excludes every path, and each of the others keeps the files
+    # under one directory. tests/flux-release-source.py holds what they keep
+    # against this repository's own tree.
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: GitRepository
+    metadata:
+      name: fabric-release
+      namespace: flux-system
+    spec:
+      interval: ${cfg.sourceInterval}
+      url: ${cfg.repositoryUrl}
+      ref:
+        branch: ${cfg.branch}
+    ${secretRef}
+      ignore: |
+        /*
+        !/cluster/chuggy-migrate/
+        !/cluster/chuggy/
     ---
     apiVersion: kustomize.toolkit.fluxcd.io/v1
     kind: Kustomization
@@ -202,7 +231,7 @@ in
 
     services.k3s.manifests = {
       # Order matters on a cold start: the CRDs and controllers must exist
-      # before the GitRepository and Kustomization that use them. k3s applies
+      # before the GitRepositories and Kustomization that use them. k3s applies
       # these alphabetically, and "components" sorts before "sync" -- which is
       # load-bearing, not a coincidence. If that ever stops holding, the sync
       # objects fail once and k3s retries them, so it self-corrects either way.

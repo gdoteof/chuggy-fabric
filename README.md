@@ -946,8 +946,11 @@ that Secret and activates a pinned cutover revision. The Secret cannot precede
 the Kubernetes API and `flux-system` namespace that hold it.
 
 **Which repository and branch it follows are host inputs**, not a committed
-file. `chuggy.flux.repositoryUrl` and `.branch` generate the `GitRepository` and
-one root `Kustomization`, both named `fabric`, and no other Flux object. The
+file. `chuggy.flux.repositoryUrl` and `.branch` generate two `GitRepository`
+objects, `fabric` and `fabric-release`, and one root `Kustomization` named
+`fabric`, and no other Flux object. `fabric-release` is the same repository and
+branch with `spec.ignore` keeping only the files under `cluster/chuggy-migrate/`
+and `cluster/chuggy/`, and no `Kustomization` reads it. The
 root applies `cluster/flux/`, where each part of this repository Flux
 reconciles is declared as its own `Kustomization` — `apps`, `chuggy-migrate`,
 `chuggy`, `build-prerequisites`, `build-system` and `builds` — so what Flux
@@ -967,12 +970,12 @@ The object names are not options. Nothing in `cluster/` reads the label;
 from the rehearsal's second control loop — **by value**, which is what makes the
 name a contract rather than a setting.
 
-`source-controller`, `kustomize-controller`, and `helm-controller` are
-installed. `helm-controller` arrived with kube-prometheus-stack: a chart that
-size is worth consuming as a `HelmRelease` rather than vendoring its rendered
-output into `cluster/apps/`. `notification-controller` is still omitted — it
-exists to route alerts outward, and there is nowhere to route them yet, which is
-the same reason Alertmanager is disabled in `cluster/apps/monitoring.yaml`.
+`source-controller`, `kustomize-controller`, `helm-controller` and
+`notification-controller` are installed. `helm-controller` arrived with
+kube-prometheus-stack: a chart that size is worth consuming as a `HelmRelease`
+rather than vendoring its rendered output into `cluster/apps/`.
+`notification-controller` routes nothing: no `Alert`, `Provider` or `Receiver`
+is declared under `cluster/`.
 
 ### Adding an app
 
@@ -1162,9 +1165,8 @@ ignore is worse than no alert.
 
 ### Alerts evaluate, and go nowhere
 
-Alertmanager is disabled and `notification-controller` is not installed. The
-rules still evaluate and still show as firing in the Prometheus UI; there is
-simply nothing to route them to.
+Alertmanager is disabled. The rules still evaluate and still show as firing in
+the Prometheus UI; there is simply nothing to route them to.
 
 Two alerts therefore fire permanently: `Watchdog`, which is designed to, and
 `PrometheusNotConnectedToAlertmanagers`, which is the stack correctly noticing
@@ -1355,8 +1357,8 @@ layer applies, and kstatus reads a `Failed` Job as failed, so `flux get
 kustomization chuggy-migrate` goes `Ready=False` with the Job in its message,
 and `chuggy` behind it reads `DependencyNotReady`. That layer applies the Job
 and its script and nothing else, so no other workload is in that bit. It is
-still quieter than it sounds: Alertmanager is off and `notification-controller`
-is not installed, so nothing routes it anywhere.
+still quieter than it sounds: Alertmanager is off and no `Alert` is declared for
+`notification-controller`, so nothing routes it anywhere.
 
 Read the pod, fix the cause, then delete the Job so the next reconcile builds it
 afresh:

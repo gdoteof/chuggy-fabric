@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Refuse a generated Flux manifest that is not the source and one root.
+"""Refuse a generated Flux manifest that is not the two sources and one root.
 
 THE MANIFEST IS PARSED, because k3s parses it and applies nothing from a file
 it cannot. A key at the wrong depth is text a grep finds and is not a manifest.
@@ -9,7 +9,12 @@ apart from them is the credential reference, so that a host is held to carrying
 none -- the bootstrap, which runs before the namespace a Secret would live in
 exists -- or to exactly the one named.
 
-THE SOURCE AND THE ROOT, AND NO LAYER. k3s applies this manifest on every start
+THE RELEASE SOURCE IS THE SOURCE AGAIN, ITS `ignore` APART. A host follows one
+repository on one branch, and a field that differed between the two would be a
+second answer to which. The `ignore` is not read here:
+tests/flux-release-source.py holds what it keeps against the tree.
+
+THE SOURCES AND THE ROOT, AND NO LAYER. k3s applies this manifest on every start
 and whenever a rebuild changes it, and the layers are declared under the path
 the root applies. One generated here as well is a single object that k3s and
 the root both reapply, each from its own text.
@@ -34,6 +39,7 @@ import yaml
 
 NAMESPACE = "flux-system"
 NAME = "fabric"
+RELEASE = "fabric-release"
 SOURCE = "GitRepository"
 ROOT = "Kustomization"
 
@@ -57,16 +63,16 @@ def hold(described, document, expected):
         refuse(f"{described} is not the spec held here -- " + "; ".join(differing))
 
 
-def one(documents, api_version, kind):
+def one(documents, api_version, kind, name):
     found = [
         document
         for document in documents
         if (document.get("apiVersion"), document.get("kind")) == (api_version, kind)
-        and document["metadata"] == {"name": NAME, "namespace": NAMESPACE}
+        and document["metadata"] == {"name": name, "namespace": NAMESPACE}
     ]
     if len(found) != 1:
         refuse(
-            f"expected one {api_version} {kind} named {NAME} in `{NAMESPACE}`, found {len(found)}"
+            f"expected one {api_version} {kind} named {name} in `{NAMESPACE}`, found {len(found)}"
         )
     return found[0]
 
@@ -91,11 +97,28 @@ def main():
     }
     if host["secretRef"] is not None:
         source["secretRef"] = {"name": host["secretRef"]}
-    hold(f"the {SOURCE}", one(documents, "source.toolkit.fluxcd.io/v1", SOURCE), source)
+    hold(
+        f"the {SOURCE} {NAME}",
+        one(documents, "source.toolkit.fluxcd.io/v1", SOURCE, NAME),
+        source,
+    )
+
+    release = one(documents, "source.toolkit.fluxcd.io/v1", SOURCE, RELEASE)
+    hold(
+        f"the {SOURCE} {RELEASE}, its `ignore` apart,",
+        {
+            "spec": {
+                key: value
+                for key, value in (release.get("spec") or {}).items()
+                if key != "ignore"
+            }
+        },
+        source,
+    )
 
     hold(
         f"the root {ROOT}",
-        one(documents, "kustomize.toolkit.fluxcd.io/v1", ROOT),
+        one(documents, "kustomize.toolkit.fluxcd.io/v1", ROOT, NAME),
         {
             "interval": host["interval"],
             "path": host["path"],
@@ -107,14 +130,14 @@ def main():
         },
     )
 
-    if len(documents) != 2:
+    if len(documents) != 3:
         held = sorted(
             f"{document.get('kind')}/{document['metadata'].get('name')}"
             for document in documents
         )
         refuse(
-            f"the manifest holds {', '.join(held)}: more than the {SOURCE} and the "
-            f"root, and a layer is declared under the path the root applies"
+            f"the manifest holds {', '.join(held)}: more than the two sources and "
+            f"the root, and a layer is declared under the path the root applies"
         )
 
 

@@ -76,8 +76,8 @@ spec:
           - { action: replace, sourceLabels: [__metrics_path__], targetLabel: metrics_path }
 
     # Rules still evaluate and show as firing in the UI; there is simply nowhere
-    # to route them yet. notification-controller is omitted for the same reason.
-    # Turn this on when there is an actual destination for a page.
+    # to route them yet. Turn this on when there is an actual destination for a
+    # page.
     alertmanager:
       enabled: false
 
