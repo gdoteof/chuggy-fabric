@@ -14,6 +14,11 @@ variable the manifest does not set, fails here rather than in a release.
 A variable from a source this does not know is refused rather than skipped:
 it is one the pod would have and this run would not.
 
+TWO THINGS ARE SET AGAINST THE SCRIPT ON PURPOSE, because a run that inherited
+this build's would pass without the line that answers each: the zone is hours
+from UTC, so a stamp taken in local time is not the one a name is held to, and
+the umask this starts with leaves a new file readable by anyone.
+
 THE SERVER REQUIRES A PASSWORD, so a run that succeeds has used the one it was
 given and a run with the wrong one is refused by the server rather than by
 anything this suite arranged. Its bootstrap superuser is not `postgres`: the
@@ -22,9 +27,10 @@ take the superuser attribute away from it and give it back.
 
 THE CASES, and the half of the script each is the only reader of:
 
-- a good run leaves one pair, named for the Job, with nothing partial beside
-  it; the archive restores into an empty database with every row, and the
-  globals carry a role's password, which only a superuser's dump does;
+- a good run leaves one pair, named for the Job and the UTC second it ran
+  in, closed to everyone but its owner, with nothing partial beside it; the
+  archive restores into an empty database with every row, and the globals
+  carry a role's password, which only a superuser's dump does;
 - a server that refuses the password, and no server at all, each end non-zero
   with nothing under a final name;
 - a role that can dump the database and cannot read the globals ends non-zero
@@ -56,6 +62,7 @@ here, and dump.sh says so. The NetworkPolicy, the Secret and the volume are
 import os
 import re
 import shutil
+import calendar
 import subprocess
 import sys
 import time
@@ -160,7 +167,8 @@ def command_of(container, paths):
 def environment_of(job, container, socket, directory, password):
     """The container's environment as the manifest writes it, with the four
     values the cluster supplies stood in for."""
-    environment = {"PATH": os.environ["PATH"]}
+    # A POSIX zone needs no zone database: this one is seven hours behind UTC.
+    environment = {"PATH": os.environ["PATH"], "TZ": "ELSEWHERE7"}
     for entry in container.get("env") or []:
         name, source = entry["name"], entry.get("valueFrom") or {}
         if "value" in entry:
@@ -281,18 +289,25 @@ def seed(directory, base, endings=(".dump", ".globals.sql")):
 def good(environment, job):
     case = "good-run"
     directory = directory_for(case)
+    started = int(time.time())
     completed = run(case, environment, CHUG_DUMP_DIR=str(directory))
+    finished = int(time.time())
     if completed.returncode != 0:
         report(case, f"exit {completed.returncode}: {completed.stderr}")
         return
     names = sorted(listing(directory))
-    bases = {OWN.match(name).group(1) for name in names if OWN.match(name)}
-    if len(names) != 2 or len(bases) != 1:
+    matches = [OWN.match(name) for name in names]
+    bases = {match.group(1) for match in matches if match}
+    if len(names) != 2 or not all(matches) or len(bases) != 1:
         report(case, f"expected one pair and nothing else, found {names}")
         return
     base = bases.pop()
     if not re.fullmatch(rf"\d{{8}}T\d{{6}}Z-{re.escape(job)}", base):
         report(case, f"the pair is named {base}, not a UTC timestamp and then {job}")
+        return
+    stamped = calendar.timegm(time.strptime(base[:16], "%Y%m%dT%H%M%SZ"))
+    if not started <= stamped <= finished:
+        report(case, f"the pair is stamped {base[:16]}, which is not the UTC second it was taken in")
     archive, globals_ = directory / f"{base}.dump", directory / f"{base}.globals.sql"
     for path in (archive, globals_):
         mode = path.stat().st_mode & 0o777
@@ -429,6 +444,9 @@ def retention(environment, job):
         for name in after
         if OWN.match(name) and name not in before
     }
+    if not written:
+        report(case, "the pair the run had just written is not there: retention removed it")
+        return
     if len(written) != 1 or not next(iter(written)).endswith(f"-{job}"):
         report(case, f"expected the run to add one pair named for {job}, found {sorted(written)}")
         return
@@ -440,7 +458,7 @@ def retention(environment, job):
     )
     expected = sorted([mine] + sorted(later, reverse=True)[: keep - 1])
     if mine not in archives:
-        report(case, "retention removed the pair the run had just written")
+        report(case, "retention removed the archive the run had just written")
     if archives != expected:
         report(
             case,
@@ -479,6 +497,7 @@ def main():
     )
     if not PORT:
         refuse(f"`{DUMP}` writes out no PGPORT, so the port the script asks for is not the render's")
+    os.umask(0o022)
     start()
     try:
         environment = environment_of(job, container, SOCKET, WORK / "unused", SUPERUSER_PASSWORD)
