@@ -39,6 +39,10 @@ THE CASES, and the half of the script each is the only reader of:
 - a `pg_dump` that exits 0 over an archive that has lost its last bytes, its
   table of contents whole, ends non-zero with nothing under a final name,
   which only a read-back of every block stands behind;
+- a `pg_dumpall` that exits 0 over globals that have lost their last bytes, or
+  all of them, ends the same way, which only the hold on the lines it ends a
+  dump with stands behind. A role's comment here carries those lines, so a
+  hold that found them anywhere would pass the file that was cut;
 - each of those leaves every file that was already there, which is the rule
   that a run that failed removes nothing;
 - retention keeps the count the manifest sets, counts the pair just written
@@ -84,6 +88,8 @@ ROWS = 1000
 # How many seconds ahead `collision` takes the name of. A run that started
 # later than that would find its name free, succeed, and fail the case.
 AHEAD = 120
+# The line `pg_dumpall` closes a dump with, between two that are `--` alone.
+CLOSING = "-- PostgreSQL database cluster dump complete"
 
 # Set from the render before anything runs: the command the container gives,
 # and the port its environment names, which the server here listens under.
@@ -223,6 +229,8 @@ def start():
     )
     postgres("-c", f"CREATE ROLE {SUPERUSER} LOGIN SUPERUSER PASSWORD '{SUPERUSER_PASSWORD}'")
     postgres("-c", "CREATE ROLE chuggy_api LOGIN PASSWORD 'a-service-password'")
+    # The lines `pg_dumpall` ends a dump with, somewhere other than its end.
+    postgres("-c", f"COMMENT ON ROLE chuggy_api IS 'kept\n--\n{CLOSING}\n--\n'")
     postgres("-c", f"CREATE DATABASE {DATABASE} OWNER {SUPERUSER}")
     postgres(
         "-c",
@@ -340,7 +348,8 @@ def good(environment, job):
 def failing(case, environment, expected, untouched=False, **changed):
     """A run that must fail: non-zero, nothing under a final name that was not
     there before, and nothing that was there before gone or changed. One
-    refused before it starts leaves no partial file either."""
+    refused before it starts leaves no partial file either. Returns the files
+    the run left."""
     directory = directory_for(case)
     seed(directory, "20200101T000000Z-chuggy-migrate-old")
     seed(directory, "20200102T000000Z-chuggy-migrate-failed", endings=(".dump.partial",))
@@ -360,32 +369,66 @@ def failing(case, environment, expected, untouched=False, **changed):
         report(case, f"a run that failed left {new} under a final name")
     if untouched and sorted(after) != sorted(before):
         report(case, f"a run refused before it started left {sorted(set(after) - set(before))}")
+    return [directory / name for name in sorted(set(after) - set(before))]
+
+
+def stand_in(case, program, script):
+    """A PATH on which `program` is `script`, which is given the real one as
+    `$real`."""
+    shadow = WORK / "shadow" / case
+    shadow.mkdir(parents=True)
+    (shadow / program).write_text(
+        f"#!{shutil.which('bash')}\nreal={shutil.which(program)}\n{script}"
+    )
+    (shadow / program).chmod(0o755)
+    return f"{shadow}{os.pathsep}{os.environ['PATH']}"
+
+
+# The real program, and then the file it was told to write in `$target` with
+# the exit status still 0: a write that fell short and that nothing reported.
+SHORT_WRITE = (
+    '"$real" "$@" || exit\n'
+    'while [ $# -gt 1 ]; do [ "$1" != -f ] || target=$2; shift; done\n'
+)
 
 
 def cut_short(environment):
-    """The real `pg_dump`, and then its archive without its last bytes and
-    the exit status left at 0: a short write nothing reported. The stand-in
-    lists what it leaves, so the cut is known to fall after the table of
-    contents, where a read-back that stopped at the contents would pass it."""
-    shadow = WORK / "shadow"
-    shadow.mkdir()
-    real, bash = shutil.which("pg_dump"), shutil.which("bash")
-    (shadow / "pg_dump").write_text(
-        f"#!{bash}\n"
-        f'"{real}" "$@" || exit\n'
-        'while [ $# -gt 1 ]; do [ "$1" != -f ] || target=$2; shift; done\n'
-        'truncate --size=-50 "$target"\n'
-        'pg_restore --list "$target" >/dev/null 2>&1 && exit\n'
-        'echo "the cut reached the table of contents" >&2\n'
-        "exit 1\n"
-    )
-    (shadow / "pg_dump").chmod(0o755)
+    """An archive without its last bytes. The stand-in lists what it leaves,
+    so the cut is known to fall after the table of contents, where a read-back
+    that stopped at the contents would pass it."""
     failing(
         "cut-short",
         environment,
         "could not read from input file",
-        PATH=f"{shadow}{os.pathsep}{environment['PATH']}",
+        PATH=stand_in(
+            "cut-short",
+            "pg_dump",
+            SHORT_WRITE
+            + 'truncate --size=-50 "$target"\n'
+            'pg_restore --list "$target" >/dev/null 2>&1 && exit\n'
+            'echo "the cut reached the table of contents" >&2\n'
+            "exit 1\n",
+        ),
     )
+
+
+def globals_short(environment):
+    """Globals without their last bytes, and globals with none: what
+    `pg_dumpall` leaves, at exit 0, on a volume that filled while it wrote.
+    What the cut leaves is read here, so it is known to carry the closing line
+    still -- the one in the role's comment -- where a hold that found that
+    line anywhere would pass the file."""
+    left = {}
+    for case, size in (("globals-cut-short", "-50"), ("globals-empty", "0")):
+        left[case] = failing(
+            case,
+            environment,
+            "does not end as pg_dumpall ends a dump",
+            PATH=stand_in(case, "pg_dumpall", SHORT_WRITE + f'truncate --size={size} "$target"\n'),
+        )
+    cut = [path.read_text() for path in left["globals-cut-short"] if ".globals.sql" in path.name]
+    if len(cut) != 1 or CLOSING not in cut[0].splitlines():
+        refuse("globals-cut-short left no globals that carry the closing line and not the end")
 
 
 def collision(environment, job):
@@ -529,6 +572,7 @@ def main():
         finally:
             postgres("-c", f"ALTER ROLE {SUPERUSER} SUPERUSER")
         cut_short(environment)
+        globals_short(environment)
         failing(
             "zero-count", environment, "CHUG_DUMP_KEEP is '0'", untouched=True, CHUG_DUMP_KEEP="0"
         )
