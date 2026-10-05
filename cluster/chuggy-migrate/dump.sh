@@ -53,7 +53,6 @@ job=$CHUG_DUMP_JOB
   refuse "CHUG_DUMP_KEEP is '$keep', which is not a count of one or more"
 [[ $job =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] ||
   refuse "CHUG_DUMP_JOB is '$job', which is not the name of a Job"
-[ -d "$directory" ] || refuse "$directory is not a directory"
 
 # What this script names, and the whole of what retention may remove: a regular
 # file called by a UTC timestamp, then a Job's name, then one of the four
@@ -70,7 +69,6 @@ done
 pg_dump -w -U postgres -Fc -f "$archive.partial" chuggy
 pg_restore --list "$archive.partial" >/dev/null
 pg_dumpall -w -U postgres --globals-only -f "$globals.partial"
-[ -s "$globals.partial" ] || refuse "$globals.partial is empty"
 
 mv -- "$globals.partial" "$globals"
 mv -- "$archive.partial" "$archive"

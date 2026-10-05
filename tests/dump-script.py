@@ -45,8 +45,9 @@ THE CASES, and the half of the script each is the only reader of:
   first even when that many archives are stamped later than it, removes what
   failed runs left, and removes nothing it did not name -- a file, a directory
   and a link, each named almost like its own;
-- a count of zero, and a Job's name retention would not know for its own, are
-  each refused before anything is written;
+- a count of zero, a Job's name retention would not know for its own, and a
+  password the pod was not given are each refused by name, with the directory
+  exactly as it was;
 - a pair already under the name this run would take is refused rather than
   written over.
 
@@ -338,9 +339,10 @@ def good(environment, job):
         report(case, "the globals do not carry a role's password, which a superuser's dump does")
 
 
-def failing(case, environment, expected, **changed):
+def failing(case, environment, expected, untouched=False, **changed):
     """A run that must fail: non-zero, nothing under a final name that was not
-    there before, and nothing that was there before gone or changed."""
+    there before, and nothing that was there before gone or changed. One
+    refused before it starts leaves no partial file either."""
     directory = directory_for(case)
     seed(directory, "20200101T000000Z-chuggy-migrate-old")
     seed(directory, "20200102T000000Z-chuggy-migrate-failed", endings=(".dump.partial",))
@@ -358,6 +360,8 @@ def failing(case, environment, expected, **changed):
     new = sorted(name for name in after if name not in before and not name.endswith(".partial"))
     if new:
         report(case, f"a run that failed left {new} under a final name")
+    if untouched and sorted(after) != sorted(before):
+        report(case, f"a run refused before it started left {sorted(set(after) - set(before))}")
 
 
 def cut_short(environment):
@@ -523,8 +527,19 @@ def main():
         finally:
             postgres("-c", f"ALTER ROLE {SUPERUSER} SUPERUSER")
         cut_short(environment)
-        failing("zero-count", environment, "CHUG_DUMP_KEEP", CHUG_DUMP_KEEP="0")
-        failing("not-a-job", environment, "CHUG_DUMP_JOB", CHUG_DUMP_JOB="Not-A-Job")
+        failing(
+            "zero-count", environment, "CHUG_DUMP_KEEP is '0'", untouched=True, CHUG_DUMP_KEEP="0"
+        )
+        failing(
+            "not-a-job",
+            environment,
+            "CHUG_DUMP_JOB is 'Not-A-Job'",
+            untouched=True,
+            CHUG_DUMP_JOB="Not-A-Job",
+        )
+        failing(
+            "no-password", environment, "PGPASSWORD is not set", untouched=True, PGPASSWORD=""
+        )
         collision(environment, name)
         retention(environment, name)
     finally:
