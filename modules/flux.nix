@@ -37,8 +37,8 @@
 # adopter, and generating it would mean owning a copy of Flux's installer.
 #
 # THAT REASON COVERS THE SOURCE AND ONE ROOT, AND STOPS THERE. The root applies
-# a directory of the source, cluster/flux/, and every Kustomization that applies
-# part of the cluster is declared there, a layer each. What a layer applies,
+# a directory of the source, cluster/flux/, and every Kustomization that reads
+# this source is declared there, a layer each. What a layer applies,
 # what it depends on and how its health is read are the same on every host that
 # follows the repository, and generated here each would change by a rebuild of
 # every box instead of by a commit.
