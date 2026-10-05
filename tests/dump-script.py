@@ -63,7 +63,9 @@ THE CASES, and the half of the script each is the only reader of:
   later and the pair just written is itself among the newest;
 - retention leaves what a run stamped no earlier than this one has written so
   far -- at its archive, at its globals, and between its two renames -- and
-  removes the same files of a run stamped earlier;
+  removes the same files of a run stamped earlier. The run is kept from
+  ending in the second it started in, so the second it is stamped with is not
+  the one retention runs in;
 - a count of zero, a Job's name retention would not know for its own, and a
   password the pod was not given are each refused by name, with the directory
   exactly as it was;
@@ -753,7 +755,11 @@ def in_flight(environment, job):
     """Another run's files, at each point a run can be at: taking its archive,
     taking its globals, and between its two renames. Stamped no earlier than
     this run they are left, the second this run starts in included; stamped
-    earlier they are what a failed run leaves, and go."""
+    earlier they are what a failed run leaves, and go.
+
+    A run that ended in the second it started in would pass a retention that
+    read the clock again for what to leave. So `pg_dump` here does not return
+    until the second it finished in is over."""
     case = "in-flight"
     directory = directory_for(case)
     points = (
@@ -771,7 +777,14 @@ def in_flight(environment, job):
     for stamp in window:
         seed(directory, f"{stamp}-another-job", (".dump.partial",))
     before = listing(directory)
-    completed = run(case, environment, CHUG_DUMP_DIR=str(directory))
+    path = stand_in(
+        case,
+        "pg_dump",
+        '"$real" "$@" || exit\n'
+        "second=$(date +%s)\n"
+        'while [ "$(date +%s)" = "$second" ]; do sleep 0.1; done\n',
+    )
+    completed = run(case, environment, CHUG_DUMP_DIR=str(directory), PATH=path)
     if completed.returncode != 0:
         report(case, f"exit {completed.returncode}: {completed.stderr}")
         return
