@@ -8,9 +8,13 @@
 # A PAIR IS WHOLE OR IT IS NAMED `.partial`. A dump is two files: the archive
 # of the `chuggy` database, and the globals -- the roles and their passwords,
 # which belong to the server and are in no database's archive. Both are written
-# under a name ending in `.partial`, the archive is read back, and only then is
-# each renamed. The globals are renamed first, so an archive under its final
-# name has its globals beside it.
+# under a name ending in `.partial`, the archive's table of contents is read
+# back, and only then is each renamed. The globals are renamed first, so an
+# archive under its final name has its globals beside it.
+#
+# WHAT THE READ-BACK READS IS THE CONTENTS AND NOT THE ROWS. `pg_restore --list`
+# refuses an archive cut short before the end of its table of contents, an
+# empty one included, and passes one cut short after it.
 #
 # RETENTION RUNS AFTER A DUMP THAT SUCCEEDED, AND ONLY THEN. It keeps the pair
 # just written and the newest of the others, CHUG_DUMP_KEEP archives in all,

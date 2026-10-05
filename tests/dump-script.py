@@ -30,25 +30,35 @@ THE CASES, and the half of the script each is the only reader of:
 - a role that can dump the database and cannot read the globals ends non-zero
   with nothing under a final name, though the archive was written and read
   back -- the case for renaming neither file before both are whole;
-- each of those three leaves every file that was already there, which is the
-  rule that a run that failed removes nothing;
+- a `pg_dump` that exits 0 over an archive cut short before the end of its
+  table of contents ends non-zero with nothing under a final name, which only
+  the read-back stands behind;
+- each of those leaves every file that was already there, which is the rule
+  that a run that failed removes nothing;
 - retention keeps the count the manifest sets, counts the pair just written
   first even when that many archives are stamped later than it, removes what
   failed runs left, and removes nothing it did not name -- a file, a directory
   and a link, each named almost like its own;
-- a count of zero is refused before anything is written.
+- a count of zero, and a Job's name retention would not know for its own, are
+  each refused before anything is written;
+- a pair already under the name this run would take is refused rather than
+  written over.
 
 WHAT THIS CANNOT SEE. The image: the pod runs these bytes with the `bash` and
 the PostgreSQL clients of `postgres:18.3-trixie`, and this runs them with the
 ones nixpkgs pins, an earlier major. Nothing here uses an option the two do
-not share, and that is an argument rather than a check. The NetworkPolicy, the
-Secret and the volume are `tests/rollout-order.py`'s.
+not share, and that is an argument rather than a check. An archive cut short
+after its table of contents: the script's read-back passes it, there and
+here, and dump.sh says so. The NetworkPolicy, the Secret and the volume are
+`tests/rollout-order.py`'s.
 """
 
 import os
 import re
+import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import yaml
@@ -65,6 +75,9 @@ SUPERUSER = "postgres"
 SUPERUSER_PASSWORD = "superuser-password"
 DATABASE = "chuggy"
 ROWS = 1000
+# How many seconds ahead `collision` takes the name of. A run that started
+# later than that would find its name free, succeed, and fail the case.
+AHEAD = 120
 
 # Set from the render before anything runs: the command the container gives,
 # and the port its environment names, which the server here listens under.
@@ -332,6 +345,47 @@ def failing(case, environment, expected, **changed):
         report(case, f"a run that failed left {new} under a final name")
 
 
+def cut_short(environment):
+    """The real `pg_dump`, and then its archive cut off before the end of its
+    table of contents with the exit status left at 0: a short write nothing
+    reported."""
+    shadow = WORK / "shadow"
+    shadow.mkdir()
+    real, bash = shutil.which("pg_dump"), shutil.which("bash")
+    (shadow / "pg_dump").write_text(
+        f"#!{bash}\n"
+        f'"{real}" "$@" || exit\n'
+        'while [ $# -gt 1 ]; do [ "$1" != -f ] || target=$2; shift; done\n'
+        'truncate --size 64 "$target"\n'
+    )
+    (shadow / "pg_dump").chmod(0o755)
+    failing(
+        "cut-short",
+        environment,
+        "could not read from input file",
+        PATH=f"{shadow}{os.pathsep}{environment['PATH']}",
+    )
+
+
+def collision(environment, job):
+    """An archive already under the name this run would take, whichever second
+    it starts in: it is refused, and nothing is written over or removed."""
+    case = "collision"
+    directory = directory_for(case)
+    now = int(time.time())
+    for second in range(now, now + AHEAD):
+        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(second))
+        seed(directory, f"{stamp}-{job}", endings=(".dump",))
+    before = listing(directory)
+    completed = run(case, environment, CHUG_DUMP_DIR=str(directory))
+    if completed.returncode == 0:
+        report(case, "exit 0 from a run whose name was taken")
+    if "is already there" not in completed.stderr:
+        report(case, f"failed for another reason than its name being taken: {completed.stderr}")
+    if listing(directory) != before:
+        report(case, "a run whose name was taken wrote, replaced or removed something")
+
+
 def retention(environment, job):
     case = "retention"
     directory = directory_for(case)
@@ -449,7 +503,10 @@ def main():
             failing("refused-globals", environment, "permission denied")
         finally:
             postgres("-c", f"ALTER ROLE {SUPERUSER} SUPERUSER")
+        cut_short(environment)
         failing("zero-count", environment, "CHUG_DUMP_KEEP", CHUG_DUMP_KEEP="0")
+        failing("not-a-job", environment, "CHUG_DUMP_JOB", CHUG_DUMP_JOB="Not-A-Job")
+        collision(environment, name)
         retention(environment, name)
     finally:
         stop()
