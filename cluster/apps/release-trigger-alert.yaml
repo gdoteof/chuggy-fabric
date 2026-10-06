@@ -3,9 +3,9 @@
 # A TRIGGER THAT IS NOT SUSPENDED AND HAS NOT SUCCEEDED. Each minute's Job
 # exits 0 or fails, and the CronJob records when one last succeeded. When none
 # has inside the window in the expression, and that has been so for the `for`
-# as well, nothing is comparing the sources and no commit starts a release.
-# Failed minutes between two that succeed, fewer than the two together, never
-# fire.
+# as well, nothing is comparing the sources and no commit starts a release. A
+# success Prometheus reads before both have passed starts both again, so a
+# failed minute between two that succeed does not fire.
 #
 # SILENT WHILE THE TRIGGER IS SUSPENDED, which is how
 # cluster/build-system/release-trigger.yaml declares it: a trigger a person
@@ -48,5 +48,7 @@ spec:
             summary: The release trigger is not suspended and no Job of it has succeeded.
             description: >-
               No commit starts a release until one does.
-              `kubectl -n chuggy-release-trigger get jobs` lists the last ones,
-              and each one's log says why it failed.
+              `kubectl -n chuggy-release-trigger get jobs` lists the last ones:
+              one whose pod is still there says why in its log, and one that
+              ended at its deadline has no pod, so what stopped it is in
+              `kubectl -n chuggy-release-trigger get events`.
