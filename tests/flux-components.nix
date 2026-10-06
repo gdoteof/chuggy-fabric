@@ -1,8 +1,9 @@
-# Who the Flux install lets post to notification-controller, read off the
-# manifest the host hands k3s rather than off the path it is checked in at: the
-# file a rebuild links into the manifests directory and the file this holds
-# cannot come apart. The argument for each assertion is in flux-components.py's
-# own header.
+# Who the Flux install lets post to notification-controller, and whose fields
+# its kustomize-controller is started to take over, read off the manifest the
+# host hands k3s rather than off the path it is checked in at: the file a
+# rebuild links into the manifests directory and the file this holds cannot
+# come apart. The argument for each assertion is in flux-components.py's own
+# header.
 { pkgs, host }:
 
 let

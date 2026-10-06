@@ -7197,6 +7197,10 @@ spec:
         - --log-level=info
         - --log-encoding=json
         - --enable-leader-election
+        # NOT AS EXPORTED. The export does not write this argument:
+        # tests/flux-components.py holds it and says what it is for, and an
+        # export vendored over this file is refused there.
+        - --override-manager=deploy@
         env:
         - name: RUNTIME_NAMESPACE
           valueFrom:
