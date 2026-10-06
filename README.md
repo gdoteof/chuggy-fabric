@@ -861,8 +861,9 @@ comparison once:
 
 The scripts a pod runs are files beside the manifests — `fetch.sh`, `build.sh`,
 `publish.sh` and `trigger.sh` — and each argues its own rules in its header.
-`tests/release-trigger.nix`, `tests/release-publish.nix` and
-`tests/release-pipeline.nix` run those bytes and hold the manifests.
+`tests/release-trigger.nix`, `tests/release-build.nix`,
+`tests/release-publish.nix` and `tests/release-pipeline.nix` run those bytes
+and hold the manifests.
 
 `worker-image-run.yaml` is a `TaskRun` of the same `build-image` Task that
 builds the worker image at a chuggy commit. Flux applies neither it nor
