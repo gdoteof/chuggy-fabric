@@ -165,6 +165,10 @@
         inherit pkgs;
         apps = self.nixosConfigurations.gtr.config.chuggy.githubAppTokens.apps;
       };
+      actionReporters = import ./tests/action-reporters.nix {
+        inherit pkgs;
+        host = self.nixosConfigurations.gtr;
+      };
     in
     {
       nixosConfigurations = {
@@ -235,6 +239,12 @@
         # copy of the host's, and a key file nothing projects is an error at the
         # first mint rather than at start-up.
         forge-app-key = forgeAppKey;
+
+        # A roster the API reads, a file each reporter is verified by, the
+        # Secret the host makes for it, and the release run that presents
+        # one: each a name written in two places, and a report answered 404
+        # when they differ.
+        action-reporters = actionReporters;
 
         # D30 and D14 in a form a check can hold: an enabled host that has not
         # said what a task may cost, or who may reach its API, is refused rather
