@@ -134,7 +134,13 @@ pkgs.testers.runNixOSTest {
       buildResults.path = "/var/lib/chuggy/build-results";
       dumps.path = "/var/lib/chuggy/dumps";
     };
-    chuggy.secrets.enable = true;
+    chuggy.secrets = {
+      enable = true;
+      # Short, so that a subtest taking a namespace away spends seconds on the
+      # wait and not minutes. Nothing below pins the default: the restart
+      # budget is asserted over this value, read back from the node.
+      namespaceTimeoutSeconds = 10;
+    };
     chuggy.images.enable = true;
     chuggy.work = {
       enable = true;
@@ -145,12 +151,14 @@ pkgs.testers.runNixOSTest {
     # contents are never read -- the stub takes the flag and ignores it.
     environment.etc."rancher/k3s/k3s.yaml".text = "stub kubeconfig\n";
 
-    # The namespace the synchronisation waits for. cluster/apps/ creates it on a
-    # real box; here it is a directory, present from the first boot so that the
-    # unit's wait is not what this test spends its time on.
+    # The namespaces the synchronisation waits for. cluster/apps/ and
+    # cluster/build-system/ create them on a real box; here each is a
+    # directory, present from the first boot so that the unit's wait is not
+    # what this test spends its time on.
     systemd.tmpfiles.rules = [
       "d ${clusterStore} 0700 root root -"
       "d ${clusterStore}/chuggy 0700 root root -"
+      "d ${clusterStore}/chuggy-build 0700 root root -"
     ];
   };
 
@@ -167,6 +175,16 @@ pkgs.testers.runNixOSTest {
     ]
     pgdir = "/var/lib/chuggy/secrets/chuggy-postgres-credentials"
     pgsecret = "${clusterStore}/chuggy/chuggy-postgres-credentials.json"
+
+    # The report tokens, each by its Secret, and every namespace a Secret is
+    # wanted in. The second namespace is the one a build's pods run in.
+    tokens = ["chuggy-report-flux", "chuggy-report-build"]
+    copies = [
+        ("chuggy", "chuggy-report-flux"),
+        ("chuggy", "chuggy-report-build"),
+        ("chuggy-build", "chuggy-report-build"),
+    ]
+    build_namespace = "${clusterStore}/chuggy-build"
     namespace_timeout = ${toString nodes.machine.chuggy.secrets.namespaceTimeoutSeconds}
 
     # What the artifacts directory has to end up with. Written out rather than
@@ -189,6 +207,8 @@ pkgs.testers.runNixOSTest {
         out["idempotency-keying"] = machine.succeed(
             "cat /var/lib/chuggy/secrets/chuggy-api/idempotency-keying"
         ).strip()
+        for secret in tokens:
+            out[secret] = machine.succeed("cat " + token_file(secret)).strip()
         return out
 
 
@@ -197,6 +217,46 @@ pkgs.testers.runNixOSTest {
         return machine.succeed(
             "jq -r --arg k " + key + " '.data[$k]' " + pgsecret + " | base64 -d"
         ).strip()
+
+
+    def token_file(secret):
+        return "/var/lib/chuggy/secrets/" + secret + "/token"
+
+
+    def copy_of(namespace, secret):
+        return "${clusterStore}/" + namespace + "/" + secret + ".json"
+
+
+    def copy_agrees(namespace, secret):
+        """Whether a namespace's copy of a token is the host's bytes, all of them.
+
+        Bytes, where cluster_value above compares what `strip()` leaves: a
+        token is a header's value and a signing key, and a copy that had
+        gained a newline on the way in would be neither."""
+        status, _ = machine.execute(
+            "jq -j '.data.token' " + copy_of(namespace, secret)
+            + " | base64 -d | cmp -s - " + token_file(secret)
+        )
+        return status == 0
+
+
+    def set_copy(namespace, secret, program, *arguments):
+        """Edit a namespace's copy by hand, as only a person does."""
+        path = copy_of(namespace, secret)
+        machine.succeed(
+            "jq " + " ".join(arguments) + " '" + program + "' " + path
+            + " > /tmp/copy && mv /tmp/copy " + path
+        )
+
+
+    def sync_state():
+        """The status the last run exited with, and what systemd made of it."""
+        return tuple(
+            machine.succeed(
+                "systemctl show -p " + name + " --value chuggy-secrets-sync.service"
+            ).strip()
+            for name in ("ExecMainStatus", "ActiveState")
+        )
 
 
     def sync_journal():
@@ -309,14 +369,25 @@ pkgs.testers.runNixOSTest {
             " /var/lib/chuggy/secrets/chuggy-api/idempotency-keying"
         )
 
+    with subtest("a report token is its hex characters and no byte after them"):
+        # The size is the assertion a pattern cannot make: `grep -x` matches a
+        # line, and a file that ends in a newline is one line all the same.
+        # Flux trims its key before signing with it and the bearer's reader
+        # trims its file, so a token holding white space anywhere is a secret
+        # whose two readers must each trim alike to agree.
+        for secret in tokens:
+            assert machine.succeed("stat -c '%a %U' " + token_file(secret)).strip() == "600 root"
+            assert machine.succeed("stat -c %s " + token_file(secret)).strip() == "64"
+            machine.succeed("grep -qxE '[0-9a-f]{64}' " + token_file(secret))
+
     first = read_secrets()
 
     with subtest("distinct credentials, not one value copied eight times"):
-        assert len(set(first[key] for key in keys)) == len(keys)
+        assert len(set(first[name] for name in keys + tokens)) == len(keys + tokens)
 
     with subtest("no value reached the journal or /etc"):
         machine.succeed("journalctl -b --no-pager > /tmp/boot-journal")
-        for key in keys:
+        for key in keys + tokens:
             machine.fail("grep -qF " + first[key] + " /tmp/boot-journal")
             machine.fail("grep -RqF " + first[key] + " /etc")
 
@@ -332,6 +403,24 @@ pkgs.testers.runNixOSTest {
                 "jq -r '.metadata.labels[\"chuggy.dev/managed-by\"]' " + pgsecret
             ).strip()
             == "nixos"
+        )
+
+    with subtest("a token is in each namespace it is wanted in, and no other"):
+        for namespace, secret in copies:
+            assert copy_agrees(namespace, secret), (namespace, secret)
+            assert (
+                machine.succeed(
+                    "jq -r '.metadata.labels[\"chuggy.dev/managed-by\"]' "
+                    + copy_of(namespace, secret)
+                ).strip()
+                == "nixos"
+            )
+        # What the second namespace was not given is the larger half: a
+        # build's pods run there, and neither a PostgreSQL password nor the
+        # key Flux signs with is theirs to read.
+        assert (
+            machine.succeed("ls -A " + build_namespace).split()
+            == ["chuggy-report-build.json"]
         )
 
     with subtest("the run left nothing decoded in its runtime directory"):
@@ -447,7 +536,7 @@ pkgs.testers.runNixOSTest {
         )
         status, out = resync()
         assert status != 0, out
-        assert "owner-password is present in the cluster with an empty value" in out, out
+        assert "owner-password is present in namespace chuggy with an empty value" in out, out
         assert read_secrets() == first
         assert machine.succeed(
             "jq -r '.data[\"owner-password\"]' " + pgsecret
@@ -474,7 +563,7 @@ pkgs.testers.runNixOSTest {
         )
         status, out = resync()
         assert status != 0, out
-        assert "the cluster has no ticket-service-password either" in out, out
+        assert "namespace chuggy has no ticket-service-password either" in out, out
         assert (
             machine.succeed(
                 "systemctl show -p ExecMainStatus --value chuggy-secrets-sync.service"
@@ -538,6 +627,151 @@ pkgs.testers.runNixOSTest {
         first["finalizer-password"] = "hunter2"
         assert read_secrets() == first
 
+    with subtest("a second copy that has drifted fails, and no copy is touched"):
+        saved = machine.succeed(
+            "jq -r '.data.token' " + copy_of("chuggy-build", "chuggy-report-build")
+        ).strip()
+        set_copy("chuggy-build", "chuggy-report-build", '.data.token = "ZHJpZnQ="')
+        status, out = resync()
+        assert status != 0, out
+        assert out.count("differs") == 1, out
+        assert (
+            "chuggy-report-build/token differs between host state and namespace chuggy-build"
+            in out
+        ), out
+        assert sync_state() == ("3", "failed")
+        # The host's value, the copy that agrees with it and the copy that
+        # does not: three places, and the report wrote to none of them.
+        assert read_secrets() == first
+        assert copy_agrees("chuggy", "chuggy-report-build")
+        assert (
+            machine.succeed(
+                "jq -r '.data.token' " + copy_of("chuggy-build", "chuggy-report-build")
+            ).strip()
+            == "ZHJpZnQ="
+        )
+
+        set_copy("chuggy-build", "chuggy-report-build", ".data.token = $v", "--arg v " + saved)
+        status, out = resync()
+        assert status == 0, out
+
+    with subtest("a token the host has lost is adopted, and each copy held to it"):
+        machine.succeed("rm " + token_file("chuggy-report-build"))
+        status, out = resync()
+        assert status == 0, out
+        assert "adopted chuggy-report-build/token from namespace chuggy" in out, out
+        assert "differs" not in out, out
+        assert read_secrets() == first
+        assert (
+            machine.succeed("stat -c '%a %U %G %s' " + token_file("chuggy-report-build")).strip()
+            == "600 root root 64"
+        )
+
+    with subtest("a token only the second namespace holds is adopted from it"):
+        # The first namespace is asked first and has nothing to give, which
+        # used to end the run. It is a could-not-run that goes on instead: the
+        # second namespace's copy is adopted, and the retry makes the first
+        # one's from it -- the value the build already presents, and never a
+        # fresh one the build has not got.
+        machine.succeed("rm " + token_file("chuggy-report-build"))
+        set_copy("chuggy", "chuggy-report-build", "del(.data.token)")
+        status, out = resync()
+        assert status != 0, out
+        assert "namespace chuggy has no token either" in out, out
+        assert "adopted chuggy-report-build/token from namespace chuggy-build" in out, out
+        assert sync_state() == ("2", "activating")
+        assert read_secrets() == first
+        assert (
+            machine.succeed(
+                "jq -r '.data | has(\"token\")' " + copy_of("chuggy", "chuggy-report-build")
+            ).strip()
+            == "false"
+        )
+
+        status, out = resync()
+        assert status == 0, out
+        assert "creating chuggy-report-build/token in namespace chuggy" in out, out
+        for namespace, secret in copies:
+            assert copy_agrees(namespace, secret), (namespace, secret)
+
+    with subtest("a namespace that is not there holds back no other, and is retried"):
+        # The second namespace belongs to a later layer than the first, so a
+        # cold boot has the first without it. What the control plane reads is
+        # written all the same -- the Secret removed here stands for it -- and
+        # nothing is written where there is no namespace: the stub's `create`
+        # would make the directory, so its absence is the probe having run.
+        machine.succeed("rm -r " + build_namespace)
+        machine.succeed("rm " + copy_of("chuggy", "chuggy-report-flux"))
+        status, out = resync()
+        assert status != 0, out
+        assert "namespace chuggy-build does not exist" in out, out
+        assert sync_state() == ("2", "activating")
+        assert copy_agrees("chuggy", "chuggy-report-flux")
+        machine.fail("test -e " + build_namespace)
+        assert read_secrets() == first
+
+        # A disagreement found on the same run is the status that stands. The
+        # other order is a unit that retries a report no retry settles, until
+        # the budget is spent, with `systemctl --failed` empty all the while.
+        set_copy("chuggy", "chuggy-report-flux", '.data.token = "ZHJpZnQ="')
+        status, out = resync()
+        assert status != 0, out
+        assert "namespace chuggy-build does not exist" in out, out
+        assert (
+            "chuggy-report-flux/token differs between host state and namespace chuggy" in out
+        ), out
+        assert sync_state() == ("3", "failed")
+        machine.succeed("rm " + copy_of("chuggy", "chuggy-report-flux"))
+
+        # And the retry is the unit's own. Nothing below starts it: the
+        # namespace arrives, as Flux would bring it, and the copy follows.
+        status, out = resync()
+        assert sync_state() == ("2", "activating"), out
+        machine.succeed("install -d -m 0700 " + build_namespace)
+        machine.wait_until_succeeds(
+            "systemctl is-active chuggy-secrets-sync.service", timeout=120
+        )
+        for namespace, secret in copies:
+            assert copy_agrees(namespace, secret), (namespace, secret)
+        assert (
+            machine.succeed("ls -A " + build_namespace).split()
+            == ["chuggy-report-build.json"]
+        )
+        assert read_secrets() == first
+
+    with subtest("the wait is one for the run, however many namespaces are missing"):
+        # The restart budget below is sized on a run that waits once. A wait
+        # begun again for each missing namespace is a cycle the window was not
+        # sized for, and a unit whose limit is never tripped. The run's length
+        # is systemd's own reading of it, and the bound is one no run that
+        # waited twice can be under.
+        machine.succeed("mv ${clusterStore}/chuggy ${clusterStore}/aside")
+        machine.succeed("mv " + build_namespace + " ${clusterStore}/aside-build")
+        status, out = resync()
+        assert status != 0, out
+        assert "namespace chuggy does not exist" in out, out
+        assert "namespace chuggy-build does not exist" in out, out
+        assert sync_state() == ("2", "activating")
+        began, ended = (
+            int(machine.succeed(
+                "systemctl show -p ExecMain" + edge + "TimestampMonotonic --value"
+                " chuggy-secrets-sync.service"
+            ).strip())
+            for edge in ("Start", "Exit")
+        )
+        assert 0 < ended - began < 2 * namespace_timeout * 1000000, (began, ended)
+
+        machine.succeed("mv ${clusterStore}/aside ${clusterStore}/chuggy")
+        machine.succeed("mv ${clusterStore}/aside-build " + build_namespace)
+        status, out = resync()
+        assert status == 0, out
+        assert read_secrets() == first
+
+    with subtest("no token reached the journal on the way through any of that"):
+        machine.succeed("journalctl -b --no-pager > /tmp/late-journal")
+        for secret in tokens:
+            machine.fail("grep -qF " + first[secret] + " /tmp/late-journal")
+
     with subtest("the restart budget can be reached before the window closes"):
         # systemd resets its window when `now - begin > StartLimitIntervalSec`,
         # so the start that would trip the limit is reached only if the whole
@@ -549,15 +783,17 @@ pkgs.testers.runNixOSTest {
         # AND THE CYCLE IS THE WORST CASE, not the nominal one. The namespace
         # wait is a lower bound on a run: the deadline is set before the first
         # probe and only a probe finding it passed exits, so the sleep and the
-        # request that carry the run over are part of every cycle. Asserting
+        # request that carry the run over are part of every cycle, and so is
+        # the one probe each namespace after that one is then given. Asserting
         # `interval >= (burst - 1) * (wait + RestartSec)` is what a green check
         # over a false property looked like; it passes on a unit whose limit
         # cannot be tripped at any value of the wait.
         #
-        # The sleep and the timeout are read out of the built script rather
-        # than restated here, for the reason tests/firewall-rules.nix reads the
-        # built firewall: a check that restates the module's own literals
-        # agrees with it however they change.
+        # The sleep, the timeout and the namespaces are read out of the built
+        # script rather than restated here, for the reason
+        # tests/firewall-rules.nix reads the built firewall: a check that
+        # restates the module's own literals agrees with it however they
+        # change.
         unit = "/etc/systemd/system/chuggy-secrets-sync.service"
 
         def setting(name):
@@ -571,7 +807,12 @@ pkgs.testers.runNixOSTest {
             "sed -n 's/.*--request-timeout=\\([0-9]*\\)s.*/\\1/p' " + script + " | head -1"
         ).strip())
 
-        cycle = namespace_timeout + probe + request + setting("RestartSec")
+        namespaces = int(machine.succeed(
+            "grep -c '^ *if present ' " + script
+        ).strip())
+        assert namespaces == len(set(namespace for namespace, _ in copies))
+
+        cycle = namespace_timeout + probe + namespaces * request + setting("RestartSec")
         assert setting("StartLimitIntervalSec") >= setting("StartLimitBurst") * cycle
 
     with subtest("synchronisation reports could-not-run, not success"):

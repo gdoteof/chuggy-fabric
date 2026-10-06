@@ -348,9 +348,17 @@ move `user` off 1000 rather than rely on either.
 
 ### Generated credentials
 
-PostgreSQL role passwords and the API's idempotency keying material are
-generated once on the host, under a root-only directory outside the Nix store,
-and synchronised into Kubernetes Secrets in the `chuggy` namespace.
+PostgreSQL role passwords, the API's idempotency keying material and two
+report tokens are generated once on the host, under a root-only directory
+outside the Nix store, and synchronised into Kubernetes Secrets in the `chuggy`
+namespace.
+
+A report token is what a report of a declared action is proved with:
+`chuggy-report-flux` holds a key a report is signed under, `chuggy-report-build`
+a bearer one presents, each under the key `token`. The bearer alone is
+synchronised into `chuggy-build` as well, where a build's pods run. Everything
+below holds for that copy: host state is the one value, each namespace's
+Secret is compared with it, and none is written over.
 
 **Nothing overwrites a value** — not the host files, not the Secret keys. A key
 already in the cluster is left alone and copied *back* into host state if this
@@ -528,7 +536,9 @@ The Secret step is the one that can arrive late: the `chuggy` namespace belongs
 to `cluster/apps/`, so on a cold boot it does not exist until Flux has
 reconciled once. `chuggy-secrets-sync` waits, reports could-not-run rather than
 failure when it gives up, and retries — bounded, so a genuinely broken cluster
-ends up in `systemctl --failed` instead of looking busy forever. The bound is
+ends up in `systemctl --failed` instead of looking busy forever. `chuggy-build`
+belongs to `cluster/build-system/` and is waited for the same way, after
+everything `chuggy` is owed has been written. The bound is
 sized on the *worst case* a cycle can take, not on the wait it contains: a
 window the burst cannot fit inside is one systemd resets before the burst is
 spent, and a unit whose limit is never tripped restarts for ever in
