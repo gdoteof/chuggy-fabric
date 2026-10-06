@@ -119,7 +119,7 @@ metadata:
   name: chuggy-scheduler
   namespace: chuggy
   annotations:
-    fabric.chuggy.dev/source-commit: 7c10aeac
+    fabric.chuggy.dev/source-commit: 482708e4
   labels: { app: chuggy-scheduler }
 spec:
   replicas: 1
@@ -147,7 +147,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: scheduler
-          image: registry.chuggy.internal/chuggy/api@sha256:efe95d1170a2669b9b91683ffa5dcf8da3bc4343aa83176a428e68719c24c307
+          image: registry.chuggy.internal/chuggy/api@sha256:fb1a6b5785c9e1b04598c65952278044581c119661d550d423160f607ad95a2b
           imagePullPolicy: IfNotPresent
           command:
             [
