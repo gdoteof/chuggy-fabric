@@ -532,14 +532,15 @@ def main():
     )
     # A NetworkPolicy, because nothing refers to one by name: kustomize rewrites
     # a reference to a renamed object, and the reference would then be what
-    # the comparison saw.
+    # the comparison saw. To a name that sorts where the old one did, because
+    # kustomize orders a render by name and the object's new place would be.
     suite.refused(
         "overlay-renames-another-object",
         "the overlay changes more of cluster/chuggy than",
         script=suite.variant(
             annotation_patch,
             "  - target:\n      kind: NetworkPolicy\n      name: chuggy-pool-plane-egress\n"
-            "    patch: |-\n      - op: replace\n        path: /metadata/name\n        value: renamed\n"
+            "    patch: |-\n      - op: replace\n        path: /metadata/name\n        value: chuggy-pool-plane-egress-renamed\n"
             + annotation_patch,
         ),
     )
