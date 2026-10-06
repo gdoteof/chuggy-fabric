@@ -49,6 +49,12 @@
 #
 # THE COMMIT IS A TAG AS WELL, added after the push. It is not a version, so
 # the source ignores it; it is the name a person asks the registry for.
+#
+# PLAIN HTTP, BY THE REGISTRY'S NAME. Neither the push nor the tag is told to
+# use it: a registry whose name ends `.local` is one flux asks without TLS,
+# and the Service's name ends so. Under a name that ends otherwise both ask
+# for TLS, which this registry does not serve, and `--insecure-registry` does
+# not change that.
 set -eu
 
 refuse() {
@@ -156,13 +162,14 @@ held_to_this_release() {
     -v api="$API_IMAGE" -v api_digest="$API_DIGEST" \
     -v console="$CONSOLE_IMAGE" -v console_digest="$CONSOLE_DIGEST" '
     function wrong(message) { print "publish: " directory ": " message > "/dev/stderr"; bad = 1 }
-    # True when the line names the image as a whole reference, not as the
-    # start of a longer one.
-    function names(line, image,    at, after) {
-      at = index(line, image)
-      if (!at) return 0
-      after = substr(line, at + length(image), 1)
-      return after !~ /[A-Za-z0-9._\/-]/
+    # True when the line names the image as a whole reference anywhere in
+    # it, and not only as the start of a longer one.
+    function names(line, image,    at) {
+      while ((at = index(line, image)) > 0) {
+        line = substr(line, at + length(image))
+        if (line !~ /^[A-Za-z0-9._\/-]/) return 1
+      }
+      return 0
     }
     function image_line(image, digest,    rest) {
       if (!names($0, image)) return
@@ -224,7 +231,7 @@ tags() {
   printf '%s\n' "$listed" | sed 's/","/ /g' | tr ' ' '\n'
 }
 
-mkdir -p "$tree/cluster" "$WORK/tmp"
+mkdir -p "$tree/cluster"
 api_lines=0
 console_lines=0
 for directory in chuggy-migrate chuggy; do
@@ -264,12 +271,11 @@ ahead=$(printf '%s\n' "$listed" | awk -v seconds="$seconds" '
 [ -z "$ahead" ] ||
   refuse "version $version is not above every version $RELEASE holds, and the source selects the highest: $(echo $ahead)"
 
-pushed=$(TMPDIR=$WORK/tmp flux push artifact "oci://$RELEASE:$version" \
+pushed=$(flux push artifact "oci://$RELEASE:$version" \
   --path "$tree" \
   --source "$CHUGGY_URL" \
   --revision "main@sha1:$CHUGGY_COMMIT" \
   --reproducible \
-  --insecure-registry \
   --output json)
 digest=$(printf '%s' "$pushed" | tr -d ' \t\r\n' | sed -n 's/.*"digest":"\(sha256:[0-9a-f]\{64\}\)".*/\1/p')
 [ -n "$digest" ] || refuse "flux pushed $RELEASE:$version and reported no digest: $pushed"

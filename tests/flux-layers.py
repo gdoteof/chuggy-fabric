@@ -132,7 +132,7 @@ SOURCES = {
     },
     ("source.toolkit.fluxcd.io/v1", "OCIRepository", "chuggy-release"): {
         "interval": "1m",
-        "url": "oci://registry.chuggy-registry.svc.cluster.local:5000/chuggy/release",
+        "url": "oci://release-registry.chuggy-registry.svc.cluster.local:5000/chuggy/release",
         "insecure": True,
         "ref": {"semver": "*"},
     },

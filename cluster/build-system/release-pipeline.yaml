@@ -1,18 +1,32 @@
 # The release pipeline: chuggy's two images at one commit, then one artifact
 # that releases them.
 #
-# A RUN IS A FUNCTION OF ITS PARAMETERS. Each names a repository and a full
-# commit hash, and no task reads the API server, a Flux source or a branch for
-# anything else. The same four values give the same release whoever starts the
-# run.
+# A RUN IS GIVEN TWO REPOSITORIES AND A FULL COMMIT HASH OF EACH, and no task
+# reads the API server, a Flux source or a branch. The release is not a
+# function of those four alone. A build takes the image `registry` holds under
+# the commit's tag where there is one, and the cache under `buildcache` where
+# it builds; the version is the second `publish` ran at; and a step runs its
+# script as `release-pipeline-scripts` holds it when the step starts, a name
+# with no hash, so a change to one of those files reaches a run in flight.
 #
 # NO TASK HAS A TOKEN, AND NO POLICY GIVES ONE A ROUTE TO THE API SERVER.
 # Every pod here runs as `builder`, which mounts none, under release-run.yaml's
-# pod template, which says so again; platform.yaml's `build-egress` is the
-# whole of where a task pod is let go. tests/release-pipeline.py holds each of
-# those. The token is the one that holds from a pod's first instruction: the
-# node writes a pod's policy into its firewall a moment after the pod starts,
-# and until it has, the pod reaches the API server and is anonymous to it.
+# pod template, which says so again; platform.yaml's `build-egress` is where a
+# task pod is let go, and `release-publish-egress` below adds one registry for
+# the pods of one Task. tests/release-pipeline.py holds each of those. The
+# token is the one that holds from a pod's first instruction: the node writes
+# a pod's policy into its firewall a moment after the pod starts, and until it
+# has, the pod reaches the API server and is anonymous to it.
+#
+# WHO CAN WRITE WHAT A RELEASE IS MADE OF. The artifact is pushed to the
+# release registry, which admits the pods of `publish-release` and of no other
+# Task: cluster/apps/release-registry.yaml. A build pod runs a Dockerfile and
+# does not reach it. It reaches `registry`, as the pod of every build in this
+# namespace does, a build request's among them, and can write there any
+# image's tag at any commit and any image's `buildcache`; build.sh takes a tag
+# it finds as that commit's image. So the artifact is what `publish` wrote,
+# and the two digests it names are trusted as far as every build that has run
+# here is.
 #
 # WHAT A STEP RUNS IS A FILE, NOT A STRING IN THIS ONE. kustomization.yaml
 # brings fetch.sh, build.sh and publish.sh in as `release-pipeline-scripts`,
@@ -243,6 +257,27 @@ spec:
         - { name: scripts, mountPath: /scripts, readOnly: true }
         - { name: tmp, mountPath: /tmp }
 ---
+# The one place a pod of `publish-release` is let go that no other task pod
+# is. Selected by the Task's name, which Tekton writes on the pod of a TaskRun
+# that names one, and admitted by the same label where it arrives.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: release-publish-egress
+  namespace: chuggy-build
+spec:
+  podSelector:
+    matchLabels: { tekton.dev/task: publish-release }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: chuggy-registry }
+          podSelector:
+            matchLabels: { app: release-registry }
+      ports:
+        - { protocol: TCP, port: 5000 }
+---
 # The two builds side by side, then the release of what they built.
 #
 # AN IMAGE HAS TWO NAMES HERE AND THEY ARE ONE REPOSITORY. A build pushes to
@@ -250,6 +285,9 @@ spec:
 # manifests name `registry.chuggy.internal`, which is the node's containerd
 # mirror for that same registry and resolves nowhere else. So each image is
 # written twice below, once per name, with one path.
+#
+# THE RELEASE GOES TO ANOTHER REGISTRY THAN THE IMAGES IT NAMES, the one the
+# `chuggy-release` source reads.
 #
 # EACH TASK RETRIES, which is Tekton's answer to a fetch or a push that failed
 # once. A run that still fails is the trigger's to start again.
@@ -311,4 +349,4 @@ spec:
         - { name: api-digest, value: $(tasks.build-api.results.digest) }
         - { name: console-image, value: registry.chuggy.internal/chuggy/web }
         - { name: console-digest, value: $(tasks.build-console.results.digest) }
-        - { name: release, value: registry.chuggy-registry.svc.cluster.local:5000/chuggy/release }
+        - { name: release, value: release-registry.chuggy-registry.svc.cluster.local:5000/chuggy/release }

@@ -39,9 +39,10 @@ spec:
     - name: manifests-commit
       value: "@manifests-commit@"
   # What bounds a run that hangs. Until it elapses the trigger reads the run
-  # as unfinished and starts nothing.
+  # as unfinished and starts nothing. Written as Tekton's webhook rewrites a
+  # duration, because admission compares what that wrote.
   timeouts:
-    pipeline: 1h
+    pipeline: 1h0m0s
   taskRunTemplate:
     serviceAccountName: builder
     podTemplate:

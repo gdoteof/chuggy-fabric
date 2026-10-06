@@ -843,7 +843,7 @@ A `PipelineRun` of `chuggy-release` in `chuggy-build` takes two repositories and
 two full commit hashes and nothing else. It builds chuggy's API and console
 images at the chuggy commit with rootless BuildKit, reusing an image the
 registry already serves under that commit's tag, and then publishes one OCI
-artifact to `chuggy/release` in the cluster's registry: the fabric commit's
+artifact to `chuggy/release` in the release registry: the fabric commit's
 `cluster/chuggy-migrate` and `cluster/chuggy`, and beside them
 `release/chuggy-migrate` and `release/chuggy`, two generated kustomize overlays
 that write the two digests, the source-commit annotation and the migrate Job's
@@ -851,18 +851,75 @@ name. `OCIRepository` `chuggy-release` selects the highest version published.
 No task pod mounts a ServiceAccount token, and no policy gives one a route to
 the API server.
 
+The release registry is `release-registry` in `chuggy-registry`, a second
+Distribution on the registry's volume, under a root of its own. It admits the
+pods of the `publish-release` Task and Flux's source-controller. A build pod
+does not reach it; `cluster/build-system/release-pipeline.yaml` says what one
+can still write.
+
+An operator reaches it from the node, by its Service's address, as
+`Registry operations` reaches `registry`:
+
+    kubectl -n chuggy-registry get service release-registry
+    curl -s http://<cluster-ip>:5000/v2/chuggy/release/tags/list
+
+A release is taken back by deleting it there. The registry deletes by digest,
+which the version's manifest answers with, and every tag of that digest goes
+with it:
+
+    curl -sI -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+      http://<cluster-ip>:5000/v2/chuggy/release/manifests/<version> \
+      | grep -i docker-content-digest
+    curl -s -o /dev/null -w '%{http_code}\n' -X DELETE \
+      http://<cluster-ip>:5000/v2/chuggy/release/manifests/<digest>
+
+`202`, and within its interval `chuggy-release` selects the highest version
+left. With none left it keeps the artifact it last held and reports that no
+version matches. The trigger does not publish the release again while its
+newest run is the one that published it, which `trigger.sh` argues.
+
 The `release-trigger` CronJob, in a namespace of its own, is the one part that
 reads the API server. Each time it runs it compares what `GitRepository`
 `chuggy` and `fabric-release` hold with the newest run and creates at most one,
-from `release-run.yaml`. While it is suspended a person runs that same
-comparison once:
+from `release-run.yaml`. Two admission policies beside it hold what its token
+creates to that file, for the address and the commit each source holds. While
+either source is missing the second refuses every `PipelineRun`, whoever
+creates it and in any namespace, with `no params found for policy binding`.
+While the trigger is suspended a person runs that same comparison once:
 
     kubectl -n chuggy-release-trigger create job --from=cronjob/release-trigger by-hand-1
 
+The CronJob is the `build-system` layer's, which puts its `suspend` back to
+what Git declares at its next pass. So stopping the trigger, or resuming it
+for a while, starts by taking the object from the layer:
+
+    kubectl -n chuggy-release-trigger annotate cronjob release-trigger \
+      kustomize.toolkit.fluxcd.io/reconcile=disabled
+    kubectl -n chuggy-release-trigger patch cronjob release-trigger \
+      --type merge -p '{"spec":{"suspend":true}}'
+
+That starts no further Job and stops no run already started. While the
+annotation is there the layer applies nothing to the CronJob, and still
+prunes around it: a commit that changes `trigger.sh` or `release-run.yaml`
+renames their ConfigMap, and an annotated CronJob that is not suspended then
+names one that is gone, and fails each minute. Removing the annotation gives
+the object back, and at the layer's next pass it is what Git declares:
+
+    kubectl -n chuggy-release-trigger annotate cronjob release-trigger \
+      kustomize.toolkit.fluxcd.io/reconcile-
+
+A stop that is to outlast that is a commit.
+
 The scripts a pod runs are files beside the manifests — `fetch.sh`, `build.sh`,
 `publish.sh` and `trigger.sh` — and each argues its own rules in its header.
-`tests/release-trigger.nix`, `tests/release-publish.nix` and
-`tests/release-pipeline.nix` run those bytes and hold the manifests.
+`tests/release-trigger.nix`, `tests/release-build.nix`,
+`tests/release-publish.nix` and `tests/release-pipeline.nix` run those bytes
+and hold the manifests.
+
+A trigger that is not suspended and has stopped succeeding fires
+`ReleaseTriggerNotSucceeding`, from `cluster/apps/release-trigger-alert.yaml`,
+which `tests/release-alert.nix` evaluates. Like every alert here it is
+[found by looking](#alerts-evaluate-and-go-nowhere).
 
 `worker-image-run.yaml` is a `TaskRun` of the same `build-image` Task that
 builds the worker image at a chuggy commit. Flux applies neither it nor

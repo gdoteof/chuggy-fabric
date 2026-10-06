@@ -194,8 +194,8 @@ in
         example = "/var/lib/chuggy/vm-registry";
         description = ''
           Filesystem path retained for the registry of macOS VM images, which
-          is separate from the release registry because it is reachable from
-          the LAN. Optional: a host with no macOS node has no use for it.
+          is separate from the cluster's registries because it is reachable
+          from the LAN. Optional: a host with no macOS node has no use for it.
         '';
       };
 
