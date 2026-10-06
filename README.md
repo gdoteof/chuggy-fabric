@@ -1206,14 +1206,15 @@ what revision it holds. That is Flux's documented arrangement; its controllers
 report how long they took and never what state an object is in.
 
 The **Chuggy releases** dashboard (`/d/chuggy-releases`) is built on those: the
-layers and sources as they stand, the trigger, the release runs by outcome, and
-under them the logs of one run, of the dump and migration, and of the rollout.
+layers and sources as they stand, the trigger, the release runs by outcome, how
+long Flux took over the two release layers, and under them the logs of one run,
+of the dump and migration, and of the rollout.
 `?var-run=<run>` narrows the run panels to one PipelineRun. Tekton counts runs
 by pipeline and not by run, so a single run's detail is its logs, and those are
 gone when Loki's retention passes.
 
-Every link from that page to its data fails silently, which is why
-`tests/release-dashboard.py` holds each one.
+A link from that page to its data breaks silently. `tests/release-dashboard.py`
+holds the ones its header lists, and what a query means is not among them.
 
 ### Control-plane targets are switched off
 

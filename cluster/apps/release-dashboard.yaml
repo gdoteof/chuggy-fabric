@@ -5,9 +5,9 @@
 # Tekton's own. Its controller counts runs by pipeline and outcome and, by its
 # default and its own advice, not by run -- a label per run is a series per
 # run, for ever -- so which run did what is in what the run printed, and Loki
-# has that under the run's pods. Flux is the same shape: its controllers time their reconciles, and
-# what a layer holds is read off the object by kube-state-metrics
-# (monitoring.yaml).
+# has that under the run's pods. Flux is the same shape: its controllers time
+# their reconciles, and what a layer holds is read off the object by
+# kube-state-metrics (monitoring.yaml).
 #
 # NEITHER CONTROLLER WAS SCRAPED. Both have always served /metrics; the two
 # monitors below are what points Prometheus at them. Each carries the `release`
@@ -141,23 +141,22 @@ data:
           ],
           "transformations": [
             {
+              "id": "filterFieldsByName",
+              "options": {
+                "include": {
+                  "names": [
+                    "name",
+                    "ready",
+                    "suspended",
+                    "revision",
+                    "source_name"
+                  ]
+                }
+              }
+            },
+            {
               "id": "organize",
               "options": {
-                "excludeByName": {
-                  "Time": true,
-                  "Value": true,
-                  "__name__": true,
-                  "container": true,
-                  "endpoint": true,
-                  "instance": true,
-                  "job": true,
-                  "namespace": true,
-                  "pod": true,
-                  "service": true,
-                  "customresource_group": true,
-                  "customresource_version": true,
-                  "exported_namespace": true
-                },
                 "indexByName": {
                   "name": 0,
                   "ready": 1,
@@ -254,23 +253,21 @@ data:
           ],
           "transformations": [
             {
+              "id": "filterFieldsByName",
+              "options": {
+                "include": {
+                  "names": [
+                    "name",
+                    "customresource_kind",
+                    "ready",
+                    "revision"
+                  ]
+                }
+              }
+            },
+            {
               "id": "organize",
               "options": {
-                "excludeByName": {
-                  "Time": true,
-                  "Value": true,
-                  "__name__": true,
-                  "container": true,
-                  "endpoint": true,
-                  "instance": true,
-                  "job": true,
-                  "namespace": true,
-                  "pod": true,
-                  "service": true,
-                  "customresource_group": true,
-                  "customresource_version": true,
-                  "exported_namespace": true
-                },
                 "indexByName": {
                   "name": 0,
                   "customresource_kind": 1,
@@ -643,7 +640,7 @@ data:
           "id": 8,
           "type": "stat",
           "title": "Failed Jobs",
-          "description": "Jobs in chuggy and the trigger's namespace that failed and are still there: a dump, a migration, an import, a trigger.",
+          "description": "Dump-and-migrate Jobs and trigger Jobs that failed and are still there.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -661,7 +658,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "count(kube_job_status_failed{namespace=~\"chuggy|chuggy-release-trigger\"} > 0) or vector(0)",
+              "expr": "count((kube_job_status_failed{namespace=\"chuggy\", job_name=~\"chuggy-migrate-.*\"} > 0) or (kube_job_status_failed{namespace=\"chuggy-release-trigger\"} > 0)) or vector(0)",
               "instant": true
             }
           ],
@@ -711,7 +708,7 @@ data:
           "gridPos": {
             "x": 0,
             "y": 13,
-            "w": 24,
+            "w": 12,
             "h": 6
           },
           "targets": [
@@ -797,10 +794,60 @@ data:
           }
         },
         {
+          "id": 15,
+          "type": "timeseries",
+          "title": "Release layers: time per reconcile",
+          "description": "Mean time kustomize-controller took over each of the two release layers. A rollout waits for health, so it stands out from the steady state.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 13,
+            "w": 12,
+            "h": 6
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "legendFormat": "{{name}}",
+              "expr": "sum by (name) (rate(gotk_reconcile_duration_seconds_sum{kind=\"Kustomization\", name=~\"chuggy-migrate|chuggy\"}[$__rate_interval])) / sum by (name) (rate(gotk_reconcile_duration_seconds_count{kind=\"Kustomization\", name=~\"chuggy-migrate|chuggy\"}[$__rate_interval]))"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "custom": {
+                "drawStyle": "points",
+                "pointSize": 6,
+                "showPoints": "always"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          }
+        },
+        {
           "id": 10,
           "type": "logs",
           "title": "Trigger: what it started, and why not",
-          "description": "The trigger's own lines, without the one it prints when there is nothing to release.",
+          "description": "The trigger's own lines, without the one it prints each minute while the sources are already released.",
           "datasource": {
             "type": "loki",
             "uid": "loki"
@@ -818,7 +865,7 @@ data:
                 "type": "loki",
                 "uid": "loki"
               },
-              "expr": "{namespace=\"chuggy-release-trigger\"} != \"nothing is started\"",
+              "expr": "{namespace=\"chuggy-release-trigger\"} != \" released chuggy \"",
               "queryType": "range"
             }
           ],
@@ -834,8 +881,8 @@ data:
         {
           "id": 11,
           "type": "logs",
-          "title": "Run: what each step concluded",
-          "description": "The last line each step of the selected runs printed about itself.",
+          "title": "Run: what each step said of itself",
+          "description": "The lines each step of the selected runs printed about itself.",
           "datasource": {
             "type": "loki",
             "uid": "loki"

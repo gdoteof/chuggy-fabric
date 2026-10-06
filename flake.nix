@@ -395,8 +395,9 @@
         # request to the pool plane first and reaches nothing that can write.
         registry-public = import ./tests/registry-public.nix { inherit pkgs; };
 
-        # The release dashboard: every link from it to its data fails silently,
-        # so each is held on the rendered manifests.
+        # The release dashboard: a link from it to its data breaks silently, so
+        # the ones release-dashboard.py's header lists are held on what the tree
+        # declares.
         release-dashboard = import ./tests/release-dashboard.nix { inherit pkgs; };
         release-images = releaseImages;
 
