@@ -6,8 +6,12 @@ WHAT IS RENDERED AND WHAT IS THIS SUITE'S. The script and the run it creates
 are the files of the ConfigMap the rendered CronJob mounts, run by the
 container's own `command` under a BusyBox shell, which is what its image has,
 with every environment value the manifest writes: the retry delay and the
-count kept are the manifest's, and the cases are laid out around them. The
-clock is the build's. `kubectl` is stood in for, by this file run again.
+count kept are the manifest's, and the cases are laid out around them.
+`kubectl` is stood in for, by this file run again. So is the one question
+`date` is asked that no build can fix, what second it is, which is answered
+with the second this suite began: a failure can then be put on the last
+second of the delay and on the first after it. Every other call of `date` is
+BusyBox's.
 
 WHAT THE STAND-IN IS HELD TO. It answers the calls the script makes and
 refuses any other. It allows a call only if a Role in the same render, bound
@@ -37,14 +41,15 @@ THE CASES, by the line of the decision each is the only reader of:
   commit, or another digest: a run. An older run for these does not count,
   and newest is by when a run was created, not by its name;
 - the newest run failed for these inside the delay: nothing. Past it: a run.
-  Failed for anything else, however lately: a run;
+  The delay is over at its last second and not a second before. Failed for
+  anything else, however lately: a run;
 - a run of another pipeline is neither unfinished nor newest nor deleted;
 - a source with no artifact starts nothing and is not a failure; a source
-  that is not there, a read the API server refuses, a revision that names no
-  commit, and an address or a digest that could not be written into the
-  manifest, are failures, and start nothing;
+  that is not there, a read the API server refuses, a revision of either
+  source that names no commit, and an address or a digest that could not be
+  written into the manifest, are failures, and start nothing;
 - a second run created in the same moment has this one delete its own and
-  nothing else;
+  nothing else, and the run it deleted is not one of those kept;
 - retention deletes the finished runs before the newest the manifest says to
   keep, by when they were created, counts a run just started, and never
   deletes one that has not finished.
@@ -422,6 +427,13 @@ class Suite:
             f"exec(compile(open(sys.argv[0]).read(), sys.argv[0], 'exec'))\n"
         )
         stand_in.chmod(stand_in.stat().st_mode | stat.S_IXUSR)
+        clock = programs / "date"
+        clock.write_text(
+            f"#!{sys.executable}\nimport os, sys\n"
+            f"if sys.argv[1:] == ['+%s']:\n    print({self.now})\nelse:\n"
+            f"    os.execv({str(self.busybox / 'date')!r}, ['date'] + sys.argv[1:])\n"
+        )
+        clock.chmod(clock.stat().st_mode | stat.S_IXUSR)
         for path, text in self.pod.files.items():
             target = case / path.lstrip("/")
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -573,6 +585,14 @@ def main():
         says="inside the retry delay",
     )
     suite.starts("failed-for-these-long-ago", runs=[run("r1", 3600, "failed", decided=past)], says="retrying")
+    suite.nothing(
+        "failed-in-the-last-second-of-the-delay",
+        runs=[run("r1", 3600, "failed", decided=pod.delay - 1)],
+        says="inside the retry delay",
+    )
+    suite.starts(
+        "failed-the-whole-delay-ago", runs=[run("r1", 3600, "failed", decided=pod.delay)], says="retrying"
+    )
     suite.starts("failed-for-others-long-ago", runs=[run("r1", 86400, "failed", OTHER_COMMIT)])
     suite.starts("failed-for-others-lately", runs=[run("r1", 60, "failed", OTHER_COMMIT, decided=5)])
     suite.starts(
@@ -628,6 +648,22 @@ def main():
         fails=True,
         says="names no commit hash",
     )
+    suite.expect(
+        suite.case(
+            "fabric-revision-names-no-commit",
+            fabric=source("fabric-release", FABRIC_URL, commit=FABRIC_COMMIT, revision="main@sha1:" + "c" * 39),
+        ),
+        fails=True,
+        says="names no full commit hash",
+    )
+    suite.expect(
+        suite.case(
+            "fabric-revision-is-not-git's",
+            fabric=source("fabric-release", FABRIC_URL, commit=FABRIC_COMMIT, revision="latest@sha256:" + "c" * 64),
+        ),
+        fails=True,
+        says="is not a branch and a commit",
+    )
     for case, sources in (
         ("address-would-rewrite", {"fabric": source("fabric-release", "https://example.invalid/a&b", commit=FABRIC_COMMIT)}),
         ("address-holds-a-placeholder", {"chuggy": source("chuggy", "https://example.invalid/@chuggy-commit@")}),
@@ -657,6 +693,14 @@ def main():
     )
 
     keep = pod.keep
+    # With the run just deleted counted, these are one more than is kept.
+    at_the_count = [run(f"old{index:02d}", 100000 - index * 100, "succeeded", OTHER_COMMIT) for index in range(keep - 1)]
+    suite.expect(
+        suite.case("the-run-deleted-is-not-one-kept", runs=at_the_count, beside=run("beside", 0, "new", OTHER_COMMIT)),
+        started=1,
+        creates=1,
+        says="beside had not finished either",
+    )
     finished = [run(f"old{index:02d}", 100000 - index * 100, "succeeded") for index in range(keep + 3)]
     suite.expect(
         suite.case("retention", runs=finished), deleted=["old00", "old01", "old02"], says="nothing is started"

@@ -40,9 +40,11 @@ THE CASES, and the part of the script each is the only reader of:
 - an overlay that selects by the annotation annotates nothing over `bare`,
   one that leaves the Job's name alone, and one that leaves an image out,
   are each refused: the reading of the render with the overlay alone;
-- a tree that names an image where no overlay writes, that carries the
-  annotation with another value on a pod, that has a Job in `chuggy` or none
-  in `chuggy-migrate`, or that lacks a directory, is refused;
+- a tree that names an image where no overlay writes, alone on its line or
+  after an image whose name it begins, that carries the annotation with
+  another value on a pod, that has a Job in `chuggy` or none in
+  `chuggy-migrate`, or that lacks a directory, is refused; one that names
+  only an image whose name begins with one of the two is published;
 - a parameter that is not what its name says is refused before anything is
   read: an image name nothing runs, one with no repository, one that is not
   a name, the two the same, a digest or a commit that is not one;
@@ -82,6 +84,9 @@ COMMIT = "f22d1b8b70070de0cb53dc2b628335b7a069d5f3"
 API_DIGEST = "sha256:" + "1" * 64
 CONSOLE_DIGEST = "sha256:" + "2" * 64
 PUSHED_DIGEST = "sha256:" + "a" * 64
+# Where `flux push artifact` makes the archive it pushes: the image sets no
+# TMPDIR, and its root is read-only.
+IMAGE_TMPDIR = "/tmp"
 NOW = 1791239106
 
 FAILURES = []
@@ -127,6 +132,8 @@ class Step:
         mounts = {
             mount["mountPath"]: mount["name"] for mount in self.step["volumeMounts"]
         }
+        if IMAGE_TMPDIR not in mounts:
+            refuse(f"step {STEP} mounts nothing at {IMAGE_TMPDIR}, where its image makes the archive it pushes")
         directory, _, name = command[1].rpartition("/")
         volume = [
             volume
@@ -354,7 +361,7 @@ def held(case, name, pushed, images, label):
             report(name, f"release/{directory} renders nothing a release annotates")
         for image, digest in images.items():
             for line in text.splitlines():
-                if image in line and not re.fullmatch(
+                if re.search(rf"{re.escape(image)}(?![A-Za-z0-9._/-])", line) and not re.fullmatch(
                     rf"\s+(- )?image: {re.escape(image)}@{digest}", line
                 ):
                     report(name, f"release/{directory} is left with {line.strip()}")
@@ -564,6 +571,7 @@ def main():
         script=suite.variant("  - name: $CONSOLE_IMAGE\n    digest: $CONSOLE_DIGEST\n", ""),
     )
 
+    passed = dict(suite.step.passed)
     stale = "registry.chuggy.internal/chuggy/api@sha256:" + "9" * 64
     suite.refused(
         "tree-names-the-image-in-a-value",
@@ -572,6 +580,23 @@ def main():
             "chuggy/chuggy-api.yaml",
             "          env:\n",
             f"          env:\n            - name: OWN_IMAGE\n              value: {stale}\n",
+        ),
+    )
+    suite.refused(
+        "tree-names-the-image-after-a-longer-name",
+        "and is not an image line at",
+        change=edited(
+            "chuggy/chuggy-api.yaml",
+            "          env:\n",
+            f"          env:\n            - name: OWN_IMAGES\n              value: {passed['api-image']}-old {passed['api-image']}:latest\n",
+        ),
+    )
+    suite.published(
+        "tree-names-a-longer-named-image",
+        change=edited(
+            "chuggy/chuggy-api.yaml",
+            "          env:\n",
+            f"          env:\n            - name: ANOTHER_IMAGE\n              value: {passed['api-image']}-old:1\n",
         ),
     )
     suite.refused(
@@ -610,7 +635,6 @@ def main():
         change=without_migration,
     )
 
-    passed = dict(suite.step.passed)
     for case, given, said in (
         ("api-image-nothing-runs", {"api-image": passed["api-image"] + "-renamed"}, "nothing in the release runs"),
         ("console-image-nothing-runs", {"console-image": passed["console-image"] + "-renamed"}, "nothing in the release runs"),

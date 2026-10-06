@@ -156,13 +156,14 @@ held_to_this_release() {
     -v api="$API_IMAGE" -v api_digest="$API_DIGEST" \
     -v console="$CONSOLE_IMAGE" -v console_digest="$CONSOLE_DIGEST" '
     function wrong(message) { print "publish: " directory ": " message > "/dev/stderr"; bad = 1 }
-    # True when the line names the image as a whole reference, not as the
-    # start of a longer one.
-    function names(line, image,    at, after) {
-      at = index(line, image)
-      if (!at) return 0
-      after = substr(line, at + length(image), 1)
-      return after !~ /[A-Za-z0-9._\/-]/
+    # True when the line names the image as a whole reference anywhere in
+    # it, and not only as the start of a longer one.
+    function names(line, image,    at) {
+      while ((at = index(line, image)) > 0) {
+        line = substr(line, at + length(image))
+        if (line !~ /^[A-Za-z0-9._\/-]/) return 1
+      }
+      return 0
     }
     function image_line(image, digest,    rest) {
       if (!names($0, image)) return
@@ -224,7 +225,7 @@ tags() {
   printf '%s\n' "$listed" | sed 's/","/ /g' | tr ' ' '\n'
 }
 
-mkdir -p "$tree/cluster" "$WORK/tmp"
+mkdir -p "$tree/cluster"
 api_lines=0
 console_lines=0
 for directory in chuggy-migrate chuggy; do
@@ -264,7 +265,7 @@ ahead=$(printf '%s\n' "$listed" | awk -v seconds="$seconds" '
 [ -z "$ahead" ] ||
   refuse "version $version is not above every version $RELEASE holds, and the source selects the highest: $(echo $ahead)"
 
-pushed=$(TMPDIR=$WORK/tmp flux push artifact "oci://$RELEASE:$version" \
+pushed=$(flux push artifact "oci://$RELEASE:$version" \
   --path "$tree" \
   --source "$CHUGGY_URL" \
   --revision "main@sha1:$CHUGGY_COMMIT" \
