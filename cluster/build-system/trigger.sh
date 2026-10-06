@@ -33,6 +33,14 @@
 # digest and not the fabric commit, because the commit moves with every push
 # to the fabric and the digest only when a byte of a release does.
 #
+# RELEASED IS WHAT THE NEWEST RUN SAYS, AND THE REGISTRY IS NOT ASKED. A run
+# that succeeded for what the sources hold is the end of it, whether or not
+# the release it published is still where the source reads. That is what lets
+# a release be undone by deleting it: the next minute does not publish it
+# again. It is also why a registry that has lost its releases, or a source
+# moved to a registry that never held them, is filled only when a source next
+# holds something else or a person deletes the newest run.
+#
 # A FAILED RUN IS RETRIED AFTER RETRY_DELAY_SECONDS, for as long as the
 # sources hold what it failed on, and at once when they hold something else.
 # A person retries sooner by deleting the newest run.

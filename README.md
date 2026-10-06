@@ -843,13 +843,19 @@ A `PipelineRun` of `chuggy-release` in `chuggy-build` takes two repositories and
 two full commit hashes and nothing else. It builds chuggy's API and console
 images at the chuggy commit with rootless BuildKit, reusing an image the
 registry already serves under that commit's tag, and then publishes one OCI
-artifact to `chuggy/release` in the cluster's registry: the fabric commit's
+artifact to `chuggy/release` in the release registry: the fabric commit's
 `cluster/chuggy-migrate` and `cluster/chuggy`, and beside them
 `release/chuggy-migrate` and `release/chuggy`, two generated kustomize overlays
 that write the two digests, the source-commit annotation and the migrate Job's
 name. `OCIRepository` `chuggy-release` selects the highest version published.
 No task pod mounts a ServiceAccount token, and no policy gives one a route to
 the API server.
+
+The release registry is `release-registry` in `chuggy-registry`, a second
+Distribution on the registry's volume, under a root of its own. It admits the
+pods of the `publish-release` Task and Flux's source-controller. A build pod
+does not reach it; `cluster/build-system/release-pipeline.yaml` says what one
+can still write.
 
 The `release-trigger` CronJob, in a namespace of its own, is the one part that
 reads the API server. Each time it runs it compares what `GitRepository`

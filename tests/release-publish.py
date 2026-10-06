@@ -445,7 +445,7 @@ class Suite:
                 "--path", str(case / "workspace" / "release" / "artifact"),
                 "--source", CHUGGY_URL,
                 "--revision", f"main@sha1:{commit}",
-                "--reproducible", "--insecure-registry", "--output", "json",
+                "--reproducible", "--output", "json",
             ],
             ["tag", "artifact", f"oci://{release}:{version}", "--tag", commit],
         ]

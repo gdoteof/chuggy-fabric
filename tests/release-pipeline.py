@@ -11,11 +11,24 @@ mounts no token, `builder` mounts none itself and is bound to no role, and no
 Task has a volume that is anything but a ConfigMap or an empty directory.
 
 ONLY THE TRIGGER IS GIVEN A ROUTE TO THE API SERVER. The build namespace's
-two policies are held to what they were before the pipeline: a rule widened
-for a task is a route for every task. The trigger's namespace holds the
-trigger and nothing else, its two policies are held exactly, and so are the
-two Roles its ServiceAccount is bound to, which are bound to nobody else. The
-registry admits task pods and source-controller and no third reader.
+policies are held exactly: `build-egress` to what it was before the pipeline,
+because a rule widened for a task is a route for every task, and one rule
+beside it for the pods of `publish-release` alone. The trigger's namespace
+holds the trigger and nothing else, its two policies are held exactly, and so
+are the two Roles its ServiceAccount is bound to, which are bound to nobody
+else.
+
+WHO REACHES A REGISTRY IS WHO CAN WRITE IT, so each of the two is held by
+everything that decides who does. Every NetworkPolicy of the namespace that
+selects its pod, whatever it is named and however it selects, is the one
+written here: `registry` admits task pods; the release registry admits the
+pods of the Task `publish-release`, which has no step but a fetch and the
+publish, and source-controller. Its pod carries the one label, so no other
+Service routes to it and a build's push through `registry` cannot land on it.
+Its container takes its configuration from the one file and from no
+environment, which Distribution reads over the file, and that file keeps
+releases under a root that is not the one `registry` serves, on a volume the
+two share. Deletion stays on in it: deleting a release is how one is undone.
 
 A RUN STARTED BY FLUX IS A RUN STARTED AT EVERY RECONCILE, so neither run
 manifest is rendered. THE TRIGGER IS SUSPENDED: it starts nothing until a
@@ -49,7 +62,8 @@ parameter passed that is not declared or declared and never passed, a script
 that is not in the ConfigMap a step mounts, a reference to a result no task
 writes, the image a build pushes under one name and the release overrides
 under another path, the source the trigger reads in a namespace where it is
-not, and a release pushed to a repository the Flux source does not read.
+not, and a release pushed to a repository the Flux source does not read, or
+to a registry that is not the release registry's Service.
 """
 
 import re
@@ -77,6 +91,11 @@ KUBE_DNS = {
     "ports": [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}],
 }
 TASK_PODS = {"matchExpressions": [{"key": "tekton.dev/taskRun", "operator": "Exists"}]}
+PUBLISH_TASK = "publish-release"
+PUBLISH_PODS = {"matchLabels": {"tekton.dev/task": PUBLISH_TASK}}
+REGISTRY_NAMESPACE = "chuggy-registry"
+RELEASE_REGISTRY = "release-registry"
+REGISTRY_PORT = [{"protocol": "TCP", "port": 5000}]
 
 BUILD_POLICIES = {
     "build-default-deny": {"podSelector": {}, "policyTypes": ["Ingress", "Egress"]},
@@ -123,6 +142,21 @@ BUILD_POLICIES = {
             },
         ],
     },
+    "release-publish-egress": {
+        "podSelector": PUBLISH_PODS,
+        "policyTypes": ["Egress"],
+        "egress": [
+            {
+                "to": [
+                    {
+                        "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": REGISTRY_NAMESPACE}},
+                        "podSelector": {"matchLabels": {"app": RELEASE_REGISTRY}},
+                    }
+                ],
+                "ports": REGISTRY_PORT,
+            }
+        ],
+    },
 }
 
 TRIGGER_POLICIES = {
@@ -140,25 +174,35 @@ TRIGGER_POLICIES = {
     },
 }
 
-REGISTRY_POLICY = {
-    "podSelector": {"matchLabels": {"app": "registry"}},
-    "policyTypes": ["Ingress", "Egress"],
-    "ingress": [
-        {
-            "from": [
-                {
-                    "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": BUILD_NAMESPACE}},
-                    "podSelector": TASK_PODS,
-                },
-                {
-                    "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "flux-system"}},
-                    "podSelector": {"matchLabels": {"app": "source-controller"}},
-                },
-            ],
-            "ports": [{"protocol": "TCP", "port": 5000}],
-        }
-    ],
+# Each registry: who its one policy admits, the root it keeps its store
+# under, and whether its configuration has to leave deletion on.
+REGISTRIES = {
+    "registry": {
+        "admits": [
+            {
+                "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": BUILD_NAMESPACE}},
+                "podSelector": TASK_PODS,
+            }
+        ],
+        "root": "/var/lib/registry",
+        "deletes": None,
+    },
+    RELEASE_REGISTRY: {
+        "admits": [
+            {
+                "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": BUILD_NAMESPACE}},
+                "podSelector": PUBLISH_PODS,
+            },
+            {
+                "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "flux-system"}},
+                "podSelector": {"matchLabels": {"app": "source-controller"}},
+            },
+        ],
+        "root": "/var/lib/registry/release",
+        "deletes": True,
+    },
 }
+REGISTRY_CONFIGURATION = "/etc/distribution/config.yml"
 
 TRIGGER_ROLES = {
     "flux-system": [
@@ -290,6 +334,79 @@ def of(documents, kind, namespace=None):
 def exactly(subject, found, expected):
     if found != expected:
         refuse(f"{subject} is {found}, not {expected}")
+
+
+def selects(selector, labels):
+    """Whether a label selector selects a pod with these labels. An empty one
+    selects every pod."""
+    for key, value in selector.get("matchLabels", {}).items():
+        if labels.get(key) != value:
+            return False
+    for expression in selector.get("matchExpressions", []):
+        key, values = expression["key"], expression.get("values", [])
+        held = {
+            "Exists": key in labels,
+            "DoesNotExist": key not in labels,
+            "In": labels.get(key) in values,
+            "NotIn": labels.get(key) not in values,
+        }.get(expression["operator"])
+        if held is None:
+            refuse(f"a selector uses the operator {expression['operator']}, which this does not evaluate")
+        if not held:
+            return False
+    return True
+
+
+def registry_is_held(apps, name, expected):
+    """One registry of the namespace: its pod, everything that selects the
+    pod, and the store its configuration names. Returns the address a pod
+    reaches it by."""
+    deployment = of(apps, "Deployment", REGISTRY_NAMESPACE).get(name)
+    if deployment is None:
+        refuse(f"cluster/apps renders no Deployment {name} in {REGISTRY_NAMESPACE}")
+    labels = {"app": name}
+    template = deployment["spec"]["template"]
+    exactly(f"the labels of Deployment {name}'s pod", template["metadata"].get("labels"), labels)
+    selecting = [
+        policy["spec"]
+        for policy in of(apps, "NetworkPolicy", REGISTRY_NAMESPACE).values()
+        if selects(policy["spec"]["podSelector"], labels)
+    ]
+    policy = {
+        "podSelector": {"matchLabels": labels},
+        "policyTypes": ["Ingress", "Egress"],
+        "ingress": [{"from": expected["admits"], "ports": REGISTRY_PORT}],
+    }
+    exactly(f"the NetworkPolicies that select Deployment {name}'s pod", selecting, [policy])
+    routed = {
+        service_name: service
+        for service_name, service in of(apps, "Service", REGISTRY_NAMESPACE).items()
+        if service["spec"].get("selector") and selects({"matchLabels": service["spec"]["selector"]}, labels)
+    }
+    exactly(f"the Services that route to Deployment {name}'s pod", sorted(routed), [name])
+
+    pod = template["spec"]
+    if len(pod["containers"]) != 1 or pod.get("initContainers"):
+        refuse(f"Deployment {name}'s pod is not one container")
+    container = pod["containers"][0]
+    exactly(f"what Deployment {name}'s container is started with", container.get("args"), [REGISTRY_CONFIGURATION])
+    if "env" in container or "envFrom" in container or "command" in container:
+        refuse(f"Deployment {name}'s container is given an environment or a command, and Distribution reads either over its file")
+    ports = {port["name"]: port["containerPort"] for port in container["ports"]}
+    (port,) = routed[name]["spec"]["ports"]
+    exactly(f"the port Service {name} routes to", ports.get(port["targetPort"], port["targetPort"]), REGISTRY_PORT[0]["port"])
+    mounts = [mount for mount in container["volumeMounts"] if mount["mountPath"] == REGISTRY_CONFIGURATION]
+    volumes = {volume["name"]: volume for volume in pod["volumes"]}
+    config = None
+    if len(mounts) == 1 and "configMap" in volumes.get(mounts[0]["name"], {}):
+        config = of(apps, "ConfigMap", REGISTRY_NAMESPACE).get(volumes[mounts[0]["name"]]["configMap"]["name"])
+    if config is None or mounts[0].get("subPath") not in config["data"]:
+        refuse(f"Deployment {name} does not mount {REGISTRY_CONFIGURATION} from a ConfigMap rendered in {REGISTRY_NAMESPACE}")
+    storage = yaml.safe_load(config["data"][mounts[0]["subPath"]])["storage"]
+    exactly(f"the root Deployment {name} keeps its store under", storage["filesystem"]["rootdirectory"], expected["root"])
+    if expected["deletes"] is not None:
+        exactly(f"whether Deployment {name} deletes", storage.get("delete", {}).get("enabled"), expected["deletes"])
+    return f"{name}.{REGISTRY_NAMESPACE}.svc.cluster.local:{port['port']}/"
 
 
 def references(value):
@@ -544,19 +661,11 @@ def main():
         TRIGGER_POLICIES["release-trigger-egress"]["podSelector"]["matchLabels"],
     )
     exactly(f"the NetworkPolicies of {BUILD_NAMESPACE}", policies(build, BUILD_NAMESPACE), BUILD_POLICIES)
-    registry = [
-        spec
-        for spec in policies(apps, "chuggy-registry").values()
-        if spec["podSelector"] == REGISTRY_POLICY["podSelector"]
-    ]
-    exactly("the NetworkPolicies that select the registry", registry, [REGISTRY_POLICY])
+    addresses = {name: registry_is_held(apps, name, expected) for name, expected in REGISTRIES.items()}
 
-    # One registry under two names, and one repository a release is pushed to
-    # and read from.
-    service = of(apps, "Service", "chuggy-registry").get("registry")
-    if service is None:
-        refuse("cluster/apps renders no Service registry in chuggy-registry")
-    pushed_to = f"registry.chuggy-registry.svc.cluster.local:{service['spec']['ports'][0]['port']}/"
+    # The images' registry under two names, and one repository in the other
+    # that a release is pushed to and read from.
+    pushed_to, published_to = addresses["registry"], addresses[RELEASE_REGISTRY]
     passed = {
         entry["name"]: {param["name"]: param["value"] for param in entry["params"]}
         for entry in pipeline["spec"]["tasks"]
@@ -571,8 +680,8 @@ def main():
     release = of(flux, "OCIRepository", "flux-system").get("chuggy-release")
     if release is None or release["spec"]["url"] != f"oci://{passed['publish']['release']}":
         refuse(f"the pipeline publishes to {passed['publish']['release']}, which is not what OCIRepository chuggy-release reads")
-    if not passed["publish"]["release"].startswith(pushed_to):
-        refuse(f"the pipeline publishes to {passed['publish']['release']}, which is not the registry's Service")
+    if not passed["publish"]["release"].startswith(published_to):
+        refuse(f"the pipeline publishes to {passed['publish']['release']}, which is not the release registry's Service")
     worker = {param["name"]: param["value"] for param in worker_run["spec"]["params"]}
     if not worker["image"].startswith(pushed_to):
         refuse(f"worker-image-run.yaml pushes {worker['image']}, which is not the registry's Service")

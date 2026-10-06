@@ -49,6 +49,12 @@
 #
 # THE COMMIT IS A TAG AS WELL, added after the push. It is not a version, so
 # the source ignores it; it is the name a person asks the registry for.
+#
+# PLAIN HTTP, BY THE REGISTRY'S NAME. Neither the push nor the tag is told to
+# use it: a registry whose name ends `.local` is one flux asks without TLS,
+# and the Service's name ends so. Under a name that ends otherwise both ask
+# for TLS, which this registry does not serve, and `--insecure-registry` does
+# not change that.
 set -eu
 
 refuse() {
@@ -270,7 +276,6 @@ pushed=$(flux push artifact "oci://$RELEASE:$version" \
   --source "$CHUGGY_URL" \
   --revision "main@sha1:$CHUGGY_COMMIT" \
   --reproducible \
-  --insecure-registry \
   --output json)
 digest=$(printf '%s' "$pushed" | tr -d ' \t\r\n' | sed -n 's/.*"digest":"\(sha256:[0-9a-f]\{64\}\)".*/\1/p')
 [ -n "$digest" ] || refuse "flux pushed $RELEASE:$version and reported no digest: $pushed"
