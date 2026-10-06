@@ -125,7 +125,7 @@ data:
             "x": 0,
             "y": 0,
             "w": 13,
-            "h": 9
+            "h": 11
           },
           "targets": [
             {
@@ -221,7 +221,13 @@ data:
           },
           "options": {
             "showHeader": true,
-            "cellHeight": "sm"
+            "cellHeight": "sm",
+            "sortBy": [
+              {
+                "displayName": "Layer",
+                "desc": false
+              }
+            ]
           }
         },
         {
@@ -237,7 +243,7 @@ data:
             "x": 13,
             "y": 0,
             "w": 11,
-            "h": 9
+            "h": 11
           },
           "targets": [
             {
@@ -330,7 +336,13 @@ data:
           },
           "options": {
             "showHeader": true,
-            "cellHeight": "sm"
+            "cellHeight": "sm",
+            "sortBy": [
+              {
+                "displayName": "Source",
+                "desc": false
+              }
+            ]
           }
         },
         {
@@ -344,7 +356,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 9,
+            "y": 11,
             "w": 4,
             "h": 4
           },
@@ -417,7 +429,7 @@ data:
           },
           "gridPos": {
             "x": 4,
-            "y": 9,
+            "y": 11,
             "w": 4,
             "h": 4
           },
@@ -474,7 +486,7 @@ data:
           },
           "gridPos": {
             "x": 8,
-            "y": 9,
+            "y": 11,
             "w": 4,
             "h": 4
           },
@@ -530,7 +542,7 @@ data:
           },
           "gridPos": {
             "x": 12,
-            "y": 9,
+            "y": 11,
             "w": 4,
             "h": 4
           },
@@ -587,7 +599,7 @@ data:
           },
           "gridPos": {
             "x": 16,
-            "y": 9,
+            "y": 11,
             "w": 4,
             "h": 4
           },
@@ -647,7 +659,7 @@ data:
           },
           "gridPos": {
             "x": 20,
-            "y": 9,
+            "y": 11,
             "w": 4,
             "h": 4
           },
@@ -707,7 +719,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 13,
+            "y": 15,
             "w": 12,
             "h": 6
           },
@@ -804,7 +816,7 @@ data:
           },
           "gridPos": {
             "x": 12,
-            "y": 13,
+            "y": 15,
             "w": 12,
             "h": 6
           },
@@ -854,7 +866,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 19,
+            "y": 21,
             "w": 24,
             "h": 6
           },
@@ -889,7 +901,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 25,
+            "y": 27,
             "w": 24,
             "h": 6
           },
@@ -924,7 +936,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 31,
+            "y": 33,
             "w": 24,
             "h": 10
           },
@@ -959,7 +971,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 41,
+            "y": 43,
             "w": 24,
             "h": 8
           },
@@ -994,7 +1006,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 49,
+            "y": 51,
             "w": 24,
             "h": 8
           },
