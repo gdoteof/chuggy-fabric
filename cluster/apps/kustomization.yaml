@@ -59,6 +59,7 @@ resources:
   - postgres.yaml
   - registry-public.yaml
   - registry.yaml
+  - release-dashboard.yaml
   - sirdocalot-namespace.yaml
   - sirdocalot-source.yaml
   - vm-registry.yaml
