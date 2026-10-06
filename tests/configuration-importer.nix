@@ -58,7 +58,6 @@ pkgs.runCommand "chuggy-configuration-importer" {
     "$root/cluster/apps/chuggy-control-plane-network-policy.yaml" >/dev/null
   grep -F 'cidr: 0.0.0.0/0' \
     "$root/cluster/apps/chuggy-control-plane-network-policy.yaml" >/dev/null
-  grep -F 'test "$(git rev-parse --short=7 HEAD)" = e92cce9' "$root/README.md" >/dev/null
   grep -F 'CHUG_PG_CONFIGURATION_IMPORTER_PASSWORD' "$root/README.md" >/dev/null
   grep -F 'systemctl is-active chuggy-secrets-sync' "$root/README.md" >/dev/null
   touch "$out"

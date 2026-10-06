@@ -650,63 +650,30 @@ stable even when another disk backs it. A machine that needs a different path
 needs a cluster overlay that changes the PersistentVolume with the host option;
 changing only the option creates a healthy registry over the wrong directory.
 
-### Immutable image builds
+### Where a build runs
 
 `cluster/build-system/` installs pinned Tekton and the [release
-pipeline](#the-release-pipeline).
-`builds/` contains immutable requests and no layer applies it: what the rest of
-this section says of a request stops at the file, and none is built. No host
-records a build or answers a request under `requests/` either; `results/` is
-what the recorder published while it ran.
-
-Render a request by supplying repository bindings rather than editing a
-project-specific template:
-
-    scripts/render-build-request \
-      --repository-id example-service \
-      --source-url https://git.example.com/team/example-service.git \
-      --source-commit 0123456789abcdef0123456789abcdef01234567 \
-      --source-secret example-source-read \
-      --target-image-repository registry.example.internal/team/example-service \
-      --output-secret example-registry-push
-
-The renderer prints the resulting
-`builds/<repository-id>/<commit>/<request-digest>.yaml` path. The digest covers
-the source binding and full commit, target repository, credential references,
-renderer, profile, platform, cache and Dockerfile. Rendering
-unchanged input is idempotent; changing an input creates another path. The
-initial attempt is `-a1`; later retry automation must add the next
-`-a<ordinal>` beside the unchanged `Build` and never replace an attempt.
-
-Requests are fixed to `linux/amd64` and schedule only where both of these node
-properties exist:
+pipeline](#the-release-pipeline), and nothing else here builds an image. A run
+places its pods by the first of these node properties and tolerates the
+second:
 
     chuggy.k3s.nodeLabels = [ "chuggy.dev/node-role=builder" ];
     chuggy.k3s.nodeTaints = [ "chuggy.dev/node-role=builder:NoSchedule" ];
 
-By default that node is a dedicated security boundary. Rootless BuildKit remains
-daemonless, but rootlesskit requires unconfined seccomp/AppArmor and permits
-privilege escalation for user-namespace setup. A dedicated host can import
-`examples/builder-node.nix`; the committed fragment wires both properties.
+By default that node is a dedicated security boundary: the build step is
+rootless BuildKit, and RootlessKit requires unconfined seccomp and AppArmor and
+permits privilege escalation for user-namespace setup. A dedicated host can
+import `examples/builder-node.nix`; the committed fragment wires both
+properties.
 
-A self-contained host instead imports `examples/mini-chuggy-node.nix` and
-renders requests with `--profile mini`. The `chuggy.mini` role enables k3s,
-durable state, secrets, images, work, Flux, and the builder label,
-but deliberately adds no builder taint: tainting the only node would exclude
-the ordinary workloads that make the deployment self-contained. Its distinct
-profile records that weaker, co-located security boundary and emits no
-dedicated-builder toleration. The host must still state its own storage paths,
-API source ranges, worker budget, and Flux repository; start with
-`hosts/example/`, replace its inert values, and add the mini example module to
-that host's `extraModules` in `flake.nix`.
-
-Nothing releases from these builds, and a build result changes no environment.
-A release builds its own images, and is [the release
-pipeline](#the-release-pipeline)'s.
-
-Retry and retirement preserve the immutable request and its recorded
-provenance. The [build operations runbook](docs/build-operations-runbook.md)
-gives the ordered commands as they were.
+A self-contained host instead imports `examples/mini-chuggy-node.nix`. The
+`chuggy.mini` role enables k3s, durable state, secrets, images, work, Flux, and
+the builder label, but deliberately adds no builder taint: tainting the only
+node would exclude the ordinary workloads that make the deployment
+self-contained, so a build there shares its node with them. The host must
+still state its own storage paths, API source ranges, worker budget, and Flux
+repository; start with `hosts/example/`, replace its inert values, and add the
+mini example module to that host's `extraModules` in `flake.nix`.
 
 ### The release pipeline
 
@@ -1576,97 +1543,27 @@ of the one thing that has to work before anything else does.
 
 ### Before any of it runs
 
-Six things, none of which a manifest can do, and each argued in the file that
-needs it. **Steps 1, 2 and 4 are ordered — 1 and 4 must both finish before 2 —
-and the order is not enforceable from here**: Flux applies a release as soon
-as it is published and nothing in it waits for a person, so anything a human
-must do to the database has to be done *before* the run that publishes it is
-started, not after it.
+What a person does before a box's first release, each step argued in the file
+that needs it. **Steps 1 and 4 finish before 2, and nothing here can enforce
+that**: Flux applies a release as soon as it is published and nothing in it
+waits for a person, so what a human must do to the database is done before the
+run that publishes it is started.
 
-1. **Generate and synchronize the importer password, then apply it to the
-   database from exactly Chuggy `e92cce9`.** The order inside this step is
-   load-bearing. First rebuild the host with the Fabric revision that declares
-   `configuration-importer-password`, then require generation and Secret sync
-   to succeed:
+1. **Run kasofsk/chuggy's roles file, from the commit about to be released.**
+   [Generated credentials](#generated-credentials) gives the command and what
+   precedes it, `systemctl is-active chuggy-secrets-sync` saying `active`.
+   `chuggy-pg-role-env` hands the file one variable for each key of
+   `chuggy-postgres-credentials`, `CHUG_PG_CONFIGURATION_IMPORTER_PASSWORD`
+   among them, and the file re-issues every password it reads.
 
-   ```sh
-   sudo systemctl restart chuggy-secrets-generate
-   sudo systemctl restart chuggy-secrets-sync
-   systemctl is-active chuggy-secrets-sync       # must print active
-   sudo test -s /var/lib/chuggy/secrets/chuggy-postgres-credentials/configuration-importer-password
-   kubectl -n chuggy get secret chuggy-postgres-credentials \
-     -o jsonpath='{.data.configuration-importer-password}' | grep -q .
-   ```
-
-   A generated value in host state does not authenticate until
-   `postgres-roles.sql` applies the same value to its login role. Check out the
-   exact roles contract, not merely a branch that once contained it, and
-   pre-filter the file before executing it:
-
-   ```sh
-   test "$(git rev-parse --short=7 HEAD)" = e92cce9
-   sql=$(sed 's/--.*//' deploy/rig/postgres/postgres-roles.sql | tr '\n' ' ')
-   # each must print 1
-   printf '%s' "$sql" | grep -oi \
-     'ALTER ROLE chuggy_configuration_importer WITH NOLOGIN[^;]*;' | wc -l
-   printf '%s' "$sql" | grep -oi \
-     'ALTER ROLE chuggy_configuration_importer_login WITH LOGIN INHERIT[^;]*;' | wc -l
-   printf '%s' "$sql" | grep -oi \
-     'GRANT [^;]*chuggy_selector_review[^;]* TO chuggy_api_login;' | wc -l
-   printf '%s' "$sql" | grep -oi \
-     'GRANT [^;]*chuggy_boundary_owner[^;]* TO chuggy_owner;' | wc -l
-   printf '%s' "$sql" | grep -oi \
-     'GRANT [^;]*chuggy_configuration_importer[^;]* TO chuggy_configuration_importer_login;' | wc -l
-   grep -q '^\\getenv configuration_importer_password CHUG_PG_CONFIGURATION_IMPORTER_PASSWORD$' \
-     deploy/rig/postgres/postgres-roles.sql
-
-   kubectl -n chuggy port-forward svc/postgres 55440:5432 &
-   forward=$!
-   export PGPASSWORD="$(kubectl -n chuggy get secret postgres-superuser \
-     -o jsonpath='{.data.password}' | base64 -d)"
-   sudo -E chuggy-pg-role-env psql -h 127.0.0.1 -p 55440 -U postgres \
-     -d chuggy -v ON_ERROR_STOP=1 -f deploy/rig/postgres/postgres-roles.sql
-   kill "$forward"
-   ```
-
-   Comments are stripped and the lines joined first, because a plain line-wise
-   grep answers the wrong question in both directions here. The second grant is
-   one statement spread over three lines and its role list is unordered, so a
-   pattern that matches a line matches only the ordering the file happens to
-   have today; and a comment paragraph quoting either grant — this file's house
-   style — makes a checkout that grants nothing answer 1. Both patterns name the
-   **grantee**, which is the half that decides whether the grant is the one this
-   step needs.
-
-   `f8c6d7b`, the commit the shared digest was built from, answers 1 to both. But a pre-filter
-   is all this is: it reads a file, not the server. What settles the question is
-   the `pg_auth_members` query below.
-
-   The two existing grants and the importer role binding are what this step is
-   for on this rig.
-   `chuggy_selector_review` to `chuggy_api_login` is what lets the API's second
-   pool become that role, without which **the API refuses to listen**;
-   `chuggy_boundary_owner` to `chuggy_owner` is what makes migration 17's
-   `GRANT EXECUTE` land, without which **17 commits while granting nothing** and
-   no re-run of the Job ever repairs it. That second one is what makes this step
-   ordered: run it after the Job and the ledger already claims a grant that is
-   not there.
-
-   **It is not a read-only file, and three of its side effects matter.** It
-   names the eight active login roles and for those eight it restates every
-   role attribute and re-issues the password
-   unconditionally, so it must be run with exactly the values in
-   `chuggy-postgres-credentials` or step 4 must follow it with the new ones — an
-   unset variable *clears* a password rather than leaving it. And it re-grants
-   `CREATE ON SCHEMA public` to `chuggy_boundary_owner`. Leave that privilege
-   standing until the new migration Job is `Complete`: migration 29 replaces a
-   function owned by the boundary role and needs to create its replacement.
-   Step 2 revokes and verifies the privilege immediately after the ledger
-   reaches 29. Revoking it here makes the immutable Job fail before the release
-   can become healthy.
-
-   Then check the grants **landed**. This is the check the step rests on; the
-   greps above only decide whether the file is worth running:
+   It is first because of three memberships no migration can grant itself.
+   `chuggy_owner` in `chuggy_boundary_owner` is what makes migration 17's
+   `GRANT EXECUTE` land: without it 17 commits while granting nothing, and no
+   re-run of the Job repairs that. `chuggy_api_login` in
+   `chuggy_selector_review` is what the API's second pool connects as, and
+   without it the API refuses to listen. `chuggy_configuration_importer_login`
+   in `chuggy_configuration_importer` is everything the importer may do,
+   because it connects as the login and sets no role. Read that they landed:
 
    ```sh
    kubectl -n chuggy exec postgres-0 -- \
@@ -1685,211 +1582,45 @@ started, not after it.
                            'chuggy_configuration_importer');"
    ```
 
-   The second must list `chuggy_boundary_owner|chuggy_owner`,
-   `chuggy_selector_review|chuggy_api_login`, and
-   `chuggy_configuration_importer|chuggy_configuration_importer_login`.
-   A fresh database has none until the roles file runs, which is what this step
-   is for. **The first is what tells those two
-   answers apart**, because `-Atc` prints nothing and exits 0 for an empty
-   result, so a mistyped role name, the wrong `-d` and "granted nothing" all
-   look identical. It must print three rows; a missing row is a name that is not
-   in this database, not a membership that is absent.
-
-2. **Release that commit**, as [Operating a release](#operating-a-release)
-   starts one: the pipeline builds its images, and the release names the
-   migration Job for it.
-
-   After `chuggy-migrate-e92cce9-registry` is `Complete` and reports migration
-   29, remove the role-file bootstrap privilege and prove it is gone:
-
-   ```sh
-   kubectl -n chuggy exec postgres-0 -- \
-     psql -U postgres -d chuggy -c \
-     "REVOKE CREATE ON SCHEMA public FROM chuggy_boundary_owner;"
-   kubectl -n chuggy exec postgres-0 -- \
-     psql -U postgres -d chuggy -Atc \
-     "SELECT max(version), has_schema_privilege(
-        'chuggy_boundary_owner', 'public', 'CREATE')
-        FROM schema_migration;"
-   ```
-
-   The second command must answer `29|f`.
-   `images/api/Dockerfile` copies `package.json`, the resolved `node_modules`
-   and `src/` into the shipped stage and nothing else — `deploy/` is never
-   copied at all — so **the roles file is not in the image** and no inspection
-   of the image can stand in for step 1's pre-filter.
-3. **Create the host directory** the artifact volume binds:
-   `/var/lib/chuggy/artifacts`, owned `1000:1000` — that is the uid and gid
-   every control-plane container runs as, and it is what makes the finalizer
-   able to write there. `install -d -o 1000 -g 1000 /var/lib/chuggy/artifacts`.
-   The authority on the path and on its **mode** is
-   `chuggy.state.artifacts.path` and `chuggy.state.artifacts.mode` on the
-   reusable state module in fabric's PR 9; its tmpfiles rule adjusts an existing
-   directory to whatever that option says, so this file does not restate a mode
-   PR 9 owns. **The directory is there on this rig**, owned as this step asks.
-   It was created by hand, so a rebuilt node has it again only once PR 9's
-   tmpfiles rule lands. Do not read the PV going `Bound` as evidence either way:
-   the claim names its volume, so binding is two API objects agreeing and never
-   touches the node.
-4. **Verify `chuggy-postgres-credentials` and the database agree before the
-   release.** The generated inventory now has nine keys: owner, API, ticket
-   service, selector, scheduler, finalizer, worker plane, pool plane and
-   configuration importer. The database has the corresponding nine active login
-   roles: `chuggy_owner` and eight `*_login` roles. `chuggy_dispatcher_login` is
-   legacy and is not part of this Secret or any workload. Step 1 must have
-   synchronized all nine Secret values and applied those same values through
-   `chuggy-pg-role-env`; a green Secret sync alone proves only host/cluster
-   agreement, not that PostgreSQL accepts the value. Authenticate as every
-   login over the cluster network before starting its run. In particular, verify
-   `chuggy_configuration_importer_login` authenticates with
-   `configuration-importer-password` and that its inherited membership exists:
-
-   ```sh
-   kubectl -n chuggy exec postgres-0 -- psql -U postgres -d chuggy -Atc \
-     "SELECT pg_has_role('chuggy_configuration_importer_login',
-                         'chuggy_configuration_importer', 'MEMBER');"
-   ```
-
-   It must print `t`. The importer connects as the login role; it does not use
-   `SET ROLE`, so this inherited membership is the capability boundary.
-5. **Create `chuggy-selector`, `chuggy-finalizer-credentials`,
-   `chuggy-github-app-portal` and `chuggy-github-app-worker`** by hand — the
-   selector's OAuth2 client secret and policy token, the finalizer's git
-   credential, and the two Apps' private keys. Values never go in this
-   repository; it is public. A pod whose
-   Secret is missing is never built, under one of two names: a `secretKeyRef`
-   env gives `CreateContainerConfigError`, a mounted secret gives
-   `ContainerCreating` on a `FailedMount`.
-
-   Of the selector's two, the client secret is **not a value the operator
-   invents**: it is what Hydra returns when the client the selector
-   authenticates as is registered, so the registration comes first and the
-   Secret carries its output. The policy token is the operator's own, because
-   nothing issues one — nothing serves the protocol it authenticates to.
-   `chuggy-selector.yaml` holds both commands and argues the audience the client
-   must be granted.
-
-   The finalizer's is **not a credential for anywhere outside this cluster**. Its
-   remote is `rig.git` on the rig's own git service, so the value is the operator
-   credential that service already validates, copied rather than minted:
-
-   ```sh
-   kubectl -n chuggy create secret generic chuggy-finalizer-credentials \
-     --from-literal=rig-git="$(kubectl -n chuggy-git get secret git-operator \
-       -o jsonpath='{.data.password}' | base64 -d)"
-   ```
-
-   That is the one credential the git service's htpasswd admits on
-   `/git-receive-pack`, which is what makes D34 — only the finalizer advances the
-   deployed revision — true here rather than aspirational. An external
-   repository is a later thing and wants D31's short-lived minting, not a static
-   token on a rig.
-
-   Both Apps' are **the host's own key files, copied rather than minted**.
-   `chuggy.githubAppTokens` reads them on the host to mint the tokens it mints
-   and projects those tokens alone, so nothing a rebuild does creates these
-   Secrets and the label `chuggy.dev/managed-by=github-app-token` is not on
-   either. What the host does declare is the name: `keySecret` sits beside each
-   App's `appId` and `privateKeyFile`, so the `secretName` a manifest mounts is
-   held against the host by `tests/forge-app-key.py` rather than being a
-   literal that agrees with itself. The commands are on the node, as root,
-   because the sources are root-only host state. **Both are there on this
-   rig.** One of the manifests
-   that mounts each holds its command, and every manifest that mounts one says
-   what that mount widens:
-
-   - `chuggy-github-app-portal`, the portal App's, in `chuggy-api.yaml`, which
-     holds its command, and in `chuggy-ticket-service.yaml`,
-     `chuggy-finalizer.yaml` and `chuggy-configuration-importer.yaml`. Each of
-     the four mints the installation token for the act it is performing: the
-     API's is a bind and an enumeration, the ticket service reads a
-     repository's tree, the finalizer proposes and merges, and the importer
-     reads a bound repository's configuration. The API's image refuses to start
-     on a key it cannot sign with, so that mount is a start-up dependency of a
-     pod running now; the other three are pinned to images from before they
-     minted anything, and the release that rolls them is what makes those
-     mounts live — merging a manifest that takes their old credentials away
-     ahead of that release leaves each with a configuration its running image
-     refuses.
-   - `chuggy-github-app-worker`, the worker App's, in
-     `chuggy-worker-plane.yaml`, which holds its command, and in
-     `chuggy-api.yaml`. The plane mints an attempt's or a session's git
-     credential from it — the worker App and not the portal one because the
-     ruleset a bound repository's owner must set, which "Adding a repository"
-     above states, admits the portal App integration to a protected `main`, and
-     a work attempt's credential is `contents: write`.
-     The API holds it to verify a tenant's claim of a worker-App installation:
-     it reads that installation as the App and mints an installation-wide
-     `read` token to enumerate the installation's repositories. Nothing for an
-     act there — no clone, no push, no proposal — and a bind proves against the
-     portal claim. Neither pinned
-     image reads the names that point at this key, so until kasofsk/chuggy's
-     next release is pinned each pod mounts it and reads nothing from it.
+   The first prints a row for each of the three roles, and a missing row is a
+   name this database does not have: `-Atc` prints nothing and exits 0 for an
+   empty result, so without it a mistyped name and an absent grant look the
+   same. The second lists `chuggy_boundary_owner|chuggy_owner`,
+   `chuggy_selector_review|chuggy_api_login` and
+   `chuggy_configuration_importer|chuggy_configuration_importer_login` among
+   its rows.
+2. **Start the first release**, as [Operating a release](#operating-a-release)
+   does. Its Job migrates the database as soon as the release is published.
+3. **The artifact directory is the host's.** `chuggy.state.artifacts.path`
+   names it and the state module creates it, with the owner and mode its
+   options state. `cluster/apps/chuggy-artifacts.yaml` binds
+   `/var/lib/chuggy/artifacts`, which is what both hosts here set. The claim
+   going `Bound` says nothing of the directory, because binding is two API
+   objects agreeing; `test -d` on the node does.
+4. **See that PostgreSQL accepts what the Secret holds.** A green
+   `chuggy-secrets-sync` proves the host and the cluster hold one value and
+   nothing about the server. The roles file re-issues every password it names,
+   so a run of it with values other than `chuggy-postgres-credentials` holds
+   leaves each pod refused at its next start. Authenticate as each login that
+   Secret has a key for before step 2.
+5. **Make the control plane's Secrets that no unit generates**, by hand. A
+   value never goes in this repository, which is public. The manifest named
+   carries the command and argues it: `chuggy-selector` in
+   `chuggy-selector.yaml`, `chuggy-finalizer-credentials` in
+   `chuggy-finalizer.yaml`, `chuggy-github-app-portal` and
+   `chuggy-github-app-portal-client` in `chuggy-api.yaml`, and
+   `chuggy-github-app-worker` in `chuggy-worker-plane.yaml`. The two Apps' keys
+   are the host's own key files, copied: `keySecret` beside each App's
+   `privateKeyFile` on the host is the name, and `tests/forge-app-key.py`
+   holds the manifests to it. A pod whose Secret is missing is never built,
+   under one of two names: a `secretKeyRef` env gives
+   `CreateContainerConfigError`, a mounted Secret gives `ContainerCreating` on
+   a `FailedMount`.
 6. **Establish the first recovery epoch**, as a Secret and a row that carry the
    same value. `chuggy-recovery-epoch` is read by both the scheduler and the
    finalizer, and the row is what they fence against; no migration writes it,
    because the table is created empty. `chuggy-finalizer.yaml` carries the two
-   commands. The value is generated, never written down here: `schema.ts`
-   requires an epoch be unpredictable and never reused, and a literal in a
-   public repository is neither.
-
-### What does not work yet, and why
-
-- **The lead now runs and decides, and nothing it dispatches is delivered.**
-  Both of the preconditions that kept the selector at zero replicas are
-  answered: it mints its own token from Hydra rather than being handed one, and
-  `selector-policy` — which asked a trusted policy service nothing ever
-  implemented — is retired along with the protocol by kasofsk/chuggy#503,
-  because the project's lead decides in its place. A decision becomes a turn on
-  that lead's mailbox, which is the database this pod already connects to, so
-  nothing was added to `chuggy-selector-egress` for it. Release 18 was blocked
-  by a closed lead row; release 19 carries the migration that makes a project
-  take a successor, and on the rig it did — the lead opened itself, filed and
-  released derived work, and staged three dispatches in one decision. What stops
-  them now is one row's initial state: `enforce_selector_proposal_initial_state`
-  reads `selector_runtime_settings.dispatch_mode`, which is the
-  **installation's** mode and is `ApprovalRequired`, so every delivery is stamped
-  `AwaitingApproval` however a project's own `dispatchMode` reads — and the
-  image serves no route that approves one. Both halves are chuggy's, not this
-  repository's, and neither is a manifest: nothing here can set the installation
-  mode either.
-- **The finalizer promotes onto this cluster's own git and nothing external.**
-  Its remote is `rig.git` in `chuggy-git`, and `chuggy-finalizer-egress` admits
-  that one pod on its own 8080 and no longer admits the public internet at all --
-  the URL names the Service's 80, but a `NetworkPolicy` port is the destination
-  pod's. All
-  four of its preconditions are answerable here: `git-available` runs `git
-  --version` and the tag above carries git 2.47.3, checked by running it in a pod
-  rather than read off the Dockerfile; a writable scratch and a writable artifact
-  root are the volumes `chuggy-finalizer.yaml` declares over prerequisite 3's
-  host directory; and `repository-credentials-available` reads prerequisite 5's
-  Secret, which only has to be readable — it is never validated against a remote.
-- **Nothing binds a repository yet, so a healthy finalizer idles.**
-  `finalization_request` is empty, so the credential makes the process ready
-  without making it do anything. Loading an external repository is later work and
-  wants D31's short-lived minting.
-- **The scheduler places nothing, and until the tag above it could not start at
-  all.** Migrations 12 and 15 were edited after this rig applied them, so
-  `execution` here carries none of the five requirement columns the code reads
-  while the ledger still says 18 — and the ledger compares a version and a name,
-  so `schema-compatible` passed and the first quantum failed `column
-  e.requirement_identity does not exist`. Migration 19 in the tag above is what
-  adds them; kasofsk/chuggy#255 is where it is argued.
-- **A scheduler whose loop dies says nothing, which is worth knowing before
-  reading a log.** That failure was recorded in the runtime's own `health()` and
-  read by no root: the process exited **0** with an **empty log**, so `kubectl
-  get pods` said `Completed` and restarted it, thirteen times here. An empty log
-  on a control-plane pod is therefore not evidence that nothing happened. The
-  fix is chuggy's and is not in this repository.
-- **Placement is still refused, by design.** The execution policy names a
-  profile the worker image list does not admit, so `kubernetesWorkerPodRequest`
-  answers `Denied` with `ExecutionProfileUnavailable` before it builds a request
-  — no placement is submitted and the credential is never reached. That
-  credential could not create a worker pod if it were: `kubectl auth can-i
-  create pods -n chuggy-work
-  --as=system:serviceaccount:chuggy:chuggy-scheduler` answers no. The worker
-  namespace, its RBAC, the image allowlist and the resource budgets are the next
-  stage's.
+   commands. The value is generated, never written down here.
 
 ### Storage, and what it does and does not survive
 

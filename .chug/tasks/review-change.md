@@ -40,8 +40,7 @@ what it leaves for `nix flake check`. Read it there.
 
 Name in your verdict the `nix flake check` entries the change still needs run,
 reading them off `flake.nix`, because a passing check stage covers none of
-them. A change to `scripts/` is the sharp case: the check stage reads none of
-them and exits 0 while the tests that hold them never ran.
+them.
 
 **Read; do not run.** Whether the change is *correct* is the part no gate can
 decide, and it is the whole reason a reviewer is worth the time. If you believe
@@ -52,32 +51,26 @@ a check would fail, say which one and why, and let it be run.
 The rules you reject by number. Each is stated elsewhere in this tree; read it
 at its home, and where this table and a home disagree, the home is right.
 
-1. **Generated files are generated.** A build request under `builds/` comes
-   from `scripts/render-build-request`, and a hand-edited one is a finding
-   whatever it says. A release is generated into no file here: an image
-   digest, a source commit or a commit in the migrate Job's name written
-   under `cluster/chuggy-migrate` or `cluster/chuggy` is a finding. Stated in
+1. **A release is generated into no file here.** An image digest, a source
+   commit or a commit in the migrate Job's name written under
+   `cluster/chuggy-migrate` or `cluster/chuggy` is a finding. Stated in
    `AGENTS.md`.
-2. **A build request is immutable.** It pins a full source commit, and is
-   retried or retired with `scripts/retry-build-request` and
-   `scripts/retire-build-request` rather than edited in place. Stated in
-   `AGENTS.md`; the procedure is `docs/build-operations-runbook.md`.
-3. **A machine's facts live in `hosts/`, shared behaviour in `modules/`.** A
+2. **A machine's facts live in `hosts/`, shared behaviour in `modules/`.** A
    value only one box could want, sitting in `modules/`, is a finding. Stated
    in `AGENTS.md`.
-4. **A required input is refused, not guessed.** A module that needs a host to
+3. **A required input is refused, not guessed.** A module that needs a host to
    supply something asserts on its absence, and the assertion lands with the
    `flake.nix` check that names it — because a module which quietly grew a
    default still evaluates, and the check is what notices. Stated in `README.md`
    under "What an adopting machine has to say".
-5. **Credentials stay out of Git.** References, projections and delivery
+4. **Credentials stay out of Git.** References, projections and delivery
    mechanisms are committed; a private key or a token value never is, and a
    token is never printed or left in the worktree. Stated in `AGENTS.md`; the
    mechanism is `modules/github-app-token.nix`.
-6. **The two GitHub Apps keep their split.** Chuggy Portal holds control-plane
+5. **The two GitHub Apps keep their split.** Chuggy Portal holds control-plane
    and finalizer authority; Chuggy Worker holds execution authority and must
    not be given the other. Stated in `AGENTS.md`.
-7. **Nothing here applies anything.** A change that patches a live object,
+6. **Nothing here applies anything.** A change that patches a live object,
    reconciles, rebuilds, switches or restarts in place of a Git change is a
    finding. Stated in `AGENTS.md`.
 
