@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Refuse a Flux install that lets another namespace post to the event intake.
+"""Hold what the checked-in Flux install has that an export of Flux does not.
+
+A rule that keeps another namespace from the event intake, and an argument
+that keeps k3s from owning what a layer applies. Each is this repository's and
+not the export's, so each goes back after every export.
 
 THE FAILURE. notification-controller delivers an event posted to its intake to
 every Provider an Alert routes it to, signed with the Provider's key where it
@@ -35,6 +39,20 @@ WHAT THIS CANNOT SEE. That the binary listens where its pod declares, and that
 the cluster enforces a NetworkPolicy at all. And two callers no policy stops:
 k3s's enforcer accepts whatever the pod's own node sends before it reads any
 policy, which is every process on that host and every pod on its network.
+
+A FIELD TAKEN OUT OF A LAYER STAYS ON THE CLUSTER WHERE K3S ONCE APPLIED THE
+OBJECT. k3s applies what a host links into its manifests directory as the
+field manager `deploy@` and the node's name, and goes on owning those fields
+after the object is declared somewhere else. kustomize-controller applying
+that object from cluster/flux/ is then one owner of two: it drops a field the
+declaration no longer has, the other owner still holds it, the value stays and
+the apply says `unchanged`. So kustomize-controller is started with
+`--override-manager=deploy@`, which has it take for itself, on every object it
+applies, what a manager of that prefix holds. That acts on what
+kustomize-controller applies and nothing else, so what k3s still applies --
+the install, the two sources and the root -- stays k3s's. An object declared
+to both would be taken from k3s at each apply of its layer, and this does not
+look for one.
 """
 
 import json
@@ -45,6 +63,9 @@ from urllib.parse import urlsplit
 import yaml
 
 EVENTS = "--events-addr="
+APPLIER = "kustomize-controller"
+OVERRIDE = "--override-manager"
+K3S = "deploy@"
 RECEIVER = "webhook-receiver"
 POLICY = "allow-webhooks"
 
@@ -247,10 +268,26 @@ def main():
                     f"intake: {shown(rule)}"
                 )
 
+    overridden = [
+        argument
+        for container in one(documents, "Deployment", namespace, APPLIER)["spec"][
+            "template"
+        ]["spec"]["containers"]
+        for argument in container.get("args") or []
+        if argument.split("=")[0] == OVERRIDE
+    ]
+    if overridden != [f"{OVERRIDE}={K3S}"]:
+        refuse(
+            f"`{APPLIER}` is started with {shown(overridden)} where "
+            f"{shown([f'{OVERRIDE}={K3S}'])} is held. Without it a field taken "
+            f"out of a layer k3s once applied stays on the cluster; the export "
+            f"does not write it, so it goes back after every export"
+        )
+
     print(
         f"flux-components: `{POLICY}` admits every namespace to the webhook "
-        f"receiver on {receiver} and no policy admits one to the event intake "
-        f"on {intake}"
+        f"receiver on {receiver}, no policy admits one to the event intake on "
+        f"{intake}, and `{APPLIER}` overrides the manager `{K3S}`"
     )
 
 

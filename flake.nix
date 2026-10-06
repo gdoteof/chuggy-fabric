@@ -353,8 +353,9 @@
         flux-release-source = fluxReleaseSource self.nixosConfigurations.gtr;
 
         # The Flux install gtr hands k3s, on who its NetworkPolicies let post
-        # to notification-controller. The file is the module's and no host's,
-        # so one host reads it for all.
+        # to notification-controller and on whose fields kustomize-controller
+        # is started to take over. The file is the module's and no host's, so
+        # one host reads it for all.
         flux-components = fluxComponents self.nixosConfigurations.gtr;
 
         # What a build stands on and no render shows; the file says which.
