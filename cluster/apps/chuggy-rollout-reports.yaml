@@ -19,13 +19,12 @@
 #
 # APPLIED BY `apps`, NOT BY THE RELEASE THEY REPORT. Under `cluster/chuggy`
 # these would reach a cluster with a release and go with one taken back to
-# before them, and a first release whose migration failed would never apply
-# the Alert that says so. Here they are applied before either layer runs,
-# beside the namespace, which is this layer's too. A Provider and an Alert of
-# this version have no status, so neither is ever not ready and this layer's
-# `wait` holds nothing on them. Where the host has not made the Secret yet the
-# layer is Ready all the same, and each event selected is a Warning on its
-# Alert until it has.
+# before them. Here they are applied before either layer runs, beside the
+# namespace, which is this layer's too. A Provider and an Alert of this
+# version have no status, so neither is ever not ready and this layer's `wait`
+# holds nothing on them. Where the host has not made the Secret yet the layer
+# is Ready all the same, and each event selected is a Warning on its Alert
+# until it has.
 #
 # THE ADDRESS IS THE API'S SERVICE AND NOT ITS PUBLIC NAME. The release
 # pipeline's `report` task posts to `chuggy.vteng.io` because nothing admits a
@@ -50,10 +49,6 @@
 # with the status and the answer:
 #
 #     kubectl -n chuggy get events --field-selector involvedObject.kind=Alert
-#
-# A layer taken out of `cluster/flux` is deleted by the root before this layer
-# takes its Alert away, and an error while it is deleted reads as the failure
-# of the commit it last applied. Its Alert goes a commit earlier.
 #
 # tests/action-reporters.py resolves each name here against what it has to
 # match.
