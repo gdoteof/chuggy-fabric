@@ -41,7 +41,9 @@
 # `fabric-release` is `fabric` read again -- the same repository, branch,
 # interval and credential -- with `spec.ignore` keeping only the files under
 # cluster/chuggy-migrate/ and cluster/chuggy/, so it is a host's to state for
-# the reason `fabric` is. No Kustomization reads it. The root applies a
+# the reason `fabric` is. No Kustomization reads it: the release trigger in
+# cluster/build-system/ compares its artifact's digest with what the newest
+# release run was started for. The root applies a
 # directory of `fabric`, cluster/flux/, and every Kustomization that reads
 # that source is declared there, a layer each. What a layer applies,
 # what it depends on and how its health is read are the same on every host that
@@ -121,9 +123,10 @@ let
       # A layer whose declaration leaves the path is deleted, and what it had
       # applied goes by that layer's own deletionPolicy.
       prune: true
-      # The path holds Kustomization objects and nothing else. Waiting on them
-      # would make this one unready whenever any layer is, and `builds` is
-      # unready for as long as a failed BuildRun stays declared.
+      # The path holds the layers and two sources. Waiting on them would make
+      # this one unready whenever any of them is: `builds` is unready for as
+      # long as a failed BuildRun stays declared, and a source for as long as
+      # it has no artifact.
       wait: false
       # k3s deletes an object that leaves this manifest. The default policy
       # mirrors `prune`, so this object deleted would delete every layer, and a
@@ -177,8 +180,8 @@ in
       default = "./cluster/flux";
       description = ''
         Directory inside the repository declaring the layers, one Flux
-        Kustomization object each and nothing else. The root applies it; each
-        layer names the directory it applies.
+        Kustomization object each, and the two sources of a release. The root
+        applies it; each layer names the directory it applies.
       '';
     };
 

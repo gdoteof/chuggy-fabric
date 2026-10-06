@@ -142,6 +142,9 @@
       fluxReleaseSource = host:
         import ./tests/flux-release-source.nix { inherit pkgs host; };
       buildPlatform = import ./tests/build-platform.nix { inherit pkgs; };
+      releasePipeline = import ./tests/release-pipeline.nix { inherit pkgs; };
+      releaseTrigger = import ./tests/release-trigger.nix { inherit pkgs; };
+      releasePublish = import ./tests/release-publish.nix { inherit pkgs; };
       buildRequests = import ./tests/build-requests.nix { inherit pkgs; };
       awaitBuildResults = import ./tests/await-build-results.nix { inherit pkgs; };
       buildResults = import ./tests/build-results.nix { inherit pkgs; };
@@ -421,6 +424,20 @@
         # them for all.
         flux-release-source = fluxReleaseSource self.nixosConfigurations.gtr;
         build-platform = buildPlatform;
+
+        # The release pipeline, which nothing starts while its trigger is
+        # suspended: what its manifests give a pod and what they keep from
+        # one, and everything a first run would otherwise be the one to find.
+        release-pipeline = releasePipeline;
+
+        # The trigger's decision, every line of it, by the script its pod
+        # mounts against an API server that is a file.
+        release-trigger = releaseTrigger;
+
+        # And what a run publishes: the overlay over this repository's own two
+        # release directories, what it may change and must, and the version
+        # it may be pushed under.
+        release-publish = releasePublish;
 
         # What a source's build request is, and what it is answered with: the
         # document the command a source ticket runs files, and one build per

@@ -1,4 +1,5 @@
-# The layers Flux reconciles this cluster in, one Kustomization object each.
+# The layers Flux reconciles this cluster in, one Kustomization object each,
+# and in sources.yaml the two sources of a release.
 #
 # `modules/flux.nix` generates the source every layer reads and one root
 # Kustomization, both named `fabric`, and the root applies this directory. So a
@@ -20,3 +21,4 @@ resources:
   - builds.yaml
   - chuggy-migrate.yaml
   - chuggy.yaml
+  - sources.yaml

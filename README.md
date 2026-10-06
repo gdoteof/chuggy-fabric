@@ -36,7 +36,8 @@ only by their own directory.
 
     cluster/flux-system/            the vendored Flux install
     cluster/flux/                   what Flux reconciles from this repo, one
-                                    Kustomization each
+                                    Kustomization each, and the two sources
+                                    of a release
     cluster/apps/                   the cluster state the `apps` layer
                                     applies: no part of a chuggy release
     cluster/apps/kustomization.yaml the enumeration of that state, and the
@@ -644,7 +645,8 @@ Flux reconciles three independent paths from the host-selected fabric source,
 each declared in `cluster/flux/`:
 `cluster/build-prerequisites/` installs pinned certificate management,
 `cluster/build-system/` installs pinned Tekton and Shipwright controllers plus
-the fabric-owned BuildKit strategy, and `builds/` contains immutable requests.
+the fabric-owned BuildKit strategy and the [release pipeline](#the-release-pipeline),
+and `builds/` contains immutable requests.
 The dependency chain makes the request CRDs available before Flux applies a
 request. Flux reports `BuildRun` failure through its `Succeeded` condition; it
 does not run BuildKit itself.
@@ -831,6 +833,44 @@ retirement preserve the immutable request and durable provenance. The
 [build operations runbook](docs/build-operations-runbook.md) gives the ordered
 commands, retention boundary, and failure ownership.
 
+### The release pipeline
+
+`cluster/build-system/` also declares a second way to a release, which no layer
+reads yet: `chuggy-migrate` and `chuggy` are still the two Git directories, and
+the trigger below is declared suspended.
+
+A `PipelineRun` of `chuggy-release` in `chuggy-build` takes two repositories and
+two full commit hashes and nothing else. It builds chuggy's API and console
+images at the chuggy commit with rootless BuildKit, reusing an image the
+registry already serves under that commit's tag, and then publishes one OCI
+artifact to `chuggy/release` in the cluster's registry: the fabric commit's
+`cluster/chuggy-migrate` and `cluster/chuggy`, and beside them
+`release/chuggy-migrate` and `release/chuggy`, two generated kustomize overlays
+that write the two digests, the source-commit annotation and the migrate Job's
+name. `OCIRepository` `chuggy-release` selects the highest version published.
+No task pod mounts a ServiceAccount token, and no policy gives one a route to
+the API server.
+
+The `release-trigger` CronJob, in a namespace of its own, is the one part that
+reads the API server. Each time it runs it compares what `GitRepository`
+`chuggy` and `fabric-release` hold with the newest run and creates at most one,
+from `release-run.yaml`. While it is suspended a person runs that same
+comparison once:
+
+    kubectl -n chuggy-release-trigger create job --from=cronjob/release-trigger by-hand-1
+
+The scripts a pod runs are files beside the manifests — `fetch.sh`, `build.sh`,
+`publish.sh` and `trigger.sh` — and each argues its own rules in its header.
+`tests/release-trigger.nix`, `tests/release-publish.nix` and
+`tests/release-pipeline.nix` run those bytes and hold the manifests.
+
+`worker-image-run.yaml` is a `TaskRun` of the same `build-image` Task that
+builds the worker image at a chuggy commit. Flux applies neither it nor
+`release-run.yaml`; an operator writes the commit into it and creates it:
+
+    sed 's/@chuggy-commit@/<full commit hash>/' cluster/build-system/worker-image-run.yaml |
+      kubectl create --filename -
+
 ## Ingress
 
 Public traffic arrives through a **Cloudflare Tunnel**, not a port-forward. The
@@ -955,7 +995,9 @@ root applies `cluster/flux/`, where each part of this repository Flux
 reconciles is declared as its own `Kustomization` — `apps`, `chuggy-migrate`,
 `chuggy`, `build-prerequisites`, `build-system` and `builds` — so what Flux
 reconciles from it, and in what order, is changed by a commit and not by a host
-rebuild. The controller install is a checked-in manifest too,
+rebuild. `cluster/flux/sources.yaml` declares the two sources of a release that
+are the same on every host: `GitRepository` `chuggy`, and `OCIRepository`
+`chuggy-release`. The controller install is a checked-in manifest too,
 because that is a vendored upstream artifact identical on every adopter. A box
 being brought up, or one being used to try a change, has to be able to follow
 something other than whatever the shared branch holds at that moment, and a

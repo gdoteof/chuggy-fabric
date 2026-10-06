@@ -1,0 +1,47 @@
+# The two sources of a release that are declared by a commit, beside the
+# layers.
+#
+# HERE AND NOT IN A LAYER, because the root that applies this directory waits
+# on nothing: a source with no artifact yet holds nothing else up. In a layer
+# it would be that layer's health.
+#
+# `modules/flux.nix` generates the other two, `fabric` and `fabric-release`,
+# because which repository a host follows is a host input.
+---
+# chuggy's `main`. No layer applies it: the release trigger reads the commit
+# it holds, in cluster/build-system/trigger.sh. The repository is public, so
+# it names no Secret.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: chuggy
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: https://github.com/kasofsk/chuggy.git
+  ref:
+    branch: main
+---
+# The releases cluster/build-system/publish.sh pushes, of which this holds the
+# highest.
+#
+# NO LAYER READS IT. `chuggy-migrate` and `chuggy` read git, and
+# tests/flux-layers.py holds them to it.
+#
+# THE RANGE IS EVERY VERSION. Of the tags that are semantic versions it takes
+# the highest; a tag that is not one, which a commit's own tag is not, is
+# passed over. A release is pinned by a commit that adds `ref.digest`, which
+# is read before `ref.semver`.
+#
+# `insecure` because the registry is plain HTTP, reached by its Service name.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: chuggy-release
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: oci://registry.chuggy-registry.svc.cluster.local:5000/chuggy/release
+  insecure: true
+  ref:
+    semver: "*"

@@ -1,0 +1,57 @@
+# One run of the release pipeline, and the only manifest for one.
+#
+# NOT APPLIED. It is not in kustomization.yaml's `resources`: Flux applying a
+# run would start one at every reconcile. The generator there puts this file
+# in the trigger's ConfigMap, trigger.sh writes five values into it and
+# creates it, and a person who starts a run does it through that script, by
+# `kubectl create job --from=cronjob/release-trigger` in
+# `chuggy-release-trigger`. So a run has one shape whoever started it.
+#
+# EACH `@name@` IS A VALUE THE TRIGGER READ off a Flux source. The four
+# parameters are everything the pipeline is told. The annotations are what
+# the next comparison reads this run by: the chuggy commit and the digest of
+# the fabric's two release directories. The fabric commit is there for a
+# reader; nothing compares it.
+#
+# WHAT A RUN IS PLACED BY IS HERE, and so no Task says it. Every pod of the
+# run goes to a builder node, tolerating the taint a dedicated one carries,
+# and runs as `builder` with no token mounted: said here as well as on the
+# ServiceAccount, so that neither alone decides it.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: chuggy-release-
+  namespace: chuggy-build
+  annotations:
+    fabric.chuggy.dev/chuggy-commit: "@chuggy-commit@"
+    fabric.chuggy.dev/manifests-digest: "@manifests-digest@"
+    fabric.chuggy.dev/manifests-commit: "@manifests-commit@"
+spec:
+  pipelineRef:
+    name: chuggy-release
+  params:
+    - name: chuggy-url
+      value: "@chuggy-url@"
+    - name: chuggy-commit
+      value: "@chuggy-commit@"
+    - name: manifests-url
+      value: "@manifests-url@"
+    - name: manifests-commit
+      value: "@manifests-commit@"
+  # What bounds a run that hangs. Until it elapses the trigger reads the run
+  # as unfinished and starts nothing.
+  timeouts:
+    pipeline: 1h
+  taskRunTemplate:
+    serviceAccountName: builder
+    podTemplate:
+      automountServiceAccountToken: false
+      nodeSelector:
+        chuggy.dev/node-role: builder
+        kubernetes.io/os: linux
+        kubernetes.io/arch: amd64
+      tolerations:
+        - key: chuggy.dev/node-role
+          operator: Equal
+          value: builder
+          effect: NoSchedule
