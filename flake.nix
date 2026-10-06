@@ -141,6 +141,8 @@
       fluxLayers = host: import ./tests/flux-layers.nix { inherit pkgs host; };
       fluxReleaseSource = host:
         import ./tests/flux-release-source.nix { inherit pkgs host; };
+      fluxComponents = host:
+        import ./tests/flux-components.nix { inherit pkgs host; };
       buildPlatform = import ./tests/build-platform.nix { inherit pkgs; };
       releasePipeline = import ./tests/release-pipeline.nix { inherit pkgs; };
       releaseTrigger = import ./tests/release-trigger.nix { inherit pkgs; };
@@ -430,6 +432,11 @@
         # that narrow it are the module's and no host's, so one host reads
         # them for all.
         flux-release-source = fluxReleaseSource self.nixosConfigurations.gtr;
+
+        # The Flux install gtr hands k3s, on who its NetworkPolicies let post
+        # to notification-controller. The file is the module's and no host's,
+        # so one host reads it for all.
+        flux-components = fluxComponents self.nixosConfigurations.gtr;
         build-platform = buildPlatform;
 
         # The release pipeline, which nothing starts while its trigger is

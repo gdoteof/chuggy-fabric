@@ -35,7 +35,8 @@
 # the repository instead of a property of the host, and the only way to change
 # it was to edit a file every host reads. The controller install stays a
 # checked-in file: it is a vendored upstream artifact, identical on every
-# adopter, and generating it would mean owning a copy of Flux's installer.
+# adopter, and generating it would mean owning a copy of Flux's installer. One
+# rule in it is not the export's: tests/flux-components.py holds it and says why.
 #
 # THAT REASON COVERS THE TWO SOURCES AND ONE ROOT, AND STOPS THERE.
 # `fabric-release` is `fabric` read again -- the same repository, branch,

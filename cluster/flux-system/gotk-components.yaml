@@ -53,6 +53,12 @@ spec:
   policyTypes:
   - Ingress
 ---
+# NOT AS EXPORTED. Flux v2.6.4 writes this rule with no `ports`, which admits
+# every namespace to notification-controller on every port; its own export
+# carries these `ports` from v2.9.4 (fluxcd/flux2#6028). Until the install is
+# that or later they are this repository's: tests/flux-components.py holds them
+# and says what they keep out, and an older export vendored over this file is
+# refused there.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -66,6 +72,9 @@ spec:
   ingress:
   - from:
     - namespaceSelector: {}
+    ports:
+    - port: 9292
+      protocol: TCP
   podSelector:
     matchLabels:
       app: notification-controller
