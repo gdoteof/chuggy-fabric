@@ -377,7 +377,7 @@ spec:
               value: /dumps
             # How many dumps the volume holds once this one is written.
             - name: CHUG_DUMP_KEEP
-              value: "30"
+              value: "200"
             # The Job controller labels the pod with the Job's name, and the
             # files are named for it: a dump says which release took it.
             - name: CHUG_DUMP_JOB

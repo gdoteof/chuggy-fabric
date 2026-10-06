@@ -649,7 +649,8 @@ def retention(environment, job):
     keep = int(environment["CHUG_DUMP_KEEP"])
     # As many archives stamped after this run as the count: a retention that
     # read "newest" off the names alone would keep these and remove its own.
-    later = [f"20990101T0000{n:02d}Z-chuggy-migrate-later{n}" for n in range(keep)]
+    start_of_2099 = calendar.timegm((2099, 1, 1, 0, 0, 0))
+    later = [f"{stamped(start_of_2099 + n)}-chuggy-migrate-later{n}" for n in range(keep)]
     earlier = [f"202001{n:02d}T000000Z-chuggy-migrate-earlier{n}" for n in range(1, 4)]
     for base in later + earlier:
         seed(directory, base)
