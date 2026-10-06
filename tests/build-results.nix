@@ -16,9 +16,5 @@ pkgs.runCommand "chuggy-build-results" {
   patchShebangs scripts-under-test
   set -u
   python3 ${./build-results.py} "$root" "$PWD/scripts-under-test"
-  # The README names the timer a reader would go looking for, and a unit named
-  # in prose and nowhere else is the way that sentence goes stale.
-  grep -F 'chuggy-build-results-publish.timer' "$root/README.md" >/dev/null
-  grep -F 'systemd.timers.chuggy-build-results-publish' "$root/modules/build-provenance.nix" >/dev/null
   touch "$out"
 ''

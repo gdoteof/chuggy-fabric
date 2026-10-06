@@ -17,29 +17,6 @@ let
       keySecret = lib.mkOption { type = lib.types.str; };
     };
   };
-  repositoryModule = lib.types.submodule {
-    options = {
-      repository = lib.mkOption { type = lib.types.str; };
-      portalInstallationId = lib.mkOption { type = lib.types.str; };
-      buildReaderSecret = lib.mkOption { type = lib.types.str; };
-    };
-  };
-  # The one token a repository this site builds images for needs: the
-  # basic-auth credential Shipwright clones its source with. A pod that acts on
-  # a repository mints for itself from the App key it mounts, so no token here
-  # is a pod's. Which App mints it is the split AGENTS.md states and is not a
-  # per-repository choice: the Portal App, reading.
-  repositoryTokens = name: repository: {
-    "build-reader-${name}" = {
-      inherit (cfg.apps.portal) appId privateKeyFile;
-      installationId = repository.portalInstallationId;
-      inherit (repository) repository;
-      permission = "read";
-      secretName = repository.buildReaderSecret;
-      namespaces = [ "chuggy-build" ];
-      secretFormat = "git-basic-auth";
-    };
-  };
   tokenModule = lib.types.submodule {
     options = {
       appId = lib.mkOption { type = lib.types.str; };
@@ -172,27 +149,14 @@ in
   options.chuggy.githubAppTokens = {
     enable = lib.mkEnableOption "GitHub App installation-token delivery";
     # The Apps this machine holds keys for, by the role AGENTS.md gives each,
-    # where it keeps them and which Secret each is handed to a pod through.
-    # This module mints under the portal App alone; the worker App is declared
-    # here because a pod that mounts its key names its id and the Secret that
-    # key arrives in, and `tests/forge-app-key.py` holds both against this.
+    # where it keeps them and which Secret each is handed to a pod through. A
+    # pod that mounts a key names its App's id and the Secret that key arrives
+    # in, and `tests/forge-app-key.py` holds both against this.
     apps = lib.mkOption {
       type = lib.types.attrsOf appModule;
       default = { };
     };
-    # The repositories whose sources this host mints a clone credential for,
-    # which is `repositories.nix` passed through. It exists beside `tokens`
-    # below so that a repository is an entry rather than a block: what differs
-    # between two of them is an installation id, a Secret name and the
-    # repository the rendered script requests.
-    repositories = lib.mkOption {
-      type = lib.types.attrsOf repositoryModule;
-      default = { };
-    };
-    # What is actually delivered. A host may write one directly -- a token that
-    # is no repository's clone credential, the way gtr writes the one its build
-    # provenance is published with -- and every entry of `repositories` above
-    # arrives here.
+    # What is delivered, an entry each.
     tokens = lib.mkOption {
       type = lib.types.attrsOf tokenModule;
       default = { };
@@ -228,12 +192,7 @@ in
   config = lib.mkIf cfg.enable {
     assertions = [
       { assertion = cfg.tokens != { }; message = "chuggy.githubAppTokens.tokens is empty"; }
-      {
-        assertion = cfg.repositories == { } || cfg.apps ? portal;
-        message = "chuggy.githubAppTokens.apps does not name portal";
-      }
     ];
-    chuggy.githubAppTokens.tokens = lib.concatMapAttrs repositoryTokens cfg.repositories;
     systemd.services = services;
     systemd.timers = timers;
   };

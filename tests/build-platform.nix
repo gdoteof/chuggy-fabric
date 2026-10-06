@@ -347,7 +347,6 @@ pkgs.runCommand "chuggy-build-platform" {
   fi
 
   grep -F 'kustomize-controller:v1.6.1@sha256:1a50730537bafb7827365b9af95c4eb71ca3d9b0bed9bc9bc765880e976972ef' "$root/cluster/flux-system/gotk-components.yaml" >/dev/null
-  grep -F 'chuggy-build-attempt-alerts' "$root/modules/build-provenance.nix" >/dev/null
   grep -F 'No command in this flow deletes registry content' "$root/docs/build-operations-runbook.md" >/dev/null
   touch "$out"
 ''

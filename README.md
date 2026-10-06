@@ -16,7 +16,6 @@ only by their own directory.
 
     flake.nix                       one nixosConfiguration per host, and the checks
     flake.lock                      the pin — commit every change to it
-    repositories.nix                the repositories whose images this site builds
 
     modules/common.nix              identity, access, packages, nix settings
     modules/node-prep.nix           k8s prerequisites, workstation teardown
@@ -426,13 +425,10 @@ whole map in one place.
 ### GitHub App credentials
 
 `chuggy.githubAppTokens` mints repository-scoped installation tokens into
-managed Kubernetes Secrets. Two things are minted here and only one of them is
-per repository: `repositories.nix` gives an entry one token, the read-only Git
-basic-auth credential Shipwright clones that repository's source with, and a
-host declares by hand whatever further tokens it needs for what it does itself
-— the publish token `chuggy.buildProvenance.publish` pushes build results under
-is the only one. A host says which Apps mint them and where their keys are; the
-keys remain root-only host state outside this repository and the Nix store.
+managed Kubernetes Secrets, one for each entry of `tokens` a host declares. No
+host here declares one or enables the delivery: gtr states the two Apps and
+where their keys are, which `tests/forge-app-key.py` reads, and the keys remain
+root-only host state outside this repository and the Nix store.
 
 No pod is handed a repository's credential on a forge: the api, the ticket
 service, the finalizer and the importer each mount a GitHub App's private key
@@ -440,9 +436,10 @@ and mint for the act they are performing, and a work pod's is minted for it by
 the worker plane. The exception is this cluster's own git service, which no App
 covers — `chuggy-git-worker` is mounted into work and session pods and named in
 the one row of the scheduler's repositories map, and `chuggy-finalizer-credentials`
-is the finalizer's for `rig.git`. Both are made by hand. After switching the host configuration, verify the refreshers and
-Secrets — the unit is named for its entry, and the Secret carries the label the
-module puts on everything it manages:
+is the finalizer's for `rig.git`. Both are made by hand. On a host that does
+declare a token, verify the refreshers and Secrets after switching — the unit
+is named for its entry, and the Secret carries the label the module puts on
+everything it manages:
 
     systemctl list-units --all 'chuggy-github-app-token-*-refresh.service'
     kubectl get secret --all-namespaces -l chuggy.dev/managed-by=github-app-token
@@ -661,7 +658,9 @@ in `cluster/flux/`:
 `cluster/build-system/` installs pinned Tekton and Shipwright controllers plus
 the fabric-owned BuildKit strategy and the [release pipeline](#the-release-pipeline).
 `builds/` contains immutable requests and no layer applies it: what the rest of
-this section says of a request stops at the file, and none is built.
+this section says of a request stops at the file, and none is built. No host
+records a build or answers a request under `requests/` either; `results/` is
+what the recorder published while it ran.
 
 Render a request by supplying repository bindings rather than editing a
 project-specific template:
@@ -707,7 +706,7 @@ privilege escalation for user-namespace setup. A dedicated host can import
 
 A self-contained host instead imports `examples/mini-chuggy-node.nix` and
 renders requests with `--profile mini`. The `chuggy.mini` role enables k3s,
-durable state, secrets, images, work, provenance, Flux, and the builder label,
+durable state, secrets, images, work, Flux, and the builder label,
 but deliberately adds no builder taint: tainting the only node would exclude
 the ordinary workloads that make the deployment self-contained. Its distinct
 profile records that weaker, co-located security boundary and emits no
@@ -733,70 +732,13 @@ a schedulable amd64 builder carrying both the builder label and matching
 `NoSchedule` taint. Issue 28 remains open until an operator supplies this
 disposable topology and the gate completes successfully against a real cluster.
 
-Every attempt carries a provenance finalizer. A bounded recorder verifies a
-successful attempt's observed source commit and output digest, writes its
-result under `/var/lib/chuggy/build-results/<request-digest>/`, syncs the record
-and checksum, and only then releases the finalizer. Live TTL cleanup is disabled:
-deleting a `BuildRun` while its declaration remains under `builds/` would make
-Flux recreate the same attempt and execute it again. Cleanup work must persist
-provenance, retire the declaration from the live tree, observe Flux release its
-ownership, and only then delete the resource. The result directory is
-installation state and needs the same backup treatment as the registry and
-journal.
-
-A recorded result is also published into this repository.
-`chuggy-build-results-publish.timer` runs after the recorder on a host carrying
-`chuggy.buildProvenance.publish`, copies every record Git does not yet hold to
-`results/<repository-id>/<source-commit>/<request-digest>/<attempt>.json` beside
-its `.sha256`, and pushes to the branch `chuggy.flux` names. The bytes are the
-recorder's and the layout is `builds/`'s with the attempt added, so a result and
-the request it answers are one path apart. The push carries the GitHub App token
-`chuggy.buildProvenance.publish.tokenName` selects -- the finalizer's, because
-that branch's ruleset admits the portal App and repository admins. Nothing is
-rewritten and nothing is deleted: a record already in Git is compared and a
-mismatch reported rather than overwritten, and a run with nothing new commits
-nothing. `results/` is outside `cluster/`, so Flux applies none of it; a
-publication reaches the live branch and changes no object.
-`tests/build-results.nix` holds every committed record against the request in
-`builds/` it answers, and `tests/build-results-publish.nix` runs the publisher
-against a real repository.
-
-A source's change can ask for those builds rather than an operator rendering
-them, over a ticket of its own. That ticket runs `scripts/request-build` and
-lands what it wrote: one document at
-`requests/<repository-id>/<source-commit>/<request-digest>.json` naming the
-commit to build, the registry namespace, the builder profile and the platform,
-and no image at all, because which images a source builds is this site's fact
-and `scripts/build_sources.py` is where every value in that document is
-declared. One commit carries one request; the command refuses a second, for the
-reasons in its header. The same activation of that
-timer renders one Shipwright request per declared image through
-`scripts/render-build-request` -- the command an operator renders by hand with,
-so the path and the bytes are the same ones -- commits them under `builds/` for
-Flux to apply, and once every one of those builds has a recorded result writes
-`results/<repository-id>/<source-commit>/request-<request-digest>.json`, naming
-the builds it rendered and the results that answered them. That record is what
-`scripts/await-build-results` waits for, and a failed result completes it too.
-A request that record answers is inert from then on: the command reads the
-record before it renders anything, because `requests/` is never pruned and a
-command that decided by looking for the rendered manifest instead would re-render
-every request ever answered the day a declared value, a profile digest or the
-Shipwright version moved a digest. A build retried by an operator is left as it
-is. `tests/build-requests.nix` drives both commands over this repository's own
-builds and results, `tests/await-build-results.nix` drives the wait against a
-real remote, and `tests/build-results-publish-unit.nix`
-drives the consumer from the store copy of `scripts/` the publisher unit gtr
-builds names, with the PATH that unit exports. The ticket is in
-`docs/build-operations-runbook.md`.
-
 Nothing releases from these builds, and a build result changes no environment.
 A release builds its own images, and is [the release
 pipeline](#the-release-pipeline)'s.
 
-Failed and stalled attempts are reported by the host timer, and retry and
-retirement preserve the immutable request and durable provenance. The
-[build operations runbook](docs/build-operations-runbook.md) gives the ordered
-commands, retention boundary, and failure ownership.
+Retry and retirement preserve the immutable request and its recorded
+provenance. The [build operations runbook](docs/build-operations-runbook.md)
+gives the ordered commands as they were.
 
 ### The release pipeline
 
@@ -1235,46 +1177,11 @@ for this; the list and `ls` have to agree, and a reviewer is what makes them.
 
 A repository is bound to a project from the console, and nothing here changes:
 the binding lives in the database, and every credential a run needs is minted
-for the act that needs it from a GitHub App key the pod mounts. The one thing
-this repository still carries per repository is a build-reader token, and only
-for a repository whose images this site builds — the Git basic-auth Secret a
-Shipwright request clones its source with. kasofsk/chuggy is the only one.
-
-So what follows is for adding a repository *this site builds images for*. Add
-an entry to `repositories.nix` and rebuild the host; the entry mints one Secret,
-`<name>-build-source-read`, and the installation id in it is the portal App's
-installation on that repository's owner.
-
-The build requests under `builds/` are generated and immutable, and nothing
-derives one from the roster, so a request naming a repository the roster does
-not declare, or cloning with another repository's Secret, is what the check
-refuses:
+for the act that needs it from a GitHub App key the pod mounts. This repository
+carries nothing per repository, and one check holds that subtraction: it
+refuses a rendered cluster in which any pod projects a per-repository token.
 
     nix build .#checks.x86_64-linux.github-repository-transition
-
-It holds the requests to the roster in that direction only — an entry with no
-request yet is admissible — and it refuses a rendered cluster in which any pod
-projects a per-repository token at all, which is the subtraction above staying
-subtracted.
-
-**Rebuild the host before the first request that clones the new repository.**
-A `cloneSecret` no Secret answers is a BuildRun that fails at its source step,
-and the Secret is the host's to mint:
-
-1. Push the branch. It need not be merged yet — the flake reference below works
-   from any pushed commit.
-2. `nixos-rebuild switch` gtr from that pushed SHA:
-
-       sudo nixos-rebuild switch --flake github:gdoteof/chuggy-fabric/<full-commit-sha>#gtr
-
-3. Verify the Secret exists:
-
-       systemctl list-units --all 'chuggy-github-app-token-*-refresh.service'
-       kubectl get secret --all-namespaces -l chuggy.dev/managed-by=github-app-token
-
-4. Merge to `main`. Flux reconciles from `main` within its interval, and
-   gdoteof/chuggy-fabric is itself the repository Flux reconciles this cluster
-   from, so this same merge is what Flux then applies.
 
 One thing is not this repository's to do. The owner's repository needs a ruleset
 that reserves updates to its default branch to the portal App integration and
