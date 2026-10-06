@@ -848,7 +848,8 @@ artifact to `chuggy/release` in the cluster's registry: the fabric commit's
 `release/chuggy-migrate` and `release/chuggy`, two generated kustomize overlays
 that write the two digests, the source-commit annotation and the migrate Job's
 name. `OCIRepository` `chuggy-release` selects the highest version published.
-No task pod mounts a ServiceAccount token or has a route to the API server.
+No task pod mounts a ServiceAccount token, and no policy gives one a route to
+the API server.
 
 The `release-trigger` CronJob, in a namespace of its own, is the one part that
 reads the API server. Each time it runs it compares what `GitRepository`

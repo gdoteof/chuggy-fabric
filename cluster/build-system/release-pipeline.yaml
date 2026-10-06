@@ -6,10 +6,13 @@
 # anything else. The same four values give the same release whoever starts the
 # run.
 #
-# NO TASK HAS A TOKEN OR A ROUTE TO THE API SERVER. Every pod here runs as
-# `builder`, which mounts none, under release-run.yaml's pod template, which
-# says so again; platform.yaml's `build-egress` is the whole of where a task
-# pod may go. tests/release-pipeline.py holds each of those.
+# NO TASK HAS A TOKEN, AND NO POLICY GIVES ONE A ROUTE TO THE API SERVER.
+# Every pod here runs as `builder`, which mounts none, under release-run.yaml's
+# pod template, which says so again; platform.yaml's `build-egress` is the
+# whole of where a task pod is let go. tests/release-pipeline.py holds each of
+# those. The token is the one that holds from a pod's first instruction: the
+# node writes a pod's policy into its firewall a moment after the pod starts,
+# and until it has, the pod reaches the API server and is anonymous to it.
 #
 # WHAT A STEP RUNS IS A FILE, NOT A STRING IN THIS ONE. kustomization.yaml
 # brings fetch.sh, build.sh and publish.sh in as `release-pipeline-scripts`,

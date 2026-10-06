@@ -10,12 +10,12 @@ manifests for one name the `builder` ServiceAccount and a pod template that
 mounts no token, `builder` mounts none itself and is bound to no role, and no
 Task has a volume that is anything but a ConfigMap or an empty directory.
 
-ONLY THE TRIGGER REACHES THE API SERVER. The build namespace's two policies
-are held to what they were before the pipeline: a rule widened for a task is
-a route for every task. The trigger's namespace holds the trigger and nothing
-else, its two policies are held exactly, and so are the two Roles its
-ServiceAccount is bound to, which are bound to nobody else. The registry
-admits task pods and source-controller and no third reader.
+ONLY THE TRIGGER IS GIVEN A ROUTE TO THE API SERVER. The build namespace's
+two policies are held to what they were before the pipeline: a rule widened
+for a task is a route for every task. The trigger's namespace holds the
+trigger and nothing else, its two policies are held exactly, and so are the
+two Roles its ServiceAccount is bound to, which are bound to nobody else. The
+registry admits task pods and source-controller and no third reader.
 
 A RUN STARTED BY FLUX IS A RUN STARTED AT EVERY RECONCILE, so neither run
 manifest is rendered. THE TRIGGER IS SUSPENDED: it starts nothing until a
