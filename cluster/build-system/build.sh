@@ -5,12 +5,12 @@
 # out, and writes the image's digest where RESULT_DIGEST names.
 #
 # A COMMIT'S IMAGE IS BUILT ONCE. Two builds of one tree give one digest only
-# when the second finds every step in the cache, so a tag built twice can name
-# two images, and a release made from the second then moves every pod off the
-# first for no change. The tag is the commit, and a tag the registry already
-# serves is the answer: its digest is the result and nothing is built. That
-# holds only while nothing else is building the same commit, which is the
-# trigger's to keep -- it starts one run at a time.
+# when the second takes the image's layers from the first's cache, so a tag
+# built twice can name two images, and a release made from the second then
+# moves every pod off the first for no change. The tag is the commit, and a
+# tag the registry already serves is the answer: its digest is the result and
+# nothing is built. That holds only while nothing else is building the same
+# commit, which is the trigger's to keep -- it starts one run at a time.
 #
 # THE DIGEST IS THE ONE THE REGISTRY SERVES UNDER THE TAG, on both paths.
 # After a build it is read back and held to the digest BuildKit reported, so
