@@ -1,6 +1,9 @@
 # The services of a chuggy release: the manifests that run its images, and
 # every one of them.
 #
+# NO LAYER APPLIES THIS DIRECTORY AS IT STANDS. A release carries a copy of it
+# beside an overlay, and cluster/flux/chuggy.yaml applies the overlay.
+#
 # A FILE THAT IS NOT IN `resources` IS NOT APPLIED, and what stops being
 # applied is pruned. cluster/apps/kustomization.yaml states that cost in full,
 # and it is this directory's as well: the list is what a reviewer reads against

@@ -15,14 +15,13 @@
 # to the control-plane image is revised PR 2 of kasofsk/chuggy#197, in the
 # repository that builds it; nothing here can rename an image it does not build.
 #
-# The digest is written in one `image:` line in each file that
-# `API_MANIFESTS` in scripts/check-release-consistency names, and they move
-# together. chuggy-ticket-service.yaml argues what catches a bump that misses
-# one, what does not, and what else a re-pin has to touch beyond those lines.
+# Which build of it runs is written in no file here. chuggy-ticket-service.yaml
+# argues what writes the digest onto every `image:` line that names it, and
+# what git carries in its place.
 #
 # Every node maps `registry.chuggy.internal` to the retained private registry
-# through k3s. Promotion records a digest only after CRI has pulled it, so a
-# second node and a rebuilt image store recover from the same declaration.
+# through k3s, so a second node and a rebuilt image store recover from the
+# same release.
 #
 # -------------------------------------------------- the database, and role ----
 #
@@ -210,8 +209,8 @@
 # pod starts, and a reporter whose file is not there is one no report verifies
 # as. Each is a whole volume at a directory of its own, never a `subPath`, so
 # the kubelet brings a Secret created or changed later to the running pod, and
-# the image above reads a reporter's file on each report rather than at
-# start-up. No restart follows the host's rebuild.
+# the API reads a reporter's file on each report rather than at start-up. No
+# restart follows the host's rebuild.
 #
 # --------------------------------------------------------------- the OIDC ----
 #
@@ -246,8 +245,6 @@ metadata:
   # The namespace is declared in dev2-access.yaml, which owns it.
   name: chuggy-api
   namespace: chuggy
-  annotations:
-    fabric.chuggy.dev/source-commit: 482708e4
   labels: { app: chuggy-api }
 spec:
   # One. The journal makes concurrent writers safe, so this is not a
@@ -307,7 +304,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: api
-          image: registry.chuggy.internal/chuggy/api@sha256:fb1a6b5785c9e1b04598c65952278044581c119661d550d423160f607ad95a2b
+          image: registry.chuggy.internal/chuggy/api@sha256:0000000000000000000000000000000000000000000000000000000000000000
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -358,9 +355,7 @@ spec:
               value: http://hydra-admin.ory.svc.cluster.local:4445
             # What a runner's pool file names, which redeeming its registration
             # token answers whole: where its client asks for a bearer, the pool
-            # plane, and the public front it pulls worker images through. The
-            # image above reads none of these; the release that answers the
-            # whole file reads all three.
+            # plane, and the public front it pulls worker images through.
             - name: CHUG_API_POOL_TOKEN_URL
               value: https://auth.vteng.io/oauth2/token
             - name: CHUG_API_POOL_PLANE_URL
@@ -371,9 +366,9 @@ spec:
             # from, in place of reading the per-repository token files below.
             # The id is the same one hosts/gtr gives
             # `chuggy.githubAppTokens.apps.portal`, whose minting is unchanged
-            # by this. The image above reads both at start-up and refuses to
-            # start on a key it cannot sign with, so the Secret below is this
-            # pod's start-up dependency and not an inert mount.
+            # by this. The API reads both at start-up and refuses to start on
+            # a key it cannot sign with, so the Secret below is this pod's
+            # start-up dependency and not an inert mount.
             - name: CHUG_API_FORGE_APP_ID
               value: "4708055"
             - name: CHUG_API_FORGE_APP_KEY_FILE
@@ -389,19 +384,16 @@ spec:
             # the same one hosts/gtr gives
             # `chuggy.githubAppTokens.apps.worker`, whose minting is unchanged
             # by this. The pair is written whole or not at all, the way the
-            # portal pair above is, and the release that reads it refuses to
-            # start on a key it cannot sign with. The image above reads neither
-            # of these names; the release that carries the claim reads both.
+            # portal pair above is, and the API refuses to start on a key it
+            # cannot sign with.
             - name: CHUG_API_FORGE_WORKER_APP_ID
               value: "4728465"
             - name: CHUG_API_FORGE_WORKER_APP_KEY_FILE
               value: /var/run/chuggy/forge-app-worker/private-key
             # Who may report what a declared action did, and the file each is
-            # verified with, from the two optional volumes below. The image
-            # above refuses to start on a list it cannot read, and reads no
-            # file until a report arrives. It verifies a report by
-            # `BearerSecret` alone; the release that reads a Flux event's
-            # signature verifies by the other.
+            # verified with, from the two optional volumes below. The API
+            # refuses to start on a list it cannot read, and reads no file
+            # until a report arrives.
             - name: CHUG_API_ACTION_REPORTERS
               value: |
                 [
@@ -486,7 +478,7 @@ spec:
             #
             # THE HEARTBEAT IS STATED HERE BECAUSE THE BOUND IT CLEARS IS THIS
             # CLUSTER'S AND NOT THE IMAGE'S. kasofsk/chuggy#318 named all five
-            # `CHUG_API_STREAM_*` variables and the image above reads them; its
+            # `CHUG_API_STREAM_*` variables and the API reads them; its
             # own default interval clears the close measured above with room for
             # a missed one, and that is two repositories agreeing by accident
             # rather than by anything either of them checks. Written down here,

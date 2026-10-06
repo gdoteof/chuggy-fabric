@@ -80,20 +80,16 @@
 #
 # ---------------------------------------------------------------- the image ----
 #
-# The digest is the release identity. Every node maps the logical
-# `registry.chuggy.internal` name to the private registry through k3s, so a new
-# node can pull these bytes without an archive imported into its own containerd.
+# Every node maps the logical `registry.chuggy.internal` name to the private
+# registry through k3s, so a new node can pull these bytes without an archive
+# imported into its own containerd.
 #
-# A DIGEST AND A SOURCE COMMIT, which `scripts/check-release-consistency` reads
-# here as it reads them on every control-plane manifest: one source, and no
-# release that moves the console without the rest.
-#
-# THE BUILD IS GIVEN ITS REFERENCE RATHER THAN PRODUCING IT.
-# `deploy/rig/images/build-and-import.sh` defaults `CHUG_IMAGE_PREFIX` to
-# `chuggy.invalid` and `CHUG_IMAGE_TAG` to the short commit of a clean tree, so
-# this image is built with both set: the prefix this cluster resolves, and a tag
-# the release names. It is published under the `chuggy/web` repository, which is
-# the registry path and not a second image.
+# NEITHER ITS DIGEST NOR ITS SOURCE COMMIT IS WRITTEN HERE. A release writes
+# both, as it writes them on every control-plane manifest and from the same
+# commit: one source, and no release that moves the console without the rest.
+# chuggy-ticket-service.yaml argues it. The release pipeline builds the image
+# and publishes it under the `chuggy/web` repository, which is the registry
+# path and not a second image.
 #
 # ------------------------------------------------------- the security headers ----
 #
@@ -154,8 +150,6 @@ kind: Deployment
 metadata:
   name: chuggy-ui
   namespace: chuggy
-  annotations:
-    fabric.chuggy.dev/source-commit: 482708e4
   labels: { app: chuggy-ui }
 spec:
   replicas: 1
@@ -180,7 +174,7 @@ spec:
         runAsGroup: 101
       containers:
         - name: web
-          image: registry.chuggy.internal/chuggy/web@sha256:e4811ff20b2ba068df144b56f97127410eae0ab9f10383b9847236fe192b0cae
+          image: registry.chuggy.internal/chuggy/web@sha256:0000000000000000000000000000000000000000000000000000000000000000
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

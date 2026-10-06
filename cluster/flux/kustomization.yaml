@@ -1,10 +1,11 @@
 # The layers Flux reconciles this cluster in, one Kustomization object each,
 # and in sources.yaml the two sources of a release.
 #
-# `modules/flux.nix` generates the source every layer reads and one root
-# Kustomization, both named `fabric`, and the root applies this directory. So a
-# layer changes by a commit; which repository and branch it is read from
-# changes by a host rebuild.
+# `modules/flux.nix` generates a source and one root Kustomization, both named
+# `fabric`, and the root applies this directory. Every layer reads that source
+# but `chuggy-migrate` and `chuggy`, which read the release `chuggy-release`
+# holds. So a layer changes by a commit; which repository and branch `fabric`
+# follows changes by a host rebuild.
 #
 # A file that is not in `resources` below is a layer the root does not apply,
 # and the root prunes: a layer taken out of this list is deleted, and a deleted

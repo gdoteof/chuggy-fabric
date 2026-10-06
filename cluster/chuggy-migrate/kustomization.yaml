@@ -1,6 +1,9 @@
 # The migration of a chuggy release: the Job that dumps the database and then
 # applies the schema, the script its dump runs, and nothing else.
 #
+# NO LAYER APPLIES THIS DIRECTORY AS IT STANDS. A release carries a copy of it
+# beside an overlay, and cluster/flux/chuggy-migrate.yaml applies the overlay.
+#
 # A FILE THAT IS NOT IN `resources` IS NOT APPLIED, and what stops being
 # applied is pruned. cluster/apps/kustomization.yaml states that cost in full,
 # and it is this directory's as well.

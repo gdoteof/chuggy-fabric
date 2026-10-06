@@ -4,8 +4,6 @@ metadata:
   name: chuggy-worker-plane
   namespace: chuggy
   labels: { app: chuggy-worker-plane }
-  annotations:
-    fabric.chuggy.dev/source-commit: 482708e4
 spec:
   replicas: 1
   # A POD THAT HOLDS AN ATTEMPT KEEPS ITS LEASE THROUGH THIS SERVICE, and gives
@@ -32,7 +30,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: worker-plane
-          image: registry.chuggy.internal/chuggy/api@sha256:fb1a6b5785c9e1b04598c65952278044581c119661d550d423160f607ad95a2b
+          image: registry.chuggy.internal/chuggy/api@sha256:0000000000000000000000000000000000000000000000000000000000000000
           imagePullPolicy: IfNotPresent
           command: [node, --experimental-strip-types, src/roots/workerPlane.ts]
           env:
@@ -54,9 +52,8 @@ spec:
             # The worker App this process mints an attempt's or a session's git
             # credential from. The id is the same one hosts/gtr gives
             # `chuggy.githubAppTokens.apps.worker`, whose minting is unchanged
-            # by this. Nothing in the image above reads either name yet, and the
-            # release that does refuses to start on a key it cannot sign with,
-            # the way the api already does.
+            # by this. The plane refuses to start on a key it cannot sign with,
+            # the way the api does.
             - name: CHUG_WORKER_PLANE_FORGE_APP_ID
               value: "4728465"
             - name: CHUG_WORKER_PLANE_FORGE_APP_KEY_FILE

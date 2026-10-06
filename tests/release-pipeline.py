@@ -63,8 +63,8 @@ release registry: deleting a release is how one is undone.
 
 A RUN STARTED BY FLUX IS A RUN STARTED AT EVERY RECONCILE, so neither run
 manifest is rendered. THE TRIGGER IS SUSPENDED: it starts nothing until a
-commit says so. That the two release layers still read git is held by
-tests/flux-layers.py, beside the two sources.
+commit says so. That the two release layers read what a run publishes is held
+by tests/flux-layers.py, beside the two sources.
 
 EVERY IMAGE IS PINNED BY DIGEST, and every step names its `command`, without
 which Tekton asks the image's registry for the entrypoint.

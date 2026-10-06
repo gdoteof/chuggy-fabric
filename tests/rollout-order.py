@@ -2,16 +2,19 @@
 """Refuse a rendered cluster in which a release does not roll out in order:
 the dump, then the migration, then the services.
 
-`cluster/flux/` declares three layers over one source -- `apps`, then
-`chuggy-migrate`, then `chuggy` -- and `tests/flux-layers.py` holds that each
-waits on the one before. That orders the LAYERS. What orders a RELEASE is which
-objects are in which, and nothing but a reader holds that: a Deployment that
-runs a release image and is listed in `cluster/apps` is rolled before the
-migration has run, and every layer still reads as declared.
+`cluster/flux/` declares three layers -- `apps`, then `chuggy-migrate`, then
+`chuggy` -- and `tests/flux-layers.py` holds that each waits on the one before.
+That orders the LAYERS. What orders a RELEASE is which objects are in which,
+and nothing but a reader holds that: a Deployment that runs a release image and
+is listed in `cluster/apps` is rolled before the migration has run, and every
+layer still reads as declared.
 
 SO THE THREE RENDERS ARE READ AS THREE, never as one stream. An object is held
 to the layer that renders it, and a release image is read off the pod that
-runs it rather than off the name of the file it came from.
+runs it rather than off the name of the file it came from. The two release
+layers are read as git carries their directories: a release's overlay writes
+digests, an annotation and the Job's name over them and nothing else, which
+cluster/build-system/publish.sh holds of each release before it publishes it.
 
 THE MIGRATION'S LAYER IS HELD TO EVERYTHING IN IT, not to its workloads alone.
 `force` is set on that layer for the Job, and it acts on every object the
@@ -58,9 +61,8 @@ LAYERS = ("apps", "chuggy-migrate", "chuggy")
 MIGRATION_LAYER = "chuggy-migrate"
 SERVICE_LAYER = "chuggy"
 
-# What a release moves: the images this site builds from chuggy. The roster in
-# `scripts/check-release-consistency` names the manifests; this is the prefix
-# its image pattern is written over.
+# What a release moves: the images this site builds from chuggy, by the prefix
+# both are named under.
 RELEASE_IMAGES = "registry.chuggy.internal/chuggy/"
 
 TEMPLATED = ("Deployment", "StatefulSet", "DaemonSet", "ReplicaSet", "ReplicationController", "Job")

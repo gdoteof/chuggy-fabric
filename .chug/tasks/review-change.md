@@ -18,8 +18,11 @@ tree, not from a description of what the change was supposed to do.**
 **`main` is live.** Flux reconciles `cluster/` and `builds/` from it, so
 merging a change under either is a deployment action rather than a text edit: a
 manifest lands in the cluster, and a `Build` or `BuildRun` under `builds/`
-starts a build and pushes an image. Judge such a change as what it will do to a
-running cluster.
+starts a build and pushes an image. Two directories are the exception.
+`cluster/chuggy-migrate` and `cluster/chuggy` are applied from a published
+release and not from `main`, so a change under either lands with the next
+release, beside whatever chuggy's `main` is by then. Judge any of them as what
+it will do to a running cluster.
 
 **The render decides, not the file.** A name is written in a Deployment,
 selected in a NetworkPolicy and repeated inside a configuration string, and
@@ -39,13 +42,8 @@ what it leaves for `nix flake check`. Read it there.
 
 Name in your verdict the `nix flake check` entries the change still needs run,
 reading them off `flake.nix`, because a passing check stage covers none of
-them. A change to `scripts/` is the sharp case: the check stage runs one of
-those scripts over an untouched `cluster/` and exits 0 while the tests that
-hold them never ran.
-
-**A control-plane component added without its manifest added to the check's own
-manifest tuples is unchecked**, and the check stage passes either way, so a
-change adding one is judged on that edit here or nowhere.
+them. A change to `scripts/` is the sharp case: the check stage reads none of
+them and exits 0 while the tests that hold them never ran.
 
 **Read; do not run.** Whether the change is *correct* is the part no gate can
 decide, and it is the whole reason a reviewer is worth the time. If you believe
@@ -57,10 +55,11 @@ The rules you reject by number. Each is stated elsewhere in this tree; read it
 at its home, and where this table and a home disagree, the home is right.
 
 1. **Generated files are generated.** A build request under `builds/` comes
-   from `scripts/render-build-request`, a release under `cluster/chuggy-migrate`
-   and `cluster/chuggy` -- image digests, source-commit annotations, migrate
-   Job name -- from `scripts/render-release`. A hand-edited one is a finding
-   whatever it says. Stated in `AGENTS.md`.
+   from `scripts/render-build-request`, and a hand-edited one is a finding
+   whatever it says. A release is generated into no file here: an image
+   digest, a source commit or a commit in the migrate Job's name written
+   under `cluster/chuggy-migrate` or `cluster/chuggy` is a finding. Stated in
+   `AGENTS.md`.
 2. **A build request is immutable.** It pins a full source commit, and is
    retried or retired with `scripts/retry-build-request` and
    `scripts/retire-build-request` rather than edited in place. Stated in

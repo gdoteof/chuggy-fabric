@@ -28,10 +28,12 @@ another branch has the trigger release commits that are not `main`'s;
 and with a `tag` or a `digest` beside its range holds the cluster at one
 release without saying so.
 
-BOTH RELEASE LAYERS READ GIT. `chuggy-migrate` and `chuggy` name the `fabric`
-source and a path under `./cluster`, as every layer does, though
-`chuggy-release` is declared beside them. Moving them to it is a change to
-`LAYERS` below.
+THE TWO RELEASE LAYERS READ THE RELEASE AND NO OTHER LAYER DOES.
+`chuggy-migrate` and `chuggy` name `chuggy-release` and the overlay under
+`./release` that cluster/build-system/publish.sh writes for each; every other
+layer names the `fabric` source. Either of the two on `fabric` and its own
+directory still renders, and applies manifests that name no release: a Job
+and services whose image no registry holds.
 
 NOTHING APPLIES `./results`, which is provenance and holds no manifest.
 tests/flux-wiring.nix argues it for the path the host generates; a layer is the
@@ -88,11 +90,15 @@ BUILD_RUN_HEALTH = {
 }
 
 
-def layer(path, timeout="3m", **rest):
+GIT = {"kind": "GitRepository", "name": "fabric"}
+RELEASE = {"kind": "OCIRepository", "name": "chuggy-release"}
+
+
+def layer(path, timeout="3m", source=GIT, **rest):
     return {
         "interval": "5m",
         "path": path,
-        "sourceRef": {"kind": "GitRepository", "name": "fabric"},
+        "sourceRef": source,
         "prune": True,
         "wait": True,
         "timeout": timeout,
@@ -113,13 +119,17 @@ LAYERS = {
         healthCheckExprs=[BUILD_RUN_HEALTH],
     ),
     "chuggy-migrate": layer(
-        "./cluster/chuggy-migrate",
+        "./release/chuggy-migrate",
         timeout="30m",
+        source=RELEASE,
         dependsOn=[{"name": "apps"}],
         force=True,
     ),
     "chuggy": layer(
-        "./cluster/chuggy", timeout="15m", dependsOn=[{"name": "chuggy-migrate"}]
+        "./release/chuggy",
+        timeout="15m",
+        source=RELEASE,
+        dependsOn=[{"name": "chuggy-migrate"}],
     ),
 }
 

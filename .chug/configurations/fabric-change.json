@@ -33,7 +33,7 @@
         "Ask this site to build what chuggy main is now. The change is the one request document scripts/request-build writes under requests/ and nothing else: which images, from which source, under which profile, is this site's declaration in scripts/build_sources.py and not a brief's."
       ],
       "acceptanceCriteria": [
-        "The diff is one file under requests/chuggy/<commit>/, written by scripts/request-build for the commit chuggy main was at when the work ran, and the release manifests still identify one source."
+        "The diff is one file under requests/chuggy/<commit>/, written by scripts/request-build for the commit chuggy main was at when the work ran, and cluster/chuggy-migrate and cluster/chuggy still name no release."
       ],
       "constraints": [
         "The work is the one command below, which resolves chuggy main itself and commits nothing it did not write. A refusal (exit 3) is this ticket's failure and its attempts are its budget: the request is already filed, or this site declares nothing for the source. Read AGENTS.md and .chug/tasks/review-change.md before judging the change.",

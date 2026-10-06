@@ -9,19 +9,23 @@
 # AND BEFORE IT, A DUMP. The pod below takes one of the database it is about to
 # change and migrates only if it could: `dump`, further down, and dump.sh.
 #
-# THIS COMMAND DOES NOT EXIST BEFORE kasofsk/chuggy#242. The image tag below
-# must be built from a commit that carries it; a tag that does not has no
-# `src/roots/migrate.ts` and the container exits on a module that is not there.
+# WHICH IMAGE IS NOT SAID HERE. A release is made by
+# cluster/build-system/publish.sh, which writes over a copy of this directory
+# the digest of the image it was built with, chuggy's commit as an annotation
+# and the Job's name; what git carries in their place, and why,
+# cluster/chuggy/chuggy-ticket-service.yaml argues for every file a release
+# writes.
 #
 # ------------------------------------------------------------ the ordering ----
 #
-# THE SERVICES WAIT FOR THIS JOB. `cluster/flux/` declares three layers over one
-# source: `apps`, then `chuggy-migrate`, which applies this directory, then
-# `chuggy`, which applies the services of a release. Each depends on the one
-# before and waits for what it applied to be healthy, so the services of a
-# release are applied only once this Job has completed for that release. Inside
-# the pod the order is the kubelet's: the wait for PostgreSQL, the dump, the
-# migration, each started only when the one before it exited 0.
+# THE SERVICES WAIT FOR THIS JOB. `cluster/flux/` declares three layers:
+# `apps`, then `chuggy-migrate`, which applies a release's copy of this
+# directory, then `chuggy`, which applies its services. Each depends on the one
+# before and waits for what it applied to be healthy, and the last two read one
+# release, so the services of a release are applied only once this Job has
+# completed for that release. Inside the pod the order is the kubelet's: the
+# wait for PostgreSQL, the dump, the migration, each started only when the one
+# before it exited 0.
 #
 # WHEN THE DUMP OR THE MIGRATION FAILS, THE SERVICES STAY AS THEY WERE. `chuggy`
 # applies nothing while `chuggy-migrate` is not Ready, so every Deployment keeps
@@ -47,25 +51,27 @@
 # WHAT THE ORDER COSTS is that each of the three can hold a release alone.
 # While `apps` is not Ready -- over any object it applies, which is everything
 # in cluster/apps/ -- this Job is not applied. While this Job is failed, no
-# change to the services is applied, one that is not a release included.
+# release that leaves it as it is reaches the services.
 # cluster/flux/chuggy-migrate.yaml and cluster/flux/chuggy.yaml say so where
 # each dependency is declared.
 #
 # ----------------------------------------------- the name tracks the template ----
 #
 # A Job's pod template is immutable, so the API server rejects an apply that
-# changes it under a name that did not change. A release does not meet that:
-# the name changes with the release or its image transport, so Flux creates a
-# new object and prunes the old one in the same pass. An edit that is not a
-# release does meet it -- an edit to this file, or to dump.sh, whose ConfigMap
-# is named by a hash of its content that the volume below follows -- and for
-# that cluster/flux/chuggy-migrate.yaml sets `force`: kustomize-controller
-# deletes the Job and creates it again. EITHER WAY THE JOB RUNS AGAIN, the dump
-# first. A migration with nothing pending applies nothing and says so; a dump
-# is another pair of files on the volume.
+# changes it under a name that did not change. A release of another chuggy
+# commit does not meet that: a release names the Job for that commit, so Flux
+# creates a new object and prunes the old one in the same pass. A release of
+# the same commit that changes the template does meet it -- an edit to this
+# file, or to dump.sh, whose ConfigMap is named by a hash of its content that
+# the volume below follows -- and for that cluster/flux/chuggy-migrate.yaml
+# sets `force`: kustomize-controller deletes the Job and creates it again.
+# EITHER WAY THE JOB RUNS AGAIN, the dump first. A migration with nothing
+# pending applies nothing and says so; a dump is another pair of files on the
+# volume. A release that changes neither -- only the services -- leaves the
+# Job as it is, and nothing runs.
 #
-# It also makes the run visible. `kubectl -n chuggy get jobs` names the exact
-# image whose schema this database was last brought to.
+# It also makes the run visible. `kubectl -n chuggy get jobs` names the chuggy
+# commit whose schema this database was last brought to.
 #
 # NO `ttlSecondsAfterFinished`. A completed Job that deletes itself is one Flux
 # re-creates on its next reconcile, so the migration would run every five
@@ -105,17 +111,14 @@
 # mechanism, not something observed, and it is worth saying which because the
 # obvious argument for it is wrong: a database BEHIND the ledger this image
 # declares is the case that SUCCEEDS. A ledger that is a prefix of what the
-# image declares means the run applies the difference and exits 0, and that is
-# the case this rig is in: its ledger is at 18 and the tag below declares 19, so
-# this Job applies migration 19 -- the requirement columns migrations 12 and 15
-# gained after this database ran them -- and exits 0.
+# image declares means the run applies the difference and exits 0.
 #
 # THE FAILURE MODE THAT MATTERS IS NEITHER OF THOSE. Everything above is about a
 # Job that fails. The one worth this much text is a Job that SUCCEEDS while
 # applying nothing, and leaves no state in Kubernetes that is wrong afterwards
 # for anyone to find.
 #
-# Migration 17 of the image below is
+# Migration 17 is
 # `GRANT EXECUTE ON FUNCTION project_capacity_account(text,text) TO chuggy_api`.
 # That function is owned by `chuggy_boundary_owner`, and it is issued by
 # `chuggy_owner`, the role this Job connects as. Where `chuggy_owner` is not a
@@ -171,9 +174,9 @@
 # see that it landed, and the selected release image carries it. It has to
 # be run BEFORE this Job ever does -- once the Job has committed a ledger row for 17, running
 # the roles file afterwards leaves the grant missing and the ledger claiming
-# otherwise. Nothing here can express that: this object is applied on the first
-# reconcile after the tag lands, and the roles file is run by a human against
-# the server. The README's "Before any of it runs" is where it lives, because
+# otherwise. Nothing here can express that: this object is applied as soon as
+# a release is published, and the roles file is run by a human against the
+# server. The README's "Before any of it runs" is where it lives, because
 # there is nowhere else it could.
 #
 # An image that is simply absent from the registry does NOT land here. That pod
@@ -230,11 +233,10 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  # The suffix changes whenever the immutable pod template's release transport does.
-  name: chuggy-migrate-482708e4-registry
+  # A release writes its own over this: `chuggy-migrate-<commit>-registry`, by
+  # the first characters of chuggy's commit.
+  name: chuggy-migrate
   namespace: chuggy
-  annotations:
-    fabric.chuggy.dev/source-commit: 482708e4
   labels: { app: chuggy-migrate }
 spec:
   # ONE ATTEMPT, because retrying this JOB was never what could survive the race
@@ -293,8 +295,8 @@ spec:
         # `postgres:18.3-trixie` because the control-plane image is node and
         # carries nothing that can ask -- no `pg_isready`, no `psql`, no `nc`.
         # It is the tag postgres.yaml already runs, so the node holds it for the
-        # same reason it holds the server, and it is NOT one of the release lines
-        # a re-pin moves.
+        # same reason it holds the server, and it is NOT one of the lines a
+        # release writes.
         #
         # DNS and 5432 are the whole of what this needs, which is what
         # chuggy-control-plane-network-policy.yaml's `chuggy-migrate-egress`
@@ -377,7 +379,7 @@ spec:
               value: /dumps
             # How many dumps the volume holds once this one is written.
             - name: CHUG_DUMP_KEEP
-              value: "30"
+              value: "200"
             # The Job controller labels the pod with the Job's name, and the
             # files are named for it: a dump says which release took it.
             - name: CHUG_DUMP_JOB
@@ -397,7 +399,7 @@ spec:
             seccompProfile: { type: RuntimeDefault }
       containers:
         - name: migrate
-          image: registry.chuggy.internal/chuggy/api@sha256:fb1a6b5785c9e1b04598c65952278044581c119661d550d423160f607ad95a2b
+          image: registry.chuggy.internal/chuggy/api@sha256:0000000000000000000000000000000000000000000000000000000000000000
           imagePullPolicy: IfNotPresent
           # Exec form with node as PID 1, for the reason the image's Dockerfile
           # gives: the process is handed SIGTERM itself rather than through a

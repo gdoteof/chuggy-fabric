@@ -14,11 +14,14 @@
 # fabric's own kustomization would silently replace an `images` or `patches`
 # key that file came to have.
 #
-# THE ANNOTATION IS ADDED BY KIND. Selecting the objects that already carry
-# it selects none once git stops carrying it, and renders without complaint.
-# Its value is quoted because the first characters of a hash can read as a
-# number, and an annotation that is a number is an object the API server
-# refuses.
+# THE ANNOTATION IS ADDED BY KIND, TO OBJECTS THAT HAVE NO ANNOTATIONS. Git
+# carries it on none, so selecting the objects that already carry it selects
+# none, and renders without complaint. Nor does any of them carry an
+# `annotations` key for the patch to add under: kustomize writes the key the
+# path runs through, and the reading of the render below is what holds that
+# it did, on every one. Its value is quoted because the first characters of a
+# hash can read as a number, and an annotation that is a number is an object
+# the API server refuses.
 #
 # WHAT THE OVERLAY MAY CHANGE IS HELD, AND SO IS WHAT IT MUST. Each directory
 # is rendered without the overlay and with it, and the two renders have to be

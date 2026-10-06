@@ -16,29 +16,34 @@
 # else builds, so every workload here selects its command from the image under
 # the name it has.
 #
-# ONE `image:` LINE IN EACH FILE OF THE RELEASE ROSTER CARRIES THE DIGEST, AND
-# THEY MOVE TOGETHER. The roster is `API_MANIFESTS` in
-# scripts/check-release-consistency. A bump
-# that misses one runs a mixed control plane against one database. What catches
-# the shape of that which matters is the `schema-compatible` precondition -- a
-# process whose image declares a different ledger than the database carries
-# refuses to serve -- and what it does not catch is a bump that changed no
-# schema. The release-images check requires every file in the roster to agree.
+# NO FILE HERE NAMES A RELEASE, AND ONE OVERLAY WRITES IT INTO ALL OF THEM.
+# cluster/build-system/publish.sh makes a release of this directory and
+# cluster/chuggy-migrate/: over a copy of both it writes the digest of the
+# image it was built with onto every `image:` line that names it, the console's
+# onto chuggy-ui.yaml's, chuggy's commit as a `fabric.chuggy.dev/source-commit`
+# annotation on every Deployment, CronJob and Job, and that commit into the
+# migration Job's name. It refuses a release in which a line naming either
+# image is left at anything else, so no release runs a mixed control plane
+# against one database.
 #
-# RE-PINNING TOUCHES MORE THAN THOSE LINES. The migration Job's `metadata.name`
-# repeats the tag, for the reason cluster/chuggy-migrate/chuggy-migrate.yaml
-# gives, and so does each roster file's `fabric.chuggy.dev/source-commit`
-# annotation.
+# WHAT GIT CARRIES IN THEIR PLACE IS A DIGEST NO IMAGE HAS. Each of those lines
+# is written at sixty-four zeroes, which is well formed and is the digest of
+# nothing a registry or a node's image store can hold. So this directory
+# applied without its overlay pulls nothing, by that line or by a tag somebody
+# pushed since: its pods wait in `ImagePullBackOff`, which a Deployment whose
+# strategy is `Recreate` answers with no pod at all. No layer applies it that
+# way, and tests/flux-layers.py refuses one that would. A digest, a source
+# commit or a commit in the Job's name written here by hand is one the overlay
+# replaces without a word, and .chug/tasks/ci.sh refuses it.
+#
+# A CHANGE HERE AND THE COMMIT OF CHUGGY'S THAT NEEDS IT ARE TWO COMMITS IN TWO
+# REPOSITORIES. A release is this repository's branch and chuggy's as each
+# stood when its run started, so a key an image requires and the image before
+# it refuses is one release only if both had landed by then. The README's
+# release section says how that is arranged.
 #
 # k3s maps the logical registry name to retained cluster storage;
 # chuggy-api.yaml carries that argument and it is not repeated.
-#
-# THE TAG BELOW MUST CARRY `src/roots/migrate.ts`, which arrives on
-# kasofsk/chuggy#242 and is what applies the schema these pods then serve --
-# and it must be one whose checkout also carries the two membership grants the
-# README's prerequisite 1 pre-filters for, because part of that branch does not.
-# The login roles those pods present are already on this rig, and so are those
-# two memberships: the roles file has been re-run here.
 #
 # --------------------------------------------------- the credential, again ----
 #
@@ -123,8 +128,6 @@ metadata:
   # The namespace is declared in dev2-access.yaml, which owns it.
   name: chuggy-ticket-service
   namespace: chuggy
-  annotations:
-    fabric.chuggy.dev/source-commit: 482708e4
   labels: { app: chuggy-ticket-service }
 spec:
   replicas: 1
@@ -158,7 +161,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: ticket-service
-          image: registry.chuggy.internal/chuggy/api@sha256:fb1a6b5785c9e1b04598c65952278044581c119661d550d423160f607ad95a2b
+          image: registry.chuggy.internal/chuggy/api@sha256:0000000000000000000000000000000000000000000000000000000000000000
           imagePullPolicy: IfNotPresent
           command:
             [

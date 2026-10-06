@@ -1,8 +1,9 @@
 # Build operations
 
-This site builds a source's images when asked, records what it built, and
-releases from the record. The loop is four paths in this repository, in
-order, and every move between them is a commit to the branch Flux follows:
+This site builds a source's images when asked and records what it built.
+Nothing releases from the record: a release builds its own images, and
+`README.md` says how one is made. The loop is four paths in this repository,
+in order, and every move between them is a commit to the branch Flux follows:
 
 | Path | What lands there | Written by |
 |---|---|---|
@@ -11,78 +12,38 @@ order, and every move between them is a commit to the branch Flux follows:
 | `results/<repository-id>/<source-commit>/<request-digest>/<attempt>.json` | the recorded result of one attempt, beside its checksum | recorded by `chuggy-build-provenance.service`, pushed by the publisher unit |
 | `results/<repository-id>/<source-commit>/request-<request-digest>.json` | the record: every build the request rendered has a result | `scripts/fulfil-build-requests`, in the activation that pushed the last result |
 
-The record is what a rollout waits for. A failed build writes one too: what a
-failed build refuses is the release, and `scripts/render-release` is where
-that refusal is. `tests/build-results-publish-unit.nix` holds that the unit
-gtr builds can run the consumer from the copy of `scripts/` it names.
+A failed build writes a record too. `tests/build-results-publish-unit.nix`
+holds that the unit gtr builds can run the consumer from the copy of
+`scripts/` it names.
 
-## The chain a chuggy change rolls out by
+## How a build of chuggy `main` is asked for
 
-Three tickets, filed at once and ordered so each lands before the next runs.
-Nothing in any of them names a commit or a digest; each command resolves
-chuggy `main` when it runs, so a `main` that moved between two of them is a
-wait with nothing filed at it, reported as could-not-run and cleared by
-asking for the new commit.
+A `fabric-change` ticket, whose work is
+`scripts/request-build --repository-id chuggy --source-ref refs/heads/main`.
+Nothing in it names a commit or a digest: the command resolves chuggy `main`
+when it runs, writes the request document for that commit and nothing else,
+and the merge lands it. The publisher's next activation answers it.
 
-1. The chuggy change, in chuggy. Done at its merge.
-2. A `fabric-change` ticket, whose work is
-   `scripts/request-build --repository-id chuggy --source-ref refs/heads/main`.
-   It writes the request document for the commit `main` is at and nothing
-   else; the merge lands it, and the publisher's next activation answers it.
-3. A `fabric-rollout` ticket, whose work is
-   `scripts/rollout-from-results --within-secs <n>`. It resolves the same
-   ref, waits for the record, renders the release with
-   `scripts/render-release`, and prints one JSON object naming what it
-   released; the merge deploys it.
+The configuration is in `.chug/configurations/`, declaring its work as that
+one line; the rules the script enforces are in its own header. A refusal
+(exit 3) is the ticket's failure and its attempts are its budget: the request
+was already filed. A failed build is the operator's, below, and not a reason
+to file another ticket.
 
-The two configurations are in `.chug/configurations/`, each declaring its
-work as that one line; the rules each script enforces are in its own header.
-A refusal (exit 3) from either is the ticket's failure and its attempts are
-its budget: the request was already filed, this site has not answered within
-the bound, or the release cannot be cut from what it answered. A failed build
-is the operator's, below, and not a reason to file another ticket.
-
-By hand, in a checkout of the branch Flux follows, the same steps take the
-commit rather than resolving it:
+By hand, in a checkout of the branch Flux follows, the same step takes the
+commit rather than resolving it, and a second command waits for the record:
 
 ```text
 scripts/request-build --repository-id chuggy --source-commit <full commit>
 scripts/await-build-results --repository-id chuggy --source-commit <full commit> \
   --within-secs <seconds>
-git merge --ff-only origin/main
-scripts/render-release --target-commit <full commit>
 ```
-
-The fast-forward is what `scripts/rollout-from-results` does between the two:
-the wait reads the branch, the render reads the checkout, and the record is
-on the branch before it is in any checkout taken earlier.
 
 The first stages nothing, so what it wrote is committed and pushed like any
 other change; it refuses a commit that already carries a request, its own
 included, because a run with nothing to write is a ticket with nothing to
-land. The first two print one JSON object on stdout and their account on
-stderr, so a ticket engine reads the result and a person reads the reason.
-
-## Sizing the wait
-
-`--within-secs` is the rollout command's whole life: the resolve, the wait,
-the fast-forward and the render each get what is left of it. It has to undercut the deadline
-of the pod that runs it -- `CHUG_SCHEDULER_WORKER_DEADLINE_SECS` in
-`cluster/chuggy/chuggy-scheduler.yaml` -- by the clone and setup before the
-command, because a pod killed at its deadline has reached no verdict: what
-follows is another attempt from the beginning, not a decision about the
-build. It cannot exceed the cap `scripts/await-build-results` states, past
-which a wait holds open a ticket and not a build. The value `fabric-rollout`
-carries was sized by this rule against those two homes.
-
-What a wait costs is a worker. The scheduler holds the attempt's claim for
-the command's whole life, and this site runs one work pod at a time
-(`chuggy.work` in `hosts/gtr/default.nix`), so nothing else runs while a
-rollout waits. A build that outruns one attempt's wait -- each `Build`
-carries the timeout `scripts/render-build-request` writes into it, and a
-result reaches the branch a recorder activation and a publisher activation
-after it finishes -- is the next attempt's to find answered, and the ticket's
-attempts are the budget for that.
+land. Each prints one JSON object on stdout and its account on stderr, so a
+ticket engine reads the result and a person reads the reason.
 
 ## A request rendered and never answered
 
@@ -99,7 +60,7 @@ build timeout. In order:
    branch's copy.
 2. `chuggy-build-attempt-alerts.service`, under Diagnose: a failed or stalled
    attempt. A failed attempt still gets a result and its record is still
-   written; the rollout is what refuses. Retry it as under Retry.
+   written. Retry it as under Retry.
 3. A `BuildRun` that never reaches a terminal condition gets no result, so
    the record is never written. The alerts unit reports it as stalled, and
    the attempt is retried or retired as below.
@@ -132,7 +93,6 @@ Tekton TaskRun and pod carrying the same Shipwright labels. Ownership is:
 | Flux has not materialized the declared request | Flux/fabric operator |
 | BuildRun checkout, execution, timeout, or push failed | build-controller operator |
 | reported digest is absent from the registry | registry operator |
-| selected digest does not roll out | rollout operator |
 
 ## Retry
 
