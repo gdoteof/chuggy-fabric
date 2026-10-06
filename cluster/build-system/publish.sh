@@ -39,7 +39,9 @@
 # one's -- a tie, a clock that was ahead once, a clock that is behind now --
 # fails the run: published beside it, this release is one the source would
 # not select, or one that takes another's tag. Such a tag is deleted from the
-# registry only to undo a version taken from a wrong clock.
+# registry only to undo a version taken from a wrong clock, and the registry
+# deletes by digest: every tag of that release goes with it, and the source
+# selects the release before until another is published.
 #
 # THE TAG LIST IS READ WHOLE OR THE RUN FAILS. A body that is not the list
 # the registry documents, or a list it says continues, reads as "nothing
