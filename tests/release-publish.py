@@ -16,11 +16,14 @@ so a tag can be made to tie with the version.
 A reference this does not know how to resolve is refused rather than skipped:
 it is one the pod would have and this run would not.
 
-THE TWO TREES. `pinned` is cluster/chuggy-migrate and cluster/chuggy as this
-commit carries them. `bare` is the same two with what a release writes taken
-out -- the digests of the two images, the source-commit annotation, the
-commit in the Job's name -- which is what git holds once the layers read the
-artifact. Each case below says which it runs over.
+THE TWO TREES. `git` is cluster/chuggy-migrate and cluster/chuggy as this
+commit carries them, which names no release: no Deployment, CronJob or Job in
+it has an `annotations` key at all, and that is held here, because it is the
+object the overlay's `add` has to be right for. `pinned` is the same two with
+a release written in by hand -- another digest on each line of the two
+images, the source-commit annotation, a commit in the Job's name -- which is
+what the overlay overrides without a word and .chug/tasks/ci.sh refuses in
+git. A case runs over `git` unless it says otherwise.
 
 WHAT A PUSH IS HELD TO is read off the directory `flux` was given, by a
 second reading that shares nothing with the script's: each render is parsed,
@@ -37,9 +40,9 @@ THE CASES, and the part of the script each is the only reader of:
 - an overlay that also changes a field, drops an object, moves a third
   image or renames an object that is not the Job is refused: the comparison
   of the two renders;
-- an overlay that selects by the annotation annotates nothing over `bare`,
-  one that leaves the Job's name alone, and one that leaves an image out,
-  are each refused: the reading of the render with the overlay alone;
+- an overlay that selects by the annotation annotates nothing, one that
+  leaves the Job's name alone, and one that leaves an image out, are each
+  refused: the reading of the render with the overlay alone;
 - a tree that names an image where no overlay writes, alone on its line or
   after an image whose name it begins, that carries the annotation with
   another value on a pod, that has a Job in `chuggy` or none in
@@ -84,6 +87,8 @@ COMMIT = "f22d1b8b70070de0cb53dc2b628335b7a069d5f3"
 API_DIGEST = "sha256:" + "1" * 64
 CONSOLE_DIGEST = "sha256:" + "2" * 64
 PUSHED_DIGEST = "sha256:" + "a" * 64
+STALE_DIGEST = "sha256:" + "9" * 64
+STALE_LABEL = "0ld0ld0l"
 # Where `flux push artifact` makes the archive it pushes: the image sets no
 # TMPDIR, and its root is read-only.
 IMAGE_TMPDIR = "/tmp"
@@ -258,31 +263,47 @@ print(open({str(case / 'now')!r}).read().strip())
     return programs
 
 
-def bare(tree):
-    """Take out of a copy of the two directories what a release writes."""
-    taken = {"digest": 0, "annotation": 0, "name": 0}
+def pinned(tree):
+    """Write a release into a copy of the two directories, by hand."""
+    written = {"digest": 0, "annotation": 0, "name": 0}
     for path in sorted(tree.rglob("*.yaml")):
-        kept = []
-        for line in path.read_text().splitlines():
-            if re.fullmatch(rf"\s+{re.escape(ANNOTATION)}: \S+", line):
-                taken["annotation"] += 1
-                if kept and re.fullmatch(r"\s+annotations:", kept[-1]):
-                    kept.pop()
-                continue
-            line, digests = re.subn(
-                r"^(\s+(?:- )?image: registry\.chuggy\.internal/chuggy/(?:api|web))@sha256:[0-9a-f]{64}$",
-                r"\1",
-                line,
-            )
-            taken["digest"] += digests
-            line, names = re.subn(
-                r"^(  name: chuggy-migrate)-[0-9a-f]+-registry$", r"\1", line
-            )
-            taken["name"] += names
-            kept.append(line)
-        path.write_text("\n".join(kept) + "\n")
-    if not all(taken.values()):
-        refuse(f"the bare tree was made by taking out {taken}, so it is not bare")
+        text = path.read_text()
+        text, digests = re.subn(
+            r"^(\s+(?:- )?image: registry\.chuggy\.internal/chuggy/(?:api|web))@sha256:0{64}$",
+            rf"\1@{STALE_DIGEST}",
+            text,
+            flags=re.MULTILINE,
+        )
+        text, annotations = re.subn(
+            r"^(kind: (?:Deployment|CronJob|Job)\nmetadata:\n)",
+            rf"\1  annotations:\n    {ANNOTATION}: {STALE_LABEL}\n",
+            text,
+            flags=re.MULTILINE,
+        )
+        text, names = re.subn(
+            r"^  name: chuggy-migrate$",
+            f"  name: chuggy-migrate-{STALE_LABEL}-registry",
+            text,
+            flags=re.MULTILINE,
+        )
+        written["digest"] += digests
+        written["annotation"] += annotations
+        written["name"] += names
+        path.write_text(text)
+    if not all(written.values()):
+        refuse(f"the pinned tree was made by writing {written}, so it does not name a release")
+
+
+def unannotated(case):
+    """Hold the tree a case pushed to what the overlay's `add` is run over:
+    no object it selects has an `annotations` key."""
+    for directory in ("chuggy-migrate", "chuggy"):
+        for document in objects(render(case / "pushed" / "cluster" / directory)):
+            if document["kind"] in ("Deployment", "CronJob", "Job") and "annotations" in document["metadata"]:
+                refuse(
+                    f"{document['kind']} {document['metadata']['name']} carries annotations in "
+                    "git, so no case here adds one to an object that has none"
+                )
 
 
 def render(directory):
@@ -379,7 +400,7 @@ class Suite:
         self.work = Path(work)
         self.kubectl = Path(shutil.which("kubectl")).parent
 
-    def case(self, name, tree="pinned", commit=COMMIT, tags=None, registry=None, now=NOW, script=None, change=None, run=None, reported=PUSHED_DIGEST):
+    def case(self, name, tree="git", commit=COMMIT, tags=None, registry=None, now=NOW, script=None, change=None, run=None, reported=PUSHED_DIGEST):
         """Lay one case out and run the step in it."""
         case = self.work / name
         (case / "results").mkdir(parents=True)
@@ -390,8 +411,8 @@ class Suite:
             shutil.copytree(self.cluster / directory, manifests / directory)
         for path in manifests.rglob("*"):
             path.chmod(path.stat().st_mode | stat.S_IWUSR)
-        if tree == "bare":
-            bare(manifests)
+        if tree == "pinned":
+            pinned(manifests)
         if change:
             change(manifests)
         if registry is None:
@@ -500,15 +521,17 @@ def main():
         refuse("usage: release-publish.py RENDERED_BUILD_SYSTEM CLUSTER BUSYBOX_BIN WORK")
     suite = Suite(*sys.argv[1:])
 
-    pinned = suite.published("pinned")
-    over_bare = suite.published("bare", tree="bare")
-    if pinned is not None and over_bare is not None and pinned != over_bare:
-        report("bare", "the release rendered from the bare tree is not the one rendered from the pinned tree")
+    over_git = suite.published("git")
+    if over_git is not None:
+        unannotated(suite.work / "git")
+    over_pinned = suite.published("pinned", tree="pinned")
+    if over_git is not None and over_pinned is not None and over_git != over_pinned:
+        report("pinned", "the release rendered from a tree that names one is not the one rendered from git's")
     suite.published("tags-below", tags=[f"{NOW - 1}.0.0", "1.2.3", "9.0.0", "a" * 40, "latest", "2026.10.05"])
     suite.published("no-tags", registry={"status": 200, "body": '{"name":"chuggy/release","tags":null}\n'})
     suite.published("no-tags-as-a-list", registry={"status": 200, "body": '{"name":"chuggy/release","tags":[]}\n'})
     for commit in ("12345678" + "a" * 32, "1234e567" + "a" * 32, "00000000" + "a" * 32):
-        suite.published(f"numeric-{commit[:8]}", tree="bare", commit=commit)
+        suite.published(f"numeric-{commit[:8]}", commit=commit)
 
     annotation_patch = '  - target:\n      kind: (Deployment|CronJob|Job)\n'
     suite.refused(
@@ -554,7 +577,6 @@ def main():
     suite.refused(
         "overlay-selects-by-annotation",
         "carry 0 source-commit annotations",
-        tree="bare",
         script=suite.variant(
             "      kind: (Deployment|CronJob|Job)\n",
             f"      annotationSelector: {ANNOTATION}\n",
@@ -572,7 +594,7 @@ def main():
     )
 
     passed = dict(suite.step.passed)
-    stale = "registry.chuggy.internal/chuggy/api@sha256:" + "9" * 64
+    stale = f"registry.chuggy.internal/chuggy/api@{STALE_DIGEST}"
     suite.refused(
         "tree-names-the-image-in-a-value",
         "and is not an image line at",

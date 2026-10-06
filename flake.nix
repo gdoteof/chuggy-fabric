@@ -134,7 +134,6 @@
       dumpsWiring = host: import ./tests/dumps-wiring.nix { inherit pkgs host; };
       rolloutOrder = host: import ./tests/rollout-order.nix { inherit pkgs host; };
       dumpScript = import ./tests/dump-script.nix { inherit pkgs; };
-      releaseImages = import ./tests/release-images.nix { inherit pkgs; };
       chugCi = import ./tests/chug-ci.nix { inherit pkgs; };
       fluxWiring = host: expectSecretRef:
         import ./tests/flux-wiring.nix { inherit pkgs host expectSecretRef; };
@@ -153,8 +152,6 @@
       awaitBuildResults = import ./tests/await-build-results.nix { inherit pkgs; };
       buildResults = import ./tests/build-results.nix { inherit pkgs; };
       buildResultsPublish = import ./tests/build-results-publish.nix { inherit pkgs; };
-      renderRelease = import ./tests/render-release.nix { inherit pkgs; };
-      rolloutFromResults = import ./tests/rollout-from-results.nix { inherit pkgs; };
       buildResultsPublishUnit = host:
         import ./tests/build-results-publish-unit.nix { inherit pkgs host; };
       configurationImporter = import ./tests/configuration-importer.nix { inherit pkgs; };
@@ -403,7 +400,6 @@
         # the ones release-dashboard.py's header lists are held on what the tree
         # declares.
         release-dashboard = import ./tests/release-dashboard.nix { inherit pkgs; };
-        release-images = releaseImages;
 
         # The evaluator command a Chuggy ticket runs, and the only check that
         # reads .chug/tasks/ci.sh.
@@ -439,8 +435,8 @@
         flux-components = fluxComponents self.nixosConfigurations.gtr;
         build-platform = buildPlatform;
 
-        # The release pipeline, which nothing starts while its trigger is
-        # suspended: what its manifests give a pod and what they keep from
+        # The release pipeline, which only a person starts while its trigger
+        # is suspended: what its manifests give a pod and what they keep from
         # one, and everything a first run would otherwise be the one to find.
         release-pipeline = releasePipeline;
 
@@ -469,30 +465,17 @@
         build-requests = buildRequests;
 
         # And the wait between a request and that record, against a real
-        # remote. A ticket concluding a build happened when it did not rolls out
-        # a release nothing built; one concluding it did not abandons a change
-        # that is already merged.
+        # remote.
         await-build-results = awaitBuildResults;
 
         # Every record `results/` carries, against the request in `builds/` it
-        # answers. The records are what a rollout promotes an image from, and
-        # one filed under the wrong request verifies against itself perfectly.
+        # answers: one filed under the wrong request verifies against itself
+        # perfectly.
         build-results = buildResults;
 
         # And what puts them there: the only unattended push this tree makes to
         # the branch Flux follows, run against a real repository.
         build-results-publish = buildResultsPublish;
-
-        # And what a release is made of: the manifests rendered from those
-        # records, over this repository's own `cluster/`, driven through
-        # every refusal the renderer states.
-        render-release = renderRelease;
-
-        # And the one command a rollout ticket runs: that wait and then that
-        # render, under one bound and with one object on stdout. A ticket
-        # engine reads nothing else, and a render that moved nothing is an
-        # empty change the finalizer refuses.
-        rollout-from-results = rolloutFromResults;
 
         # The publisher unit as gtr builds it, driving the consumer from the
         # store copy it names with the PATH its script exports. The publisher's

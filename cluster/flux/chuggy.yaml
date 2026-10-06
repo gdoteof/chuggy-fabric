@@ -6,22 +6,32 @@ metadata:
   name: chuggy
   namespace: flux-system
 spec:
-  # What orders a release. This layer and `chuggy-migrate` read one source, and
-  # kustomize-controller applies a revision here only once that layer is Ready
-  # and has applied the same revision. Until then this one reads `Ready=False`
-  # with reason `DependencyNotReady` and applies nothing: the Deployments keep
-  # the pods they have, and a change made by hand is not undone either.
+  # What orders a release. This layer and `chuggy-migrate` read one source,
+  # `chuggy-release`, and kustomize-controller applies a release here only once
+  # that layer is Ready and has applied the same one. Until then this one reads
+  # `Ready=False` with reason `DependencyNotReady` and applies nothing: the
+  # Deployments keep the pods they have, and a change made by hand is not
+  # undone either.
   #
-  # So a dump or a migration that failed holds every later change to the
-  # services, a change that is not a release included, until that Job is
-  # replaced by a release or cleared by hand.
+  # So a dump or a migration that failed holds every later release, one that
+  # changes only this repository's half included, until that Job is replaced
+  # by a release or cleared by hand.
+  #
+  # ONE SOURCE IS WHAT MAKES THAT TRUE. Across two, Ready is all that is asked,
+  # and a commit moving these layers to another source can reach this one while
+  # `chuggy-migrate` still reads Ready on the old: the services of what the new
+  # source holds are then applied before its Job has run. Suspend this layer
+  # with `flux` across such a commit, and resume it once that one is Ready on
+  # the new source.
   dependsOn:
     - name: chuggy-migrate
   interval: 5m
-  path: ./cluster/chuggy
+  # The overlay beside the release's copy of cluster/chuggy/, as in
+  # chuggy-migrate.yaml.
+  path: ./release/chuggy
   sourceRef:
-    kind: GitRepository
-    name: fabric
+    kind: OCIRepository
+    name: chuggy-release
   # No `deletionPolicy: Orphan`, which `apps` sets for the data under it: what
   # this layer applies holds none.
   prune: true

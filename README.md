@@ -35,9 +35,8 @@ only by their own directory.
     modules/flux.nix                bootstraps Flux, chuggy.flux.*
 
     cluster/flux-system/            the vendored Flux install
-    cluster/flux/                   what Flux reconciles from this repo, one
-                                    Kustomization each, and the two sources
-                                    of a release
+    cluster/flux/                   what Flux reconciles, one Kustomization
+                                    each, and the two sources of a release
     cluster/apps/                   the cluster state the `apps` layer
                                     applies: no part of a chuggy release
     cluster/apps/kustomization.yaml the enumeration of that state, and the
@@ -46,7 +45,9 @@ only by their own directory.
                                     not manifests, and not in `resources`
     cluster/chuggy-migrate/         a chuggy release's migration Job, and the
                                     dump it takes first
-    cluster/chuggy/                 a chuggy release's services
+    cluster/chuggy/                 a chuggy release's services; a release is
+                                    made over these two, and names itself in
+                                    neither
 
     hosts/gtr/default.nix           geoff's Beelink GTR: hostname, radios, mesh, k3s, tunnel
     hosts/gtr/hardware-configuration.nix
@@ -561,9 +562,10 @@ Garbage collection and root disk usage are operator responsibilities.
 #### Registry operations
 
 `deploy/rig/images/build-and-import.sh` in kasofsk/chuggy imports an image
-into the node's own containerd and stops -- its header says it deploys nothing
--- while every release manifest names a registry digest. Publishing is the step
-between the two, and this is what runs it here.
+into the node's own containerd and stops -- its header says it deploys nothing.
+A release's two images need none of this: [the release
+pipeline](#the-release-pipeline) builds and pushes them. This is how an image
+built any other way reaches the registry.
 
 The client is containerd's own and the work runs on the node, which is what
 recommends it: no forward, no daemon configuration, and the image is already
@@ -632,9 +634,11 @@ beside a writable registry; a concurrent upload can lose a layer that the mark
 phase did not see. `registry-public` never writes and need not be stopped.
 Verify every retained release digest again after the registry returns.
 
-Rollback changes only the consumer's digest. Keep the previous manifest in the
-registry, restore that digest in the workload declaration, and let Flux
-reconcile it. Rolling the registry Deployment back cannot recover deleted
+Rollback of an image a manifest names by digest changes only that digest. Keep
+the previous manifest in the registry, restore that digest in the workload
+declaration, and let Flux reconcile it. A release's two images are named by no
+manifest in Git, and going back is [another
+release](#operating-a-release). Rolling the registry Deployment back cannot recover deleted
 content: restore `/var/lib/chuggy/registry` from a filesystem backup, or push
 the original archive again and verify its digest before restoring consumers.
 Loss of that host directory is the registry disaster boundary.
@@ -742,9 +746,7 @@ ownership, and only then delete the resource. The result directory is
 installation state and needs the same backup treatment as the registry and
 journal.
 
-A recorded result is also published into this repository, which is what makes
-a release runnable anywhere: the command below reads the records out of a
-checkout, and the pod that runs it has no path to the host's disk.
+A recorded result is also published into this repository.
 `chuggy-build-results-publish.timer` runs after the recorder on a host carrying
 `chuggy.buildProvenance.publish`, copies every record Git does not yet hold to
 `results/<repository-id>/<source-commit>/<request-digest>/<attempt>.json` beside
@@ -776,12 +778,7 @@ so the path and the bytes are the same ones -- commits them under `builds/` for
 Flux to apply, and once every one of those builds has a recorded result writes
 `results/<repository-id>/<source-commit>/request-<request-digest>.json`, naming
 the builds it rendered and the results that answered them. That record is what
-the rollout ticket waits for, through `scripts/rollout-from-results`: the one
-command that ticket's work is, which runs `scripts/await-build-results` and
-then `scripts/render-release` under one bound and prints one object naming
-what it released. A failed result completes the record too: what a failed
-build refuses is the release, and `scripts/render-release` is where that
-refusal is.
+`scripts/await-build-results` waits for, and a failed result completes it too.
 A request that record answers is inert from then on: the command reads the
 record before it renders anything, because `requests/` is never pruned and a
 command that decided by looking for the rendered manifest instead would re-render
@@ -789,54 +786,14 @@ every request ever answered the day a declared value, a profile digest or the
 Shipwright version moved a digest. A build retried by an operator is left as it
 is. `tests/build-requests.nix` drives both commands over this repository's own
 builds and results, `tests/await-build-results.nix` drives the wait against a
-real remote, `tests/rollout-from-results.nix` drives the rollout command over
-this repository's own release, and `tests/build-results-publish-unit.nix`
+real remote, and `tests/build-results-publish-unit.nix`
 drives the consumer from the store copy of `scripts/` the publisher unit gtr
-builds names, with the PATH that unit exports. The three tickets and the rule
-for sizing the wait are in `docs/build-operations-runbook.md`.
+builds names, with the PATH that unit exports. The ticket is in
+`docs/build-operations-runbook.md`.
 
-The release is a separate Git change, and `scripts/render-release` is what
-writes it. Given the chuggy commit to release, it reads the live commit off the
-manifests' `fabric.chuggy.dev/source-commit` annotation, decides which images
-moved by diffing the paths each Dockerfile copies between those two commits,
-selects a moved image's digest from a verified result under `results/`, carries
-an unmoved image's digest forward, and rewrites the release under
-`cluster/chuggy-migrate` and `cluster/chuggy`: the digest where an image moved,
-the annotation on every manifest `scripts/check-release-consistency` names, and
-the migrate Job named for the release. It then runs that check over what it
-wrote and surfaces its verdict.
-
-    scripts/render-release --target-commit <the full chuggy commit to release>
-
-It commits nothing, pushes nothing, reads no registry and contacts no cluster:
-the pull request a caller opens over the edit is the deployment decision. The
-two chuggy trees it diffs come from `--source-tree`, a checkout already holding
-both commits, or -- without one -- from a blobless fetch of `--source-ref` into
-a throwaway repository, which is also what lets the abbreviated live commit
-resolve at all.
-
-A digest comes only from a result this repository carries, held to the checksum
-and the canonical provenance digest beside it, to the request in `builds/` it
-answers, and to the path both are filed under -- the comparisons
-`tests/build-results.nix` makes, because a record answering a request filed
-under the wrong name verifies against itself perfectly. Which image a result is
-of is the Dockerfile its request names, because the image repository a result
-publishes to does not identify it.
-
-What the command refuses is stated in its own header and driven by
-`tests/render-release.nix`: an image whose inputs moved with no verified result
-at that commit, two results selecting different digests for one image, a record
-or request filed under a name it does not declare, and a tree the consistency
-check already refuses. It
-refuses with exit 3 and reports a run it could not make -- a tool absent, a
-verifier that reached no verdict -- with exit 2, which is not a pass. A commit
-that moved `images/worker` is warned about and acted on nowhere: no manifest
-selects that image, so no release moves it.
-
-Re-selecting a retained older result is the rollback operation and follows the
-same reviewable path. A build result alone never changes an environment, and
-accepting the Git change means only that Flux may attempt the rollout; it is not
-evidence of deployment success.
+Nothing releases from these builds, and a build result changes no environment.
+A release builds its own images, and is [the release
+pipeline](#the-release-pipeline)'s.
 
 Failed and stalled attempts are reported by the host timer, and retry and
 retirement preserve the immutable request and durable provenance. The
@@ -845,9 +802,12 @@ commands, retention boundary, and failure ownership.
 
 ### The release pipeline
 
-`cluster/build-system/` also declares a second way to a release, which no layer
-reads yet: `chuggy-migrate` and `chuggy` are still the two Git directories, and
-the trigger below is declared suspended.
+A chuggy release is one OCI artifact, and it is all the `chuggy-migrate` and
+`chuggy` layers apply. Git names no release: `cluster/chuggy-migrate` and
+`cluster/chuggy` are what one is made over, every line there that names one of
+its two images carries a digest no image has, and `.chug/tasks/ci.sh` refuses a
+release written into them. `cluster/chuggy/chuggy-ticket-service.yaml` argues
+that. The trigger below is declared suspended, so a person starts each run.
 
 A `PipelineRun` of `chuggy-release` in `chuggy-build` takes two repositories and
 two full commit hashes and nothing else. It builds chuggy's API and console
@@ -857,9 +817,22 @@ artifact to `chuggy/release` in the release registry: the fabric commit's
 `cluster/chuggy-migrate` and `cluster/chuggy`, and beside them
 `release/chuggy-migrate` and `release/chuggy`, two generated kustomize overlays
 that write the two digests, the source-commit annotation and the migrate Job's
-name. `OCIRepository` `chuggy-release` selects the highest version published.
-No task pod mounts a ServiceAccount token, and no policy gives one a route to
-the API server.
+name. `OCIRepository` `chuggy-release` selects the highest version published,
+and the two layers apply those overlays from it: the migration and then the
+services, in the order [The chuggy control plane](#the-chuggy-control-plane)
+gives. No task pod mounts a ServiceAccount token, and no policy gives one a
+route to the API server.
+
+**A release is two commits, this repository's and chuggy's, each the one its
+source held when the run was started.** A change under the two directories
+therefore reaches the cluster with the next release and not at its merge. A
+change there and the chuggy commit that needs it -- a configuration key an
+image requires and the image before it refuses -- are one release only when
+both have landed before a run starts; while the trigger is suspended that is
+an order a person keeps, by landing both and then starting the run.
+`cluster/apps` is no part of a release and is applied at its merge, so a change
+there that the running release cannot live under goes in two commits, which
+`cluster/flux/chuggy-migrate.yaml` argues.
 
 The release registry is `release-registry` in `chuggy-registry`, a second
 Distribution on the registry's volume, under a root of its own. It admits the
@@ -884,9 +857,12 @@ with it:
       http://<cluster-ip>:5000/v2/chuggy/release/manifests/<digest>
 
 `202`, and within its interval `chuggy-release` selects the highest version
-left. With none left it keeps the artifact it last held and reports that no
-version matches. The trigger does not publish the release again while its
-newest run is the one that published it, which `trigger.sh` argues.
+left and the two layers apply it: taking a release back is a rollout of the
+one before it, and [going back](#operating-a-release) says what that cannot
+cross. With none left the source keeps the artifact it last held, the layers
+stay on it, and it reports that no version matches. The trigger does not
+publish the release again while its newest run is the one that published it,
+which `trigger.sh` argues.
 
 The `release-trigger` CronJob, in a namespace of its own, is the one part that
 reads the API server. Each time it runs it compares what `GitRepository`
@@ -895,9 +871,8 @@ from `release-run.yaml`. Two admission policies beside it hold what its token
 creates to that file, for the address and the commit each source holds. While
 either source is missing the second refuses every `PipelineRun`, whoever
 creates it and in any namespace, with `no params found for policy binding`.
-While the trigger is suspended a person runs that same comparison once:
-
-    kubectl -n chuggy-release-trigger create job --from=cronjob/release-trigger by-hand-1
+While the trigger is suspended a person runs that same comparison, as
+[Operating a release](#operating-a-release) starts one.
 
 The CronJob is the `build-system` layer's, which puts its `suspend` back to
 what Git declares at its next pass. So stopping the trigger, or resuming it
@@ -919,6 +894,111 @@ the object back, and at the layer's next pass it is what Git declares:
       kustomize.toolkit.fluxcd.io/reconcile-
 
 A stop that is to outlast that is a commit.
+
+#### Operating a release
+
+**Starting one.** Nothing starts a run while the trigger is suspended but a
+person, who runs its comparison once:
+
+    kubectl -n chuggy-release-trigger create job --from=cronjob/release-trigger by-hand-1
+
+It starts a run only where the two sources hold something the newest run did
+not release, and its log says which. Then, in the order things happen:
+
+    kubectl -n chuggy-build get pipelineruns
+    flux get sources oci chuggy-release
+    flux get kustomizations
+    kubectl -n chuggy get jobs
+
+The run succeeds; the source holds a new revision; `chuggy-migrate` applies it
+and waits for the Job named for chuggy's commit; `chuggy` applies it once that
+Job has completed. The **Chuggy releases** dashboard shows the same.
+
+**Cancelling a run.**
+
+    kubectl -n chuggy-build patch pipelinerun <run> --type merge \
+      -p '{"spec":{"status":"Cancelled"}}'
+
+It ends failed, having published nothing. The next comparison retries a failed
+run once `RETRY_DELAY_SECONDS` in `release-trigger.yaml` have passed, or at
+once if the run has been deleted; while the trigger is suspended there is no
+next comparison until a person starts one.
+
+**Stopping a published release from applying.**
+
+    flux suspend kustomization chuggy-migrate chuggy
+
+Both, so that neither half of a release is applied without the other. The root
+declares no `suspend` on either and leaves the field as `flux` set it; set with
+`kubectl`, it is put back at the root's next pass. The source goes on reading
+releases, and nothing more is applied or pruned until
+
+    flux resume kustomization chuggy-migrate chuggy
+
+which applies the highest version there is by then. A Job the first layer had
+already created runs on.
+
+**Holding the cluster at one release** is a commit: `digest: sha256:<the
+artifact's>` added to `ref` in `cluster/flux/sources.yaml`, which the source
+reads in preference to the range, and to `SOURCES` in `tests/flux-layers.py`,
+which refuses the pin until it is written there as well. The digest is the half
+of the revision after the `@` in `flux get sources oci chuggy-release`, and the
+whole of it while the pin stands. Pinned to the release the cluster runs,
+nothing is applied; pinned to an earlier one, that release is applied over the
+later, which is going back to it and cannot cross what going back cannot. Runs
+go on publishing while it stands, and reverting the commit applies the highest.
+
+**Going back** is a revert on chuggy's `main`, and what releases it is a
+release like any other: its images are built, the dump is taken, and the Job
+runs under the revert's own commit. A revert of a change under the two
+directories here is the same. **Back across a migration is not available.** An
+image built from before a migration declares a ledger shorter than the
+database's, so its Job applies nothing and fails, `chuggy` reports
+`DependencyNotReady`, and the services stay on the release they were running
+until one whose image declares that migration replaces the Job. The dump taken
+before the migration is on the `chuggy-dumps` volume, and nothing restores it.
+
+**A layer inside its wait reads nothing new.** While `chuggy-migrate` waits
+for its Job or `chuggy` for a roll, a release published since, a commit to the
+layer and a `flux reconcile` are all taken up only when that wait ends: when
+the Job or the roll succeeds or fails, or at the layer's `timeout`. A Job whose
+pod cannot pull its image does neither, and deleting it does not end the wait.
+This does, and each layer then starts from what Git and the source hold:
+
+    kubectl -n flux-system rollout restart deployment kustomize-controller
+
+**A release published while the source is failing is not read within its
+interval.** `interval` is how often a source that is ready looks again. One
+whose last read failed -- the registry down, the node just started, no version
+there -- is asked again by source-controller after a delay that doubles with
+each failure, up to its `--max-retry-delay`: fifteen minutes by Flux's default,
+and `cluster/flux-system/gotk-components.yaml` sets no other.
+`flux get sources oci chuggy-release` says whether it is failing and what it
+last read, and this asks at once:
+
+    flux reconcile source oci chuggy-release
+
+**A release registry that holds nothing while the newest run released** -- its
+directory lost, or its one release deleted -- is a source that stays not
+ready, because the trigger does not publish again what its newest run
+published. The layers stay at what they last applied, and on a cluster that has
+applied nothing they apply nothing. Delete that run and start the comparison:
+
+    kubectl -n chuggy-build delete pipelinerun <run>
+
+Where `registry` still serves the two images, what the new run publishes is the
+release that was lost, byte for byte: the same digest under a higher version.
+The layers apply it and change nothing.
+
+**A fresh box has no release, and a person starts its first.** Until one is
+published `chuggy-release` reports that the registry does not know the
+repository, and the two layers report `Source artifact not found`. Before the
+first run, in order: everything in [Before any of it
+runs](#before-any-of-it-runs), because the Job of the first release migrates
+the database as soon as it is published; then `build-system` Ready, and
+`GitRepository` `chuggy` and `fabric-release` each holding a revision, without
+which the trigger starts nothing and says so. That release is published while
+the source is failing, so it is read as the paragraph above describes.
 
 The scripts a pod runs are files beside the manifests — `fetch.sh`, `build.sh`,
 `publish.sh` and `trigger.sh` — and each argues its own rules in its header.
@@ -1019,13 +1099,14 @@ corrects it.
 |---|---|---|---|
 | Machine | OS, k3s itself, cloudflared, WireGuard | rarely | `nixos-rebuild` |
 | Cluster | apps, ingresses, addons | constantly | Flux, continuously |
-| App | chuggy's own manifests and image tags | per commit | Flux, from its own repo |
+| Release | chuggy's two images and its control plane's manifests | per release | Flux, from a published artifact |
 
 Machine and cluster share this repo because for a single-node cluster they are
 one unit of reproducibility: clone, `nixos-rebuild switch`, and the box *and* its
 workloads exist. `hosts/<name>/` and `cluster/` sit side by side for the same
-reason. chuggy's own manifests belong in the chuggy repo when it has them, added
-as a second Flux `GitRepository` — no need to decide that now.
+reason. chuggy's control plane is the one part that is not there after that
+command: its manifests are in this repo, under `cluster/chuggy-migrate` and
+`cluster/chuggy`, and what applies them is [a release](#the-release-pipeline).
 
 What does *not* belong in the machine layer is app config. NixOS could write app
 manifests into k3s's auto-deploy directory and they would be declarative, but
@@ -1041,7 +1122,8 @@ correct drift.
       -> Flux reads this repo -> apps exist
 
 Nobody runs `kubectl`. A fresh box, or the second dev's box, reaches a populated
-cluster from one command.
+cluster from one command, less chuggy's control plane, which waits for [the
+first release](#operating-a-release).
 
 This deliberately is **not** `flux bootstrap`. That command wants provider write
 scope so it can commit manifests and create a deploy key, while those manifests
@@ -1057,14 +1139,16 @@ file. `chuggy.flux.repositoryUrl` and `.branch` generate two `GitRepository`
 objects, `fabric` and `fabric-release`, and one root `Kustomization` named
 `fabric`, and no other Flux object. `fabric-release` is the same repository and
 branch with `spec.ignore` keeping only the files under `cluster/chuggy-migrate/`
-and `cluster/chuggy/`, and no `Kustomization` reads it. The
-root applies `cluster/flux/`, where each part of this repository Flux
-reconciles is declared as its own `Kustomization` — `apps`, `chuggy-migrate`,
-`chuggy`, `build-prerequisites`, `build-system` and `builds` — so what Flux
-reconciles from it, and in what order, is changed by a commit and not by a host
-rebuild. `cluster/flux/sources.yaml` declares the two sources of a release that
-are the same on every host: `GitRepository` `chuggy`, and `OCIRepository`
-`chuggy-release`. The controller install is a checked-in manifest too,
+and `cluster/chuggy/`, and no `Kustomization` reads it: the release trigger
+does. The
+root applies `cluster/flux/`, where each layer Flux reconciles is declared as
+its own `Kustomization`, so what Flux reconciles, and in what order, is changed
+by a commit and not by a host rebuild. `apps`, `build-prerequisites`,
+`build-system` and `builds` read `fabric`, each a directory of this repository;
+`chuggy-migrate` and `chuggy` read `OCIRepository` `chuggy-release`, each an
+overlay of the release it holds. `cluster/flux/sources.yaml` declares that
+source and `GitRepository` `chuggy`, the two of a release that are the same on
+every host. The controller install is a checked-in manifest too,
 because that is a vendored upstream artifact identical on every adopter. A box
 being brought up, or one being used to try a change, has to be able to follow
 something other than whatever the shared branch holds at that moment, and a
@@ -1103,9 +1187,12 @@ If the app needs to be public it also needs a hostname in
 removals in git are silently ignored.
 
 **A workload that runs a chuggy release image is not an app in this sense.** It
-goes in `cluster/chuggy/`, in that directory's `kustomization.yaml` and in the
-roster in `scripts/check-release-consistency`, so that it rolls after the
-release's migration. The `rollout-order-gtr` check refuses one anywhere else.
+goes in `cluster/chuggy/` and in that directory's `kustomization.yaml`, so that
+it rolls after the release's migration, and its `image:` line names the image
+at the digest of sixty-four zeroes the others carry, which a release writes
+over. The `rollout-order-gtr` check refuses one anywhere else, and
+`.chug/tasks/ci.sh` another digest. It reaches the cluster with the next
+release, not at its merge.
 
 **Add the file to `cluster/apps/kustomization.yaml` as well.** That directory
 carries its own kustomization now — needed so the Ory ConfigMaps get a name
@@ -1448,8 +1535,9 @@ One process per responsibility, all out of one image:
 | `chuggy-worker-plane` | `src/roots/workerPlane.ts` | `chuggy_worker_plane` | yes, 3001 |
 | `chuggy-pool-plane` | `src/roots/poolPlane.ts` | `chuggy_pool_plane` | yes, 3002 |
 
-Plus `chuggy-migrate-<tag>`, a Job that dumps the database and then applies the
-schema, named after the image it applies it from. It waits for the database in
+Plus `chuggy-migrate-<commit>-registry`, a Job that dumps the database and then
+applies the schema, named by a release for the chuggy commit it applies it
+from. It waits for the database in
 one initContainer, dumps it in the next, and then migrates once,
 `backoffLimit: 0`.
 
@@ -1459,7 +1547,8 @@ Job is a Flux layer of its own, `chuggy-migrate`, and the services are another,
 release are applied only once its Job has completed, and when the dump or the
 migration fails they stay as they were: `chuggy` reads `DependencyNotReady` and
 applies nothing. That holds every later change to the services as well, until
-the Job is cleared. Nothing restores the dump — it is on the `chuggy-dumps`
+a release of another chuggy commit replaces the Job or a person clears it.
+Nothing restores the dump — it is on the `chuggy-dumps`
 volume for a person to restore from.
 `cluster/chuggy-migrate/chuggy-migrate.yaml` argues the order and says what it
 costs.
@@ -1474,11 +1563,12 @@ same sandbox was admitted on its second attempt, two seconds in. That is also
 why `chuggy-api` gets past it on a kubelet restart — a restart keeps the pod,
 and so keeps the address that has by then been admitted.
 
-**A dump or a migration that fails is terminal and needs a human.** Naming the
-Job after the tag makes a re-tag a new object, but when nothing about the Job
-has changed there is nothing for Flux to re-create: it re-applies an identical
-`Failed` Job every five minutes, the API server accepts it as unchanged, and
-neither runs again.
+**A dump or a migration that fails is terminal and needs a human.** A release
+of another chuggy commit carries a Job of another name, but until there is one
+nothing about the Job changes and there is nothing for Flux to re-create: it
+re-applies an identical `Failed` Job every five minutes, the API server accepts
+it as unchanged, and neither runs again. The trigger starts no run for it
+either: the run that published that release succeeded.
 
 **The Kustomization reports it.** `wait: true` health-checks every object the
 layer applies, and kstatus reads a `Failed` Job as failed, so `flux get
@@ -1491,9 +1581,9 @@ still quieter than it sounds: Alertmanager is off and no `Alert` is declared for
 Read the pod, fix the cause, then delete the Job so the next reconcile builds it
 afresh:
 
-    kubectl -n chuggy logs job/chuggy-migrate-<tag> -c dump
-    kubectl -n chuggy logs job/chuggy-migrate-<tag> -c migrate
-    kubectl -n chuggy delete job chuggy-migrate-<tag>
+    kubectl -n chuggy logs job/chuggy-migrate-<commit>-registry -c dump
+    kubectl -n chuggy logs job/chuggy-migrate-<commit>-registry -c migrate
+    kubectl -n chuggy delete job chuggy-migrate-<commit>-registry
 
 Nothing has put this rig in that state — treat it as argued from the mechanism,
 not observed.
@@ -1544,12 +1634,11 @@ node. Thirty attempts and then a non-zero exit, so a database that is genuinely
 down ends as a failed Job rather than as a Job that hangs.
 
 The API image already contains every control-plane command: its Dockerfile
-copies the whole source tree and sets the API as its default. The workloads
-`API_MANIFESTS` in `scripts/check-release-consistency` names carry one
-immutable digest in their `image:` fields and move together. The migration
-Job's name changes with the release because Kubernetes makes its pod template
-immutable; an edit to the Job that is not a release is what `force` on its
-layer is for.
+copies the whole source tree and sets the API as its default. A release writes
+its one digest onto every `image:` field that names it, the Job's included, so
+they move together. The migration Job's name changes with chuggy's commit
+because Kubernetes makes its pod template immutable; a release that changes
+the Job and not that commit is what `force` on its layer is for.
 
 Four of the five open no socket, so they have no probe and no Service. They
 report an unmet precondition by name and exit; the kubelet restarts them. A
@@ -1596,10 +1685,10 @@ of the one thing that has to work before anything else does.
 
 Six things, none of which a manifest can do, and each argued in the file that
 needs it. **Steps 1, 2 and 4 are ordered — 1 and 4 must both finish before 2 —
-and the order is not enforceable from here**: Flux starts applying the
-release on the reconcile after the merge and nothing in it waits for a person,
-so anything a human must do to the database or the image store has to be done
-*before* that merge, not after it.
+and the order is not enforceable from here**: Flux applies a release as soon
+as it is published and nothing in it waits for a person, so anything a human
+must do to the database has to be done *before* the run that publishes it is
+started, not after it.
 
 1. **Generate and synchronize the importer password, then apply it to the
    database from exactly Chuggy `e92cce9`.** The order inside this step is
@@ -1713,12 +1802,9 @@ so anything a human must do to the database or the image store has to be done
    look identical. It must print three rows; a missing row is a name that is not
    in this database, not a membership that is absent.
 
-2. **Build and publish an image** from that same checkout, verify its digest
-   through CRI, and re-pin the control-plane workloads together. The
-   migration Job's `metadata.name` changes with its immutable pod template.
-   A digest the registry does not hold leaves the new pod in
-   `ImagePullBackOff`; at one replica the API's rolling update retains the old
-   ready pod while that is repaired.
+2. **Release that commit**, as [Operating a release](#operating-a-release)
+   starts one: the pipeline builds its images, and the release names the
+   migration Job for it.
 
    After `chuggy-migrate-e92cce9-registry` is `Complete` and reports migration
    29, remove the role-file bootstrap privilege and prove it is gone:
@@ -1753,7 +1839,7 @@ so anything a human must do to the database or the image store has to be done
    the claim names its volume, so binding is two API objects agreeing and never
    touches the node.
 4. **Verify `chuggy-postgres-credentials` and the database agree before the
-   merge.** The generated inventory now has nine keys: owner, API, ticket
+   release.** The generated inventory now has nine keys: owner, API, ticket
    service, selector, scheduler, finalizer, worker plane, pool plane and
    configuration importer. The database has the corresponding nine active login
    roles: `chuggy_owner` and eight `*_login` roles. `chuggy_dispatcher_login` is
@@ -1761,7 +1847,7 @@ so anything a human must do to the database or the image store has to be done
    synchronized all nine Secret values and applied those same values through
    `chuggy-pg-role-env`; a green Secret sync alone proves only host/cluster
    agreement, not that PostgreSQL accepts the value. Authenticate as every
-   login over the cluster network before merging. In particular, verify
+   login over the cluster network before starting its run. In particular, verify
    `chuggy_configuration_importer_login` authenticates with
    `configuration-importer-password` and that its inherited membership exists:
 

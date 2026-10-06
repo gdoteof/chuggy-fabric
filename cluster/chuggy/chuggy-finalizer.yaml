@@ -2,17 +2,16 @@
 # commit, and the only writer of the artifact store.
 #
 # One responsibility, one pod, one command, one database role. The shared image,
-# the release roster its digest is written in, the login-role-becomes-group
-# connection, the password's URL-reserved-character constraint and the absence
-# of a health listener are argued in chuggy-ticket-service.yaml.
+# what writes its digest, the login-role-becomes-group connection, the
+# password's URL-reserved-character constraint and the absence of a health
+# listener are argued in chuggy-ticket-service.yaml.
 #
 # THE IMAGE IS NO LONGER THE OPEN QUESTION. The finalizer's first precondition is
 # `git-available`: it runs `git --version` and requires a version that writes
-# merge trees. That was the second of two blockers here for as long as the pin
-# named an image built on bare `node:26.7.0-trixie-slim`, which carries no git.
-# The tag below carries git 2.47.3 and the certificate bundle a remote needs --
-# verified by running `git --version` in a pod on this rig at that tag, not read
-# off the Dockerfile.
+# merge trees. That was the second of two blockers here for as long as the
+# image was built on bare `node:26.7.0-trixie-slim`, which carries no git. It
+# now carries git and the certificate bundle a remote needs -- verified by
+# running `git --version` in a pod on this rig, not read off the Dockerfile.
 #
 # THE VOLUMES BELOW ANSWER THE NEXT TWO. `composeFinalizerRuntime` orders
 # `git-scratch-writable` and `artifact-root-writable` between `git-available`
@@ -22,8 +21,8 @@
 #
 # THE MODE ON THE CREDENTIAL VOLUME BELOW IS NOW OBSERVABLE, and it was not
 # before: `git-available` used to fail ahead of it, so getting that mode wrong
-# was invisible. On this tag the credential precondition is the first thing that
-# can report it, which is the argument for reading that mode before changing it
+# was invisible. Now the credential precondition is the first thing that can
+# report it, which is the argument for reading that mode before changing it
 # rather than after.
 #
 # ---------------------------------------------------------- the recovery epoch ----
@@ -127,8 +126,6 @@ kind: Deployment
 metadata:
   name: chuggy-finalizer
   namespace: chuggy
-  annotations:
-    fabric.chuggy.dev/source-commit: 482708e4
   labels: { app: chuggy-finalizer }
 spec:
   replicas: 1
@@ -171,7 +168,7 @@ spec:
         # only thing an fsGroup would change here.
       containers:
         - name: finalizer
-          image: registry.chuggy.internal/chuggy/api@sha256:fb1a6b5785c9e1b04598c65952278044581c119661d550d423160f607ad95a2b
+          image: registry.chuggy.internal/chuggy/api@sha256:0000000000000000000000000000000000000000000000000000000000000000
           imagePullPolicy: IfNotPresent
           command:
             [

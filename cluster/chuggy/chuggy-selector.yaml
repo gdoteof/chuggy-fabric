@@ -3,10 +3,10 @@
 # it.
 #
 # One responsibility, one pod, one command, one database role. What this file
-# shares with the others -- the shared image, the digest that moves in every
-# file of the release roster, the login-role-becomes-group connection, the
-# URL-reserved-character constraint on the password, the absence of any health
-# listener -- is argued in chuggy-ticket-service.yaml and is not repeated.
+# shares with the others -- the shared image, what writes its digest, the
+# login-role-becomes-group connection, the URL-reserved-character constraint
+# on the password, the absence of any health listener -- is argued in
+# chuggy-ticket-service.yaml and is not repeated.
 #
 # THIS WORKLOAD RUNS. Neither of the two preconditions that kept it from
 # running is left. `selector-source` was answered: the credential below is what
@@ -15,9 +15,9 @@
 # so the Keto tuple further down is what turns the pass into work rather
 # than what makes it one. `selector-policy` is not answered but withdrawn:
 # kasofsk/chuggy#503 deletes the protocol it asks after, in favour of what
-# decides instead, and the digest below is built from a commit that carries
-# that deletion. So this file describes the image it pins rather than one it is
-# waiting for. Each is stated where the value that depends on it is written.
+# decides instead, and every release is built from a commit that carries that
+# deletion. So this file describes the image a release runs rather than one it
+# is waiting for. Each is stated where the value that depends on it is written.
 #
 # ------------------------------------------------ what it reaches, and how ----
 #
@@ -80,13 +80,13 @@
 # connects to, granted to the role the URL below selects, so the whole of the
 # policy protocol is the connection the first section of this file argues.
 #
-# NOTHING HERE NAMES A POLICY HOST, BECAUSE THE IMAGE THIS PINS DOES NOT READ
-# ONE. The trusted selector policy protocol -- a base URL, a bearer token, a
+# NOTHING HERE NAMES A POLICY HOST, BECAUSE THE IMAGE DOES NOT READ ONE. The
+# trusted selector policy protocol -- a base URL, a bearer token, a
 # media type and a client -- was retired by kasofsk/chuggy#503, which deletes
 # `src/adapters/http/trustedSelectorPolicy.ts` and composes `leadPolicyHost`
 # over `postgresLeadMailbox` in its place. Every image built before that commit
 # requires the `policy` block and refuses without it, which is why the block
-# and the digest move in the same commit and neither may move alone. There is
+# and the image moved in one release and neither could move alone. There is
 # no `policy` block here, no second Secret key and no egress arm; the network
 # policy file states the same thing from the other side.
 #
@@ -145,8 +145,6 @@ kind: Deployment
 metadata:
   name: chuggy-selector
   namespace: chuggy
-  annotations:
-    fabric.chuggy.dev/source-commit: 482708e4
   labels: { app: chuggy-selector }
 spec:
   # ONE, BECAUSE THERE IS FINALLY SOMETHING FOR IT TO ASK. The zero here was
@@ -163,14 +161,12 @@ spec:
   # roll: the old pod is gone before the new one starts, so a rollout never puts
   # a second sweeper beside the first.
   #
-  # THIS NUMBER, THE CONFIGURATION BELOW AND THE IMAGE ABOVE MOVE TOGETHER, and
+  # THIS NUMBER, THE CONFIGURATION BELOW AND THE IMAGE MOVE TOGETHER, and
   # unlike at zero that is now visible. An image built before the retirement,
   # handed this document, writes `selector configuration:` and exits; at one
   # replica a pod that exits is a CrashLoopBackOff rather than a manifest nobody
-  # parses. The digest above is built from a commit after 5b3f381, the commit
-  # that retires the protocol; release 18 was the first that could raise the
-  # number, no earlier one could have, and every release since carries a digest
-  # from a later commit.
+  # parses. Release 18 was the first built from a commit after 5b3f381, the
+  # commit that retires the protocol, so the first that could raise the number.
   #
   # A Deployment with no available replica never passes `wait: true`, which
   # health-checks every object in this directory; at zero this object was out of
@@ -197,7 +193,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: selector
-          image: registry.chuggy.internal/chuggy/api@sha256:fb1a6b5785c9e1b04598c65952278044581c119661d550d423160f607ad95a2b
+          image: registry.chuggy.internal/chuggy/api@sha256:0000000000000000000000000000000000000000000000000000000000000000
           imagePullPolicy: IfNotPresent
           command:
             [
@@ -236,8 +232,8 @@ spec:
             # a key it requires and does not find. `policy` is required by every
             # image built before the retirement and named by none built after,
             # and `lead` is the exact converse, which is why this document and
-            # the digest above have to move together and why neither half of the
-            # swap is a separable edit.
+            # the image have to move together and why neither half of the swap
+            # is a separable edit.
             #
             # `lead` IS THE LEAD HOST'S TWO NUMBERS AND ONE NAME, AND NO
             # DESTINATION. The host offers a turn on the lead session's mailbox
@@ -253,7 +249,7 @@ spec:
             # own envelope is a per-project setting and is not written here.
             #
             # `credentialSlot` IS THE ONE FIELD OF THE THREE THAT PLACES A POD.
-            # The image this pins opens a project's lead itself where none is
+            # The image opens a project's lead itself where none is
             # open, and the session row it writes carries the slot a pod for that
             # lead will speak through; `kubernetesSessionPodRequest` denies a
             # placement whose slot `CHUG_SCHEDULER_SESSION_POLICY`'s grant does
@@ -264,8 +260,8 @@ spec:
             # `CHUG_API_THREAD_CREDENTIAL_SLOT` for a member's thread, because a
             # lead and a thread reach the model the same way on this site. It is
             # required and the schema is strict, so an image built after
-            # kasofsk/chuggy#545 refuses a document without it: the field arrives
-            # in the same commit as the digest that requires it, for the reason
+            # kasofsk/chuggy#545 refuses a document without it: the field arrived
+            # in the same release as the image that requires it, for the reason
             # the swap above arrived in one.
             #
             # CHUG_SELECTOR_THREAD_WAKES_PER_PASS_MAX is unset, and unset is not
@@ -286,8 +282,8 @@ spec:
             #
             # It is required and the schema is strict, so an image built before
             # kasofsk/chuggy#635 refuses a document carrying it: this block and
-            # the digest above are one release, exactly as `credentialSlot` and
-            # the swap before it were.
+            # the image that reads it are one release, exactly as
+            # `credentialSlot` and the swap before it were.
             #
             # `identity.principal` is not what gets this workload past the
             # API -- the token is, and the HTTP client discards this value on

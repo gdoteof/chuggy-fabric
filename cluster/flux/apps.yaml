@@ -1,5 +1,7 @@
 # What cluster/apps/ declares. No part of a chuggy release is in it: that is
-# `chuggy-migrate` and then `chuggy`, each waiting on the layer before it.
+# `chuggy-migrate` and then `chuggy`, each waiting on the layer before it, and
+# they read another source. chuggy-migrate.yaml says what that costs a change
+# here.
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization

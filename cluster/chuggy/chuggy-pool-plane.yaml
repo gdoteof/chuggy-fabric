@@ -28,8 +28,6 @@ metadata:
   name: chuggy-pool-plane
   namespace: chuggy
   labels: { app: chuggy-pool-plane }
-  annotations:
-    fabric.chuggy.dev/source-commit: 482708e4
 spec:
   replicas: 1
   selector:
@@ -47,7 +45,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: pool-plane
-          image: registry.chuggy.internal/chuggy/api@sha256:fb1a6b5785c9e1b04598c65952278044581c119661d550d423160f607ad95a2b
+          image: registry.chuggy.internal/chuggy/api@sha256:0000000000000000000000000000000000000000000000000000000000000000
           imagePullPolicy: IfNotPresent
           command: [node, --experimental-strip-types, src/roots/poolPlane.ts]
           env:

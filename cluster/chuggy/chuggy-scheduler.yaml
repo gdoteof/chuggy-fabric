@@ -3,9 +3,9 @@
 # a Kubernetes credential.
 #
 # One responsibility, one pod, one command, one database role. The shared image,
-# the release roster its digest is written in, the login-role-becomes-group
-# connection, the password's URL-reserved-character constraint and the absence
-# of a health listener are argued in chuggy-ticket-service.yaml. The recovery
+# what writes its digest, the login-role-becomes-group connection, the
+# password's URL-reserved-character constraint and the absence of a health
+# listener are argued in chuggy-ticket-service.yaml. The recovery
 # epoch and the insert that establishes it are argued in chuggy-finalizer.yaml;
 # both processes fence against the same epoch, which is why both read it from
 # one Secret rather than each carrying a copy.
@@ -118,8 +118,6 @@ kind: Deployment
 metadata:
   name: chuggy-scheduler
   namespace: chuggy
-  annotations:
-    fabric.chuggy.dev/source-commit: 482708e4
   labels: { app: chuggy-scheduler }
 spec:
   replicas: 1
@@ -147,7 +145,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: scheduler
-          image: registry.chuggy.internal/chuggy/api@sha256:fb1a6b5785c9e1b04598c65952278044581c119661d550d423160f607ad95a2b
+          image: registry.chuggy.internal/chuggy/api@sha256:0000000000000000000000000000000000000000000000000000000000000000
           imagePullPolicy: IfNotPresent
           command:
             [
@@ -786,18 +784,11 @@ spec:
             - name: CHUG_SCHEDULER_SESSION_MODEL
               value: claude-opus-5
             # Where the pod's own tools reach this installation's API. THE
-            # IMAGE PINNED ABOVE READS IT AND REQUIRES IT: `schedulerSessions`
-            # takes it with `schedulerRequired`, so deleting this variable does
-            # not place sessions without tools -- it exits the scheduler at
-            # start-up, and a scheduler that exits this way says so only in the
-            # previous container's stderr.
-            #
-            # It was written one release before the image that requires it, and
-            # the reason is worth keeping now that both halves are here: a
-            # required variable arriving in the same commit as the image that
-            # requires it is a release that breaks if either half is fumbled.
-            # This is that commit, so the sentence is history rather than a
-            # caveat -- there is no longer a pinned image that ignores this.
+            # IMAGE READS IT AND REQUIRES IT: `schedulerSessions` takes it with
+            # `schedulerRequired`, so deleting this variable does not place
+            # sessions without tools -- it exits the scheduler at start-up, and
+            # a scheduler that exits this way says so only in the previous
+            # container's stderr.
             #
             # AN ORIGIN AND NOT A ROUTE. `checkedKubernetesSessionLaunchConfig`
             # refuses a URL carrying a path, a query, a fragment or credentials,
@@ -872,11 +863,9 @@ spec:
             - name: CHUG_SCHEDULER_SESSION_BOUNDS
               value: '{"budgetUsd":1000}'
             # The one image, profile and grant every session here runs under.
-            # Its image is the worker built from the same commit
-            # this release pins everywhere else, requested by
-            # `builds/chuggy/8c3ee90b750fc1d141be928ef2950042a90cc1b7/` and
-            # admitted as `0.20` above; a session and an attempt on this site run
-            # the same binary, and this is the only variable that says so twice.
+            # Its image is a worker admitted above; a session and an attempt on
+            # this site run the same binary, and this is the only variable that
+            # says so twice.
             #
             # `credentials` is the execution policy's list, which is now the
             # same two slots. `kubernetesSessionPodRequest` denies a credential
@@ -941,10 +930,11 @@ spec:
                   },
                   "routes": { "Thread": "Pool", "Lead": "Pool" }
                 }
-            # THE RELEASE COMMIT REWRITES THE VALUE ABOVE, and it rewrites the
-            # whole of it: this variable is one JSON document, so moving the
-            # image digest to the worker built from the release's chuggy commit
-            # means writing the grant out again beside it. The credential list
+            # A COMMIT THAT MOVES THE WORKER REWRITES THE VALUE ABOVE, and it
+            # rewrites the whole of it: this variable is one JSON document, so
+            # moving the image digest to another worker means writing the grant
+            # out again beside it. No release writes this line; the worker is
+            # none of a release's images. The credential list
             # is the part of it that is easy to drop on the way past, and
             # dropping `chuggy-git-worker` places a session that starts, takes
             # its turns and silently has no checkout of the one repository this

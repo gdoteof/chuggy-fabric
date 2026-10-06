@@ -16,6 +16,12 @@ ownership boundaries, deployment sequence, recovery path, and required checks.
   per-repository token.
 - `cluster/` is Flux-managed Kubernetes state. `main` is live, so merging a
   manifest change is a deployment action.
+- `cluster/chuggy-migrate` and `cluster/chuggy` are the exception: Flux applies
+  them from a published release and not from `main`, so a change there deploys
+  with the next release. Neither names one. The release pipeline writes the
+  image digests, the source-commit annotation and the migrate Job's name over a
+  copy; one written in git is replaced without a word, and `.chug/tasks/ci.sh`
+  refuses it.
 - `builds/` contains immutable Shipwright requests pinned to full source commits.
   Generate them with `scripts/render-build-request`; never edit one in place.
 - `requests/` holds the build requests a source repository's finalized change
@@ -28,11 +34,7 @@ ownership boundaries, deployment sequence, recovery path, and required checks.
   refusals are the whole of what holds a document, and they are in their
   headers.
 - `results/` records immutable build provenance, published by the host that
-  recorded it. A release -- the image digests, source-commit annotations and
-  migrate Job name under `cluster/chuggy-migrate` and `cluster/chuggy` -- is
-  generated from those results with `scripts/render-release`, and never edited
-  by hand. A rollout ticket runs it through `scripts/rollout-from-results`,
-  which first waits for this site's record of the build.
+  recorded it. Nothing releases from it.
 - Credentials remain outside Git. Commit references, projections, and delivery
   mechanisms, but never private keys or token values.
 

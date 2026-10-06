@@ -12,19 +12,32 @@ spec:
   # anything `apps` reads as unhealthy -- a HelmRelease in `monitoring`, the
   # `sirdocalot` Kustomization it carries -- holds a release, whether or not
   # the release touches it.
+  #
+  # READY IS ALL IT WAITS FOR. `apps` reads git and this layer reads a release,
+  # and across two sources kustomize-controller holds neither to the revision
+  # the other applied. A commit to cluster/apps/ is applied on its own, minutes
+  # before the release made with it and whether or not one follows; a release
+  # is applied over whatever `apps` last applied. So a change there that the
+  # running release cannot live under, or that the next one needs first, goes
+  # in two commits: the one both releases run under, then the other.
   dependsOn:
     - name: apps
   interval: 5m
-  path: ./cluster/chuggy-migrate
+  # The overlay cluster/build-system/publish.sh writes into a release, over
+  # the copy of cluster/chuggy-migrate/ beside it. This repository's own
+  # directory names no release, and no layer applies it.
+  path: ./release/chuggy-migrate
   sourceRef:
-    kind: GitRepository
-    name: fabric
+    kind: OCIRepository
+    name: chuggy-release
   prune: true
-  # A Job's pod template is immutable. An edit to the Job under a name that did
-  # not change is an apply the API server rejects, and without this the layer
-  # stays failed on it. With it kustomize-controller deletes the Job and creates
-  # it again, and the Job runs again. A Job that failed and was not edited is
-  # not that case: nothing is rejected, so nothing is created again.
+  # A Job's pod template is immutable, and the Job is named for chuggy's commit
+  # alone. A release that changes cluster/chuggy-migrate/ and not that commit
+  # is an edit to the Job under a name that did not change: an apply the API
+  # server rejects, and without this the layer stays failed on it. With it
+  # kustomize-controller deletes the Job and creates it again, and the Job
+  # runs again. A Job that failed and was not edited is not that case: nothing
+  # is rejected, so nothing is created again.
   force: true
   # kstatus reads a Job as current once it has completed and as failed once it
   # has failed, so this layer is Ready only after the dump and the migration

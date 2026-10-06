@@ -25,8 +25,17 @@ spec:
 # The releases cluster/build-system/publish.sh pushes, of which this holds the
 # highest.
 #
-# NO LAYER READS IT. `chuggy-migrate` and `chuggy` read git, and
-# tests/flux-layers.py holds them to it.
+# `chuggy-migrate` and `chuggy` read it and no other layer does, and
+# tests/flux-layers.py holds each to that.
+#
+# FAILING, IT IS NOT ASKED AGAIN AT ITS INTERVAL. `interval` is how often a
+# source that is Ready looks again. One that failed -- the registry down, or
+# holding no version -- is retried by source-controller after a delay that
+# doubles with each failure, up to its `--max-retry-delay`, which
+# cluster/flux-system/gotk-components.yaml leaves at the controller's default.
+# So a release published while it is failing is read at the next retry and
+# not within the interval; `flux reconcile source oci chuggy-release` asks at
+# once.
 #
 # THE RANGE IS EVERY VERSION. Of the tags that are semantic versions it takes
 # the highest; a tag that is not one, which a commit's own tag is not, is

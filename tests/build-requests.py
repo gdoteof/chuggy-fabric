@@ -36,8 +36,6 @@ import os
 import shutil
 import subprocess
 import sys
-from importlib.machinery import SourceFileLoader
-from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
 ROOT = Path(sys.argv[1]).resolve()
@@ -264,20 +262,6 @@ def results_gate(root):
     )
 
 
-def released_images():
-    """The images `scripts/render-release` moves, by the Dockerfile that builds
-    each: the same pairs `scripts/build_sources.py` declares, read out of the
-    renderer rather than restated."""
-    sys.path.insert(0, str(SCRIPTS))
-    path = SCRIPTS / "render-release"
-    loader = SourceFileLoader("render_release", str(path))
-    spec = spec_from_file_location("render_release", str(path), loader=loader)
-    module = module_from_spec(spec)
-    loader.exec_module(module)
-    release = module.images(module.roster_of(SCRIPTS))
-    return {image.dockerfile: image.repository for image in release}
-
-
 def unfiled(case, phrases, **asked):
     """A request this site will not file: the run says 3, and the tree is as it
     was. A ticket reading any other verdict either lands a document nobody can
@@ -290,10 +274,6 @@ def unfiled(case, phrases, **asked):
 
 
 def main():
-    sys.dont_write_bytecode = True
-    sys.path.insert(0, str(SCRIPTS))
-    from build_sources import SOURCES
-
     # What a source ticket files, and what this site answers, are one document.
     # The bytes are held to `REQUESTED` -- chuggy's own renderer's, which nothing
     # here can reach -- and then handed to the consumer, because a document that
@@ -611,16 +591,6 @@ def main():
     if expect(case, request_build(root, scripts=scripts, ref="refs/heads/nowhere"), UNRUNNABLE,
               [], ["refs/heads/nowhere could not be resolved"]) and fingerprint(root) != before:
         report(case, "a request was filed for a ref that does not resolve")
-
-    # The images this site renders requests for and the images a release moves
-    # are one set. An image declared in only one of them is either a build
-    # nothing releases or a release that refuses for want of a result.
-    case = "declares-the-images-a-release-moves"
-    if SOURCES["chuggy"]["images"] != released_images():
-        report(
-            case,
-            f"{SOURCES['chuggy']['images']} is not what render-release moves: {released_images()}",
-        )
 
     raise SystemExit(reported())
 

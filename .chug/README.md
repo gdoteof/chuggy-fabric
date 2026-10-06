@@ -11,12 +11,13 @@ release half it must also reach — `version`, `image` and the execution
 requirement — in `releaseConfigurationReadiness` in
 `src/interpreter/authoring.ts`.
 
-`fabric-change` asks this site for a build of chuggy `main` and
-`fabric-rollout` lands the release of it: the second and third tickets of the
-chain `docs/build-operations-runbook.md` describes. Each declares its work as
-one command invoking one script, and what that script does and refuses is
-argued in its own header. Nothing ticket-specific is in either -- the commit
-is resolved by the script when it runs -- and each states its own stages.
+`fabric-change` asks this site for a build of chuggy `main`, as
+`docs/build-operations-runbook.md` describes. It declares its work as one
+command invoking one script, and what that script does and refuses is argued
+in its own header. Nothing ticket-specific is in it -- the commit is resolved
+by the script when it runs -- and it states its own stages. No ticket here
+makes a release, and nothing releases from that build: `README.md` says how a
+release is made.
 
 How a ticket lands is not a configuration's to say. It is the binding's
 default in Chuggy's console -- a merged pull request, on both live bindings, as
