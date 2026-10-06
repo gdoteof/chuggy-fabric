@@ -25,6 +25,24 @@ tests/flux-layers.py, beside the two sources.
 EVERY IMAGE IS PINNED BY DIGEST, and every step names its `command`, without
 which Tekton asks the image's registry for the entrypoint.
 
+WHAT A POD MAY DO ON ITS NODE IS HELD EXACTLY, because here the manifest is
+the only limit. `chuggy-build` enforces Pod Security `privileged`, which is
+what a rootless BuildKit needs of it, so a step written as root or
+`privileged` is admitted as written. Each step's `securityContext` is held, and
+a Task and a step are held to the fields these have: a `stepTemplate`, a
+sidecar or a field of a step this does not know is a second place to say what
+a container may do. The trigger's namespace does enforce `restricted`, and that
+label is held with the pod: without it nothing refuses the trigger root or the
+node's network, and a pod on the node's network is one neither of its policies
+binds.
+
+THE TRIGGER'S TIMING IS HELD BECAUSE EACH VALUE IS READ BY ANOTHER. The
+schedule is the minute trigger.sh and the alert that announces a trigger that
+stopped both count in; the Job's deadline is what `Forbid` waits out before the
+next minute may start; a run's timeout is the one thing that ends a run that
+hangs, and a run that has not finished is all the trigger needs to start
+nothing.
+
 WHAT ONLY A RUN WOULD OTHERWISE SHOW is held here because the trigger is
 suspended and nothing runs one: a Task a Pipeline names that is not there, a
 parameter passed that is not declared or declared and never passed, a script
@@ -156,6 +174,89 @@ TRIGGER_ROLES = {
     ],
 }
 
+CONFINED = {
+    "runAsNonRoot": True,
+    "allowPrivilegeEscalation": False,
+    "capabilities": {"drop": ["ALL"]},
+    "readOnlyRootFilesystem": True,
+    "seccompProfile": {"type": "RuntimeDefault"},
+}
+AS_BUILDKIT = {"runAsUser": 1000, "runAsGroup": 1000}
+AS_NOBODY = {"runAsUser": 65534, "runAsGroup": 65534}
+
+# The steps of each Task, in order, and what each may do.
+STEPS = {
+    "build-image": {
+        "fetch": {**CONFINED, **AS_BUILDKIT},
+        "build": {
+            "runAsNonRoot": True,
+            **AS_BUILDKIT,
+            "allowPrivilegeEscalation": True,
+            "capabilities": {"add": ["SETGID", "SETUID"], "drop": ["ALL"]},
+            "readOnlyRootFilesystem": True,
+            "seccompProfile": {"type": "Unconfined"},
+            "appArmorProfile": {"type": "Unconfined"},
+        },
+    },
+    "publish-release": {
+        "fetch": {**CONFINED, **AS_BUILDKIT},
+        "publish": {**CONFINED, **AS_NOBODY},
+    },
+}
+TASK_FIELDS = {"params", "results", "volumes", "steps"}
+STEP_FIELDS = {
+    "name",
+    "image",
+    "imagePullPolicy",
+    "command",
+    "env",
+    "securityContext",
+    "computeResources",
+    "volumeMounts",
+}
+
+RESTRICTED = {
+    "pod-security.kubernetes.io/enforce": "restricted",
+    "pod-security.kubernetes.io/audit": "restricted",
+    "pod-security.kubernetes.io/warn": "restricted",
+}
+TRIGGER_TIMING = {
+    "schedule": "* * * * *",
+    "concurrencyPolicy": "Forbid",
+    "startingDeadlineSeconds": 30,
+    "successfulJobsHistoryLimit": 1,
+    "failedJobsHistoryLimit": 3,
+}
+TRIGGER_JOB = {"backoffLimit": 0, "activeDeadlineSeconds": 45}
+TRIGGER_POD_FIELDS = {
+    "serviceAccountName",
+    "automountServiceAccountToken",
+    "restartPolicy",
+    "terminationGracePeriodSeconds",
+    "nodeSelector",
+    "securityContext",
+    "containers",
+    "volumes",
+}
+TRIGGER_POD_SECURITY = {"runAsNonRoot": True, **AS_NOBODY, "seccompProfile": {"type": "RuntimeDefault"}}
+TRIGGER_CONTAINER_FIELDS = {
+    "name",
+    "image",
+    "imagePullPolicy",
+    "command",
+    "env",
+    "resources",
+    "securityContext",
+    "volumeMounts",
+}
+TRIGGER_CONTAINER_SECURITY = {
+    "allowPrivilegeEscalation": False,
+    "readOnlyRootFilesystem": True,
+    "capabilities": {"drop": ["ALL"]},
+}
+RUN_FIELDS = {"pipelineRef", "params", "timeouts", "taskRunTemplate"}
+RUN_TIMEOUTS = {"pipeline": "1h"}
+
 PLACEMENT = {
     "automountServiceAccountToken": False,
     "nodeSelector": {
@@ -204,8 +305,11 @@ def references(value):
 
 def tasks_are_sound(build, tasks):
     configs = of(build, "ConfigMap", BUILD_NAMESPACE)
+    exactly(f"the Tasks of {BUILD_NAMESPACE}", sorted(tasks), sorted(STEPS))
     for name, task in tasks.items():
         spec = task["spec"]
+        exactly(f"what Task {name} carries beyond {sorted(TASK_FIELDS)}", sorted(set(spec) - TASK_FIELDS), [])
+        exactly(f"the steps of Task {name}", [step["name"] for step in spec["steps"]], list(STEPS[name]))
         params = {param["name"] for param in spec.get("params", [])}
         results = {result["name"] for result in spec.get("results", [])}
         volumes = {}
@@ -221,6 +325,8 @@ def tasks_are_sound(build, tasks):
             command = step.get("command")
             if "script" in step or not command or command[0] != "/bin/sh" or len(command) != 2:
                 refuse(f"{subject} does not name a `command` that is /bin/sh over one script file")
+            exactly(f"what {subject} carries beyond {sorted(STEP_FIELDS)}", sorted(set(step) - STEP_FIELDS), [])
+            exactly(f"what {subject} may do", step.get("securityContext"), STEPS[name][step["name"]])
             mounts = {mount["mountPath"]: mount["name"] for mount in step.get("volumeMounts", [])}
             directory, _, script = command[1].rpartition("/")
             volume = volumes.get(mounts.get(directory), {})
@@ -308,6 +414,8 @@ def main():
     exactly("release-run.yaml's kind", (release_run["apiVersion"], release_run["kind"]), ("tekton.dev/v1", "PipelineRun"))
     run_is_placed("release-run.yaml", release_run, release_run["spec"].get("taskRunTemplate", {}))
     exactly("release-run.yaml's pipeline", release_run["spec"]["pipelineRef"], {"name": PIPELINE})
+    exactly("what release-run.yaml's spec carries", sorted(release_run["spec"]), sorted(RUN_FIELDS))
+    exactly("release-run.yaml's timeouts", release_run["spec"]["timeouts"], RUN_TIMEOUTS)
     exactly(
         "what release-run.yaml passes",
         sorted(param["name"] for param in release_run["spec"]["params"]),
@@ -362,6 +470,11 @@ def main():
     )
     if TRIGGER_NAMESPACE not in of(build, "Namespace"):
         refuse(f"Namespace {TRIGGER_NAMESPACE} is not rendered")
+    exactly(
+        f"the labels of Namespace {TRIGGER_NAMESPACE}",
+        of(build, "Namespace")[TRIGGER_NAMESPACE]["metadata"].get("labels"),
+        RESTRICTED,
+    )
     cronjob = of(build, "CronJob", TRIGGER_NAMESPACE)[TRIGGER]
     if cronjob["spec"].get("suspend") is not True:
         refuse(f"CronJob {TRIGGER} is not suspended, and it starts a release for every commit as soon as it is applied")
@@ -369,8 +482,23 @@ def main():
     job = cronjob["spec"]["jobTemplate"]["spec"]
     if not job.get("activeDeadlineSeconds"):
         refuse(f"CronJob {TRIGGER} has no activeDeadlineSeconds, and a trigger that hangs holds every later one back")
+    exactly(
+        f"CronJob {TRIGGER}'s timing",
+        {name: value for name, value in cronjob["spec"].items() if name not in ("suspend", "jobTemplate")},
+        TRIGGER_TIMING,
+    )
+    exactly(f"CronJob {TRIGGER}'s Job", {name: value for name, value in job.items() if name != "template"}, TRIGGER_JOB)
     pod = job["template"]["spec"]
     exactly(f"CronJob {TRIGGER}'s ServiceAccount", pod.get("serviceAccountName"), TRIGGER)
+    exactly(f"what CronJob {TRIGGER}'s pod carries", sorted(pod), sorted(TRIGGER_POD_FIELDS))
+    exactly(f"what CronJob {TRIGGER}'s pod may do", pod["securityContext"], TRIGGER_POD_SECURITY)
+    (container,) = pod["containers"]
+    exactly(f"what CronJob {TRIGGER}'s container carries", sorted(container), sorted(TRIGGER_CONTAINER_FIELDS))
+    exactly(f"what CronJob {TRIGGER}'s container may do", container["securityContext"], TRIGGER_CONTAINER_SECURITY)
+    for volume in pod["volumes"]:
+        kinds = set(volume) - {"name"}
+        if not kinds <= {"configMap", "emptyDir"}:
+            refuse(f"CronJob {TRIGGER} has the volume {volume['name']} of {sorted(kinds)}, and the trigger is given nothing but its script and scratch")
     for container in pod["containers"] + pod.get("initContainers", []):
         if not PINNED.fullmatch(container["image"]):
             refuse(f"CronJob {TRIGGER} runs {container['image']}, which is not a tag pinned by digest")
