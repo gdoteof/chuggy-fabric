@@ -298,9 +298,9 @@ metadata:
   labels: { app: release-trigger }
 spec:
   schedule: "* * * * *"
-  # SUSPENDED: nothing here starts a run by itself. The pipeline is proved by
-  # a run started by hand before this is taken out, and the two release layers
-  # still read git until a later commit moves them.
+  # SUSPENDED: nothing here starts a run by itself. A person starts each one,
+  # as README.md's "Operating a release" says, and the two release layers
+  # apply what it publishes.
   #
   # THE FIELD IS THE LAYER'S. Set with `kubectl`, it is back to what is
   # written here at the layer's next pass, whichever way it was set.
