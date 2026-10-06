@@ -91,8 +91,9 @@ spec:
     - Ingress
 ---
 # The API is reachable from Traefik, which is how the internet reaches it, from
-# the selector, and from a session pod in `chuggy-work`. Nothing else on the pod
-# network may open a connection to it.
+# the selector, from a session pod in `chuggy-work`, and from Flux's
+# notification-controller. Nothing else on the pod network may open a
+# connection to it.
 #
 # THE THIRD ELEMENT NAMES ITS NAMESPACE AND THE SECOND DELIBERATELY DOES NOT.
 # `chuggy.dev/api-client` is one label with two readers, and a bare podSelector
@@ -148,6 +149,16 @@ spec:
           podSelector:
             matchLabels:
               chuggy.dev/api-client: "true"
+        # Flux's notification-controller, which posts what a release came to
+        # at the report route, as chuggy-rollout-reports.yaml argues. By the
+        # label the vendored install gives that pod, so no other controller
+        # of `flux-system` is admitted.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: flux-system
+          podSelector:
+            matchLabels:
+              app: notification-controller
       ports:
         - protocol: TCP
           port: 3000

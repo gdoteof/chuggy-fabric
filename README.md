@@ -1026,6 +1026,18 @@ A `report` that fails, or runs past its own bound, leaves its run succeeded,
 which `release-pipeline.yaml` argues, and what chuggy answered is a line a
 report in that pod's log, which the release dashboard shows on the run's page.
 
+What a release came to on this cluster Flux tells chuggy itself, as the action
+`rig`. `cluster/apps/chuggy-rollout-reports.yaml` has notification-controller
+post the `chuggy` layer's events and the `chuggy-migrate` layer's errors to the
+API, signed with the Secret `chuggy-report-flux`, and chuggy records the last
+layer's success, or either's failure, against the chuggy commit the release was
+built from. Flux keeps no queue: a report that met an outage is lost, and the
+layer says what it came to again at its next pass. A delivery chuggy refused,
+or one that did not arrive, is an error in notification-controller's log and,
+while the cluster keeps the event, a Warning on its Alert:
+
+    kubectl -n chuggy get events --field-selector involvedObject.kind=Alert
+
 A trigger that is not suspended and has stopped succeeding fires
 `ReleaseTriggerNotSucceeding`, from `cluster/apps/release-trigger-alert.yaml`,
 which `tests/release-alert.nix` evaluates. Like every alert here it is
@@ -1669,9 +1681,9 @@ Kubernetes, and closing that needs a health listener in chuggy itself.
 
 `cluster/apps/chuggy-control-plane-network-policy.yaml` holds nine
 NetworkPolicies: one that admits nothing to the five processes with no listener
-or to the migration Job, one that admits the API from Traefik and from the
-selector alone, and seven egress rules that each state completely where one
-workload may go. The widest is the
+or to the migration Job, one that admits the API from Traefik, the selector, a
+session pod and Flux's notification-controller alone, and seven egress rules
+that each state completely where one workload may go. The widest is the
 scheduler's, which needs the Kubernetes API server at an address that is a DHCP
 lease, so it permits everything but the pod and service networks; the file
 argues why and what would narrow it.

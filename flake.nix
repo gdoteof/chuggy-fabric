@@ -241,9 +241,9 @@
         forge-app-key = forgeAppKey;
 
         # A roster the API reads, a file each reporter is verified by, the
-        # Secret the host makes for it, and the release run that presents
-        # one: each a name written in two places, and a report answered 404
-        # when they differ.
+        # Secret the host makes for it, the release run that presents one and
+        # the Provider Flux signs a rollout's events with another: each a name
+        # written in two places, and a report answered 404 when they differ.
         action-reporters = actionReporters;
 
         # D30 and D14 in a form a check can hold: an enabled host that has not

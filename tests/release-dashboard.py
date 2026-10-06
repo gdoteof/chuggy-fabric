@@ -16,7 +16,9 @@ A link from the dashboard to its data breaks silently. The ones held here:
   a panel naming a datasource Grafana is not given are each an empty page.
 - A link that is not to the address Grafana answers at, to this dashboard's
   uid or by a variable it has opens on something else or on nothing. The one a
-  release run gives chuggy for itself is held to all three.
+  release run gives chuggy for itself is held to all three, and the one an
+  Alert adds to the events Flux reports a rollout by, which names no run, to
+  the first two.
 
 No other series is known by name here, and nothing a query means is read.
 """
@@ -37,6 +39,8 @@ VARIABLE = "run"
 PIPELINE = "chuggy-release"
 REPORT = "report"
 RUN_NAME = "$(context.pipelineRun.name)"
+# The type of Provider Flux signs a report to chuggy as.
+SIGNING = "generic-hmac"
 # The datasource the chart provisions for its own Prometheus.
 CHART_DATASOURCE = "prometheus"
 # What kube-state-metrics labels every custom resource series with.
@@ -247,6 +251,24 @@ def run_links_to_its_page(apps, build, dashboard):
         refuse(f"a release run gives chuggy the link {links}, and its page on this dashboard is {expected}")
 
 
+def rollout_links_to_the_page(apps):
+    values = named(apps, "HelmRelease", RELEASE)["spec"]["values"]
+    page = f"{values['grafana']['grafana.ini']['server']['root_url'].rstrip('/')}/d/{UID}"
+    signing = {
+        (document["metadata"].get("namespace"), document["metadata"]["name"])
+        for document in apps
+        if document.get("kind") == "Provider" and document["spec"].get("type") == SIGNING
+    }
+    for document in apps:
+        if document.get("kind") != "Alert":
+            continue
+        if (document["metadata"].get("namespace"), document["spec"]["providerRef"]["name"]) not in signing:
+            continue
+        link = (document["spec"].get("eventMetadata") or {}).get("link")
+        if link not in (None, page):
+            refuse(f"Alert {document['metadata']['name']} gives chuggy the link {link}, and this dashboard is {page}")
+
+
 def main():
     apps, flux, build = (objects(path) for path in sys.argv[1:4])
     monitors_are_selected(apps)
@@ -254,6 +276,7 @@ def main():
     monitor_reaches(apps, "ServiceMonitor", "tekton-pipelines-controller", "endpoints", list(services(build)))
     dashboard = dashboard_reads_what_exists(apps, flux_series(apps))
     run_links_to_its_page(apps, build, dashboard)
+    rollout_links_to_the_page(apps)
 
 
 main()
