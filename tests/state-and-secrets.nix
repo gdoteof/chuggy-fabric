@@ -743,8 +743,10 @@ pkgs.testers.runNixOSTest {
         # The restart budget below is sized on a run that waits once. A wait
         # begun again for each missing namespace is a cycle the window was not
         # sized for, and a unit whose limit is never tripped. The run's length
-        # is systemd's own reading of it, and the bound is one no run that
-        # waited twice can be under.
+        # is systemd's own reading of it: the upper bound is one no run that
+        # waited twice can be under, and the lower is one no run that waited
+        # for nothing can reach. The deadline is counted in whole seconds, so
+        # a wait can be a second short of its setting.
         machine.succeed("mv ${clusterStore}/chuggy ${clusterStore}/aside")
         machine.succeed("mv " + build_namespace + " ${clusterStore}/aside-build")
         status, out = resync()
@@ -759,7 +761,11 @@ pkgs.testers.runNixOSTest {
             ).strip())
             for edge in ("Start", "Exit")
         )
-        assert 0 < ended - began < 2 * namespace_timeout * 1000000, (began, ended)
+        assert (
+            (namespace_timeout - 1) * 1000000
+            <= ended - began
+            < 2 * namespace_timeout * 1000000
+        ), (began, ended)
 
         machine.succeed("mv ${clusterStore}/aside ${clusterStore}/chuggy")
         machine.succeed("mv ${clusterStore}/aside-build " + build_namespace)
