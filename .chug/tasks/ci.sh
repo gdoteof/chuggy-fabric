@@ -12,7 +12,8 @@
 #     what git carries there and cluster/chuggy/chuggy-ticket-service.yaml
 #     argues: another digest, a tag, or the name alone, which is a tag a
 #     registry can be given;
-#   - carries the `fabric.chuggy.dev/source-commit` key;
+#   - carries the `fabric.chuggy.dev/source-commit` key, as a manifest writes
+#     it or as the path of a JSON patch does, with `~1` for its `/`;
 #   - names a Job anything but `chuggy-migrate`.
 #
 # IT READS THE FILES AND NOT THE RENDER, because the image an evaluation runs
@@ -58,6 +59,7 @@ IMAGES = (
 )
 NOTHING = "@sha256:" + "0" * 64
 ANNOTATION = "fabric.chuggy.dev/source-commit"
+SPELLINGS = (ANNOTATION, ANNOTATION.replace("/", "~1"))
 JOB = "chuggy-migrate"
 
 root = Path(sys.argv[1])
@@ -95,7 +97,7 @@ for directory in ("cluster/chuggy-migrate", "cluster/chuggy"):
                             f"{where}:{number} names {image} and not at the digest of "
                             f"nothing: {line.strip()}"
                         )
-            if ANNOTATION in line:
+            if any(spelling in line for spelling in SPELLINGS):
                 findings.append(f"{where}:{number} carries {ANNOTATION}: {line.strip()}")
             if line.rstrip() != "---":
                 document.append(line)

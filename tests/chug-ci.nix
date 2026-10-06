@@ -116,6 +116,14 @@ pkgs.runCommand "chuggy-chug-ci" {
   refused annotation "a source commit on a Deployment" \
     'cluster/chuggy/chuggy-selector\.yaml:[0-9]+ carries fabric\.chuggy\.dev/source-commit: '
 
+  # publish.sh writes the key as the path of a JSON patch, and a hand that
+  # copies it into the directory's kustomization writes it the same way.
+  plant annotation-patch
+  printf 'patches:\n  - target: { kind: Deployment }\n    patch: |-\n      - op: add\n        path: /metadata/annotations/fabric.chuggy.dev~1source-commit\n        value: "482708e4"\n' \
+    >>annotation-patch/cluster/chuggy/kustomization.yaml
+  refused annotation-patch "a source commit patched in through the kustomization" \
+    'cluster/chuggy/kustomization\.yaml:[0-9]+ carries fabric\.chuggy\.dev/source-commit: path: '
+
   plant job-name
   edit job-name/cluster/chuggy-migrate/chuggy-migrate.yaml \
     's|^  name: chuggy-migrate$|  name: chuggy-migrate-482708e4-registry|'

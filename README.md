@@ -942,11 +942,23 @@ already created runs on.
 artifact's>` added to `ref` in `cluster/flux/sources.yaml`, which the source
 reads in preference to the range, and to `SOURCES` in `tests/flux-layers.py`,
 which refuses the pin until it is written there as well. The digest is the half
-of the revision after the `@` in `flux get sources oci chuggy-release`, and the
-whole of it while the pin stands. Pinned to the release the cluster runs,
-nothing is applied; pinned to an earlier one, that release is applied over the
-later, which is going back to it and cannot cross what going back cannot. Runs
-go on publishing while it stands, and reverting the commit applies the highest.
+after the `@` of the revision the source holds, and the whole of that revision
+while the pin stands:
+
+    kubectl -n flux-system get ocirepository chuggy-release \
+      -o jsonpath='{.status.artifact.revision}'
+
+`flux get sources oci` prints the digest cut short, and a digest cut short is
+one the source refuses: it goes not ready and reads no release. An earlier
+release's digest is the `digest` result of the run that published it:
+
+    kubectl -n chuggy-build get pipelinerun <run> \
+      -o jsonpath='{.status.results[?(@.name=="digest")].value}'
+
+Pinned to the release the cluster runs, nothing is applied; pinned to an earlier
+one, that release is applied over the later, which is going back to it and
+cannot cross what going back cannot. Runs go on publishing while it stands, and
+reverting the commit applies the highest.
 
 **Going back** is a revert on chuggy's `main`, and what releases it is a
 release like any other: its images are built, the dump is taken, and the Job
