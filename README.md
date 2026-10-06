@@ -1205,6 +1205,25 @@ Secret agree, the reloads return 200, and a datasource or dashboard added to
 redirect and share links from the in-cluster address, and they break the moment
 you follow one.
 
+### Flux and Tekton are scraped, and a release has a page
+
+`cluster/apps/release-dashboard.yaml` points Prometheus at the Flux controllers
+and at Tekton's, and `monitoring.yaml` has kube-state-metrics read Flux's own
+objects, so each layer and source is a series saying whether it is ready and
+what revision it holds. That is Flux's documented arrangement; its controllers
+report how long they took and never what state an object is in.
+
+The **Chuggy releases** dashboard (`/d/chuggy-releases`) is built on those: the
+layers and sources as they stand, the trigger, the release runs by outcome, how
+long Flux took over the two release layers, and under them the logs of one run,
+of the dump and migration, and of the rollout.
+`?var-run=<run>` narrows the run panels to one PipelineRun. Tekton counts runs
+by pipeline and not by run, so a single run's detail is its logs, and those are
+gone when Loki's retention passes.
+
+A link from that page to its data breaks silently. `tests/release-dashboard.py`
+holds the ones its header lists, and what a query means is not among them.
+
 ### Control-plane targets are switched off
 
 `kubeControllerManager`, `kubeScheduler`, `kubeEtcd`, and `kubeProxy` are all
