@@ -2,19 +2,20 @@
 """Refuse a cluster whose release dashboard would come up empty with nothing
 reporting why.
 
-Each link from the dashboard to its data fails silently, so each is held here:
+A link from the dashboard to its data breaks silently. The ones held here:
 
 - A monitor Prometheus does not select is an object nothing reads, and so is
   one whose selector or port matches nothing. The two this page stands on are
   resolved against what the tree declares for Flux and for Tekton; every
   monitor in the layer is held to the label.
 - A Flux kind kube-state-metrics is told to read and not allowed to list is a
-  line in one pod's log. A panel reading a kind's series under a name or a
-  label the configuration does not produce draws "No data".
+  line in one pod's log. A selector that names a kind by `customresource_kind`
+  and reads a series or a label the configuration does not produce for that
+  kind draws "No data".
 - A dashboard the sidecar does not deliver, a document Grafana cannot parse and
   a panel naming a datasource Grafana is not given are each an empty page.
 
-What a panel's query means is not read: only the names it reads by.
+No other series is known by name here, and nothing a query means is read.
 """
 
 import json
@@ -142,7 +143,7 @@ def flux_series(documents):
     for resource in custom["config"]["spec"]["resources"]:
         gvk = resource["groupVersionKind"]
         if (gvk["group"], plural(gvk["kind"])) not in listable:
-            refuse(f"kube-state-metrics reads {gvk['kind']} and no rule lets it list {plural(gvk['kind'])}")
+            refuse(f"kube-state-metrics reads {gvk['kind']} and no rule lets it list and watch {plural(gvk['kind'])}")
         for metric in resource["metrics"]:
             labels = OF_EVERY_KIND | set(metric.get("labelsFromPath") or {})
             labels |= set(metric["each"]["info"].get("labelsFromPath") or {})

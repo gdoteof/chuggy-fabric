@@ -639,8 +639,8 @@ data:
         {
           "id": 8,
           "type": "stat",
-          "title": "Failed Jobs",
-          "description": "Dump-and-migrate Jobs and trigger Jobs that failed and are still there.",
+          "title": "Failed migrate Jobs",
+          "description": "Dump-and-migrate Jobs that failed and are still there. The next release replaces the Job.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -658,7 +658,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "count((kube_job_status_failed{namespace=\"chuggy\", job_name=~\"chuggy-migrate-.*\"} > 0) or (kube_job_status_failed{namespace=\"chuggy-release-trigger\"} > 0)) or vector(0)",
+              "expr": "count(kube_job_status_failed{namespace=\"chuggy\", job_name=~\"chuggy-migrate-.*\"} > 0) or vector(0)",
               "instant": true
             }
           ],
