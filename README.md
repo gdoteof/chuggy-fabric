@@ -88,7 +88,7 @@ That remaining fixture is a **second Flux control loop**, which is why the
 reconciles a ConfigMap beside it every minute, so that object carries
 `kustomize.toolkit.fluxcd.io/name: rig` — Flux-managed, and no business of this
 repo. What this repo owns carries the name of a layer `cluster/flux/` declares
-— `apps`, `chuggy-migrate` or `chuggy`, and the build layers — in `namespace:
+— `apps`, `build-system`, `chuggy-migrate` or `chuggy` — in `namespace:
 flux-system`. Anything else, labelled or not, came from somewhere that is not
 this repo.
 
@@ -652,11 +652,8 @@ changing only the option creates a healthy registry over the wrong directory.
 
 ### Immutable image builds
 
-Flux reconciles two paths from the host-selected fabric source, each declared
-in `cluster/flux/`:
-`cluster/build-prerequisites/` installs pinned certificate management, which
-nothing here issues from, and `cluster/build-system/` installs pinned Tekton
-and the [release pipeline](#the-release-pipeline).
+`cluster/build-system/` installs pinned Tekton and the [release
+pipeline](#the-release-pipeline).
 `builds/` contains immutable requests and no layer applies it: what the rest of
 this section says of a request stops at the file, and none is built. No host
 records a build or answers a request under `requests/` either; `results/` is
@@ -1074,8 +1071,8 @@ and `cluster/chuggy/`, and no `Kustomization` reads it: the release trigger
 does. The
 root applies `cluster/flux/`, where each layer Flux reconciles is declared as
 its own `Kustomization`, so what Flux reconciles, and in what order, is changed
-by a commit and not by a host rebuild. `apps`, `build-prerequisites` and
-`build-system` read `fabric`, each a directory of this repository;
+by a commit and not by a host rebuild. `apps` and `build-system` read
+`fabric`, each a directory of this repository;
 `chuggy-migrate` and `chuggy` read `OCIRepository` `chuggy-release`, each an
 overlay of the release it holds. `cluster/flux/sources.yaml` declares that
 source and `GitRepository` `chuggy`, the two of a release that are the same on

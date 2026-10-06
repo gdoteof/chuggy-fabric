@@ -13,8 +13,7 @@ pkgs.runCommand "chuggy-release-pipeline" {
 } ''
   set -eu
   kubectl kustomize ${../cluster/flux} > flux.yaml
-  kubectl kustomize ${../cluster/build-prerequisites} > build-prerequisites.yaml
   python3 ${./release-pipeline.py} ${build} ${cluster}/apps.yaml flux.yaml ${../cluster/build-system} \
-    ${cluster}/chuggy-migrate.yaml ${cluster}/chuggy.yaml build-prerequisites.yaml
+    ${cluster}/chuggy-migrate.yaml ${cluster}/chuggy.yaml
   touch "$out"
 ''

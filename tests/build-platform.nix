@@ -13,8 +13,6 @@ pkgs.runCommand "chuggy-build-platform" {
   set -u
   scripts=$PWD/scripts-under-test
   test "$(sha256sum "$root/cluster/build-system/vendor/tekton-v1.12.0/release.yaml" | cut -d' ' -f1)" = e2765b483924b1c4e3ac15810c996e5cb06f3d1aa10bee4ce0113c8b5b0a078a
-  test "$(sha256sum "$root/cluster/build-prerequisites/vendor/cert-manager-v1.18.2/release.yaml" | cut -d' ' -f1)" = e200b8fa1de6999989486fdce2c53f5d215916cc54e64ac6db109e64b88dcea7
-  kubectl kustomize "$root/cluster/build-prerequisites" > build-prerequisites.yaml
   grep -F 'chuggy.dev/node-role=builder' "$root/examples/builder-node.nix" >/dev/null
   grep -F 'chuggy.dev/node-role=builder:NoSchedule' "$root/examples/builder-node.nix" >/dev/null
   grep -F 'chuggy.mini.enable = true' "$root/examples/mini-chuggy-node.nix" >/dev/null
