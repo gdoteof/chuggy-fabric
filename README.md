@@ -682,7 +682,7 @@ A chuggy release is one OCI artifact, and it is all the `chuggy-migrate` and
 `cluster/chuggy` are what one is made over, every line there that names one of
 its two images carries a digest no image has, and `.chug/tasks/ci.sh` refuses a
 release written into them. `cluster/chuggy/chuggy-ticket-service.yaml` argues
-that. The trigger below is declared suspended, so a person starts each run.
+that. The trigger below starts each run.
 
 A `PipelineRun` of `chuggy-release` in `chuggy-build` takes two repositories and
 two full commit hashes and nothing else. It builds chuggy's API and console
@@ -703,8 +703,9 @@ source held when the run was started.** A change under the two directories
 therefore reaches the cluster with the next release and not at its merge. A
 change there and the chuggy commit that needs it -- a configuration key an
 image requires and the image before it refuses -- are one release only when
-both have landed before a run starts; while the trigger is suspended that is
-an order a person keeps, by landing both and then starting the run.
+both have landed before a run starts, and the trigger does not wait for the
+second. So each of the two is written to be released without the other, or the
+trigger is stopped as below while both land.
 `cluster/apps` is no part of a release and is applied at its merge, so a change
 there that the running release cannot live under goes in two commits, which
 `cluster/flux/chuggy-migrate.yaml` argues.
@@ -746,12 +747,12 @@ from `release-run.yaml`. Two admission policies beside it hold what its token
 creates to that file, for the address and the commit each source holds. While
 either source is missing the second refuses every `PipelineRun`, whoever
 creates it and in any namespace, with `no params found for policy binding`.
-While the trigger is suspended a person runs that same comparison, as
-[Operating a release](#operating-a-release) starts one.
+A person can run that same comparison at any time, as [Operating a
+release](#operating-a-release) starts one.
 
 The CronJob is the `build-system` layer's, which puts its `suspend` back to
-what Git declares at its next pass. So stopping the trigger, or resuming it
-for a while, starts by taking the object from the layer:
+what Git declares at its next pass. So stopping the trigger for a while starts
+by taking the object from the layer:
 
     kubectl -n chuggy-release-trigger annotate cronjob release-trigger \
       kustomize.toolkit.fluxcd.io/reconcile=disabled
@@ -768,17 +769,21 @@ the object back, and at the layer's next pass it is what Git declares:
     kubectl -n chuggy-release-trigger annotate cronjob release-trigger \
       kustomize.toolkit.fluxcd.io/reconcile-
 
-A stop that is to outlast that is a commit.
+A stop that is to outlast that is a commit: `suspend: true` in
+`cluster/build-system/release-trigger.yaml`, and `"suspend": True` in
+`TRIGGER_TIMING` in `tests/release-pipeline.py`, which refuses the stop until it
+is written there as well.
 
 #### Operating a release
 
-**Starting one.** Nothing starts a run while the trigger is suspended but a
-person, who runs its comparison once:
+**Starting one.** The trigger starts a run in the minute it reads that the two
+sources hold something the newest run did not release. While it is stopped a
+person runs its comparison once, and its log says what it started or why it
+started nothing:
 
     kubectl -n chuggy-release-trigger create job --from=cronjob/release-trigger by-hand-1
 
-It starts a run only where the two sources hold something the newest run did
-not release, and its log says which. Then, in the order things happen:
+Then, in the order things happen:
 
     kubectl -n chuggy-build get pipelineruns
     flux get sources oci chuggy-release
@@ -796,8 +801,7 @@ Job has completed. The **Chuggy releases** dashboard shows the same.
 
 It ends failed, having published nothing. The next comparison retries a failed
 run once `RETRY_DELAY_SECONDS` in `release-trigger.yaml` have passed, or at
-once if the run has been deleted; while the trigger is suspended there is no
-next comparison until a person starts one.
+once if the run has been deleted.
 
 **Stopping a published release from applying.**
 
@@ -877,15 +881,16 @@ Where `registry` still serves the two images, what the new run publishes is the
 release that was lost, byte for byte: the same digest under a higher version.
 The layers apply it and change nothing.
 
-**A fresh box has no release, and a person starts its first.** Until one is
-published `chuggy-release` reports that the registry does not know the
-repository, and the two layers report `Source artifact not found`. Before the
-first run, in order: everything in [Before any of it
-runs](#before-any-of-it-runs), because the Job of the first release migrates
-the database as soon as it is published; then `build-system` Ready, and
-`GitRepository` `chuggy` and `fabric-release` each holding a revision, without
-which the trigger starts nothing and says so. That release is published while
-the source is failing, so it is read as the paragraph above describes.
+**A fresh box has no release until the trigger starts its first.** Until one
+is published `chuggy-release` reports that the registry does not know the
+repository, and the two layers report `Source artifact not found`. The trigger
+starts that run once `build-system` is Ready and `GitRepository` `chuggy` and
+`fabric-release` each hold a revision, without which it starts nothing and says
+so. The Job of that release migrates the database as soon as it is published,
+and nothing waits for [Before any of it runs](#before-any-of-it-runs): a box
+that needs any of that done first has the two layers suspended, as above,
+until it is. That release is published while the source is failing, so it is
+read as the paragraph above describes.
 
 The scripts a pod runs are files beside the manifests — `fetch.sh`, `build.sh`,
 `publish.sh`, `report.sh` and `trigger.sh` — and each argues its own rules in
@@ -1557,9 +1562,12 @@ of the one thing that has to work before anything else does.
 
 What a person does before a box's first release, each step argued in the file
 that needs it. **Steps 1 and 4 finish before 2, and nothing here can enforce
-that**: Flux applies a release as soon as it is published and nothing in it
-waits for a person, so what a human must do to the database is done before the
-run that publishes it is started.
+that**: the trigger starts a box's first release without being asked and Flux
+applies it as soon as it is published, so the two release layers are suspended
+before anything else, and what a human must do to the database is done before
+they are resumed.
+
+    flux suspend kustomization chuggy-migrate chuggy
 
 1. **Run kasofsk/chuggy's roles file, from the commit about to be released.**
    [Generated credentials](#generated-credentials) gives the command and what
@@ -1601,8 +1609,9 @@ run that publishes it is started.
    `chuggy_selector_review|chuggy_api_login` and
    `chuggy_configuration_importer|chuggy_configuration_importer_login` among
    its rows.
-2. **Start the first release**, as [Operating a release](#operating-a-release)
-   does. Its Job migrates the database as soon as the release is published.
+2. **Resume the two layers**, as [Operating a release](#operating-a-release)
+   does. The trigger has published the first release by then or publishes it
+   unasked, and its Job migrates the database as soon as the layers read it.
 3. **The artifact directory is the host's.** `chuggy.state.artifacts.path`
    names it and the state module creates it, with the owner and mode its
    options state. `cluster/apps/chuggy-artifacts.yaml` binds

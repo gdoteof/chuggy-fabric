@@ -78,9 +78,8 @@ would give it to them with every root as written. Deletion stays on in the
 release registry: deleting a release is how one is undone.
 
 A RUN STARTED BY FLUX IS A RUN STARTED AT EVERY RECONCILE, so neither run
-manifest is rendered. THE TRIGGER IS SUSPENDED: it starts nothing until a
-commit says so. That the two release layers read what a run publishes is held
-by tests/flux-layers.py, beside the two sources.
+manifest is rendered. That the two release layers read what a run publishes is
+held by tests/flux-layers.py, beside the two sources.
 
 EVERY IMAGE IS PINNED BY DIGEST, and every step names its `command`, without
 which Tekton asks the image's registry for the entrypoint.
@@ -102,10 +101,12 @@ stopped both count in; the Job's deadline is what `Forbid` waits out before the
 next minute may start; a finished Job's time to live is what keeps one failed
 minute from being a failed Job for good; a run's timeout is the one thing that
 ends a run that hangs, and a run that has not finished is all the trigger
-needs to start nothing.
+needs to start nothing. `suspend` is held with them: suspended in git, the
+trigger starts no release and cluster/apps/release-trigger-alert.yaml is
+silent about it, so a stop is written here as well as there.
 
-WHAT ONLY A RUN WOULD OTHERWISE SHOW is held here because the trigger is
-suspended and nothing runs one: a Task a Pipeline names that is not there, a
+WHAT ONLY A RUN WOULD OTHERWISE SHOW is held here, because the run that shows
+it is a release that is not made: a Task a Pipeline names that is not there, a
 parameter passed that is not declared or declared and never passed, a script
 that is not in the ConfigMap a step mounts, a reference to a result no task
 writes or to the status of a task that is not there, the image a build pushes
@@ -363,6 +364,7 @@ RESTRICTED = {
     "pod-security.kubernetes.io/warn": "restricted",
 }
 TRIGGER_TIMING = {
+    "suspend": False,
     "schedule": "* * * * *",
     "concurrencyPolicy": "Forbid",
     "startingDeadlineSeconds": 30,
@@ -907,7 +909,7 @@ def main():
     if bound_to(BUILDER, BUILD_NAMESPACE):
         refuse(f"ServiceAccount {BUILDER} is bound by {[binding['metadata']['name'] for binding in bound_to(BUILDER, BUILD_NAMESPACE)]}, and a task pod has no rights")
 
-    # The trigger: suspended, alone in its namespace, and its rights exact.
+    # The trigger: alone in its namespace, and its rights exact.
     in_trigger = sorted(
         (document["kind"], document["metadata"]["name"])
         for document in cluster
@@ -930,15 +932,13 @@ def main():
         RESTRICTED,
     )
     cronjob = of(cluster, "CronJob", TRIGGER_NAMESPACE)[TRIGGER]
-    if cronjob["spec"].get("suspend") is not True:
-        refuse(f"CronJob {TRIGGER} is not suspended, and it starts a release for every commit as soon as it is applied")
     exactly(f"CronJob {TRIGGER}'s concurrencyPolicy", cronjob["spec"].get("concurrencyPolicy"), "Forbid")
     job = cronjob["spec"]["jobTemplate"]["spec"]
     if not job.get("activeDeadlineSeconds"):
         refuse(f"CronJob {TRIGGER} has no activeDeadlineSeconds, and a trigger that hangs holds every later one back")
     exactly(
         f"CronJob {TRIGGER}'s timing",
-        {name: value for name, value in cronjob["spec"].items() if name not in ("suspend", "jobTemplate")},
+        {name: value for name, value in cronjob["spec"].items() if name != "jobTemplate"},
         TRIGGER_TIMING,
     )
     exactly(f"CronJob {TRIGGER}'s Job", {name: value for name, value in job.items() if name != "template"}, TRIGGER_JOB)

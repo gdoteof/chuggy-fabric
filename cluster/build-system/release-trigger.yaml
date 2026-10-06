@@ -298,15 +298,15 @@ metadata:
   labels: { app: release-trigger }
 spec:
   schedule: "* * * * *"
-  # SUSPENDED: nothing here starts a run by itself. A person starts each one,
-  # as README.md's "Operating a release" says, and the two release layers
-  # apply what it publishes.
+  # NOT SUSPENDED: each minute's Job starts a run where the two sources hold
+  # something the newest run did not release, and the two release layers
+  # apply what it publishes. Nobody is asked.
   #
   # THE FIELD IS THE LAYER'S. Set with `kubectl`, it is back to what is
   # written here at the layer's next pass, whichever way it was set.
   # README.md's "The release pipeline" has the annotation that takes this
   # object from the layer first, which is how the trigger is stopped.
-  suspend: true
+  suspend: false
   concurrencyPolicy: Forbid
   startingDeadlineSeconds: 30
   successfulJobsHistoryLimit: 1

@@ -7,11 +7,10 @@
 # success Prometheus reads before both have passed starts both again, so a
 # failed minute between two that succeed does not fire.
 #
-# SILENT WHILE THE TRIGGER IS SUSPENDED, which is how
-# cluster/build-system/release-trigger.yaml declares it: a trigger a person
-# switched off has not stopped. The `for` is also what a trigger just resumed
-# is given to succeed once, before a last success from before it was
-# suspended counts against it.
+# SILENT WHILE THE TRIGGER IS SUSPENDED: a trigger a person switched off has
+# not stopped. The `for` is also what a trigger just resumed is given to
+# succeed once, before a last success from before it was suspended counts
+# against it.
 #
 # NOT A FAILED JOB. The chart's `KubeJobFailed` waits on a failed Job and then
 # fires for as long as that Job is there. A trigger failing every minute keeps

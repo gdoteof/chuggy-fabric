@@ -361,9 +361,9 @@
         # What a build stands on and no render shows; the file says which.
         build-platform = buildPlatform;
 
-        # The release pipeline, which only a person starts while its trigger
-        # is suspended: what its manifests give a pod and what they keep from
-        # one, and everything a first run would otherwise be the one to find.
+        # The release pipeline: what its manifests give a pod and what they
+        # keep from one, and everything a run would otherwise be the one to
+        # find.
         release-pipeline = releasePipeline;
 
         # The trigger's decision, every line of it, by the script its pod
