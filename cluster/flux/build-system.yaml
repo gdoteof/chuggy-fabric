@@ -7,7 +7,6 @@ metadata:
   name: build-system
   namespace: flux-system
 spec:
-  dependsOn: []
   interval: 5m
   path: ./cluster/build-system
   sourceRef:

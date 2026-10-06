@@ -71,7 +71,7 @@ def layer(path, timeout="3m", source=GIT, **rest):
 LAYERS = {
     "apps": layer("./cluster/apps", deletionPolicy="Orphan"),
     "build-prerequisites": layer("./cluster/build-prerequisites"),
-    "build-system": layer("./cluster/build-system", dependsOn=[]),
+    "build-system": layer("./cluster/build-system"),
     "chuggy-migrate": layer(
         "./release/chuggy-migrate",
         timeout="30m",
