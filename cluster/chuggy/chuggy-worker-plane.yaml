@@ -52,9 +52,8 @@ spec:
             # The worker App this process mints an attempt's or a session's git
             # credential from. The id is the same one hosts/gtr gives
             # `chuggy.githubAppTokens.apps.worker`, whose minting is unchanged
-            # by this. Nothing in the image above reads either name yet, and the
-            # release that does refuses to start on a key it cannot sign with,
-            # the way the api already does.
+            # by this. The plane refuses to start on a key it cannot sign with,
+            # the way the api does.
             - name: CHUG_WORKER_PLANE_FORGE_APP_ID
               value: "4728465"
             - name: CHUG_WORKER_PLANE_FORGE_APP_KEY_FILE
