@@ -10,6 +10,17 @@
 # PipelineRuns in `chuggy-build`. It cannot read a run's pods or logs, a
 # Secret anywhere, or any other source.
 #
+# WHAT `create` CREATES IS HELD BY ADMISSION, because a Role cannot say it. A
+# PipelineRun may carry a pipeline and a pod template of its own, and
+# `chuggy-build` admits a privileged pod, so the verb by itself is any pod
+# that namespace admits, the label the release registry admits a pod by on it.
+# And a run of the release pipeline for an address of its writer's choosing
+# publishes that repository's manifests as a release. The two policies below
+# admit from this ServiceAccount a run whose `spec` is release-run.yaml's, for
+# the address and the commit each source holds, with no label and no
+# annotation but that file's. So what the token can start is the run the
+# trigger would start.
+#
 # trigger.sh, in the ConfigMap kustomization.yaml generates beside
 # release-run.yaml, argues what it decides.
 ---
@@ -76,6 +87,157 @@ subjects:
   - kind: ServiceAccount
     name: release-trigger
     namespace: chuggy-release-trigger
+---
+# THE RUN, LESS WHAT THE TRIGGER WRITES INTO IT. `spec` below is
+# release-run.yaml's without its parameters, as CEL: `dyn()` is what lets a
+# map hold values of more than one type. tests/release-pipeline.py writes the
+# same from that file and refuses a difference, so neither moves alone.
+#
+# IT READS A RUN AS THE API SERVER WILL STORE IT, after Tekton's webhook has
+# rewritten it: release-run.yaml's `1h0m0s` is how that writes an hour.
+#
+# ONLY `tekton.dev/v1`. A run sent in another version is stored without the
+# fields that version does not have, `taskRunTemplate` among them, and its
+# pods then run as that version's own fields say.
+#
+# NOTHING BUT THE TRIGGER'S ServiceAccount IS HELD. A person who creates a
+# run by their own name is asked nothing here.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: release-trigger-creates-the-release-run
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [tekton.dev]
+        apiVersions: ["*"]
+        operations: [CREATE]
+        resources: [pipelineruns]
+  matchConditions:
+    - name: created-by-the-release-trigger
+      expression: request.userInfo.username == "system:serviceaccount:chuggy-release-trigger:release-trigger"
+  variables:
+    - name: spec
+      expression: |-
+        {
+          "pipelineRef": dyn({"name": "chuggy-release"}),
+          "timeouts": dyn({"pipeline": "1h0m0s"}),
+          "taskRunTemplate": dyn({
+            "serviceAccountName": dyn("builder"),
+            "podTemplate": dyn({
+              "automountServiceAccountToken": dyn(false),
+              "nodeSelector": dyn({
+                "chuggy.dev/node-role": "builder",
+                "kubernetes.io/os": "linux",
+                "kubernetes.io/arch": "amd64"
+              }),
+              "tolerations": dyn([
+                {"key": "chuggy.dev/node-role", "operator": "Equal", "value": "builder", "effect": "NoSchedule"}
+              ])
+            })
+          })
+        }
+  validations:
+    - expression: object.apiVersion == "tekton.dev/v1"
+      message: >-
+        a run the release trigger creates is a tekton.dev/v1 PipelineRun, and
+        in another version what is held here goes by other names
+    - expression: "!has(object.metadata.labels)"
+      message: >-
+        a run the release trigger creates carries no label, and a run's labels
+        are its pods' labels
+    - expression: >-
+        !has(object.metadata.annotations) || object.metadata.annotations.all(name, name in
+        ["fabric.chuggy.dev/chuggy-commit", "fabric.chuggy.dev/manifests-digest", "fabric.chuggy.dev/manifests-commit"])
+      message: >-
+        a run the release trigger creates carries no annotation but
+        release-run.yaml's, and a run's annotations are its pods' annotations
+    - expression: object.spec.all(field, field == "params" || field in variables.spec)
+      message: >-
+        a run the release trigger creates sets nothing release-run.yaml does
+        not, and a pipeline, a task's overrides or a pod template of its own
+        is a pod of its writer's choosing
+    - expression: variables.spec.all(field, field in object.spec && object.spec[field] == variables.spec[field])
+      message: >-
+        a run the release trigger creates is of release-run.yaml's pipeline,
+        within its time, and its pods run where and as what that file says
+    - expression: >-
+        has(object.spec.params) && object.spec.params.map(param, param.name) ==
+        ["chuggy-url", "chuggy-commit", "manifests-url", "manifests-commit"]
+      message: >-
+        a run the release trigger creates passes the parameters
+        release-run.yaml passes, each once
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: release-trigger-creates-the-release-run
+spec:
+  policyName: release-trigger-creates-the-release-run
+  validationActions: [Deny]
+---
+# WHAT A RUN IS FOR IS WHAT A SOURCE HOLDS. The policy is asked once for each
+# binding below, with that binding's source as `params`, and the two
+# parameters `named` gives for it are the address the source fetches and the
+# commit of the artifact it holds. A source that moved between the trigger's
+# read and its create is refused here, and the next minute reads again.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: release-trigger-runs-what-a-source-holds
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: GitRepository
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [tekton.dev]
+        apiVersions: ["*"]
+        operations: [CREATE]
+        resources: [pipelineruns]
+  matchConditions:
+    - name: created-by-the-release-trigger
+      expression: request.userInfo.username == "system:serviceaccount:chuggy-release-trigger:release-trigger"
+  variables:
+    - name: named
+      expression: >-
+        {"chuggy": {"address": "chuggy-url", "commit": "chuggy-commit"},
+        "fabric-release": {"address": "manifests-url", "commit": "manifests-commit"}}[params.metadata.name]
+  validations:
+    - expression: >-
+        has(params.status.artifact) && has(object.spec.params)
+        && object.spec.params.exists(param, param.name == variables.named.address && param.value == params.spec.url)
+        && object.spec.params.exists(param, param.name == variables.named.commit && type(param.value) == string
+        && params.status.artifact.revision.endsWith("@sha1:" + param.value))
+      messageExpression: >-
+        "a run the release trigger creates is for the address and the commit GitRepository "
+        + params.metadata.name + " holds"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: release-trigger-runs-what-chuggy-holds
+spec:
+  policyName: release-trigger-runs-what-a-source-holds
+  validationActions: [Deny]
+  paramRef:
+    name: chuggy
+    namespace: flux-system
+    parameterNotFoundAction: Deny
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: release-trigger-runs-what-fabric-release-holds
+spec:
+  policyName: release-trigger-runs-what-a-source-holds
+  validationActions: [Deny]
+  paramRef:
+    name: fabric-release
+    namespace: flux-system
+    parameterNotFoundAction: Deny
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

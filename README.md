@@ -860,8 +860,9 @@ can still write.
 The `release-trigger` CronJob, in a namespace of its own, is the one part that
 reads the API server. Each time it runs it compares what `GitRepository`
 `chuggy` and `fabric-release` hold with the newest run and creates at most one,
-from `release-run.yaml`. While it is suspended a person runs that same
-comparison once:
+from `release-run.yaml`. Two admission policies beside it hold what its token
+creates to that file, for the address and the commit each source holds. While
+it is suspended a person runs that same comparison once:
 
     kubectl -n chuggy-release-trigger create job --from=cronjob/release-trigger by-hand-1
 

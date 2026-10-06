@@ -18,6 +18,15 @@ holds the trigger and nothing else, its two policies are held exactly, and so
 are the two Roles its ServiceAccount is bound to, which are bound to nobody
 else.
 
+WHAT THE TRIGGER'S TOKEN CREATES IS HELD BY ADMISSION, AND THE POLICY IS HELD
+TO THE RUN. `create` on PipelineRuns is by itself any pod `chuggy-build`
+admits, so two policies admit from the trigger's ServiceAccount only
+release-run.yaml, for what the two sources hold. The first is written here
+again from release-run.yaml, as the trigger's ConfigMap carries it, and the
+two are compared token by token: a field added to the run and not to the
+policy is refused here, and not by the API server each minute. The second and
+the three bindings are held exactly, and so is whom each is asked about.
+
 WHO REACHES A REGISTRY IS WHO CAN WRITE IT, so each of the two is held by
 everything that decides who does. Every NetworkPolicy of the namespace that
 selects its pod, whatever it is named and however it selects, is the one
@@ -66,6 +75,7 @@ not, and a release pushed to a repository the Flux source does not read, or
 to a registry that is not the release registry's Service.
 """
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -204,12 +214,19 @@ REGISTRIES = {
 }
 REGISTRY_CONFIGURATION = "/etc/distribution/config.yml"
 
+# The two sources the trigger reads, and the parameters of a run that say
+# what each holds.
+SOURCES = {
+    "chuggy": {"address": "chuggy-url", "commit": "chuggy-commit"},
+    "fabric-release": {"address": "manifests-url", "commit": "manifests-commit"},
+}
+SOURCE_KIND = {"apiVersion": "source.toolkit.fluxcd.io/v1", "kind": "GitRepository"}
 TRIGGER_ROLES = {
     "flux-system": [
         {
             "apiGroups": ["source.toolkit.fluxcd.io"],
             "resources": ["gitrepositories"],
-            "resourceNames": ["chuggy", "fabric-release"],
+            "resourceNames": list(SOURCES),
             "verbs": ["get"],
         }
     ],
@@ -299,7 +316,31 @@ TRIGGER_CONTAINER_SECURITY = {
     "capabilities": {"drop": ["ALL"]},
 }
 RUN_FIELDS = {"pipelineRef", "params", "timeouts", "taskRunTemplate"}
-RUN_TIMEOUTS = {"pipeline": "1h"}
+RUN_TIMEOUTS = {"pipeline": "1h0m0s"}
+
+# What admission asks of a PipelineRun the trigger's ServiceAccount creates.
+RUN_POLICY = "release-trigger-creates-the-release-run"
+SOURCE_POLICY = "release-trigger-runs-what-a-source-holds"
+ASKED_OF = {
+    "failurePolicy": "Fail",
+    "matchConstraints": {
+        "resourceRules": [
+            {"apiGroups": ["tekton.dev"], "apiVersions": ["*"], "operations": ["CREATE"], "resources": ["pipelineruns"]}
+        ]
+    },
+    "matchConditions": [
+        {
+            "name": "created-by-the-release-trigger",
+            "expression": f'request.userInfo.username == "system:serviceaccount:{TRIGGER_NAMESPACE}:{TRIGGER}"',
+        }
+    ],
+}
+FOR_A_SOURCE = (
+    "has(params.status.artifact) && has(object.spec.params)"
+    " && object.spec.params.exists(param, param.name == variables.named.address && param.value == params.spec.url)"
+    " && object.spec.params.exists(param, param.name == variables.named.commit && type(param.value) == string"
+    ' && params.status.artifact.revision.endsWith("@sha1:" + param.value))'
+)
 
 PLACEMENT = {
     "automountServiceAccountToken": False,
@@ -495,6 +536,95 @@ def pipeline_is_sound(pipeline, tasks):
     return params
 
 
+def cel(value):
+    """A value as the CEL literal a policy holds it by.
+
+    CEL refuses a map literal whose values are of more than one type, so
+    where they are not all strings each is written `dyn(...)`.
+    """
+    if isinstance(value, dict):
+        plain = all(isinstance(inner, str) for inner in value.values())
+        return (
+            "{"
+            + ", ".join(
+                f"{json.dumps(name)}: {cel(inner) if plain else f'dyn({cel(inner)})'}" for name, inner in value.items()
+            )
+            + "}"
+        )
+    if isinstance(value, list):
+        return "[" + ", ".join(cel(inner) for inner in value) + "]"
+    return json.dumps(value)
+
+
+def tokens(expression):
+    """An expression as what CEL reads of it: a string whole, and no space."""
+    return re.findall(r'"(?:[^"\\]|\\.)*"|[A-Za-z_]+|\S', expression)
+
+
+def admission_is_held(build, release_run, sources_namespace):
+    run = release_run["spec"]
+    annotations = json.dumps(list(release_run["metadata"]["annotations"]))
+    parameters = [param["name"] for param in run["params"]]
+    expected = {
+        RUN_POLICY: {
+            "variables": {"spec": cel({name: value for name, value in run.items() if name != "params"})},
+            "validations": [
+                f'object.apiVersion == {json.dumps(release_run["apiVersion"])}',
+                "!has(object.metadata.labels)",
+                f"!has(object.metadata.annotations) || object.metadata.annotations.all(name, name in {annotations})",
+                'object.spec.all(field, field == "params" || field in variables.spec)',
+                "variables.spec.all(field, field in object.spec && object.spec[field] == variables.spec[field])",
+                f"has(object.spec.params) && object.spec.params.map(param, param.name) == {json.dumps(parameters)}",
+            ],
+        },
+        SOURCE_POLICY: {
+            "paramKind": SOURCE_KIND,
+            "variables": {"named": f"{json.dumps(SOURCES)}[params.metadata.name]"},
+            "validations": [FOR_A_SOURCE],
+        },
+    }
+    exactly("the labels release-run.yaml carries", release_run["metadata"].get("labels"), None)
+    exactly(
+        "the parameters the two sources are held to",
+        sorted(parameter for named in SOURCES.values() for parameter in named.values()),
+        sorted(parameters),
+    )
+    policies = {name: policy["spec"] for name, policy in of(build, "ValidatingAdmissionPolicy").items()}
+    exactly("the admission policies rendered", sorted(policies), sorted(expected))
+    for name, held in expected.items():
+        policy = policies[name]
+        exactly(
+            f"whom and what ValidatingAdmissionPolicy {name} is asked about",
+            {field: value for field, value in policy.items() if field not in ("variables", "validations")},
+            {**ASKED_OF, **{field: value for field, value in held.items() if field == "paramKind"}},
+        )
+        exactly(
+            f"what ValidatingAdmissionPolicy {name} names",
+            {variable["name"]: tokens(variable["expression"]) for variable in policy["variables"]},
+            {variable: tokens(expression) for variable, expression in held["variables"].items()},
+        )
+        exactly(
+            f"what ValidatingAdmissionPolicy {name} holds a run to",
+            [tokens(validation["expression"]) for validation in policy["validations"]],
+            [tokens(expression) for expression in held["validations"]],
+        )
+    exactly(
+        "the bindings of the admission policies",
+        {name: binding["spec"] for name, binding in of(build, "ValidatingAdmissionPolicyBinding").items()},
+        {
+            RUN_POLICY: {"policyName": RUN_POLICY, "validationActions": ["Deny"]},
+            **{
+                f"release-trigger-runs-what-{source}-holds": {
+                    "policyName": SOURCE_POLICY,
+                    "validationActions": ["Deny"],
+                    "paramRef": {"name": source, "namespace": sources_namespace, "parameterNotFoundAction": "Deny"},
+                }
+                for source in SOURCES
+            },
+        },
+    )
+
+
 def run_is_placed(subject, run, template):
     metadata = run["metadata"]
     if "name" in metadata or not metadata.get("generateName"):
@@ -649,6 +779,12 @@ def main():
     sources = of(flux, "GitRepository", environment.get("SOURCES_NAMESPACE"))
     if "chuggy" not in sources:
         refuse(f"the trigger reads GitRepository chuggy in {environment.get('SOURCES_NAMESPACE')}, and cluster/flux renders none there")
+    exactly(
+        "the kind of GitRepository chuggy",
+        {field: sources["chuggy"][field] for field in SOURCE_KIND},
+        SOURCE_KIND,
+    )
+    admission_is_held(build, release_run, environment.get("SOURCES_NAMESPACE"))
 
     # The policies.
     def policies(documents, namespace):
