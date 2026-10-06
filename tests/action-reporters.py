@@ -2,15 +2,16 @@
 """Refuse a tree in which a report of an action would be answered 404, or the
 API would not start, with nothing here saying why.
 
-usage: action-reporters.py RENDERED_CLUSTER RENDERED_BUILD_SYSTEM GENERATE SYNC
+usage: action-reporters.py RENDERED RENDERED_BUILD_SYSTEM GENERATE SYNC LAYERS INSTALL
 
 A report is proved by a secret that two pods read, each from a file its own
 manifest puts there out of a Secret the host makes. Every link of that is a
 name written in two places, and a broken one is quiet: chuggy answers an
 unproved report as it answers an address it does not serve, and a release
 that reported nothing is a release. So each link is resolved here, over what
-`kubectl kustomize` renders and over the two scripts the host's secrets
-module builds.
+`kubectl kustomize` renders of the cluster's directories and of the root's
+layers, over the Flux install the host applies, and over the two scripts the
+host's secrets module builds.
 
 THE ROSTER IS READ AS CHUGGY READS IT, because the API does not start on one
 it refuses, and the pod it would have replaced keeps serving while the layer
@@ -48,6 +49,51 @@ Each is a task of the pipeline, since a task's name is what its action is
 reported under. The address is `https`, the path is where chuggy answers a
 project's actions, and an Ingress sends that path at that host to the pod
 that reads the roster.
+
+WHO SIGNS AN EVENT SIGNS WITH THE KEY ITS REPORTER IS VERIFIED BY. Flux's
+notification-controller keys its digest with the `token` of the Secret a
+Provider names, read in the Provider's own namespace. One `generic-hmac`
+Provider is rendered. One `FluxSignature` reporter is verified by that key of
+that Secret, in that namespace, and the address is where chuggy answers a
+report of that reporter's one action, with nothing after it: a slash there is
+answered as a request with no bearer is. The Provider says nothing else,
+since `suspend` and a proxy are each a report that is never sent.
+
+THE ADDRESS IS A SERVICE OF THE API, ON A ROAD BOTH ENDS ADMIT. It is plain
+http to the cluster-local name of a Service that selects the pod that reads
+the roster. The port of that pod the Service sends it to is one the policies
+on the API admit notification-controller's pod to, by its namespace and its
+labels as the install writes them, and admit no other pod of the install to.
+And no policy on that pod keeps it from the API's. A policy is matched
+against a pod and not a Service, so the port held is the container's. A peer
+named by address, or a namespace selected by a label that is not its name, is
+refused and not read.
+
+ONLY WHAT A ROLLOUT CAME TO IS A REPORT, AND ONLY FLUX SAYS OF WHICH COMMIT.
+An Alert to the Provider selects one layer the root renders, by one severity
+and by nothing else, since `suspend` and a list of messages each drop events
+without a word. One Alert is at `info`, and its layer's success is the
+action's. That layer reads an OCIRepository, the one kind of source whose
+events carry the `originRevision` chuggy reads the commit from, and it waits,
+or its success says applied and not rolled out. Every other layer that reads
+the same source is selected at `error` by one Alert, and is one the first
+depends on: selected at `info` it would report a release rolled out while the
+last layer was failing, and selected by nothing its failure is reported by
+nobody. No Alert adds `revision` or `originRevision` to an event, and no
+layer selected carries either as an `event.toolkit.fluxcd.io/` annotation:
+Flux writes both into an event wherever the controller has not, and chuggy
+believes them there. A `link` is one chuggy keeps, since it drops one it
+refuses and says nothing; where the link opens is tests/release-dashboard.py's.
+
+AND `apps` APPLIES THEM. A release applies its own objects last of all, so
+one that failed before then would be reported by an Alert that is not there.
+
+AND THE CONTROLLER READS ACROSS NAMESPACES. The Provider is where its Secret
+is and a layer is where Flux is, so notification-controller has to read an
+Alert outside its own namespace and give it the events of another. Each is an
+argument of the install's. Told to watch its own namespace alone it drops
+every event these select, and all it says is a line of its log that no Alert
+matched.
 """
 
 import json
@@ -76,6 +122,36 @@ ACTION_CHARS_MAX = 128
 # Where chuggy answers a project's actions. A report is posted to
 # `/<action>/reports` below it.
 ACTIONS_OF = re.compile(r"/api/v1/tenants/([^/]+)/projects/([^/]+)/actions")
+REPORTS_OF = re.compile(ACTIONS_OF.pattern + r"/([^/]+)/reports")
+# chuggy's rule for a link, less what only its own URL parser refuses.
+LINK_VISIBLE = re.compile(r"[!-~]+")
+LINK_WRITTEN = re.compile(r"https://[^/\\?#@]+(?:[/?#]|$)")
+LINK_CHARS_MAX = 2_048
+
+# Flux's notification API, and the type of Provider that signs what it posts.
+NOTIFICATION = "notification.toolkit.fluxcd.io/"
+SIGNING = "generic-hmac"
+# The key of a Provider's Secret that notification-controller signs with.
+SIGNING_KEY = "token"
+# The Deployment of the install whose pod posts an event.
+NOTIFIER = "notification-controller"
+# The rendered directory that is no part of a release.
+STANDING = "apps"
+# What of an event's metadata is Flux's alone to say, and the prefix under
+# which an object's annotations are written into its events.
+OF_FLUX = ("revision", "originRevision")
+OF_THE_OBJECT = "event.toolkit.fluxcd.io/"
+LAYER = "kustomize.toolkit.fluxcd.io/"
+SOURCE_WITH_AN_ORIGIN = "OCIRepository"
+# The arguments notification-controller reads across namespaces by: what each
+# has to be, which is what it is where the install does not give it, and what
+# the controller does otherwise.
+ACROSS_NAMESPACES = {
+    "watch-all-namespaces": ("true", "reads no Alert outside its own namespace"),
+    "no-cross-namespace-refs": ("false", "gives an Alert no event of another namespace"),
+}
+CLUSTER_SUFFIX = ".svc.cluster.local"
+NAMESPACE_NAME = "kubernetes.io/metadata.name"
 
 STATUS_LINE = re.compile(r"(\S+) \$\(tasks\.(\S+)\.status\)")
 # The lines of the host's two scripts that name a Secret: one key generated,
@@ -284,20 +360,312 @@ def reaches(cluster, document, pod, host, path):
     return bool(sent) and max(sent)[1] in services
 
 
+def selects(selector, labels):
+    """Whether a label selector selects these labels."""
+    for key, value in (selector.get("matchLabels") or {}).items():
+        if labels.get(key) != value:
+            return False
+    for expression in selector.get("matchExpressions") or []:
+        key, values = expression["key"], expression.get("values") or []
+        held = {
+            "In": labels.get(key) in values,
+            "NotIn": labels.get(key) not in values,
+            "Exists": key in labels,
+            "DoesNotExist": key not in labels,
+        }
+        if not held[expression["operator"]]:
+            return False
+    return True
+
+
+def peer_selects(policy, peer, pod):
+    """Whether one peer of a policy's rule is this pod, given as its namespace
+    and its labels."""
+    name = f"NetworkPolicy {policy['metadata']['name']}"
+    if "ipBlock" in peer:
+        refuse(f"{name} names a peer by address, which this cannot resolve to a pod")
+    namespace, labels = pod
+    spaces = peer.get("namespaceSelector")
+    if spaces is None:
+        if namespace != policy["metadata"]["namespace"]:
+            return False
+    else:
+        read = {*(spaces.get("matchLabels") or {}), *(e["key"] for e in spaces.get("matchExpressions") or [])}
+        if read - {NAMESPACE_NAME}:
+            refuse(f"{name} selects a namespace by {sorted(read - {NAMESPACE_NAME})}, which this does not read")
+        if not selects(spaces, {NAMESPACE_NAME: namespace}):
+            return False
+    return selects(peer.get("podSelector") or {}, labels)
+
+
+def port_admitted(rule, port):
+    """Whether a rule covers a TCP port of the pod a connection ends at, given
+    as its number and its name."""
+    number, name = port
+    if not rule.get("ports"):
+        return True
+    for entry in rule["ports"]:
+        if entry.get("protocol", "TCP") != "TCP":
+            continue
+        value = entry.get("port")
+        if value is None or value == name:
+            return True
+        if isinstance(value, int) and value <= number <= entry.get("endPort", value):
+            return True
+    return False
+
+
+def admitted(documents, direction, pod, other, port):
+    """Whether the policies selecting `pod` let it accept a connection from
+    `other` on a port of its own (`Ingress`), or open one to a port of
+    `other` (`Egress`). A pod no policy selects in a direction is open in it."""
+    rules, peers = ("ingress", "from") if direction == "Ingress" else ("egress", "to")
+    namespace, labels = pod
+    selecting = [
+        d
+        for d in documents
+        if d["kind"] == "NetworkPolicy"
+        and d["metadata"].get("namespace") == namespace
+        and direction in (d["spec"].get("policyTypes") or ["Ingress", *(["Egress"] if "egress" in d["spec"] else [])])
+        and selects(d["spec"].get("podSelector") or {}, labels)
+    ]
+    if not selecting:
+        return True
+    for policy in selecting:
+        for rule in policy["spec"].get(rules) or []:
+            if not port_admitted(rule, port):
+                continue
+            if not rule.get(peers) or any(peer_selects(policy, peer, other) for peer in rule[peers]):
+                return True
+    return False
+
+
+def the_port(cluster, subject, address, namespace, pod, container):
+    """The port of the API's container that an address of one of its Services
+    reaches, as its number and its name."""
+    host = address.hostname or ""
+    names = host[: -len(CLUSTER_SUFFIX)].split(".") if host.endswith(CLUSTER_SUFFIX) else []
+    services = [
+        d
+        for d in cluster
+        if d["kind"] == "Service" and [d["metadata"]["name"], d["metadata"].get("namespace")] == names
+    ]
+    if len(services) != 1:
+        refuse(f"{subject} posts to {host}, which is the cluster-local name of {len(services)} rendered Services")
+    selector = services[0]["spec"].get("selector") or {}
+    if names[1] != namespace or not selector or not selector.items() <= (pod["metadata"].get("labels") or {}).items():
+        refuse(f"{subject} posts to the Service {host}, which does not select the pod that reads {ROSTER}")
+    served = address.port or 80
+    for entry in services[0]["spec"]["ports"]:
+        if entry["port"] != served or entry.get("protocol", "TCP") != "TCP":
+            continue
+        target = entry.get("targetPort", entry["port"])
+        for port in container.get("ports") or []:
+            if target in (port["containerPort"], port.get("name")):
+                return port["containerPort"], port.get("name")
+    refuse(f"{subject} posts to port {served} of the Service {host}, which sends it to no port of the container that reads {ROSTER}")
+
+
+def notifying(document, kind):
+    return document["kind"] == kind and document.get("apiVersion", "").startswith(NOTIFICATION)
+
+
+def the_signer(cluster, verified, namespace):
+    """The one Provider that signs what it posts, the reporter it signs as,
+    and its address."""
+    providers = [d for d in cluster if notifying(d, "Provider") and d["spec"].get("type") == SIGNING]
+    if len(providers) != 1:
+        refuse(f"{len(providers)} {SIGNING} Providers are rendered, and one signs what Flux reports")
+    provider = providers[0]
+    name, spec = f"Provider {provider['metadata']['name']}", provider["spec"]
+    if set(spec) != {"type", "address", "secretRef"} or set(spec["secretRef"]) != {"name"}:
+        refuse(f"{name} is not exactly a type, an address and a Secret's name, and this reads nothing else of one")
+    if provider["metadata"].get("namespace") != namespace:
+        refuse(f"{name} reads its Secret in {provider['metadata'].get('namespace')}, and the API reads the roster's in {namespace}")
+    signed_with = (spec["secretRef"]["name"], SIGNING_KEY)
+    reporters = [
+        entry
+        for entry, secret, key in verified
+        if entry["scheme"] == "FluxSignature" and (secret, key) == signed_with
+    ]
+    if len(reporters) != 1:
+        refuse(
+            f"{len(reporters)} FluxSignature reporters are verified by the key {SIGNING_KEY} of the Secret "
+            f"{signed_with[0]}, which is what {name} signs with"
+        )
+    address = urllib.parse.urlsplit(spec["address"])
+    if address.scheme != "http" or address.username or address.password or address.query or address.fragment:
+        refuse(f"{name} posts to {spec['address']}, which is not a plain http address")
+    route = REPORTS_OF.fullmatch(address.path)
+    if not route:
+        refuse(f"{name} posts to {spec['address']}, which is not where chuggy answers a report")
+    reporter = reporters[0]
+    if route.groups() != (reporter["tenant"], reporter["project"], reporter["actions"][0]):
+        refuse(
+            f"{name} reports {'/'.join(route.groups())}, and the reporter {reporter['reporter']} is named for "
+            f"{reporter['tenant']}/{reporter['project']}/{reporter['actions'][0]}"
+        )
+    return provider, name, address
+
+
+def the_road(cluster, install, name, address, api, document, pod, container):
+    """Hold the Provider's address to a port of the API that the pod posting
+    to it is admitted to, alone of the install's."""
+    namespace = document["metadata"]["namespace"]
+    port = the_port(cluster, name, address, namespace, pod, container)
+    reader = (namespace, pod["metadata"].get("labels") or {})
+    controllers = {
+        d["metadata"]["name"]: (d["metadata"].get("namespace"), pod_of(d)["metadata"].get("labels") or {})
+        for d in install
+        if d["kind"] == "Deployment" and pod_of(d)
+    }
+    if NOTIFIER not in controllers:
+        refuse(f"the install has no Deployment {NOTIFIER}, so who posts an event is not known")
+    policies = [*install, *cluster]
+    if not admitted(policies, "Egress", controllers[NOTIFIER], reader, port):
+        refuse(f"a policy on the pod of {NOTIFIER} keeps it from port {port[0]} of {api}, where {name} posts")
+    for controller, poster in controllers.items():
+        reaches_it = admitted(policies, "Ingress", reader, poster, port)
+        if controller == NOTIFIER and not reaches_it:
+            refuse(f"no policy admits the pod of {NOTIFIER} to port {port[0]} of {api}, where {name} posts")
+        if controller != NOTIFIER and reaches_it:
+            refuse(f"{api} admits the pod of {controller} on port {port[0]}, and it reports nothing")
+
+
+def layer_of(layers, alert):
+    """The one layer of the root an Alert selects, held to everything an Alert
+    may say."""
+    name, spec = f"Alert {alert['metadata']['name']}", alert["spec"]
+    sources = spec.get("eventSources")
+    if (
+        set(spec) - {"providerRef", "eventSeverity", "eventSources", "eventMetadata"}
+        or set(spec["providerRef"]) != {"name"}
+        or not isinstance(sources, list)
+        or len(sources) != 1
+        or set(sources[0]) - {"kind", "name", "namespace"}
+    ):
+        refuse(f"{name} is not exactly a Provider's name, a severity, one source by its name and metadata, and this reads nothing else of one")
+    source = sources[0]
+    space = source.get("namespace", alert["metadata"].get("namespace"))
+    selected = [
+        d
+        for d in layers
+        if d["kind"] == source.get("kind") == "Kustomization"
+        and d.get("apiVersion", "").startswith(LAYER)
+        and (d["metadata"]["name"], d["metadata"].get("namespace")) == (source.get("name"), space)
+    ]
+    if len(selected) != 1:
+        refuse(f"{name} selects {source.get('kind')} {space}/{source.get('name')}, which is {len(selected)} layers of the root")
+    added = spec.get("eventMetadata") or {}
+    carried = selected[0]["metadata"].get("annotations") or {}
+    for key in OF_FLUX:
+        if key in added:
+            refuse(f"{name} adds {key} to an event, and chuggy reads that as Flux's own word")
+        if OF_THE_OBJECT + key in carried:
+            refuse(f"the layer {source['name']} carries {OF_THE_OBJECT}{key}, and chuggy reads that as Flux's own word")
+    link = added.get("link")
+    if "link" in added and not (
+        isinstance(link, str) and len(link) <= LINK_CHARS_MAX and LINK_VISIBLE.fullmatch(link) and LINK_WRITTEN.match(link)
+    ):
+        refuse(f"{name} adds the link {link!r}, which chuggy drops from its report")
+    return selected[0]
+
+
+def source_of(layer):
+    reference = layer["spec"]["sourceRef"]
+    return reference["kind"], reference["name"], reference.get("namespace", layer["metadata"].get("namespace"))
+
+
+def waits_on(layers, layer, seen=()):
+    """The names of the layers a layer depends on, through any number of them."""
+    names = set()
+    space = layer["metadata"].get("namespace")
+    for dependency in layer["spec"].get("dependsOn") or []:
+        name = dependency["name"]
+        if name in seen or dependency.get("namespace", space) != space:
+            continue
+        names.add(name)
+        for other in layers:
+            if other["kind"] == "Kustomization" and (other["metadata"]["name"], other["metadata"].get("namespace")) == (name, space):
+                names |= waits_on(layers, other, (*seen, name))
+    return names
+
+
+def the_rollout(layers, provider, name, cluster, standing):
+    """Hold the Alerts to the Provider to one layer whose success is the
+    action's and to every other layer of the same release, at its failure."""
+    alerts = [
+        d
+        for d in cluster
+        if notifying(d, "Alert")
+        and d["metadata"].get("namespace") == provider["metadata"]["namespace"]
+        and (d["spec"].get("providerRef") or {}).get("name") == provider["metadata"]["name"]
+    ]
+    for applied in [provider, *alerts]:
+        if applied not in standing:
+            refuse(f"{applied['kind']} {applied['metadata']['name']} is applied by a release, and one that fails before it applies it is reported by nothing")
+    selected = {"info": [], "error": []}
+    for alert in alerts:
+        severity = alert["spec"].get("eventSeverity", "info")
+        if severity not in selected:
+            refuse(f"Alert {alert['metadata']['name']} selects by the severity {severity!r}, and Flux sends by info or by error")
+        selected[severity].append(layer_of(layers, alert))
+    if len(selected["info"]) != 1:
+        refuse(f"{len(selected['info'])} Alerts to {name} are at info, and one layer's success is the action's")
+    (last,) = selected["info"]
+    reported = last["metadata"]["name"]
+    if source_of(last)[0] != SOURCE_WITH_AN_ORIGIN:
+        refuse(f"the layer {reported} reads a {source_of(last)[0]}, whose events carry no originRevision for chuggy to read a commit from")
+    if last["spec"].get("wait") is not True:
+        refuse(f"the layer {reported} does not wait, so its success says applied and not rolled out")
+    before = sorted(
+        d["metadata"]["name"]
+        for d in layers
+        if d["kind"] == "Kustomization" and d is not last and d.get("apiVersion", "").startswith(LAYER) and source_of(d) == source_of(last)
+    )
+    failing = sorted(d["metadata"]["name"] for d in selected["error"])
+    if failing != before:
+        refuse(f"the Alerts to {name} select {failing} at error, and the other layers that read what {reported} reads are {before}")
+    unwaited = sorted(set(before) - waits_on(layers, last))
+    if unwaited:
+        refuse(f"the layer {reported} is selected at info and does not depend on {unwaited}, so its success is not theirs")
+
+
+def reads_across(install):
+    """Hold the install's notification-controller to reading an Alert outside
+    its own namespace, and to giving one the events of another."""
+    (controller,) = [d for d in install if d["kind"] == "Deployment" and d["metadata"]["name"] == NOTIFIER]
+    told = {}
+    for container in pod_of(controller)["spec"]["containers"]:
+        for argument in container.get("args") or []:
+            flag, _, value = argument.lstrip("-").partition("=")
+            told[flag] = value or "true"
+    for flag, (needed, otherwise) in ACROSS_NAMESPACES.items():
+        if told.get(flag, needed) != needed:
+            refuse(f"the install tells {NOTIFIER} --{flag}={told[flag]}, and it then {otherwise}")
+
+
 def main():
-    if len(sys.argv) != 5:
-        refuse("usage: action-reporters.py RENDERED_CLUSTER RENDERED_BUILD_SYSTEM GENERATE SYNC")
-    cluster, build = objects(sys.argv[1]), objects(sys.argv[2])
+    if len(sys.argv) != 7:
+        refuse("usage: action-reporters.py RENDERED RENDERED_BUILD_SYSTEM GENERATE SYNC LAYERS INSTALL")
+    cluster, build = objects(Path(sys.argv[1]) / "cluster.yaml"), objects(sys.argv[2])
+    standing = objects(Path(sys.argv[1]) / f"{STANDING}.yaml")
     made = made_by_the_host(sys.argv[3], sys.argv[4])
+    layers, install = objects(sys.argv[5]), objects(sys.argv[6])
 
     document, pod, container, text = the_api(cluster)
     api = f"{document['kind']} {document['metadata']['name']} container {container['name']}"
     namespace = document["metadata"]["namespace"]
-    verified_by = {}
+    verified = []
     for entry in roster_of(text):
         secret, key = the_file(f"{api}, for the reporter {entry['reporter']},", pod, container, entry["secretFile"])
         is_made(f"{api}, for the reporter {entry['reporter']},", made, namespace, secret, key)
-        verified_by[entry["reporter"]] = (entry, secret, key)
+        verified.append((entry, secret, key))
+
+    provider, name, posted = the_signer(cluster, verified, namespace)
+    the_road(cluster, install, name, posted, api, document, pod, container)
+    the_rollout(layers, provider, name, cluster, standing)
+    reads_across(install)
 
     tasks, passed, task = the_report(build)
     (step,) = task["spec"]["steps"]
@@ -320,7 +688,7 @@ def main():
 
     reporters = [
         entry
-        for entry, secret, key in verified_by.values()
+        for entry, secret, key in verified
         if (secret, key) == presented
         and entry["scheme"] == "BearerSecret"
         and (entry["tenant"], entry["project"]) == under
