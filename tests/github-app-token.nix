@@ -96,12 +96,9 @@ pkgs.testers.runNixOSTest {
       retrySeconds = 1;
       retryWindowSeconds = 30;
       retryBurst = 6;
-      # These three are the module's shapes and not the site's roster: a write
-      # token in more than one namespace, a read token in one, and a read token
-      # in the Kubernetes basic-auth form Shipwright clones with. The site
-      # declares the last of these per repository and one write token by hand,
-      # so a fixture named after a per-repository token would be the only place
-      # such a name still lived.
+      # These three are the module's shapes and no site's tokens: a write token
+      # in more than one namespace, a read token in one, and a read token in the
+      # Kubernetes basic-auth form.
       tokens.write = {
         appId = "4728465";
         installationId = "156786211";

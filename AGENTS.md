@@ -8,12 +8,10 @@ ownership boundaries, deployment sequence, recovery path, and required checks.
 
 - `hosts/` contains facts specific to a machine. Shared host behaviour and Nix
   options belong in `modules/`.
-- `repositories.nix` declares the repositories whose images this site builds,
-  and nothing else is per repository here: a repository a run works on is bound
-  from the console, and every credential an act needs is minted from a GitHub
-  App key by the pod performing it. The `github-repository-transition` check
-  holds the build requests to that roster and refuses a pod carrying a
-  per-repository token.
+- Nothing is per repository here: a repository a run works on is bound from the
+  console, and every credential an act needs is minted from a GitHub App key by
+  the pod performing it. The `github-repository-transition` check refuses a pod
+  carrying a per-repository token.
 - `cluster/` is Flux-managed Kubernetes state. `main` is live, so merging a
   manifest change is a deployment action.
 - `cluster/chuggy-migrate` and `cluster/chuggy` are the exception: Flux applies
@@ -43,8 +41,7 @@ Two GitHub Apps divide control-plane authority from workload authority:
 
 - **Chuggy Portal** is the control-plane App. The api, the ticket service, the
   finalizer and the importer each mount its private key and mint their own
-  repository-scoped tokens from it, and the host mints the build-reader token
-  Shipwright clones with. A repository ruleset reserves updates to each carried
+  repository-scoped tokens from it. A repository ruleset reserves updates to each carried
   repository's protected `main` branch to this App and repository admins -- `Finalizer owns main` on
   gdoteof/chuggy-fabric admits only those two; `chuggy portal + admins own
   main` on kasofsk/chuggy also admits its organization admins -- and a human

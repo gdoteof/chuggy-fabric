@@ -205,9 +205,8 @@
         # client and create any identity: `ory`, and the API on Hydra's alone.
         ory-admin = import ./tests/ory-admin.nix { inherit pkgs; };
 
-        # Every repository `repositories.nix` declares, against the build
-        # requests that clone it -- and the rendered cluster, which must carry
-        # no per-repository token at all now that every pod mints its own.
+        # The rendered cluster, which must carry no per-repository token at
+        # all now that every pod mints its own.
         github-repository-transition = githubRepositoryTransition;
         github-app-token = githubAppToken;
 
@@ -265,21 +264,6 @@
           refuses "without-flux-repository"
             { chuggy.flux.repositoryUrl = lib.mkForce null; }
             "chuggy.flux.repositoryUrl is unset";
-
-        # A host that names repositories to mint clone credentials for and not
-        # the App that mints them. Without the refusal the expansion reads an
-        # attribute that is not there, and a thrown evaluation says nothing
-        # about which input was left out.
-        refuses-without-github-apps =
-          refuses "without-github-apps"
-            {
-              chuggy.githubAppTokens = {
-                enable = true;
-                repositories =
-                  lib.mapAttrs (_: repository: repository.tokens) (import ./repositories.nix);
-              };
-            }
-            "chuggy.githubAppTokens.apps does not name portal";
 
         # An empty list is not the same omission and needs its own check: it
         # satisfies `!= null`, so the refusal above would have passed a host

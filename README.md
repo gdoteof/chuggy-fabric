@@ -16,7 +16,6 @@ only by their own directory.
 
     flake.nix                       one nixosConfiguration per host, and the checks
     flake.lock                      the pin — commit every change to it
-    repositories.nix                the repositories whose images this site builds
 
     modules/common.nix              identity, access, packages, nix settings
     modules/node-prep.nix           k8s prerequisites, workstation teardown
@@ -426,13 +425,10 @@ whole map in one place.
 ### GitHub App credentials
 
 `chuggy.githubAppTokens` mints repository-scoped installation tokens into
-managed Kubernetes Secrets. Two things are minted here and only one of them is
-per repository: `repositories.nix` gives an entry one token, the read-only Git
-basic-auth credential Shipwright clones that repository's source with, and a
-host declares by hand whatever further tokens it needs for what it does itself,
-which no host here does. A host says which Apps mint them and where their keys
-are; the keys remain root-only host state outside this repository and the Nix
-store.
+managed Kubernetes Secrets, one for each entry of `tokens` a host declares. No
+host here declares one or enables the delivery: gtr states the two Apps and
+where their keys are, which `tests/forge-app-key.py` reads, and the keys remain
+root-only host state outside this repository and the Nix store.
 
 No pod is handed a repository's credential on a forge: the api, the ticket
 service, the finalizer and the importer each mount a GitHub App's private key
@@ -440,9 +436,10 @@ and mint for the act they are performing, and a work pod's is minted for it by
 the worker plane. The exception is this cluster's own git service, which no App
 covers — `chuggy-git-worker` is mounted into work and session pods and named in
 the one row of the scheduler's repositories map, and `chuggy-finalizer-credentials`
-is the finalizer's for `rig.git`. Both are made by hand. After switching the host configuration, verify the refreshers and
-Secrets — the unit is named for its entry, and the Secret carries the label the
-module puts on everything it manages:
+is the finalizer's for `rig.git`. Both are made by hand. On a host that does
+declare a token, verify the refreshers and Secrets after switching — the unit
+is named for its entry, and the Secret carries the label the module puts on
+everything it manages:
 
     systemctl list-units --all 'chuggy-github-app-token-*-refresh.service'
     kubectl get secret --all-namespaces -l chuggy.dev/managed-by=github-app-token
@@ -1168,46 +1165,11 @@ for this; the list and `ls` have to agree, and a reviewer is what makes them.
 
 A repository is bound to a project from the console, and nothing here changes:
 the binding lives in the database, and every credential a run needs is minted
-for the act that needs it from a GitHub App key the pod mounts. The one thing
-this repository still carries per repository is a build-reader token, and only
-for a repository whose images this site builds — the Git basic-auth Secret a
-Shipwright request clones its source with. kasofsk/chuggy is the only one.
-
-So what follows is for adding a repository *this site builds images for*. Add
-an entry to `repositories.nix` and rebuild the host; the entry mints one Secret,
-`<name>-build-source-read`, and the installation id in it is the portal App's
-installation on that repository's owner.
-
-The build requests under `builds/` are generated and immutable, and nothing
-derives one from the roster, so a request naming a repository the roster does
-not declare, or cloning with another repository's Secret, is what the check
-refuses:
+for the act that needs it from a GitHub App key the pod mounts. This repository
+carries nothing per repository, and one check holds that subtraction: it
+refuses a rendered cluster in which any pod projects a per-repository token.
 
     nix build .#checks.x86_64-linux.github-repository-transition
-
-It holds the requests to the roster in that direction only — an entry with no
-request yet is admissible — and it refuses a rendered cluster in which any pod
-projects a per-repository token at all, which is the subtraction above staying
-subtracted.
-
-**Rebuild the host before the first request that clones the new repository.**
-A `cloneSecret` no Secret answers is a BuildRun that fails at its source step,
-and the Secret is the host's to mint:
-
-1. Push the branch. It need not be merged yet — the flake reference below works
-   from any pushed commit.
-2. `nixos-rebuild switch` gtr from that pushed SHA:
-
-       sudo nixos-rebuild switch --flake github:gdoteof/chuggy-fabric/<full-commit-sha>#gtr
-
-3. Verify the Secret exists:
-
-       systemctl list-units --all 'chuggy-github-app-token-*-refresh.service'
-       kubectl get secret --all-namespaces -l chuggy.dev/managed-by=github-app-token
-
-4. Merge to `main`. Flux reconciles from `main` within its interval, and
-   gdoteof/chuggy-fabric is itself the repository Flux reconciles this cluster
-   from, so this same merge is what Flux then applies.
 
 One thing is not this repository's to do. The owner's repository needs a ruleset
 that reserves updates to its default branch to the portal App integration and

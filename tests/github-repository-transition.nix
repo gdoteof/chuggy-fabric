@@ -1,11 +1,5 @@
-# Every repository the site declares, held against the requests that build it
-# and against the rendered cluster: the argument for each assertion is in
-# github-repository-transition.py's own header, and the roster it loops over is
-# `repositories.nix`.
-#
-# The roster is handed over as JSON rather than read from the file, so the
-# derived Secret names the host mints from and the names this gate holds the
-# build requests to are one value and cannot drift.
+# The rendered cluster, held to carrying no per-repository token: the argument
+# is in github-repository-transition.py's own header.
 { pkgs }:
 
 let
@@ -14,13 +8,10 @@ let
 in
 pkgs.runCommand "chuggy-github-repository-transition" {
   nativeBuildInputs = [ pkgs.gnugrep python ];
-  roster = builtins.toJSON (import ../repositories.nix);
-  passAsFile = [ "roster" ];
 } ''
   set -eu
-  root=${../.}
 
-  python3 ${./github-repository-transition.py} "$rosterPath" ${rendered}/cluster.yaml "$root"
+  python3 ${./github-repository-transition.py} ${rendered}/cluster.yaml
 
   # Reaching a forge at all is the half of the cutover that is not per
   # repository, and these two lines read occurrence counts and nothing else:
@@ -35,7 +26,7 @@ pkgs.runCommand "chuggy-github-repository-transition" {
   #
   # The cidr's own count runs one ahead of the arms: the scheduler writes the
   # same cidr over the cluster's own ranges and mints nothing.
-  network="$root/cluster/apps/chuggy-control-plane-network-policy.yaml"
+  network=${../cluster/apps/chuggy-control-plane-network-policy.yaml}
   test "$(grep -c 'cidr: 0.0.0.0/0' "$network")" -ge 4
   for range in 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16; do
     test "$(grep -c -- "- $range" "$network")" -ge 4

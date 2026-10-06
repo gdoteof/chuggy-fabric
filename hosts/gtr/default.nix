@@ -195,10 +195,8 @@
     branch = "main";
   };
 
-  # The two Apps' keys, which are files on this box. Which repositories this
-  # box builds images for is not a fact about this machine: it is
-  # `repositories.nix`, and a repository added there arrives here as its clone
-  # credential without this file changing.
+  # The two Apps' keys, which are files on this box. It mints no token from
+  # either, so the delivery this option also enables is left off.
   #
   # Both keys are also copied by hand into Secrets, so rotating or revoking
   # either is two places and not one: the portal key into
@@ -211,7 +209,6 @@
   # `cluster/chuggy/chuggy-worker-plane.yaml` the second, and every manifest
   # that mounts a key says what that pod may mint.
   chuggy.githubAppTokens = {
-    enable = true;
     apps = {
       portal = {
         appId = "4708055";
@@ -224,7 +221,5 @@
         keySecret = "chuggy-github-app-worker";
       };
     };
-    repositories =
-      lib.mapAttrs (_: repository: repository.tokens) (import ../../repositories.nix);
   };
 }
