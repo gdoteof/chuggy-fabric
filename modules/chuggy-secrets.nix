@@ -61,6 +61,20 @@
 # the process the rotation was for. Nothing here does any of it, and nothing
 # here pretends to: the value is generated once and then only ever read.
 #
+# ONE SECRET IS WANTED IN TWO NAMESPACES, and its second copy is held to every
+# rule above. `chuggy-report-build` is a bearer: whoever reports a build
+# presents it, and chuggy's API compares it with the copy it reads. The API is
+# a pod in `chuggy` and a build's pods are in `chuggy-build`, and a pod is given
+# a Secret from its own namespace alone. Host state is the one value. Each
+# namespace's Secret is created from it, compared with it or adopted into it as
+# a single one is, so two copies that disagree are reported as the one that
+# differs from the host, and neither is written.
+#
+# AND NEITHER NAMESPACE WAITS ON THE OTHER. One that is not there holds back
+# nothing: what is there is synchronised, and the run is then a could-not-run.
+# A key the host has lost is adopted from whichever of them holds it, and a
+# namespace asked before that one is given its copy by the retry.
+#
 # WHAT THE SYNCHRONISATION'S EXIT STATUS MEANS, in one place, because the unit's
 # Restart= and RestartPreventExitStatus= read it and a second version of this
 # list would be a unit that retries what it should not or gives up on what it
@@ -70,9 +84,12 @@
 #   2  could-not-run. Nothing this host controls has gone wrong -- no
 #      kubeconfig, no namespace, a key neither side holds. RETRIES.
 #   3  divergence. Both sides answered and disagreed, and only a person can say
-#      which value PostgreSQL was told about. DOES NOT RETRY. `jq` exits 3 on a
-#      program that will not compile, which lands here by coincidence of number
-#      and stays here on the merits: a broken filter is permanent, not transient.
+#      which value PostgreSQL was told about. DOES NOT RETRY, and a run that
+#      was also a could-not-run exits 3 all the same: what a retry would have
+#      settled waits for the person the disagreement already needs.
+#      `jq` exits 3 on a program that will not compile, which lands here by
+#      coincidence of number and stays here on the merits: a broken filter is
+#      permanent, not transient.
 #   *  a command failed. `set -o errexit` carries kubectl's, jq's or base64's
 #      own status out, and kubectl exits 1 on an API error it could not reach
 #      past -- a leader election, a compaction, a request timeout. Transient by
@@ -106,17 +123,19 @@ let
   syncRequestTimeoutSeconds = 30;
   syncRequestTimeout = "${toString syncRequestTimeoutSeconds}s";
 
-  # The longest a cycle that waits the namespace out can take: the wait, the
-  # sleep and the probe that carry it past its deadline, and the pause before
-  # systemd starts the unit again. THAT PATH, AND NOT A RUN IN GENERAL -- a run
-  # that gets past the namespace makes further `k` calls this sum does not name,
-  # and `--request-timeout` bounds one request where kubectl may issue several.
+  # The longest a cycle that waits a namespace out can take: the wait, the
+  # sleep and the probe that carry it past its deadline, a probe for each
+  # namespace after it -- the deadline is the run's, so one that has passed
+  # leaves each of them asked once -- and the pause before systemd starts the
+  # unit again. THAT PATH, AND NOT A RUN IN GENERAL -- a run makes further `k`
+  # calls this sum does not name, for every namespace that is there, and
+  # `--request-timeout` bounds one request where kubectl may issue several.
   # Each of those shapes is short beside the extra whole cycle the window below
   # carries, and the wait is the path the bound exists for.
   syncCycleSeconds =
     cfg.namespaceTimeoutSeconds
     + syncProbeIntervalSeconds
-    + syncRequestTimeoutSeconds
+    + (lib.length namespaces) * syncRequestTimeoutSeconds
     + syncRestartSeconds;
 
   # The inventory is fixed rather than an option, and that is a claim worth
@@ -151,10 +170,37 @@ let
     "chuggy-api" = {
       "idempotency-keying" = "keyset";
     };
+    # What a report of a declared action is proved with, one Secret a scheme:
+    # the first is the key a report is signed under, the second a bearer. The
+    # key is `token` because that is the key Flux's notification-controller
+    # reads a Provider's Secret by, and neither has a second half anywhere: a
+    # report verifies when its two readers read the same bytes.
+    "chuggy-report-flux" = {
+      "token" = "token";
+    };
+    "chuggy-report-build" = {
+      "token" = "token";
+    };
   };
 
   secretNames = lib.attrNames inventory;
   keysOf = secret: lib.attrNames inventory.${secret};
+
+  # The Secrets wanted in a namespace other than cfg.namespace, by that
+  # namespace. `chuggy-build` is written here and is not an option for the
+  # reason the inventory is not: cluster/build-system/ declares it under that
+  # name for every host that follows this repository, as cluster/apps/ does
+  # `chuggy`. Everything else stays out of it -- a build's pods run there, and
+  # a PostgreSQL password is no build's to read.
+  copies = {
+    "chuggy-build" = [ "chuggy-report-build" ];
+  };
+
+  # cfg.namespace first, so that what the control plane waits on is written
+  # before a namespace a later layer creates is waited for.
+  namespaces = [ cfg.namespace ] ++ lib.attrNames copies;
+  secretsIn = namespace:
+    if namespace == cfg.namespace then secretNames else copies.${namespace};
 
   # `CHUG_PG_API_PASSWORD` from `api-password`. Mechanical, so a key added above
   # needs no second edit here, and so a reader can check the mapping rather than
@@ -165,6 +211,12 @@ let
   # the manifests under cluster/, and `/`, `+` and `=` all mean something inside
   # one. A password that has to be percent-encoded to be usable is a password
   # that will eventually not be.
+  #
+  # A report token is the same draw for its own two reasons. It is presented as
+  # an HTTP header's value, where hex needs no quoting. And it is an HMAC key
+  # Flux's notification-controller trims white space from before it signs: a
+  # value holding none, a trailing newline included, is the same bytes trimmed
+  # or not, so whoever verifies reads the key the signer used.
   generate = pkgs.writeShellApplication {
     name = "chuggy-secrets-generate";
     runtimeInputs = [ pkgs.openssl pkgs.coreutils ];
@@ -177,7 +229,7 @@ let
         [ -s "$path" ] && return 0
         tmp="$path.new.$$"
         case "$kind" in
-          password)
+          password | token)
             openssl rand -hex 32 | tr -d '\n' > "$tmp"
             ;;
           keyset)
@@ -214,9 +266,12 @@ let
     text = ''
       umask 077
       kc="${cfg.kubeconfig}"
-      ns="${cfg.namespace}"
       state="${cfg.stateDir}"
       run="''${RUNTIME_DIRECTORY:-$(mktemp -d)}"
+
+      # The namespace being synchronised, which `present` below sets and every
+      # `k` call and report after it reads.
+      ns=""
 
       # The runtime directory holds a decoded password and the cluster's own
       # copy of every key, and systemd does not remove it until the unit stops
@@ -231,6 +286,13 @@ let
       # PostgreSQL was told about. The run finishes -- the keys that do agree
       # are still worth creating -- and then exits 3.
       diverged=0
+
+      # Set by what this run could not do for a reason a retry may settle: a
+      # namespace that is not there, a key neither the host nor a namespace's
+      # Secret holds. The run finishes here too. A namespace that is there is
+      # owed its Secrets whether or not another is, and a key the first lacks
+      # may be the second's to give.
+      unmet=0
 
       # A precondition this host cannot satisfy on its own -- k3s still
       # starting, a namespace Flux has not created yet -- exits 2 instead.
@@ -247,18 +309,27 @@ let
       # `activating` with nothing in `systemctl --failed` to find.
       k() { kubectl --kubeconfig "$kc" -n "$ns" --request-timeout=${syncRequestTimeout} "$@"; }
 
-      # The namespace belongs to cluster/apps/, so on a cold boot it does not
-      # exist until Flux has reconciled once. Waiting here rather than failing
-      # immediately is what keeps the bootstrap order from mattering; the unit
-      # also restarts, which covers a Flux that takes longer than this.
+      # A namespace belongs to the layer under cluster/ that declares it, so on
+      # a cold boot it does not exist until Flux has reconciled that layer once.
+      # Waiting here rather than failing immediately is what keeps the bootstrap
+      # order from mattering; the unit also restarts, which covers a Flux that
+      # takes longer than this.
+      #
+      # ONE DEADLINE FOR THE RUN, set before the first probe. A namespace is
+      # waited for until it, and one asked for after it has passed is asked
+      # once.
       deadline=$(( $(date +%s) + ${toString cfg.namespaceTimeoutSeconds} ))
-      until k get namespace "$ns" >/dev/null 2>&1; do
-        if [ "$(date +%s)" -ge "$deadline" ]; then
-          echo "chuggy.secrets: namespace $ns does not exist; Flux has not created it." >&2
-          exit 2
-        fi
-        sleep ${toString syncProbeIntervalSeconds}
-      done
+      present() {
+        ns="$1"
+        until k get namespace "$ns" >/dev/null 2>&1; do
+          if [ "$(date +%s)" -ge "$deadline" ]; then
+            echo "chuggy.secrets: namespace $ns does not exist; Flux has not created it." >&2
+            unmet=1
+            return 1
+          fi
+          sleep ${toString syncProbeIntervalSeconds}
+        done
+      }
 
       sync_secret() {
         local secret="$1"
@@ -290,7 +361,7 @@ let
             jq -j --arg k "$key" '.data[$k]' "$run/live.json" > "$run/live.b64"
 
             if [ ! -s "$run/live.b64" ]; then
-              echo "chuggy.secrets: $secret/$key is present in the cluster with an empty value." >&2
+              echo "chuggy.secrets: $secret/$key is present in namespace $ns with an empty value." >&2
               echo "  Neither side was changed. An empty key is not a value this can replace, and" >&2
               echo "  it is not one any workload can authenticate with either -- delete it or fill it." >&2
               diverged=1
@@ -300,29 +371,31 @@ let
             if [ -s "$dir/$key" ]; then
               base64 -w0 < "$dir/$key" > "$run/host.b64"
               if ! cmp -s "$run/host.b64" "$run/live.b64"; then
-                echo "chuggy.secrets: $secret/$key differs between host state and the cluster." >&2
-                echo "  Neither was changed. One of them is what PostgreSQL was told; the other is not." >&2
+                echo "chuggy.secrets: $secret/$key differs between host state and namespace $ns." >&2
+                echo "  Neither was changed. Which of them stands is a person's to say: for a role's" >&2
+                echo "  password it is the one PostgreSQL was told." >&2
                 diverged=1
               fi
             else
               base64 -d < "$run/live.b64" > "$run/adopt"
               install -m 0600 -o root -g root "$run/adopt" "$dir/$key"
-              echo "adopted $secret/$key from the cluster"
+              echo "adopted $secret/$key from namespace $ns"
             fi
             continue
           fi
 
           if [ ! -s "$dir/$key" ]; then
-            echo "chuggy.secrets: $dir/$key is missing and the cluster has no $key either." >&2
+            echo "chuggy.secrets: $dir/$key is missing and namespace $ns has no $key either." >&2
             echo "  chuggy-secrets-generate should have written it." >&2
-            exit 2
+            unmet=1
+            continue
           fi
 
           base64 -w0 < "$dir/$key" > "$run/host.b64"
           jq --arg k "$key" --rawfile v "$run/host.b64" \
             '.data[$k] = ($v | rtrimstr("\n"))' "$run/patch.json" > "$run/patch.next"
           mv "$run/patch.next" "$run/patch.json"
-          echo "creating $secret/$key"
+          echo "creating $secret/$key in namespace $ns"
         done
 
         # --patch-file, never --patch: an argument is in the process table for
@@ -333,10 +406,16 @@ let
       }
 
       ${lib.concatMapStrings
-        (secret: ''
-          sync_secret ${lib.escapeShellArg secret} ${lib.escapeShellArgs (keysOf secret)}
+        (namespace: ''
+          if present ${lib.escapeShellArg namespace}; then
+          ${lib.concatMapStrings
+            (secret: ''
+              sync_secret ${lib.escapeShellArg secret} ${lib.escapeShellArgs (keysOf secret)}
+            '')
+            (secretsIn namespace)}
+          fi
         '')
-        secretNames}
+        namespaces}
 
       # A divergent run is a failed run. Two lines on stderr and exit 0 put the
       # only record of it in a journal nobody reads, on a host where
@@ -349,10 +428,18 @@ let
       # settle. A status of its own, never 1: 1 is what `set -o errexit` hands
       # out for a kubectl that could not reach the API server, and that one has
       # to retry. The header carries the whole map.
+      #
+      # BEFORE THE STATUS THAT RETRIES. A run that found both would otherwise
+      # spend the restart budget repeating a report no retry settles, and the
+      # person it needs starts this unit again anyway.
       if [ "$diverged" != 0 ]; then
         echo "chuggy.secrets: the keys above were left as they are on both sides." >&2
-        echo "  Decide which value PostgreSQL holds, make the two agree, and start this unit again." >&2
+        echo "  Decide which value stands, make each pair agree, and start this unit again." >&2
         exit 3
+      fi
+
+      if [ "$unmet" != 0 ]; then
+        exit 2
       fi
     '';
   };
@@ -458,9 +545,11 @@ in
       type = lib.types.str;
       default = "chuggy";
       description = ''
-        Namespace the Secrets are written into. It is created by cluster/apps/,
-        not here: two layers creating one object is the ambiguity D6 exists to
-        prevent, and a namespace is the object both would reach for first.
+        Namespace the Secrets are written into, every one of them; the module
+        names the one that is wanted in a second as well. It is created by
+        cluster/apps/, not here: two layers creating one object is the
+        ambiguity D6 exists to prevent, and a namespace is the object both
+        would reach for first.
       '';
     };
 
@@ -474,10 +563,11 @@ in
       type = lib.types.int;
       default = 120;
       description = ''
-        How long one attempt waits for the namespace before reporting
-        could-not-run. The unit restarts, so this bounds an attempt rather than
-        the bootstrap -- short enough that a genuinely absent namespace is
-        visible in the journal early, rather than after a silent wait.
+        How long one attempt waits for a namespace before reporting
+        could-not-run, counted once for the attempt and not once for each. The
+        unit restarts, so this bounds an attempt rather than the bootstrap --
+        short enough that a genuinely absent namespace is visible in the
+        journal early, rather than after a silent wait.
       '';
     };
   };

@@ -201,6 +201,18 @@
 # when it starts, so a Secret created while it runs is used only after the
 # restart.
 #
+# THE TWO REPORT TOKENS ARE THE HOST'S, as the passwords are.
+# `modules/chuggy-secrets.nix` generates `chuggy-report-flux` and
+# `chuggy-report-build`, each with the one key `token`, and synchronizes them
+# into this namespace; `CHUG_API_ACTION_REPORTERS` below names the file each
+# of its two reporters is verified with. Both volumes are optional, so a host
+# that has not been rebuilt since the module learned them holds no layer: the
+# pod starts, and a reporter whose file is not there is one no report verifies
+# as. Each is a whole volume at a directory of its own, never a `subPath`, so
+# the kubelet brings a Secret created or changed later to the running pod, and
+# the image above reads a reporter's file on each report rather than at
+# start-up. No restart follows the host's rebuild.
+#
 # --------------------------------------------------------------- the OIDC ----
 #
 # The issuer string is compared for equality against the one the discovery
@@ -384,6 +396,32 @@ spec:
               value: "4728465"
             - name: CHUG_API_FORGE_WORKER_APP_KEY_FILE
               value: /var/run/chuggy/forge-app-worker/private-key
+            # Who may report what a declared action did, and the file each is
+            # verified with, from the two optional volumes below. The image
+            # above refuses to start on a list it cannot read, and reads no
+            # file until a report arrives. It verifies a report by
+            # `BearerSecret` alone; the release that reads a Flux event's
+            # signature verifies by the other.
+            - name: CHUG_API_ACTION_REPORTERS
+              value: |
+                [
+                  {
+                    "reporter": "rig-flux",
+                    "scheme": "FluxSignature",
+                    "secretFile": "/var/run/chuggy/reporters/flux/token",
+                    "tenant": "vteng",
+                    "project": "chuggy",
+                    "actions": ["rig"]
+                  },
+                  {
+                    "reporter": "rig-build",
+                    "scheme": "BearerSecret",
+                    "secretFile": "/var/run/chuggy/reporters/build/token",
+                    "tenant": "vteng",
+                    "project": "chuggy",
+                    "actions": ["build-api", "build-console", "publish"]
+                  }
+                ]
             # The image a repository bound with no configuration of its own
             # starts on: the scheduler's `generic-worker`, which carries no
             # practices of chuggy's. Its bootstrap ticket is told to name it.
@@ -495,6 +533,12 @@ spec:
             - name: forge-app-worker
               mountPath: /var/run/chuggy/forge-app-worker
               readOnly: true
+            - name: reporter-flux
+              mountPath: /var/run/chuggy/reporters/flux
+              readOnly: true
+            - name: reporter-build
+              mountPath: /var/run/chuggy/reporters/build
+              readOnly: true
           resources:
             requests: { cpu: 100m, memory: 128Mi }
             limits: { memory: 512Mi }
@@ -604,6 +648,25 @@ spec:
             items:
               - key: private-key
                 path: private-key
+        # The two report tokens, each the file `CHUG_API_ACTION_REPORTERS`
+        # names for one reporter: 0444 and the key named, as above, and
+        # optional, for the reason the header gives.
+        - name: reporter-flux
+          secret:
+            secretName: chuggy-report-flux
+            defaultMode: 0444
+            items:
+              - key: token
+                path: token
+            optional: true
+        - name: reporter-build
+          secret:
+            secretName: chuggy-report-build
+            defaultMode: 0444
+            items:
+              - key: token
+                path: token
+            optional: true
 ---
 apiVersion: v1
 kind: Service
