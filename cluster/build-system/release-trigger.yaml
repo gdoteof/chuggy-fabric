@@ -100,8 +100,8 @@ subjects:
 # fields that version does not have, `taskRunTemplate` among them, and its
 # pods then run as that version's own fields say.
 #
-# NOTHING BUT THE TRIGGER'S ServiceAccount IS HELD. A person who creates a
-# run by their own name is asked nothing here.
+# NOTHING BUT THE TRIGGER'S ServiceAccount IS HELD BY THIS POLICY. A person
+# who creates a run by their own name is asked nothing by it.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -182,6 +182,12 @@ spec:
 # parameters `named` gives for it are the address the source fetches and the
 # commit of the artifact it holds. A source that moved between the trigger's
 # read and its create is refused here, and the next minute reads again.
+#
+# A SOURCE THAT IS NOT THERE REFUSES EVERYONE. A binding's source is looked
+# for before anyone is asked who creates the run, and
+# `parameterNotFoundAction: Deny` then refuses every PipelineRun, whoever
+# creates it and in whichever namespace, until the source is back. A source
+# that is there and holds no artifact yet refuses the trigger alone.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:

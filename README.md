@@ -883,7 +883,9 @@ reads the API server. Each time it runs it compares what `GitRepository`
 `chuggy` and `fabric-release` hold with the newest run and creates at most one,
 from `release-run.yaml`. Two admission policies beside it hold what its token
 creates to that file, for the address and the commit each source holds. While
-it is suspended a person runs that same comparison once:
+either source is missing the second refuses every `PipelineRun`, whoever
+creates it and in any namespace, with `no params found for policy binding`.
+While the trigger is suspended a person runs that same comparison once:
 
     kubectl -n chuggy-release-trigger create job --from=cronjob/release-trigger by-hand-1
 
