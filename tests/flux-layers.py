@@ -33,15 +33,9 @@ THE TWO RELEASE LAYERS READ THE RELEASE AND NO OTHER LAYER DOES.
 layer names the `fabric` source. Either of the two on `fabric` and its own
 directory still renders, and applies manifests that name no release: a Job
 and services whose image no registry holds.
-
-NOTHING APPLIES `./results`, which is provenance and holds no manifest.
-tests/flux-wiring.nix argues it for the path the host generates; a layer is the
-other thing that names one. Held apart from the roster because a layer added on
-purpose is added to the roster with it.
 """
 
 import json
-import re
 import sys
 from pathlib import Path
 
@@ -139,10 +133,6 @@ def main():
         if key in held:
             refuse(f"{kind} {name} is rendered more than once")
         held[key] = document.get("spec") or {}
-
-    for name, spec in rendered.items():
-        if re.fullmatch(r"(\./)?results(/.*)?", str(spec.get("path"))):
-            refuse(f"layer {name} applies {spec['path']}, where nothing is a manifest")
 
     for name in sorted(LAYERS.keys() - rendered.keys()):
         refuse(f"layer {name} is not rendered, and the root prunes what it stops applying")

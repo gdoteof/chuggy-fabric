@@ -128,10 +128,6 @@
       releaseBuild = import ./tests/release-build.nix { inherit pkgs; };
       releaseReport = import ./tests/release-report.nix { inherit pkgs; };
       releaseAlert = import ./tests/release-alert.nix { inherit pkgs; };
-      buildRequests = import ./tests/build-requests.nix { inherit pkgs; };
-      awaitBuildResults = import ./tests/await-build-results.nix { inherit pkgs; };
-      buildResults = import ./tests/build-results.nix { inherit pkgs; };
-      buildResultsPublish = import ./tests/build-results-publish.nix { inherit pkgs; };
       configurationImporter = import ./tests/configuration-importer.nix { inherit pkgs; };
       developmentWorker = import ./tests/development-worker.nix { inherit pkgs; };
       sessionPlacement = import ./tests/session-placement.nix { inherit pkgs; };
@@ -360,6 +356,8 @@
         # to notification-controller. The file is the module's and no host's,
         # so one host reads it for all.
         flux-components = fluxComponents self.nixosConfigurations.gtr;
+
+        # What a build stands on and no render shows; the file says which.
         build-platform = buildPlatform;
 
         # The release pipeline, which only a person starts while its trigger
@@ -390,23 +388,6 @@
         # what a CronJob is exported as, suspended and not.
         release-alert = releaseAlert;
 
-        # What a source's build request is, and what it is answered with: the
-        # document the command a source ticket runs files, and one build per
-        # image this site declares for it, rendered by the renderer every
-        # request under `builds/` came from, and the record that says so.
-        build-requests = buildRequests;
-
-        # And the wait between a request and that record, against a real
-        # remote.
-        await-build-results = awaitBuildResults;
-
-        # Every record `results/` carries, against the request in `builds/` it
-        # answers: one filed under the wrong request verifies against itself
-        # perfectly.
-        build-results = buildResults;
-
-        # And the command that put them there, run against a real repository.
-        build-results-publish = buildResultsPublish;
         configuration-importer = configurationImporter;
       };
     };

@@ -20,18 +20,6 @@ ownership boundaries, deployment sequence, recovery path, and required checks.
   image digests, the source-commit annotation and the migrate Job's name over a
   copy; one written in git is replaced without a word, and `.chug/tasks/ci.sh`
   refuses it.
-- `builds/` contains immutable Shipwright requests pinned to full source commits.
-  No layer applies it, so none is built. Generate them with
-  `scripts/render-build-request`; never edit one in place.
-- `requests/` holds the build requests a source repository's finalized change
-  commits, one document each. Write one with `scripts/request-build` and nothing
-  else, here or in the source; do not put a file there by hand.
-  `scripts/fulfil-build-requests` renders real Shipwright requests from whatever
-  it finds, and no host runs it. No gate covers the directory -- those two
-  commands' own refusals are the whole of what holds a document, and they are
-  in their headers.
-- `results/` records immutable build provenance, published by the host while it
-  recorded any. Nothing releases from it.
 - Credentials remain outside Git. Commit references, projections, and delivery
   mechanisms, but never private keys or token values.
 
@@ -60,8 +48,8 @@ history.
 
 ## Working agreement
 
-- Preserve the split between host configuration, cluster declarations, build
-  requests, and provenance; do not patch live objects as a substitute for Git.
+- Preserve the split between host configuration and cluster declarations; do
+  not patch live objects as a substitute for Git.
 - Run focused checks while working and `nix flake check` before handoff. If Nix
   is unavailable, run the portable checks and state exactly which Nix checks CI
   still needs to run.
