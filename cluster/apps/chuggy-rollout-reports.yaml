@@ -1,0 +1,101 @@
+# Flux tells chuggy what a release did on this cluster, as the action `rig`.
+#
+# notification-controller posts each event the two Alerts select to chuggy's
+# API, signed with the `token` of the Secret the Provider names. The API mounts
+# that Secret as the file its `FluxSignature` reporter is verified by, and
+# reads the commit off the event's `originRevision`: chuggy's commit, because
+# both layers read an OCIRepository and `cluster/build-system/publish.sh` gives
+# each release that commit as its revision. Which events are a report is
+# chuggy's to say, in its `src/adapters/reporters/fluxSignature.ts`: a
+# Kustomization that reconciled succeeded, a Kustomization's error failed, and
+# every other event is answered and ignored. So an Alert selects by layer and
+# by severity and by nothing else.
+#
+# `chuggy` AT `info`, `chuggy-migrate` AT `error`. The services' layer is the
+# last of a release and it waits for them, so its success is the rollout's and
+# its error the rollout's failure. A migration that failed is a rollout that
+# failed. One that succeeded is not yet a rollout, and at `info` it would read
+# as one while the services behind it were failing.
+#
+# APPLIED BY `apps`, NOT BY THE RELEASE THEY REPORT. Under `cluster/chuggy`
+# these would reach a cluster with a release and go with one taken back to
+# before them, and a first release whose migration failed would never apply
+# the Alert that says so. Here they are applied before either layer runs,
+# beside the namespace, which is this layer's too. A Provider and an Alert of
+# this version have no status, so neither is ever not ready and this layer's
+# `wait` holds nothing on them. Where the host has not made the Secret yet the
+# layer is Ready all the same, and each event selected is a Warning on its
+# Alert until it has.
+#
+# THE ADDRESS IS THE API'S SERVICE AND NOT ITS PUBLIC NAME. The release
+# pipeline's `report` task posts to `chuggy.vteng.io` because nothing admits a
+# build pod to the control plane. This pod is admitted, by one element of
+# `chuggy-api-admits-traefik-and-the-selector`, and going out to come back
+# would put Cloudflare, the tunnel, Traefik and the Ingress, which is an object
+# of the release being reported, between a rollout and the report of it. It is
+# plain HTTP, as the pod's port is: the key signs and is never sent. The
+# address ends at `reports`, since chuggy answers a slash after it as it
+# answers a request with no bearer.
+#
+# NOTHING HERE NAMES A COMMIT. Flux writes `eventMetadata` into an event under
+# the keys chuggy reads, and the controller's own value wins only where the
+# controller sets one. So an Alert adds the `link` and never `revision` or
+# `originRevision`, and neither layer carries an `event.toolkit.fluxcd.io/`
+# annotation, which Flux reads the same way.
+#
+# A LOST REPORT IS NOT SENT AGAIN, AND WHAT IT SAID IS. Flux keeps no queue,
+# so an event that met an outage is gone. A layer says what it came to again
+# at each pass, and chuggy records it then. A delivery chuggy refused, or one
+# that did not arrive, is a `NotificationDispatchFailed` Warning on its Alert,
+# with the status and the answer:
+#
+#     kubectl -n chuggy get events --field-selector involvedObject.kind=Alert
+#
+# A layer taken out of `cluster/flux` is deleted by the root before this layer
+# takes its Alert away, and an error while it is deleted reads as the failure
+# of the commit it last applied. Its Alert goes a commit earlier.
+#
+# tests/action-reporters.py resolves each name here against what it has to
+# match.
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Provider
+metadata:
+  name: chuggy-report-rig
+  namespace: chuggy
+spec:
+  type: generic-hmac
+  address: http://chuggy-api.chuggy.svc.cluster.local:3000/api/v1/tenants/vteng/projects/chuggy/actions/rig/reports
+  secretRef:
+    name: chuggy-report-flux
+---
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Alert
+metadata:
+  name: chuggy-report-rig-rollout
+  namespace: chuggy
+spec:
+  providerRef:
+    name: chuggy-report-rig
+  eventSeverity: info
+  eventSources:
+    - kind: Kustomization
+      name: chuggy
+      namespace: flux-system
+  eventMetadata:
+    link: https://grafana.vteng.io/d/chuggy-releases
+---
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Alert
+metadata:
+  name: chuggy-report-rig-migration
+  namespace: chuggy
+spec:
+  providerRef:
+    name: chuggy-report-rig
+  eventSeverity: error
+  eventSources:
+    - kind: Kustomization
+      name: chuggy-migrate
+      namespace: flux-system
+  eventMetadata:
+    link: https://grafana.vteng.io/d/chuggy-releases

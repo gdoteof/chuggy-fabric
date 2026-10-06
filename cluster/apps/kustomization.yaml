@@ -43,6 +43,7 @@ resources:
   - chuggy-artifacts.yaml
   - chuggy-control-plane-network-policy.yaml
   - chuggy-dumps.yaml
+  - chuggy-rollout-reports.yaml
   - chuggy-storage.yaml
   - chuggy-work.yaml
   - dev2-access.yaml
