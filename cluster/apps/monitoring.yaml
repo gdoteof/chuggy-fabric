@@ -75,6 +75,143 @@ spec:
           - { action: drop, sourceLabels: [__meta_kubernetes_node_label_type], regex: virtual-kubelet }
           - { action: replace, sourceLabels: [__metrics_path__], targetLabel: metrics_path }
 
+    # What each Flux object says of itself, as a series: whether it is ready,
+    # whether it is suspended, and the revision it holds. Flux's controllers
+    # export how long a reconcile took and never what state an object is in, so
+    # kube-state-metrics reads the objects, which is the arrangement Flux
+    # documents and these entries are its own (fluxcd/flux2-monitoring-example),
+    # for the kinds this cluster has objects of.
+    #
+    # THE STOCK COLLECTORS STAY. That example also sets `collectors: []` and
+    # `--custom-resource-state-only`, for a kube-state-metrics that does nothing
+    # else. Here that would take away every `kube_*` series the chart's own
+    # rules read, KubeJobFailed among them, which is how a failed dump or
+    # migration is announced.
+    #
+    # A KIND NEEDS BOTH HALVES. One listed under `resources` without its plural
+    # in the rule above it is refused by the API server on every list, and the
+    # only sign is a line in this pod's log and a table with no rows.
+    kube-state-metrics:
+      rbac:
+        extraRules:
+          - apiGroups:
+              - kustomize.toolkit.fluxcd.io
+              - source.toolkit.fluxcd.io
+              - helm.toolkit.fluxcd.io
+            resources:
+              - kustomizations
+              - gitrepositories
+              - ocirepositories
+              - helmrepositories
+              - helmcharts
+              - helmreleases
+            verbs: [list, watch]
+      customResourceState:
+        enabled: true
+        config:
+          spec:
+            resources:
+              - groupVersionKind: { group: kustomize.toolkit.fluxcd.io, version: v1, kind: Kustomization }
+                metricNamePrefix: gotk
+                metrics:
+                  - name: resource_info
+                    help: The current state of a Flux Kustomization resource.
+                    each:
+                      type: Info
+                      info:
+                        labelsFromPath:
+                          name: [metadata, name]
+                    labelsFromPath:
+                      exported_namespace: [metadata, namespace]
+                      ready: [status, conditions, "[type=Ready]", status]
+                      suspended: [spec, suspend]
+                      revision: [status, lastAppliedRevision]
+                      source_name: [spec, sourceRef, name]
+              - groupVersionKind: { group: source.toolkit.fluxcd.io, version: v1, kind: GitRepository }
+                metricNamePrefix: gotk
+                metrics:
+                  - name: resource_info
+                    help: The current state of a Flux GitRepository resource.
+                    each:
+                      type: Info
+                      info:
+                        labelsFromPath:
+                          name: [metadata, name]
+                    labelsFromPath:
+                      exported_namespace: [metadata, namespace]
+                      ready: [status, conditions, "[type=Ready]", status]
+                      suspended: [spec, suspend]
+                      revision: [status, artifact, revision]
+                      url: [spec, url]
+              - groupVersionKind: { group: source.toolkit.fluxcd.io, version: v1, kind: OCIRepository }
+                metricNamePrefix: gotk
+                metrics:
+                  - name: resource_info
+                    help: The current state of a Flux OCIRepository resource.
+                    each:
+                      type: Info
+                      info:
+                        labelsFromPath:
+                          name: [metadata, name]
+                    labelsFromPath:
+                      exported_namespace: [metadata, namespace]
+                      ready: [status, conditions, "[type=Ready]", status]
+                      suspended: [spec, suspend]
+                      revision: [status, artifact, revision]
+                      url: [spec, url]
+              - groupVersionKind: { group: source.toolkit.fluxcd.io, version: v1, kind: HelmRepository }
+                metricNamePrefix: gotk
+                metrics:
+                  - name: resource_info
+                    help: The current state of a Flux HelmRepository resource.
+                    each:
+                      type: Info
+                      info:
+                        labelsFromPath:
+                          name: [metadata, name]
+                    labelsFromPath:
+                      exported_namespace: [metadata, namespace]
+                      ready: [status, conditions, "[type=Ready]", status]
+                      suspended: [spec, suspend]
+                      revision: [status, artifact, revision]
+                      url: [spec, url]
+              - groupVersionKind: { group: source.toolkit.fluxcd.io, version: v1, kind: HelmChart }
+                metricNamePrefix: gotk
+                metrics:
+                  - name: resource_info
+                    help: The current state of a Flux HelmChart resource.
+                    each:
+                      type: Info
+                      info:
+                        labelsFromPath:
+                          name: [metadata, name]
+                    labelsFromPath:
+                      exported_namespace: [metadata, namespace]
+                      ready: [status, conditions, "[type=Ready]", status]
+                      suspended: [spec, suspend]
+                      revision: [status, artifact, revision]
+                      chart_name: [spec, chart]
+                      chart_version: [spec, version]
+              - groupVersionKind: { group: helm.toolkit.fluxcd.io, version: v2, kind: HelmRelease }
+                metricNamePrefix: gotk
+                metrics:
+                  - name: resource_info
+                    help: The current state of a Flux HelmRelease resource.
+                    each:
+                      type: Info
+                      info:
+                        labelsFromPath:
+                          name: [metadata, name]
+                    labelsFromPath:
+                      exported_namespace: [metadata, namespace]
+                      ready: [status, conditions, "[type=Ready]", status]
+                      suspended: [spec, suspend]
+                      revision: [status, history, "0", chartVersion]
+                      chart_name: [status, history, "0", chartName]
+                      chart_app_version: [status, history, "0", appVersion]
+                      chart_ref_name: [spec, chartRef, name]
+                      chart_source_name: [spec, chart, spec, sourceRef, name]
+
     # Rules still evaluate and show as firing in the UI; there is simply nowhere
     # to route them yet. Turn this on when there is an actual destination for a
     # page.

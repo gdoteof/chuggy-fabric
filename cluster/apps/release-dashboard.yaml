@@ -1,0 +1,975 @@
+# What a release did, on one page: the build, the publish, the dump and
+# migration, and the rollout, each from the place that already records it.
+#
+# STATE COMES FROM METRICS AND ONE RUN'S DETAIL FROM LOGS, and the split is
+# Tekton's own. Its controller counts runs by pipeline and outcome and, by its
+# default and its own advice, not by run -- a label per run is a series per
+# run, for ever -- so which run did what is in what the run printed, and Loki
+# has that under the run's pods. Flux is the same shape: its controllers time their reconciles, and
+# what a layer holds is read off the object by kube-state-metrics
+# (monitoring.yaml).
+#
+# NEITHER CONTROLLER WAS SCRAPED. Both have always served /metrics; the two
+# monitors below are what points Prometheus at them. Each carries the `release`
+# label because that is what this Prometheus selects monitors by, and one
+# without it is an object nothing reads and no error anywhere. flux-system's
+# stock `allow-scraping` policy already admits the scrape, and tekton-pipelines
+# has no policy to admit it through.
+#
+# THE DASHBOARD'S UID IS AN ADDRESS. `/d/chuggy-releases?var-run=<run>` is the
+# page for one run, and a link handed to someone is not this file's to change:
+# renaming the uid breaks every one already given out.
+#
+# It is a plain ConfigMap for the reason `loki-datasource` is: the sidecar finds
+# it by label and nothing mounts it. If it does not appear, read the sidecar's
+# log before this file -- the README's "That Secret is only read once" is the
+# failure that looks like this one.
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: flux-controllers
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames: [flux-system]
+  selector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - helm-controller
+          - kustomize-controller
+          - notification-controller
+          - source-controller
+  podMetricsEndpoints:
+    - port: http-prom
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: tekton-pipelines-controller
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames: [tekton-pipelines]
+  selector:
+    matchLabels:
+      app: tekton-pipelines-controller
+  endpoints:
+    - port: http-metrics
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chuggy-releases-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  chuggy-releases.json: |-
+    {
+      "uid": "chuggy-releases",
+      "title": "Chuggy releases",
+      "description": "What built, published and rolled out chuggy on this cluster. Run narrows the run panels to one PipelineRun; a report's link sets it.",
+      "tags": [
+        "chuggy"
+      ],
+      "schemaVersion": 39,
+      "version": 1,
+      "editable": false,
+      "graphTooltip": 0,
+      "timezone": "browser",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "refresh": "1m",
+      "templating": {
+        "list": [
+          {
+            "name": "run",
+            "label": "Run",
+            "type": "textbox",
+            "description": "A PipelineRun's name, or a pattern for several.",
+            "query": "chuggy-release-.+",
+            "current": {
+              "text": "chuggy-release-.+",
+              "value": "chuggy-release-.+"
+            },
+            "options": [
+              {
+                "selected": true,
+                "text": "chuggy-release-.+",
+                "value": "chuggy-release-.+"
+              }
+            ]
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "table",
+          "title": "Layers",
+          "description": "Each Flux layer: whether it is ready and the revision it last applied.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 13,
+            "h": 9
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "gotk_resource_info{customresource_kind=\"Kustomization\", exported_namespace=\"flux-system\"}",
+              "instant": true,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "Value": true,
+                  "__name__": true,
+                  "container": true,
+                  "endpoint": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "pod": true,
+                  "service": true,
+                  "customresource_group": true,
+                  "customresource_version": true,
+                  "exported_namespace": true
+                },
+                "indexByName": {
+                  "name": 0,
+                  "ready": 1,
+                  "suspended": 2,
+                  "revision": 3,
+                  "source_name": 4
+                },
+                "renameByName": {
+                  "name": "Layer",
+                  "ready": "Ready",
+                  "suspended": "Suspended",
+                  "revision": "Applied",
+                  "source_name": "Source"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "filterable": false
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Ready"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "True": {
+                            "color": "green",
+                            "index": 0
+                          },
+                          "False": {
+                            "color": "red",
+                            "index": 1
+                          },
+                          "Unknown": {
+                            "color": "orange",
+                            "index": 2
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm"
+          }
+        },
+        {
+          "id": 2,
+          "type": "table",
+          "title": "Sources",
+          "description": "What each layer reads from: the commit or the release it holds now.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 13,
+            "y": 0,
+            "w": 11,
+            "h": 9
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "gotk_resource_info{customresource_kind=~\"GitRepository|OCIRepository\", exported_namespace=\"flux-system\"}",
+              "instant": true,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "Value": true,
+                  "__name__": true,
+                  "container": true,
+                  "endpoint": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "pod": true,
+                  "service": true,
+                  "customresource_group": true,
+                  "customresource_version": true,
+                  "exported_namespace": true
+                },
+                "indexByName": {
+                  "name": 0,
+                  "customresource_kind": 1,
+                  "ready": 2,
+                  "revision": 3
+                },
+                "renameByName": {
+                  "name": "Source",
+                  "customresource_kind": "Kind",
+                  "ready": "Ready",
+                  "revision": "Holds"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "filterable": false
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Ready"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "True": {
+                            "color": "green",
+                            "index": 0
+                          },
+                          "False": {
+                            "color": "red",
+                            "index": 1
+                          },
+                          "Unknown": {
+                            "color": "orange",
+                            "index": 2
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm"
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Trigger",
+          "description": "Whether the release trigger's CronJob is suspended.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 9,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "kube_cronjob_spec_suspend{namespace=\"chuggy-release-trigger\", cronjob=\"release-trigger\"}",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {
+                      "text": "On",
+                      "color": "green",
+                      "index": 0
+                    },
+                    "1": {
+                      "text": "Suspended",
+                      "color": "orange",
+                      "index": 1
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Last trigger",
+          "description": "Time since a trigger Job last completed.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 4,
+            "y": 9,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "time() - kube_cronjob_status_last_successful_time{namespace=\"chuggy-release-trigger\", cronjob=\"release-trigger\"}",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "In flight",
+          "description": "PipelineRuns running now.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 8,
+            "y": 9,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(tekton_pipelines_controller_running_pipelineruns)",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "Run time",
+          "description": "Mean duration of the release runs that succeeded since the Tekton controller started.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 9,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(tekton_pipelines_controller_pipelinerun_duration_seconds_sum{pipeline=\"chuggy-release\", status=\"success\"}) / sum(tekton_pipelines_controller_pipelinerun_duration_seconds_count{pipeline=\"chuggy-release\", status=\"success\"})",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 7,
+          "type": "stat",
+          "title": "Services down",
+          "description": "Deployments in chuggy with fewer available replicas than they ask for.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 16,
+            "y": 9,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "count(kube_deployment_status_replicas_available{namespace=\"chuggy\"} < kube_deployment_spec_replicas{namespace=\"chuggy\"}) or vector(0)",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 8,
+          "type": "stat",
+          "title": "Failed Jobs",
+          "description": "Jobs in chuggy and the trigger's namespace that failed and are still there: a dump, a migration, an import, a trigger.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 20,
+            "y": 9,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "count(kube_job_status_failed{namespace=~\"chuggy|chuggy-release-trigger\"} > 0) or vector(0)",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "Release runs finished",
+          "description": "Counted by outcome since the Tekton controller started. A step up is a run ending.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 13,
+            "w": 24,
+            "h": 6
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "legendFormat": "{{status}}",
+              "expr": "sum by (status) (tekton_pipelines_controller_pipelinerun_duration_seconds_count{pipeline=\"chuggy-release\"})"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "stepAfter",
+                "fillOpacity": 0,
+                "showPoints": "never"
+              },
+              "decimals": 0,
+              "min": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "success"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "green"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "failed"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "red"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "cancelled"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "orange"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          }
+        },
+        {
+          "id": 10,
+          "type": "logs",
+          "title": "Trigger: what it started, and why not",
+          "description": "The trigger's own lines, without the one it prints when there is nothing to release.",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 19,
+            "w": 24,
+            "h": 6
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "loki",
+                "uid": "loki"
+              },
+              "expr": "{namespace=\"chuggy-release-trigger\"} != \"nothing is started\"",
+              "queryType": "range"
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "wrapLogMessage": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "dedupStrategy": "none",
+            "showLabels": false
+          }
+        },
+        {
+          "id": 11,
+          "type": "logs",
+          "title": "Run: what each step concluded",
+          "description": "The last line each step of the selected runs printed about itself.",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 25,
+            "w": 24,
+            "h": 6
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "loki",
+                "uid": "loki"
+              },
+              "expr": "{namespace=\"chuggy-build\", pod=~\"${run}-.*\", container=~\"step-.*\"} |~ \"^(fetch|build|publish): \" | line_format \"{{.pod}}  {{__line__}}\"",
+              "queryType": "range"
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "wrapLogMessage": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "dedupStrategy": "none",
+            "showLabels": false
+          }
+        },
+        {
+          "id": 12,
+          "type": "logs",
+          "title": "Run: every line",
+          "description": "Everything the selected runs' pods printed.",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 31,
+            "w": 24,
+            "h": 10
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "loki",
+                "uid": "loki"
+              },
+              "expr": "{namespace=\"chuggy-build\", pod=~\"${run}-.*\"} | line_format \"{{.pod}} {{.container}}  {{__line__}}\"",
+              "queryType": "range"
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "wrapLogMessage": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "dedupStrategy": "none",
+            "showLabels": false
+          }
+        },
+        {
+          "id": 13,
+          "type": "logs",
+          "title": "Dump and migration",
+          "description": "The migrate Job of each release: the dump taken first, then the migration.",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 41,
+            "w": 24,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "loki",
+                "uid": "loki"
+              },
+              "expr": "{namespace=\"chuggy\", pod=~\"chuggy-migrate-.*\"} | line_format \"{{.pod}} {{.container}}  {{__line__}}\"",
+              "queryType": "range"
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "wrapLogMessage": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "dedupStrategy": "none",
+            "showLabels": false
+          }
+        },
+        {
+          "id": 14,
+          "type": "logs",
+          "title": "Rollout: what Flux did with the two release layers",
+          "description": "kustomize-controller's lines for chuggy-migrate and chuggy.",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 49,
+            "w": 24,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "loki",
+                "uid": "loki"
+              },
+              "expr": "{namespace=\"flux-system\", app=\"kustomize-controller\"} | json level=\"level\", msg=\"msg\", error=\"error\", layer=\"Kustomization.name\" | layer=~\"chuggy-migrate|chuggy\" | line_format \"{{.layer}}  {{.msg}} {{.error}}\"",
+              "queryType": "range"
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "wrapLogMessage": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "dedupStrategy": "none",
+            "showLabels": false
+          }
+        }
+      ]
+    }

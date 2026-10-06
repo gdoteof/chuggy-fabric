@@ -394,6 +394,10 @@
         # The registry's public front: an Ingress into its namespace puts every
         # request to the pool plane first and reaches nothing that can write.
         registry-public = import ./tests/registry-public.nix { inherit pkgs; };
+
+        # The release dashboard: every link from it to its data fails silently,
+        # so each is held on the rendered manifests.
+        release-dashboard = import ./tests/release-dashboard.nix { inherit pkgs; };
         release-images = releaseImages;
 
         # The evaluator command a Chuggy ticket runs, and the only check that
