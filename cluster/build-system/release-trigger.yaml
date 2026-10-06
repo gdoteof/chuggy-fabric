@@ -303,6 +303,12 @@ spec:
       # What bounds a trigger that hangs. `Forbid` holds every later tick back
       # while this one's Job is active.
       activeDeadlineSeconds: 45
+      # How long a finished Job is kept. Without it one that failed is there
+      # until three later ones have, however many succeed meanwhile, and the
+      # chart's `KubeJobFailed` fires on a failed Job for as long as it is
+      # there. What announces a trigger that keeps failing is
+      # cluster/apps/release-trigger-alert.yaml.
+      ttlSecondsAfterFinished: 600
       template:
         metadata:
           labels: { app: release-trigger }

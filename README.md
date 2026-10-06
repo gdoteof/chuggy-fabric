@@ -872,6 +872,11 @@ The scripts a pod runs are files beside the manifests — `fetch.sh`, `build.sh`
 `tests/release-publish.nix` and `tests/release-pipeline.nix` run those bytes
 and hold the manifests.
 
+A trigger that is not suspended and has stopped succeeding fires
+`ReleaseTriggerNotSucceeding`, from `cluster/apps/release-trigger-alert.yaml`,
+which `tests/release-alert.nix` evaluates. Like every alert here it is
+[found by looking](#alerts-evaluate-and-go-nowhere).
+
 `worker-image-run.yaml` is a `TaskRun` of the same `build-image` Task that
 builds the worker image at a chuggy commit. Flux applies neither it nor
 `release-run.yaml`; an operator writes the commit into it and creates it:

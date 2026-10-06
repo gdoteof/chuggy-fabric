@@ -61,9 +61,10 @@ binds.
 THE TRIGGER'S TIMING IS HELD BECAUSE EACH VALUE IS READ BY ANOTHER. The
 schedule is the minute trigger.sh and the alert that announces a trigger that
 stopped both count in; the Job's deadline is what `Forbid` waits out before the
-next minute may start; a run's timeout is the one thing that ends a run that
-hangs, and a run that has not finished is all the trigger needs to start
-nothing.
+next minute may start; a finished Job's time to live is what keeps one failed
+minute from being a failed Job for good; a run's timeout is the one thing that
+ends a run that hangs, and a run that has not finished is all the trigger
+needs to start nothing.
 
 WHAT ONLY A RUN WOULD OTHERWISE SHOW is held here because the trigger is
 suspended and nothing runs one: a Task a Pipeline names that is not there, a
@@ -288,7 +289,7 @@ TRIGGER_TIMING = {
     "successfulJobsHistoryLimit": 1,
     "failedJobsHistoryLimit": 3,
 }
-TRIGGER_JOB = {"backoffLimit": 0, "activeDeadlineSeconds": 45}
+TRIGGER_JOB = {"backoffLimit": 0, "activeDeadlineSeconds": 45, "ttlSecondsAfterFinished": 600}
 TRIGGER_POD_FIELDS = {
     "serviceAccountName",
     "automountServiceAccountToken",

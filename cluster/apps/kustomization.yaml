@@ -61,6 +61,7 @@ resources:
   - registry.yaml
   - release-dashboard.yaml
   - release-registry.yaml
+  - release-trigger-alert.yaml
   - sirdocalot-namespace.yaml
   - sirdocalot-source.yaml
   - vm-registry.yaml
