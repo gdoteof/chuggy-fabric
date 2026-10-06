@@ -1,7 +1,6 @@
 # The release pipeline's manifests, read off what `kubectl kustomize` renders
-# from every directory a layer applies, and off `builds`, which has no
-# kustomization.yaml and of which Flux applies every manifest. The argument
-# for each assertion is in release-pipeline.py's own header.
+# from every directory a layer applies. The argument for each assertion is in
+# release-pipeline.py's own header.
 { pkgs }:
 
 let
@@ -16,6 +15,6 @@ pkgs.runCommand "chuggy-release-pipeline" {
   kubectl kustomize ${../cluster/flux} > flux.yaml
   kubectl kustomize ${../cluster/build-prerequisites} > build-prerequisites.yaml
   python3 ${./release-pipeline.py} ${build} ${cluster}/apps.yaml flux.yaml ${../cluster/build-system} \
-    ${cluster}/chuggy-migrate.yaml ${cluster}/chuggy.yaml build-prerequisites.yaml ${../builds}
+    ${cluster}/chuggy-migrate.yaml ${cluster}/chuggy.yaml build-prerequisites.yaml
   touch "$out"
 ''

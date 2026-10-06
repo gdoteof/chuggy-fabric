@@ -346,17 +346,6 @@ pkgs.runCommand "chuggy-build-platform" {
     exit 1
   fi
 
-  grep -F 'kind: BuildRun' "$root/cluster/flux/builds.yaml" >/dev/null
-  if grep -F 'has(status)' "$root/cluster/flux/builds.yaml" >/dev/null; then
-    echo "Flux CEL cannot use has() for the top-level status property" >&2
-    exit 1
-  fi
-  grep -F 'has(status.conditions)' "$root/cluster/flux/builds.yaml" >/dev/null
-  grep -F "e.status == 'False'" "$root/cluster/flux/builds.yaml" >/dev/null
-  grep -F "e.status == 'True'" "$root/cluster/flux/builds.yaml" >/dev/null
-  grep -F "status.source.git.commitSha == metadata.annotations" "$root/cluster/flux/builds.yaml" >/dev/null
-  grep -F "status.output.digest.matches" "$root/cluster/flux/builds.yaml" >/dev/null
-  grep -F 'healthCheckExprs:' "$root/cluster/flux-system/gotk-components.yaml" >/dev/null
   grep -F 'kustomize-controller:v1.6.1@sha256:1a50730537bafb7827365b9af95c4eb71ca3d9b0bed9bc9bc765880e976972ef' "$root/cluster/flux-system/gotk-components.yaml" >/dev/null
   grep -F 'chuggy-build-attempt-alerts' "$root/modules/build-provenance.nix" >/dev/null
   grep -F 'No command in this flow deletes registry content' "$root/docs/build-operations-runbook.md" >/dev/null

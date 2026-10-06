@@ -655,15 +655,13 @@ changing only the option creates a healthy registry over the wrong directory.
 
 ### Immutable image builds
 
-Flux reconciles three independent paths from the host-selected fabric source,
-each declared in `cluster/flux/`:
-`cluster/build-prerequisites/` installs pinned certificate management,
+Flux reconciles two paths from the host-selected fabric source, each declared
+in `cluster/flux/`:
+`cluster/build-prerequisites/` installs pinned certificate management, and
 `cluster/build-system/` installs pinned Tekton and Shipwright controllers plus
-the fabric-owned BuildKit strategy and the [release pipeline](#the-release-pipeline),
-and `builds/` contains immutable requests.
-The dependency chain makes the request CRDs available before Flux applies a
-request. Flux reports `BuildRun` failure through its `Succeeded` condition; it
-does not run BuildKit itself.
+the fabric-owned BuildKit strategy and the [release pipeline](#the-release-pipeline).
+`builds/` contains immutable requests and no layer applies it: what the rest of
+this section says of a request stops at the file, and none is built.
 
 Render a request by supplying repository bindings rather than editing a
 project-specific template:
@@ -1175,8 +1173,8 @@ and `cluster/chuggy/`, and no `Kustomization` reads it: the release trigger
 does. The
 root applies `cluster/flux/`, where each layer Flux reconciles is declared as
 its own `Kustomization`, so what Flux reconciles, and in what order, is changed
-by a commit and not by a host rebuild. `apps`, `build-prerequisites`,
-`build-system` and `builds` read `fabric`, each a directory of this repository;
+by a commit and not by a host rebuild. `apps`, `build-prerequisites` and
+`build-system` read `fabric`, each a directory of this repository;
 `chuggy-migrate` and `chuggy` read `OCIRepository` `chuggy-release`, each an
 overlay of the release it holds. `cluster/flux/sources.yaml` declares that
 source and `GitRepository` `chuggy`, the two of a release that are the same on

@@ -15,14 +15,12 @@ tree, not from a description of what the change was supposed to do.**
 
 ## What you judge
 
-**`main` is live.** Flux reconciles `cluster/` and `builds/` from it, so
-merging a change under either is a deployment action rather than a text edit: a
-manifest lands in the cluster, and a `Build` or `BuildRun` under `builds/`
-starts a build and pushes an image. Two directories are the exception.
-`cluster/chuggy-migrate` and `cluster/chuggy` are applied from a published
-release and not from `main`, so a change under either lands with the next
-release, beside whatever chuggy's `main` is by then. Judge any of them as what
-it will do to a running cluster.
+**`main` is live.** Flux reconciles `cluster/` from it, so merging a change
+there is a deployment action rather than a text edit: a manifest lands in the
+cluster. Two directories are the exception. `cluster/chuggy-migrate` and
+`cluster/chuggy` are applied from a published release and not from `main`, so a
+change under either lands with the next release, beside whatever chuggy's
+`main` is by then. Judge any of them as what it will do to a running cluster.
 
 **The render decides, not the file.** A name is written in a Deployment,
 selected in a NetworkPolicy and repeated inside a configuration string, and
