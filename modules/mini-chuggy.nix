@@ -6,7 +6,7 @@ in
 {
   options.chuggy.mini.enable = lib.mkEnableOption ''
     the self-contained single-node Chuggy role, including durable state,
-    workload execution, image storage, build provenance, and a co-located builder
+    workload execution, image storage, and a co-located builder
   '';
 
   config = lib.mkIf cfg.enable {
@@ -22,7 +22,6 @@ in
     chuggy.secrets.enable = true;
     chuggy.images.enable = true;
     chuggy.work.enable = true;
-    chuggy.buildProvenance.enable = true;
     chuggy.flux.enable = true;
 
     assertions = [{

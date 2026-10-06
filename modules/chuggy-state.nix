@@ -218,37 +218,6 @@ in
       };
     };
 
-    buildResults = {
-      path = lib.mkOption {
-        type = lib.types.nullOr lib.types.str;
-        default = null;
-        example = "/var/lib/chuggy/build-results";
-        description = ''
-          Filesystem path retaining verified build-attempt provenance after
-          live BuildRuns are removed. The static PersistentVolume binds this
-          path and the machine-layer provenance recorder writes it as root.
-        '';
-      };
-
-      user = lib.mkOption {
-        type = lib.types.int;
-        default = 0;
-        description = "Numeric owner of retained provenance records.";
-      };
-
-      group = lib.mkOption {
-        type = lib.types.int;
-        default = 0;
-        description = "Numeric group of retained provenance records.";
-      };
-
-      mode = lib.mkOption {
-        type = lib.types.str;
-        default = "0700";
-        description = "Mode enforced on retained build-result storage at activation.";
-      };
-    };
-
     dumps = {
       path = lib.mkOption {
         type = lib.types.nullOr lib.types.str;
@@ -331,8 +300,6 @@ in
       "d ${cfg.registry.path} ${cfg.registry.mode} ${toString cfg.registry.user} ${toString cfg.registry.group} -"
     ++ lib.optional (cfg.vmRegistry.path != null)
       "d ${cfg.vmRegistry.path} ${cfg.vmRegistry.mode} ${toString cfg.vmRegistry.user} ${toString cfg.vmRegistry.group} -"
-    ++ lib.optional (cfg.buildResults.path != null)
-      "d ${cfg.buildResults.path} ${cfg.buildResults.mode} ${toString cfg.buildResults.user} ${toString cfg.buildResults.group} -"
     ++ lib.optional (cfg.dumps.path != null)
       "d ${cfg.dumps.path} ${cfg.dumps.mode} ${toString cfg.dumps.user} ${toString cfg.dumps.group} -";
   };

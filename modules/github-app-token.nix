@@ -190,9 +190,8 @@ in
       default = { };
     };
     # What is actually delivered. A host may write one directly -- a token that
-    # is no repository's clone credential, the way gtr writes the one its build
-    # provenance is published with -- and every entry of `repositories` above
-    # arrives here.
+    # is no repository's clone credential -- and every entry of `repositories`
+    # above arrives here.
     tokens = lib.mkOption {
       type = lib.types.attrsOf tokenModule;
       default = { };

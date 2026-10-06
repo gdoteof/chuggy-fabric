@@ -29,12 +29,11 @@ ownership boundaries, deployment sequence, recovery path, and required checks.
   commits, one document each. Write one with `scripts/request-build` and nothing
   else, here or in the source; do not put a file there by hand.
   `scripts/fulfil-build-requests` renders real Shipwright requests from whatever
-  it finds and the publisher's timer commits them to the live branch within one
-  activation. No gate covers the directory -- those two commands' own
-  refusals are the whole of what holds a document, and they are in their
-  headers.
-- `results/` records immutable build provenance, published by the host that
-  recorded it. Nothing releases from it.
+  it finds, and no host runs it. No gate covers the directory -- those two
+  commands' own refusals are the whole of what holds a document, and they are
+  in their headers.
+- `results/` records immutable build provenance, published by the host while it
+  recorded any. Nothing releases from it.
 - Credentials remain outside Git. Commit references, projections, and delivery
   mechanisms, but never private keys or token values.
 
