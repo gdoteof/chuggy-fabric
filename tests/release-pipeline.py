@@ -19,6 +19,22 @@ manifests for one name the `builder` ServiceAccount and a pod template that
 mounts no token, `builder` mounts none itself and is bound to no role, and no
 Task has a volume that is anything but a ConfigMap or an empty directory.
 
+BUT ONE, WHICH IS GIVEN THE BEARER IT REPORTS WITH. `report-actions` has one
+Secret volume and no other Task has any, so no step that runs a commit's code
+is in a pod with it. It is optional, because a pod that names a Secret that is
+not there is never started, and its step mounts it read-only and whole: a
+`subPath` is a copy the kubelet does not bring up to date.
+
+THE REPORT CANNOT FAIL THE RUN, AND IS TOLD OF EVERY TASK. A `finally` task
+that fails, or runs past its bound, fails a run that has already published,
+and the trigger builds a failed run again. So the one there is carries
+`onError: continue`, which Tekton reads as a failure to ignore and admits only
+at `enable-api-fields` `beta`; a `timeout` of its own under the run's, the run
+giving `finally` none; and no `retries`, which Tekton refuses beside the
+first. Its `statuses` name each task of the pipeline once, beside that task's
+own status: a line that paired one task with another's would report the
+wrong outcome under a true name.
+
 ONLY THE TRIGGER IS GIVEN A ROUTE TO THE API SERVER. The build namespace's
 policies are held exactly: `build-egress` to what it was before the pipeline,
 because a rule widened for a task is a route for every task, and one rule
@@ -92,7 +108,8 @@ WHAT ONLY A RUN WOULD OTHERWISE SHOW is held here because the trigger is
 suspended and nothing runs one: a Task a Pipeline names that is not there, a
 parameter passed that is not declared or declared and never passed, a script
 that is not in the ConfigMap a step mounts, a reference to a result no task
-writes, the image a build pushes under one name and the release overrides
+writes or to the status of a task that is not there, the image a build pushes
+under one name and the release overrides
 under another path, the source the trigger reads in a namespace where it is
 not, and a release pushed to a repository the Flux source does not read, or
 to a registry that is not the release registry's Service.
@@ -304,6 +321,9 @@ CONFINED = {
 }
 AS_BUILDKIT = {"runAsUser": 1000, "runAsGroup": 1000}
 AS_NOBODY = {"runAsUser": 65534, "runAsGroup": 65534}
+# What `id` prints in the image `report` runs.
+AS_CURL = {"runAsUser": 100, "runAsGroup": 101}
+REPORT_TASK = "report-actions"
 
 # The steps of each Task, in order, and what each may do.
 STEPS = {
@@ -323,6 +343,7 @@ STEPS = {
         "fetch": {**CONFINED, **AS_BUILDKIT},
         "publish": {**CONFINED, **AS_NOBODY},
     },
+    REPORT_TASK: {"report": {**CONFINED, **AS_CURL}},
 }
 TASK_FIELDS = {"params", "results", "volumes", "steps"}
 STEP_FIELDS = {
@@ -377,6 +398,18 @@ TRIGGER_CONTAINER_SECURITY = {
 }
 RUN_FIELDS = {"pipelineRef", "params", "timeouts", "taskRunTemplate"}
 RUN_TIMEOUTS = {"pipeline": "1h0m0s"}
+
+# The `finally` tasks, each the Task it is of, and what one carries.
+FINALLY = {"report": REPORT_TASK}
+FINALLY_FIELDS = {"name", "timeout", "onError", "taskRef", "params"}
+# What a `finally` task may read that no task may: each task's status and the
+# run's name.
+RUN_NAME = "context.pipelineRun.name"
+STATUS = re.compile(r"tasks\.([^.]+)\.status")
+STATUS_LINE = re.compile(r"(\S+) \$\(tasks\.(\S+)\.status\)")
+# The feature gates Tekton admits `onError` at.
+ON_ERROR_GATES = ("alpha", "beta")
+DURATION = re.compile(r"(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?")
 
 # What admission asks of a PipelineRun the trigger's ServiceAccount creates.
 RUN_POLICY = "release-trigger-creates-the-release-run"
@@ -574,11 +607,17 @@ def tasks_are_sound(cluster, tasks):
         params = {param["name"] for param in spec.get("params", [])}
         results = {result["name"] for result in spec.get("results", [])}
         volumes = {}
+        secrets = []
         for volume in spec.get("volumes", []):
             kinds = set(volume) - {"name"}
-            if not kinds <= {"configMap", "emptyDir"}:
+            if kinds == {"secret"} and name == REPORT_TASK:
+                secrets.append(volume["name"])
+                if volume["secret"].get("optional") is not True:
+                    refuse(f"Task {name} names the Secret {volume['secret'].get('secretName')} and not as optional, and a pod is not started without one it requires")
+            elif not kinds <= {"configMap", "emptyDir"}:
                 refuse(f"Task {name} has the volume {volume['name']} of {sorted(kinds)}, and a task pod is given nothing but scripts and scratch")
             volumes[volume["name"]] = volume
+        exactly(f"how many Secrets Task {name} is given", len(secrets), 1 if name == REPORT_TASK else 0)
         for step in spec["steps"]:
             subject = f"Task {name} step {step['name']}"
             if not PINNED.fullmatch(step["image"]):
@@ -588,6 +627,9 @@ def tasks_are_sound(cluster, tasks):
                 refuse(f"{subject} does not name a `command` that is /bin/sh over one script file")
             exactly(f"what {subject} carries beyond {sorted(STEP_FIELDS)}", sorted(set(step) - STEP_FIELDS), [])
             exactly(f"what {subject} may do", step.get("securityContext"), STEPS[name][step["name"]])
+            for mount in step.get("volumeMounts", []):
+                if mount["name"] in secrets and (mount.get("readOnly") is not True or "subPath" in mount):
+                    refuse(f"{subject} mounts the Secret at {mount['mountPath']} and not read-only and whole")
             mounts = {mount["mountPath"]: mount["name"] for mount in step.get("volumeMounts", [])}
             directory, _, script = command[1].rpartition("/")
             volume = volumes.get(mounts.get(directory), {})
@@ -616,6 +658,52 @@ def passes_what_is_declared(subject, passed, task):
             refuse(f"{subject} does not pass `{name}`, which Task {task['metadata']['name']} requires")
 
 
+def seconds(duration):
+    """A duration as Tekton writes one, in seconds."""
+    match = DURATION.fullmatch(duration or "")
+    if not match or not any(match.groups()):
+        refuse(f"{duration!r} is not a duration this reads")
+    hours, minutes, rest = (int(part or 0) for part in match.groups())
+    return hours * 3600 + minutes * 60 + rest
+
+
+def reported(pipeline):
+    """The tasks `report` is told the status of, as `statuses` lists them."""
+    (entry,) = [entry for entry in pipeline["spec"]["finally"] if entry["name"] == "report"]
+    statuses = {param["name"]: param["value"] for param in entry["params"]}["statuses"]
+    lines = [STATUS_LINE.fullmatch(line) for line in statuses.splitlines()]
+    if not all(lines) or any(line.group(1) != line.group(2) for line in lines):
+        refuse(f"`report` is told {statuses!r}, which is not each task beside its own status")
+    return [line.group(1) for line in lines]
+
+
+def finally_is_sound(cluster, pipeline, tasks, params, run):
+    spec = pipeline["spec"]
+    named = [entry["name"] for entry in spec["tasks"]]
+    exactly(f"the `finally` tasks of Pipeline {PIPELINE}", [entry["name"] for entry in spec.get("finally", [])], list(FINALLY))
+    for entry in spec["finally"]:
+        subject = f"Pipeline {PIPELINE} `finally` task {entry['name']}"
+        exactly(f"what {subject} carries", sorted(entry), sorted(FINALLY_FIELDS))
+        exactly(f"the Task {subject} is of", entry["taskRef"], {"name": FINALLY[entry["name"]]})
+        exactly(f"what {subject} does to its run when it fails", entry["onError"], "continue")
+        if not 0 < seconds(entry["timeout"]) < seconds(run["spec"]["timeouts"]["pipeline"]):
+            refuse(f"{subject} is bounded at {entry['timeout']}, which is not under the run's {run['spec']['timeouts']['pipeline']}")
+        passes_what_is_declared(subject, {param["name"] for param in entry["params"]}, tasks[entry["taskRef"]["name"]])
+        for reference in references(entry):
+            status = STATUS.fullmatch(reference)
+            known = (
+                reference == RUN_NAME
+                or (status and status.group(1) in named)
+                or (reference.startswith("params.") and reference[len("params."):] in params)
+            )
+            if not known:
+                refuse(f"{subject} reads $({reference}), which nothing gives a `finally` task")
+    exactly("the tasks `report` is told the status of", sorted(reported(pipeline)), sorted(named))
+    flags = of(cluster, "ConfigMap", "tekton-pipelines").get("feature-flags", {}).get("data", {})
+    if flags.get("enable-api-fields") not in ON_ERROR_GATES:
+        refuse(f"Tekton's enable-api-fields is {flags.get('enable-api-fields')!r}, and it admits `onError` at {ON_ERROR_GATES}")
+
+
 def pipeline_is_sound(pipeline, tasks):
     spec = pipeline["spec"]
     params = {param["name"] for param in spec["params"]}
@@ -629,7 +717,7 @@ def pipeline_is_sound(pipeline, tasks):
             refuse(f"{subject} does not retry")
         passes_what_is_declared(subject, {param["name"] for param in entry["params"]}, task)
         results[entry["name"]] = {result["name"] for result in task["spec"].get("results", [])}
-    for reference in references(spec):
+    for reference in references({field: value for field, value in spec.items() if field != "finally"}):
         parts = reference.split(".")
         known = (parts[0] == "params" and ".".join(parts[1:]) in params) or (
             len(parts) == 4 and parts[0] == "tasks" and parts[2] == "results" and parts[3] in results.get(parts[1], ())
@@ -776,6 +864,7 @@ def main():
     exactly("release-run.yaml's pipeline", release_run["spec"]["pipelineRef"], {"name": PIPELINE})
     exactly("what release-run.yaml's spec carries", sorted(release_run["spec"]), sorted(RUN_FIELDS))
     exactly("release-run.yaml's timeouts", release_run["spec"]["timeouts"], RUN_TIMEOUTS)
+    finally_is_sound(cluster, pipeline, tasks, params, release_run)
     exactly(
         "what release-run.yaml passes",
         sorted(param["name"] for param in release_run["spec"]["params"]),

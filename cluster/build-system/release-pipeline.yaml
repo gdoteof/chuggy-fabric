@@ -29,9 +29,10 @@
 # here is.
 #
 # WHAT A STEP RUNS IS A FILE, NOT A STRING IN THIS ONE. kustomization.yaml
-# brings fetch.sh, build.sh and publish.sh in as `release-pipeline-scripts`,
-# and each argues its own rules in its own header. Every step names its
-# `command`: without one Tekton asks the image's registry for its entrypoint.
+# brings fetch.sh, build.sh, publish.sh and report.sh in as
+# `release-pipeline-scripts`, and each argues its own rules in its own header.
+# Every step names its `command`: without one Tekton asks the image's registry
+# for its entrypoint.
 ---
 # One image of one commit. General over the repository, the Dockerfile and
 # the image, because the worker image is built by this Task as well, by hand,
@@ -278,6 +279,85 @@ spec:
       ports:
         - { protocol: TCP, port: 5000 }
 ---
+# What a run tells chuggy of the tasks that ended, one report an action.
+#
+# THE ONE TASK GIVEN A SECRET, AND IT RUNS NOTHING A COMMIT WROTE. The bearer
+# is `chuggy-report-build`, which modules/chuggy-secrets.nix makes and copies
+# into this namespace, and of which the API reads its own copy to know this
+# reporter. A volume is one pod's, and no other Task names this one, so a
+# build pod, which runs a Dockerfile, is not given it. It is mounted whole,
+# not by `subPath`, read-only, and as optional: a host that has not made the
+# Secret yet still runs releases, and report.sh says it had nobody to report
+# as.
+#
+# THE IMAGE IS curl's OWN, because neither image above can send a header it
+# was not handed as an argument, and an argument is in the process table:
+# each carries BusyBox's wget and no curl. The step runs as that image's user.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: report-actions
+  namespace: chuggy-build
+spec:
+  params:
+    - name: actions
+      description: The address a project's actions are under. A report is posted to `/<action>/reports` below it.
+      type: string
+    - name: commit
+      description: The full hash of the commit the tasks ran at.
+      type: string
+    - name: detail
+      description: What names the run to a person.
+      type: string
+    - name: link
+      description: Where a person reads more of the run.
+      type: string
+    - name: statuses
+      description: One line a task, the action it is reported as and then how it ended.
+      type: string
+  volumes:
+    - name: scripts
+      configMap:
+        name: release-pipeline-scripts
+    - name: tmp
+      emptyDir: {}
+    - name: bearer
+      secret:
+        secretName: chuggy-report-build
+        defaultMode: 0444
+        items:
+          - { key: token, path: token }
+        optional: true
+  steps:
+    - name: report
+      image: curlimages/curl:8.22.0@sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777
+      imagePullPolicy: IfNotPresent
+      command: [/bin/sh, /scripts/report.sh]
+      env:
+        - { name: ACTIONS, value: $(params.actions) }
+        - { name: COMMIT, value: $(params.commit) }
+        - { name: DETAIL, value: $(params.detail) }
+        - { name: LINK, value: $(params.link) }
+        - { name: STATUSES, value: $(params.statuses) }
+        - { name: BEARER, value: /var/run/chuggy/reporter/token }
+        - { name: ANSWER, value: /tmp/answer }
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 101
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+        readOnlyRootFilesystem: true
+        seccompProfile: { type: RuntimeDefault }
+      computeResources:
+        requests: { cpu: 50m, memory: 32Mi }
+        limits: { memory: 128Mi }
+      volumeMounts:
+        - { name: scripts, mountPath: /scripts, readOnly: true }
+        - { name: tmp, mountPath: /tmp }
+        - { name: bearer, mountPath: /var/run/chuggy/reporter, readOnly: true }
+---
 # The two builds side by side, then the release of what they built.
 #
 # AN IMAGE HAS TWO NAMES HERE AND THEY ARE ONE REPOSITORY. A build pushes to
@@ -291,6 +371,20 @@ spec:
 #
 # EACH TASK RETRIES, which is Tekton's answer to a fetch or a push that failed
 # once. A run that still fails is the trigger's to start again.
+#
+# THE RUN REPORTS ITSELF LAST, AND A REPORT IS NEVER WHAT FAILS IT. `report`
+# is a `finally` task, so it runs whichever way the three ended, and it is
+# told how by parameter: a `finally` task's parameters are where Tekton writes
+# a task's status. An action is reported under its task's name. A `finally`
+# task that fails or times out fails its run, and the trigger starts a failed
+# run again, which here is one that had published. So report.sh ends 0, and
+# `onError: continue` answers what a script cannot: Tekton then counts a
+# `report` that failed or timed out as ignored and the run as succeeded, and
+# refuses `retries` beside it. `timeout` is the task's own bound, above the
+# longest report.sh takes, because the run's manifest gives `finally` none and
+# admission holds that manifest. The run's own hour is still the run's: one
+# that passes it inside `report` has failed, and one that passes it sooner
+# starts no `report`.
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
@@ -350,3 +444,20 @@ spec:
         - { name: console-image, value: registry.chuggy.internal/chuggy/web }
         - { name: console-digest, value: $(tasks.build-console.results.digest) }
         - { name: release, value: release-registry.chuggy-registry.svc.cluster.local:5000/chuggy/release }
+  finally:
+    - name: report
+      timeout: 5m0s
+      onError: continue
+      taskRef:
+        name: report-actions
+      params:
+        - { name: actions, value: https://chuggy.vteng.io/api/v1/tenants/vteng/projects/chuggy/actions }
+        - { name: commit, value: $(params.chuggy-commit) }
+        - { name: detail, value: $(context.pipelineRun.name) }
+        - name: link
+          value: https://grafana.vteng.io/d/chuggy-releases?var-run=$(context.pipelineRun.name)
+        - name: statuses
+          value: |
+            build-api $(tasks.build-api.status)
+            build-console $(tasks.build-console.status)
+            publish $(tasks.publish.status)

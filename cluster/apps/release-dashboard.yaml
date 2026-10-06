@@ -912,7 +912,7 @@ data:
                 "type": "loki",
                 "uid": "loki"
               },
-              "expr": "{namespace=\"chuggy-build\", pod=~\"${run}-.*\", container=~\"step-.*\"} |~ \"^(fetch|build|publish): \" | line_format \"{{.pod}}  {{__line__}}\"",
+              "expr": "{namespace=\"chuggy-build\", pod=~\"${run}-.*\", container=~\"step-.*\"} |~ \"^(fetch|build|publish|report): \" | line_format \"{{.pod}}  {{__line__}}\"",
               "queryType": "range"
             }
           ],

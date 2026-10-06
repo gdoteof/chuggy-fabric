@@ -26,6 +26,7 @@ configMapGenerator:
       - fetch.sh
       - build.sh
       - publish.sh
+      - report.sh
     options:
       disableNameSuffixHash: true
   # What the trigger runs, and the run it creates. Hashed, and kustomize

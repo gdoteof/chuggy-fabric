@@ -1013,10 +1013,18 @@ which the trigger starts nothing and says so. That release is published while
 the source is failing, so it is read as the paragraph above describes.
 
 The scripts a pod runs are files beside the manifests — `fetch.sh`, `build.sh`,
-`publish.sh` and `trigger.sh` — and each argues its own rules in its header.
-`tests/release-trigger.nix`, `tests/release-build.nix`,
-`tests/release-publish.nix` and `tests/release-pipeline.nix` run those bytes
-and hold the manifests.
+`publish.sh`, `report.sh` and `trigger.sh` — and each argues its own rules in
+its header. `tests/release-trigger.nix`, `tests/release-build.nix`,
+`tests/release-publish.nix`, `tests/release-report.nix` and
+`tests/release-pipeline.nix` run those bytes and hold the manifests.
+
+A run's last task, `report`, tells chuggy how each of the other three ended:
+one report a task, to the action of that task's name, as the reporter whose
+bearer is the Secret `chuggy-report-build`. It is the one task pod given a
+Secret, and it runs nothing a commit wrote. A report is no part of a release.
+A `report` that fails, or runs past its own bound, leaves its run succeeded,
+which `release-pipeline.yaml` argues, and what chuggy answered is a line a
+report in that pod's log, which the release dashboard shows on the run's page.
 
 A trigger that is not suspended and has stopped succeeding fires
 `ReleaseTriggerNotSucceeding`, from `cluster/apps/release-trigger-alert.yaml`,

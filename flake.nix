@@ -147,6 +147,7 @@
       releaseTrigger = import ./tests/release-trigger.nix { inherit pkgs; };
       releasePublish = import ./tests/release-publish.nix { inherit pkgs; };
       releaseBuild = import ./tests/release-build.nix { inherit pkgs; };
+      releaseReport = import ./tests/release-report.nix { inherit pkgs; };
       releaseAlert = import ./tests/release-alert.nix { inherit pkgs; };
       buildRequests = import ./tests/build-requests.nix { inherit pkgs; };
       awaitBuildResults = import ./tests/await-build-results.nix { inherit pkgs; };
@@ -163,6 +164,10 @@
       forgeAppKey = import ./tests/forge-app-key.nix {
         inherit pkgs;
         apps = self.nixosConfigurations.gtr.config.chuggy.githubAppTokens.apps;
+      };
+      actionReporters = import ./tests/action-reporters.nix {
+        inherit pkgs;
+        host = self.nixosConfigurations.gtr;
       };
     in
     {
@@ -234,6 +239,12 @@
         # copy of the host's, and a key file nothing projects is an error at the
         # first mint rather than at start-up.
         forge-app-key = forgeAppKey;
+
+        # A roster the API reads, a file each reporter is verified by, the
+        # Secret the host makes for it, and the release run that presents
+        # one: each a name written in two places, and a report answered 404
+        # when they differ.
+        action-reporters = actionReporters;
 
         # D30 and D14 in a form a check can hold: an enabled host that has not
         # said what a task may cost, or who may reach its API, is refused rather
@@ -453,6 +464,11 @@
         # whether its image is the registry's or is built, against a
         # repository and a registry that are this build's own.
         release-build = releaseBuild;
+
+        # And the one after it: what a run tells chuggy of each task that
+        # ended, against an API that is this build's own, whatever that API
+        # answers and when it answers nothing.
+        release-report = releaseReport;
 
         # And what says so when the trigger stops: the alert, evaluated over
         # what a CronJob is exported as, suspended and not.
