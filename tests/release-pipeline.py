@@ -1,9 +1,18 @@
 #!/usr/bin/env python3
 """Refuse a release pipeline whose manifests are not what its files argue.
 
-Every assertion is made against `kubectl kustomize` output, except for the
-one manifest nothing renders: worker-image-run.yaml is read as a file, and
+usage: release-pipeline.py RENDERED_BUILD_SYSTEM RENDERED_APPS RENDERED_FLUX
+           BUILD_SYSTEM_DIRECTORY [RENDERED_LAYER ...]
+
+Every assertion is made against what the layers render, except for the one
+manifest nothing renders: worker-image-run.yaml is read as a file, and
 release-run.yaml as the trigger's ConfigMap carries it.
+
+EVERY LAYER GIVEN IS READ AS ONE CLUSTER, because a namespace's policies add
+up across whoever applies them, and so do its bindings: what is held of a
+namespace here is held of every render this is given, and
+tests/release-pipeline.nix lists them. An object two of them render is
+refused. Each layer would put its own back at its interval.
 
 NO TASK POD HAS A TOKEN. A run's pods are placed by the run, so both
 manifests for one name the `builder` ServiceAccount and a pod template that
@@ -16,7 +25,8 @@ because a rule widened for a task is a route for every task, and one rule
 beside it for the pods of `publish-release` alone. The trigger's namespace
 holds the trigger and nothing else, its two policies are held exactly, and so
 are the two Roles its ServiceAccount is bound to, which are bound to nobody
-else.
+else. A binding counts when it names the ServiceAccount, or the user or a
+group its token also is.
 
 WHAT THE TRIGGER'S TOKEN CREATES IS HELD BY ADMISSION, AND THE POLICY IS HELD
 TO THE RUN. `create` on PipelineRuns is by itself any pod `chuggy-build`
@@ -27,17 +37,29 @@ two are compared token by token: a field added to the run and not to the
 policy is refused here, and not by the API server each minute. The second and
 the three bindings are held exactly, and so is whom each is asked about.
 
-WHO REACHES A REGISTRY IS WHO CAN WRITE IT, so each of the two is held by
-everything that decides who does. Every NetworkPolicy of the namespace that
-selects its pod, whatever it is named and however it selects, is the one
-written here: `registry` admits task pods; the release registry admits the
-pods of the Task `publish-release`, which has no step but a fetch and the
-publish, and source-controller. Its pod carries the one label, so no other
-Service routes to it and a build's push through `registry` cannot land on it.
-Its container takes its configuration from the one file and from no
-environment, which Distribution reads over the file, and that file keeps
-releases under a root that is not the one `registry` serves, on a volume the
-two share. Deletion stays on in it: deleting a release is how one is undone.
+NOBODY ELSE IS BOUND IN `chuggy-build`. The release registry admits a pod by a
+label, and whoever can create a run or a pod there writes the label, so the
+namespace's RoleBindings are the trigger's one. A ClusterRoleBinding is not
+read for this: cluster/apps/release-registry.yaml says whom its policy admits.
+
+WHO REACHES A REGISTRY IS WHO CAN WRITE IT, so each is held by everything that
+decides who does. Every NetworkPolicy of the namespace that selects its pod,
+whatever it is named and however it selects, is the one written here:
+`registry` admits task pods; the release registry admits the pods of the Task
+`publish-release`, which has no step but a fetch and the publish, and
+source-controller; the public front admits Traefik. Its pod carries the one
+label, so no other Service routes to it and a build's push through `registry`
+cannot land on it. The namespace holds nothing but these: a policy or a
+Service this does not know is refused, and so is a second pod behind one.
+
+THE THREE KEEP THEIR STORES ON ONE CLAIM, AND A ROOT IS A PATH INSIDE A MOUNT,
+so each is held to both. Its volumes and its mounts are the claim, whole, at
+the one path, beside its configuration; and that configuration, taken from
+the one file and from no environment, which Distribution reads over the file,
+names its root. Releases are kept under a root `registry` and its public
+front are not given, and a `subPath`, another mount or another volume is what
+would give it to them with every root as written. Deletion stays on in the
+release registry: deleting a release is how one is undone.
 
 A RUN STARTED BY FLUX IS A RUN STARTED AT EVERY RECONCILE, so neither run
 manifest is rendered. THE TRIGGER IS SUSPENDED: it starts nothing until a
@@ -107,6 +129,10 @@ PUBLISH_PODS = {"matchLabels": {"tekton.dev/task": PUBLISH_TASK}}
 REGISTRY_NAMESPACE = "chuggy-registry"
 RELEASE_REGISTRY = "release-registry"
 REGISTRY_PORT = [{"protocol": "TCP", "port": 5000}]
+# The claim the namespace's Distribution processes share, and where each
+# mounts the whole of it.
+STORE_CLAIM = "registry"
+STORE = "/var/lib/registry"
 
 BUILD_POLICIES = {
     "build-default-deny": {"podSelector": {}, "policyTypes": ["Ingress", "Egress"]},
@@ -185,8 +211,10 @@ TRIGGER_POLICIES = {
     },
 }
 
-# Each registry: who its one policy admits, the root it keeps its store
-# under, and whether its configuration has to leave deletion on.
+# Each Distribution process of the namespace: who its one policy admits, the
+# root it keeps its store under on the claim, whether it may write there, and
+# whether its configuration has to leave deletion on. tests/registry-public.py
+# holds what keeps the public front from serving unasked.
 REGISTRIES = {
     "registry": {
         "admits": [
@@ -195,7 +223,19 @@ REGISTRIES = {
                 "podSelector": TASK_PODS,
             }
         ],
-        "root": "/var/lib/registry",
+        "root": STORE,
+        "writes": True,
+        "deletes": None,
+    },
+    "registry-public": {
+        "admits": [
+            {
+                "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}},
+                "podSelector": {"matchLabels": {"app.kubernetes.io/name": "traefik"}},
+            }
+        ],
+        "root": STORE,
+        "writes": False,
         "deletes": None,
     },
     RELEASE_REGISTRY: {
@@ -209,11 +249,19 @@ REGISTRIES = {
                 "podSelector": {"matchLabels": {"app": "source-controller"}},
             },
         ],
-        "root": "/var/lib/registry/release",
+        "root": f"{STORE}/release",
+        "writes": True,
         "deletes": True,
     },
 }
 REGISTRY_CONFIGURATION = "/etc/distribution/config.yml"
+# What the namespace holds beside each process's Deployment, Service, policy
+# and configuration.
+REGISTRY_NAMESPACE_ALSO = [
+    ("Ingress", "registry-public"),
+    ("Middleware", "pool-plane-authorizes-pulls"),
+    ("PersistentVolumeClaim", STORE_CLAIM),
+]
 
 # The two sources the trigger reads, and the parameters of a run that say
 # what each holds.
@@ -234,6 +282,17 @@ TRIGGER_ROLES = {
     BUILD_NAMESPACE: [
         {"apiGroups": ["tekton.dev"], "resources": ["pipelineruns"], "verbs": ["list", "create", "delete"]}
     ],
+}
+TRIGGER_RUNS = "release-trigger-runs"
+# The one binding a layer renders for everyone who is authenticated, which a
+# ServiceAccount's token is: Tekton's release lets each read the ConfigMap
+# that says its version.
+EVERYONE = {
+    "namespace": "tekton-pipelines",
+    "name": "tekton-pipelines-info",
+    "subjects": [{"apiGroup": "rbac.authorization.k8s.io", "kind": "Group", "name": "system:authenticated"}],
+    "role": {"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": "tekton-pipelines-info"},
+    "rules": [{"apiGroups": [""], "resourceNames": ["pipelines-info"], "resources": ["configmaps"], "verbs": ["get"]}],
 }
 
 CONFINED = {
@@ -364,6 +423,14 @@ def objects(text):
     return [document for document in yaml.safe_load_all(text) if document]
 
 
+def layer(path):
+    """What one layer applies: a render, or a directory with no
+    kustomization.yaml, of which Flux applies every manifest."""
+    path = Path(path)
+    files = sorted(path.rglob("*.yaml")) + sorted(path.rglob("*.yml")) if path.is_dir() else [path]
+    return [document for file in files for document in objects(file.read_text())]
+
+
 def of(documents, kind, namespace=None):
     return {
         document["metadata"]["name"]: document
@@ -376,6 +443,17 @@ def of(documents, kind, namespace=None):
 def exactly(subject, found, expected):
     if found != expected:
         refuse(f"{subject} is {found}, not {expected}")
+
+
+def answers_to(subject, account, namespace):
+    """Whether a binding's subject is the ServiceAccount: by that kind, or by
+    the user and the groups its token is as well."""
+    kind, name = subject.get("kind"), subject.get("name")
+    if kind == "ServiceAccount":
+        return name == account and subject.get("namespace") == namespace
+    if kind == "User":
+        return name == f"system:serviceaccount:{namespace}:{account}"
+    return kind == "Group" and name in ("system:authenticated", "system:serviceaccounts", f"system:serviceaccounts:{namespace}")
 
 
 def selects(selector, labels):
@@ -399,30 +477,31 @@ def selects(selector, labels):
     return True
 
 
-def registry_is_held(apps, name, expected):
-    """One registry of the namespace: its pod, everything that selects the
-    pod, and the store its configuration names. Returns the address a pod
+def registry_is_held(cluster, name, expected):
+    """One Distribution process of the namespace: its pod, everything that
+    selects the pod, the claim it mounts and the root its configuration names
+    there. Returns what of the namespace is its own, and the address a pod
     reaches it by."""
-    deployment = of(apps, "Deployment", REGISTRY_NAMESPACE).get(name)
+    deployment = of(cluster, "Deployment", REGISTRY_NAMESPACE).get(name)
     if deployment is None:
-        refuse(f"cluster/apps renders no Deployment {name} in {REGISTRY_NAMESPACE}")
+        refuse(f"no layer renders a Deployment {name} in {REGISTRY_NAMESPACE}")
     labels = {"app": name}
     template = deployment["spec"]["template"]
     exactly(f"the labels of Deployment {name}'s pod", template["metadata"].get("labels"), labels)
-    selecting = [
-        policy["spec"]
-        for policy in of(apps, "NetworkPolicy", REGISTRY_NAMESPACE).values()
+    selecting = {
+        policy_name: policy["spec"]
+        for policy_name, policy in of(cluster, "NetworkPolicy", REGISTRY_NAMESPACE).items()
         if selects(policy["spec"]["podSelector"], labels)
-    ]
+    }
     policy = {
         "podSelector": {"matchLabels": labels},
         "policyTypes": ["Ingress", "Egress"],
         "ingress": [{"from": expected["admits"], "ports": REGISTRY_PORT}],
     }
-    exactly(f"the NetworkPolicies that select Deployment {name}'s pod", selecting, [policy])
+    exactly(f"the NetworkPolicies that select Deployment {name}'s pod", list(selecting.values()), [policy])
     routed = {
         service_name: service
-        for service_name, service in of(apps, "Service", REGISTRY_NAMESPACE).items()
+        for service_name, service in of(cluster, "Service", REGISTRY_NAMESPACE).items()
         if service["spec"].get("selector") and selects({"matchLabels": service["spec"]["selector"]}, labels)
     }
     exactly(f"the Services that route to Deployment {name}'s pod", sorted(routed), [name])
@@ -437,18 +516,41 @@ def registry_is_held(apps, name, expected):
     ports = {port["name"]: port["containerPort"] for port in container["ports"]}
     (port,) = routed[name]["spec"]["ports"]
     exactly(f"the port Service {name} routes to", ports.get(port["targetPort"], port["targetPort"]), REGISTRY_PORT[0]["port"])
-    mounts = [mount for mount in container["volumeMounts"] if mount["mountPath"] == REGISTRY_CONFIGURATION]
-    volumes = {volume["name"]: volume for volume in pod["volumes"]}
-    config = None
-    if len(mounts) == 1 and "configMap" in volumes.get(mounts[0]["name"], {}):
-        config = of(apps, "ConfigMap", REGISTRY_NAMESPACE).get(volumes[mounts[0]["name"]]["configMap"]["name"])
-    if config is None or mounts[0].get("subPath") not in config["data"]:
-        refuse(f"Deployment {name} does not mount {REGISTRY_CONFIGURATION} from a ConfigMap rendered in {REGISTRY_NAMESPACE}")
-    storage = yaml.safe_load(config["data"][mounts[0]["subPath"]])["storage"]
+
+    # The store: a root is a path inside a mount, so the two are held
+    # together, and so is the volume the mount is of.
+    file = REGISTRY_CONFIGURATION.rpartition("/")[2]
+    volumes = {volume["name"]: volume for volume in pod.get("volumes", [])}
+    configuration = volumes.get("config", {}).get("configMap", {}).get("name")
+    config = of(cluster, "ConfigMap", REGISTRY_NAMESPACE).get(configuration)
+    if config is None or file not in config["data"]:
+        refuse(f"Deployment {name} does not take {REGISTRY_CONFIGURATION} from a ConfigMap rendered in {REGISTRY_NAMESPACE}")
+    read_only = {} if expected["writes"] else {"readOnly": True}
+    exactly(
+        f"the volumes of Deployment {name}'s pod",
+        pod["volumes"],
+        [
+            {"name": "config", "configMap": {"name": configuration}},
+            {"name": "storage", "persistentVolumeClaim": {"claimName": STORE_CLAIM, **read_only}},
+        ],
+    )
+    exactly(
+        f"what Deployment {name}'s container mounts",
+        container.get("volumeMounts"),
+        [
+            {"name": "config", "mountPath": REGISTRY_CONFIGURATION, "subPath": file, "readOnly": True},
+            {"name": "storage", "mountPath": STORE, **read_only},
+        ],
+    )
+    storage = yaml.safe_load(config["data"][file])["storage"]
     exactly(f"the root Deployment {name} keeps its store under", storage["filesystem"]["rootdirectory"], expected["root"])
     if expected["deletes"] is not None:
         exactly(f"whether Deployment {name} deletes", storage.get("delete", {}).get("enabled"), expected["deletes"])
-    return f"{name}.{REGISTRY_NAMESPACE}.svc.cluster.local:{port['port']}/"
+    return {
+        "own": [("ConfigMap", configuration), ("Deployment", name), ("Service", name)]
+        + [("NetworkPolicy", policy_name) for policy_name in selecting],
+        "address": f"{name}.{REGISTRY_NAMESPACE}.svc.cluster.local:{port['port']}/",
+    }
 
 
 def references(value):
@@ -462,8 +564,8 @@ def references(value):
             yield from references(item)
 
 
-def tasks_are_sound(build, tasks):
-    configs = of(build, "ConfigMap", BUILD_NAMESPACE)
+def tasks_are_sound(cluster, tasks):
+    configs = of(cluster, "ConfigMap", BUILD_NAMESPACE)
     exactly(f"the Tasks of {BUILD_NAMESPACE}", sorted(tasks), sorted(STEPS))
     for name, task in tasks.items():
         spec = task["spec"]
@@ -562,7 +664,7 @@ def tokens(expression):
     return re.findall(r'"(?:[^"\\]|\\.)*"|[A-Za-z_]+|\S', expression)
 
 
-def admission_is_held(build, release_run, sources_namespace):
+def admission_is_held(cluster, release_run, sources_namespace):
     run = release_run["spec"]
     annotations = json.dumps(list(release_run["metadata"]["annotations"]))
     parameters = [param["name"] for param in run["params"]]
@@ -590,7 +692,7 @@ def admission_is_held(build, release_run, sources_namespace):
         sorted(parameter for named in SOURCES.values() for parameter in named.values()),
         sorted(parameters),
     )
-    policies = {name: policy["spec"] for name, policy in of(build, "ValidatingAdmissionPolicy").items()}
+    policies = {name: policy["spec"] for name, policy in of(cluster, "ValidatingAdmissionPolicy").items()}
     exactly("the admission policies rendered", sorted(policies), sorted(expected))
     for name, held in expected.items():
         policy = policies[name]
@@ -611,7 +713,7 @@ def admission_is_held(build, release_run, sources_namespace):
         )
     exactly(
         "the bindings of the admission policies",
-        {name: binding["spec"] for name, binding in of(build, "ValidatingAdmissionPolicyBinding").items()},
+        {name: binding["spec"] for name, binding in of(cluster, "ValidatingAdmissionPolicyBinding").items()},
         {
             RUN_POLICY: {"policyName": RUN_POLICY, "validationActions": ["Deny"]},
             **{
@@ -636,25 +738,35 @@ def run_is_placed(subject, run, template):
 
 
 def main():
-    if len(sys.argv) != 5:
-        refuse("usage: release-pipeline.py RENDERED_BUILD_SYSTEM RENDERED_APPS RENDERED_FLUX BUILD_SYSTEM_DIRECTORY")
-    build, apps, flux = (objects(Path(path).read_text()) for path in sys.argv[1:4])
+    if len(sys.argv) < 5:
+        refuse(
+            "usage: release-pipeline.py RENDERED_BUILD_SYSTEM RENDERED_APPS RENDERED_FLUX BUILD_SYSTEM_DIRECTORY"
+            " [RENDERED_LAYER ...]"
+        )
     directory = Path(sys.argv[4])
+    cluster = [document for path in sys.argv[1:4] + sys.argv[5:] for document in layer(path)]
+    rendered = set()
+    for document in cluster:
+        metadata = document["metadata"]
+        identity = (document["apiVersion"].rpartition("/")[0], document["kind"], metadata.get("namespace"), metadata.get("name"))
+        if identity in rendered:
+            refuse(f"{document['kind']} {metadata.get('name')} is rendered twice, and two layers that apply one object each put their own back")
+        rendered.add(identity)
 
     for kind in ("PipelineRun", "TaskRun"):
-        if of(build, kind):
-            refuse(f"the render holds the {kind} {sorted(of(build, kind))}, and what Flux applies is started at every reconcile")
+        if of(cluster, kind):
+            refuse(f"the render holds the {kind} {sorted(of(cluster, kind))}, and what Flux applies is started at every reconcile")
 
-    tasks = of(build, "Task", BUILD_NAMESPACE)
-    exactly("the Tasks rendered", sorted(of(build, "Task")), sorted(tasks))
-    tasks_are_sound(build, tasks)
-    pipeline = of(build, "Pipeline", BUILD_NAMESPACE).get(PIPELINE)
+    tasks = of(cluster, "Task", BUILD_NAMESPACE)
+    exactly("the Tasks rendered", sorted(of(cluster, "Task")), sorted(tasks))
+    tasks_are_sound(cluster, tasks)
+    pipeline = of(cluster, "Pipeline", BUILD_NAMESPACE).get(PIPELINE)
     if pipeline is None:
         refuse(f"Pipeline {PIPELINE} is not rendered in {BUILD_NAMESPACE}")
     params = pipeline_is_sound(pipeline, tasks)
 
     # The two manifests for a run.
-    trigger_configs = of(build, "ConfigMap", TRIGGER_NAMESPACE)
+    trigger_configs = of(cluster, "ConfigMap", TRIGGER_NAMESPACE)
     carried = [config["data"][RUN_FILE] for config in trigger_configs.values() if RUN_FILE in config["data"]]
     if len(carried) != 1:
         refuse(f"{len(carried)} ConfigMaps in {TRIGGER_NAMESPACE} carry {RUN_FILE}, not one")
@@ -680,22 +792,27 @@ def main():
     )
 
     # No token, and no role, for a task pod.
-    builder = of(build, "ServiceAccount", BUILD_NAMESPACE).get(BUILDER)
+    builder = of(cluster, "ServiceAccount", BUILD_NAMESPACE).get(BUILDER)
     if builder is None or builder.get("automountServiceAccountToken") is not False:
         refuse(f"ServiceAccount {BUILDER} in {BUILD_NAMESPACE} does not say it mounts no token")
     exactly(f"what ServiceAccount {BUILDER} carries", sorted(set(builder) - {"apiVersion", "kind", "metadata", "automountServiceAccountToken"}), [])
 
+    everyone = of(cluster, "RoleBinding", EVERYONE["namespace"]).get(EVERYONE["name"])
+    if everyone is not None:
+        role = of(cluster, "Role", EVERYONE["namespace"]).get(EVERYONE["name"], {})
+        exactly(
+            f"what RoleBinding {EVERYONE['name']} gives everyone who is authenticated",
+            {"subjects": everyone.get("subjects"), "role": everyone["roleRef"], "rules": role.get("rules")},
+            {field: EVERYONE[field] for field in ("subjects", "role", "rules")},
+        )
+
     def bound_to(account, namespace):
         return [
             binding
-            for binding in build
+            for binding in cluster
             if binding["kind"] in ("RoleBinding", "ClusterRoleBinding")
-            and any(
-                subject.get("kind") == "ServiceAccount"
-                and subject.get("name") == account
-                and subject.get("namespace") == namespace
-                for subject in binding.get("subjects") or []
-            )
+            and binding is not everyone
+            and any(answers_to(subject, account, namespace) for subject in binding.get("subjects") or [])
         ]
 
     if bound_to(BUILDER, BUILD_NAMESPACE):
@@ -704,7 +821,7 @@ def main():
     # The trigger: suspended, alone in its namespace, and its rights exact.
     in_trigger = sorted(
         (document["kind"], document["metadata"]["name"])
-        for document in build
+        for document in cluster
         if document["metadata"].get("namespace") == TRIGGER_NAMESPACE
     )
     exactly(
@@ -716,14 +833,14 @@ def main():
             + [("NetworkPolicy", name) for name in TRIGGER_POLICIES]
         ),
     )
-    if TRIGGER_NAMESPACE not in of(build, "Namespace"):
+    if TRIGGER_NAMESPACE not in of(cluster, "Namespace"):
         refuse(f"Namespace {TRIGGER_NAMESPACE} is not rendered")
     exactly(
         f"the labels of Namespace {TRIGGER_NAMESPACE}",
-        of(build, "Namespace")[TRIGGER_NAMESPACE]["metadata"].get("labels"),
+        of(cluster, "Namespace")[TRIGGER_NAMESPACE]["metadata"].get("labels"),
         RESTRICTED,
     )
-    cronjob = of(build, "CronJob", TRIGGER_NAMESPACE)[TRIGGER]
+    cronjob = of(cluster, "CronJob", TRIGGER_NAMESPACE)[TRIGGER]
     if cronjob["spec"].get("suspend") is not True:
         refuse(f"CronJob {TRIGGER} is not suspended, and it starts a release for every commit as soon as it is applied")
     exactly(f"CronJob {TRIGGER}'s concurrencyPolicy", cronjob["spec"].get("concurrencyPolicy"), "Forbid")
@@ -754,6 +871,10 @@ def main():
     exactly("the namespace the trigger creates runs in", environment.get("RUNS_NAMESPACE"), BUILD_NAMESPACE)
     exactly("the pipeline the trigger reads the runs of", environment.get("PIPELINE"), PIPELINE)
 
+    # Whoever is bound in the build namespace can start a pod there under a
+    # label of their choosing, so it is bound to the trigger and to nobody
+    # else, whichever layer renders the binding.
+    exactly(f"the RoleBindings of {BUILD_NAMESPACE}", sorted(of(cluster, "RoleBinding", BUILD_NAMESPACE)), [TRIGGER_RUNS])
     bindings = bound_to(TRIGGER, TRIGGER_NAMESPACE)
     roles = {}
     for binding in bindings:
@@ -762,13 +883,15 @@ def main():
             refuse(f"{binding['kind']} {binding['metadata']['name']} gives the trigger rights that are not a Role's")
         if len(binding["subjects"]) != 1:
             refuse(f"RoleBinding {binding['metadata']['name']} binds the trigger's Role to others as well")
-        role = of(build, "Role", namespace).get(binding["roleRef"]["name"])
+        if binding["subjects"][0]["kind"] != "ServiceAccount":
+            refuse(f"RoleBinding {binding['metadata']['name']} names a {binding['subjects'][0]['kind']} the trigger's token answers to, and not its ServiceAccount")
+        role = of(cluster, "Role", namespace).get(binding["roleRef"]["name"])
         if role is None or namespace in roles:
             refuse(f"RoleBinding {binding['metadata']['name']} in {namespace} is not the one binding of one Role rendered there")
         roles[namespace] = role["rules"]
         others = [
             other["metadata"]["name"]
-            for other in build
+            for other in cluster
             if other["kind"] == "RoleBinding"
             and other["metadata"].get("namespace") == namespace
             and other["roleRef"]["name"] == binding["roleRef"]["name"]
@@ -777,32 +900,41 @@ def main():
         if others:
             refuse(f"Role {binding['roleRef']['name']} is the trigger's and is also bound by {others}")
     exactly("what the trigger's ServiceAccount may do", roles, TRIGGER_ROLES)
-    sources = of(flux, "GitRepository", environment.get("SOURCES_NAMESPACE"))
+    sources = of(cluster, "GitRepository", environment.get("SOURCES_NAMESPACE"))
     if "chuggy" not in sources:
-        refuse(f"the trigger reads GitRepository chuggy in {environment.get('SOURCES_NAMESPACE')}, and cluster/flux renders none there")
+        refuse(f"the trigger reads GitRepository chuggy in {environment.get('SOURCES_NAMESPACE')}, and no layer renders one there")
     exactly(
         "the kind of GitRepository chuggy",
         {field: sources["chuggy"][field] for field in SOURCE_KIND},
         SOURCE_KIND,
     )
-    admission_is_held(build, release_run, environment.get("SOURCES_NAMESPACE"))
+    admission_is_held(cluster, release_run, environment.get("SOURCES_NAMESPACE"))
 
     # The policies.
     def policies(documents, namespace):
         return {name: policy["spec"] for name, policy in of(documents, "NetworkPolicy", namespace).items()}
 
-    exactly(f"the NetworkPolicies of {TRIGGER_NAMESPACE}", policies(build, TRIGGER_NAMESPACE), TRIGGER_POLICIES)
+    exactly(f"the NetworkPolicies of {TRIGGER_NAMESPACE}", policies(cluster, TRIGGER_NAMESPACE), TRIGGER_POLICIES)
     exactly(
         "the labels the trigger's policy selects its pod by",
         job["template"]["metadata"].get("labels"),
         TRIGGER_POLICIES["release-trigger-egress"]["podSelector"]["matchLabels"],
     )
-    exactly(f"the NetworkPolicies of {BUILD_NAMESPACE}", policies(build, BUILD_NAMESPACE), BUILD_POLICIES)
-    addresses = {name: registry_is_held(apps, name, expected) for name, expected in REGISTRIES.items()}
+    exactly(f"the NetworkPolicies of {BUILD_NAMESPACE}", policies(cluster, BUILD_NAMESPACE), BUILD_POLICIES)
+    registries = {name: registry_is_held(cluster, name, expected) for name, expected in REGISTRIES.items()}
+    exactly(
+        f"what is in {REGISTRY_NAMESPACE}",
+        sorted(
+            (document["kind"], document["metadata"]["name"])
+            for document in cluster
+            if document["metadata"].get("namespace") == REGISTRY_NAMESPACE
+        ),
+        sorted(REGISTRY_NAMESPACE_ALSO + [entry for registry in registries.values() for entry in registry["own"]]),
+    )
 
     # The images' registry under two names, and one repository in the other
     # that a release is pushed to and read from.
-    pushed_to, published_to = addresses["registry"], addresses[RELEASE_REGISTRY]
+    pushed_to, published_to = registries["registry"]["address"], registries[RELEASE_REGISTRY]["address"]
     passed = {
         entry["name"]: {param["name"]: param["value"] for param in entry["params"]}
         for entry in pipeline["spec"]["tasks"]
@@ -814,7 +946,7 @@ def main():
             refuse(f"{build_task} pushes {pushed} and the release names {manifest}: not the registry's Service and the node's name for it")
         if pushed[len(pushed_to):] != manifest.partition("/")[2]:
             refuse(f"{build_task} pushes {pushed} and the release overrides {manifest}, which is another repository")
-    release = of(flux, "OCIRepository", "flux-system").get("chuggy-release")
+    release = of(cluster, "OCIRepository", "flux-system").get("chuggy-release")
     if release is None or release["spec"]["url"] != f"oci://{passed['publish']['release']}":
         refuse(f"the pipeline publishes to {passed['publish']['release']}, which is not what OCIRepository chuggy-release reads")
     if not passed["publish"]["release"].startswith(published_to):
