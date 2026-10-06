@@ -14,6 +14,9 @@ A link from the dashboard to its data breaks silently. The ones held here:
   kind draws "No data".
 - A dashboard the sidecar does not deliver, a document Grafana cannot parse and
   a panel naming a datasource Grafana is not given are each an empty page.
+- A link that is not to the address Grafana answers at, to this dashboard's
+  uid or by a variable it has opens on something else or on nothing. The one a
+  release run gives chuggy for itself is held to all three.
 
 No other series is known by name here, and nothing a query means is read.
 """
@@ -29,6 +32,11 @@ NAMESPACE = "monitoring"
 RELEASE = "kube-prometheus-stack"
 DASHBOARD = "chuggy-releases-dashboard"
 UID = "chuggy-releases"
+# The variable a link opens the page for one run by, and the one that does.
+VARIABLE = "run"
+PIPELINE = "chuggy-release"
+REPORT = "report"
+RUN_NAME = "$(context.pipelineRun.name)"
 # The datasource the chart provisions for its own Prometheus.
 CHART_DATASOURCE = "prometheus"
 # What kube-state-metrics labels every custom resource series with.
@@ -214,6 +222,29 @@ def dashboard_reads_what_exists(documents, series):
             if uid not in known:
                 refuse(f"panel {panel['title']!r} reads datasource {uid!r}, and Grafana is given {sorted(known)}")
         reads_what_is_produced(panel, series)
+    return dashboard
+
+
+def run_links_to_its_page(apps, build, dashboard):
+    values = named(apps, "HelmRelease", RELEASE)["spec"]["values"]
+    root = values["grafana"]["grafana.ini"]["server"]["root_url"].rstrip("/")
+    if VARIABLE not in [variable["name"] for variable in dashboard["templating"]["list"]]:
+        refuse(f"the dashboard has no variable {VARIABLE!r}, which a link opens it for one run by")
+    (pipeline,) = [
+        document
+        for document in build
+        if document.get("kind") == "Pipeline" and document["metadata"]["name"] == PIPELINE
+    ]
+    links = [
+        param["value"]
+        for entry in pipeline["spec"].get("finally") or []
+        if entry["name"] == REPORT
+        for param in entry["params"]
+        if param["name"] == "link"
+    ]
+    expected = [f"{root}/d/{UID}?var-{VARIABLE}={RUN_NAME}"]
+    if links != expected:
+        refuse(f"a release run gives chuggy the link {links}, and its page on this dashboard is {expected}")
 
 
 def main():
@@ -221,7 +252,8 @@ def main():
     monitors_are_selected(apps)
     monitor_reaches(apps, "PodMonitor", "flux-controllers", "podMetricsEndpoints", list(pods(flux)))
     monitor_reaches(apps, "ServiceMonitor", "tekton-pipelines-controller", "endpoints", list(services(build)))
-    dashboard_reads_what_exists(apps, flux_series(apps))
+    dashboard = dashboard_reads_what_exists(apps, flux_series(apps))
+    run_links_to_its_page(apps, build, dashboard)
 
 
 main()
