@@ -18,9 +18,8 @@ without `deletionPolicy: Orphan` deletes everything it applied. A `dependsOn`
 that drops out has a layer applied before the one its CRDs come from, or the
 services of a release applied before its migration has run. `force` dropping
 out of `chuggy-migrate` leaves that layer failed on the first edit to a Job
-whose name did not change. The BuildRun expressions are what read a run that
-succeeded on another commit, or with no digest, as failed. Each of those still
-renders, and no other check reads the render.
+whose name did not change. Each of those still renders, and no other check
+reads the render.
 
 A SOURCE'S SPEC IS HELD THE SAME WAY, for what would still render: `chuggy` on
 another branch has the trigger release commits that are not `main`'s;
@@ -53,43 +52,6 @@ KIND = "Kustomization"
 NAMESPACE = "flux-system"
 
 
-def folded(expression):
-    return " ".join(expression.split())
-
-
-BUILD_RUN_HEALTH = {
-    "apiVersion": "shipwright.io/v1beta1",
-    "kind": "BuildRun",
-    "inProgress": folded(
-        """
-        !has(status.conditions) ||
-        status.conditions.filter(e, e.type == 'Succeeded').all(e, e.status == 'Unknown')
-        """
-    ),
-    "failed": folded(
-        """
-        has(status.conditions) &&
-        (status.conditions.filter(e, e.type == 'Succeeded').exists(e, e.status == 'False') ||
-        (status.conditions.filter(e, e.type == 'Succeeded').exists(e, e.status == 'True') &&
-        (!has(status.source) || !has(status.source.git) ||
-        status.source.git.commitSha != metadata.annotations['fabric.chuggy.dev/source-commit'] ||
-        !has(status.output) || !has(status.output.digest) ||
-        !status.output.digest.matches('^sha256:[0-9a-f]{64}$'))))
-        """
-    ),
-    "current": folded(
-        """
-        has(status.conditions) &&
-        status.conditions.filter(e, e.type == 'Succeeded').exists(e, e.status == 'True') &&
-        has(status.source) && has(status.source.git) &&
-        status.source.git.commitSha == metadata.annotations['fabric.chuggy.dev/source-commit'] &&
-        has(status.output) && has(status.output.digest) &&
-        status.output.digest.matches('^sha256:[0-9a-f]{64}$')
-        """
-    ),
-}
-
-
 GIT = {"kind": "GitRepository", "name": "fabric"}
 RELEASE = {"kind": "OCIRepository", "name": "chuggy-release"}
 
@@ -111,12 +73,6 @@ LAYERS = {
     "build-prerequisites": layer("./cluster/build-prerequisites"),
     "build-system": layer(
         "./cluster/build-system", dependsOn=[{"name": "build-prerequisites"}]
-    ),
-    "builds": layer(
-        "./builds",
-        timeout="75m",
-        dependsOn=[{"name": "build-system"}],
-        healthCheckExprs=[BUILD_RUN_HEALTH],
     ),
     "chuggy-migrate": layer(
         "./release/chuggy-migrate",
