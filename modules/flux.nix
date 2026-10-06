@@ -125,9 +125,9 @@ let
       # applied goes by that layer's own deletionPolicy.
       prune: true
       # The path holds the layers and two sources. Waiting on them would make
-      # this one unready whenever any of them is: `builds` is unready for as
-      # long as a failed BuildRun stays declared, and a source for as long as
-      # it has no artifact.
+      # this one unready whenever any of them is: `chuggy-migrate` for as long
+      # as a release's Job has failed, and a source for as long as it has no
+      # artifact.
       wait: false
       # k3s deletes an object that leaves this manifest. The default policy
       # mirrors `prune`, so this object deleted would delete every layer, and a
