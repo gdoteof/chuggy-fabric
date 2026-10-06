@@ -1,4 +1,4 @@
-# The pinned certificate controller Shipwright requires.
+# The pinned certificate controller. Nothing is issued by it.
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization

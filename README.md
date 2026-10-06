@@ -654,9 +654,9 @@ changing only the option creates a healthy registry over the wrong directory.
 
 Flux reconciles two paths from the host-selected fabric source, each declared
 in `cluster/flux/`:
-`cluster/build-prerequisites/` installs pinned certificate management, and
-`cluster/build-system/` installs pinned Tekton and Shipwright controllers plus
-the fabric-owned BuildKit strategy and the [release pipeline](#the-release-pipeline).
+`cluster/build-prerequisites/` installs pinned certificate management, which
+nothing here issues from, and `cluster/build-system/` installs pinned Tekton
+and the [release pipeline](#the-release-pipeline).
 `builds/` contains immutable requests and no layer applies it: what the rest of
 this section says of a request stops at the file, and none is built. No host
 records a build or answers a request under `requests/` either; `results/` is
@@ -681,18 +681,6 @@ unchanged input is idempotent; changing an input creates another path. The
 initial attempt is `-a1`; later retry automation must add the next
 `-a<ordinal>` beside the unchanged `Build` and never replace an attempt.
 
-Provision the two named Secrets in `chuggy-build`. The Gtr GitHub App refresher
-maintains `chuggy-build-source-read` as a read-only Git basic-auth Secret, and
-the build-system manifests maintain the anonymous internal-registry Docker
-configuration in `chuggy-registry-build-push`. Shipwright mounts the source
-credential only for cloning and the output credential only for pushing; the
-Flux service accounts receive neither. The v1 network profile accepts only
-public HTTPS Git/registry endpoints on port 443, the internal
-`*.chuggy-git.svc` Git service on port 8080, and the internal
-`*.chuggy-registry.svc` registry on port 5000. SSH, arbitrary private services,
-and custom ports are rejected because the matching default-deny NetworkPolicy
-cannot reach them.
-
 Requests are fixed to `linux/amd64` and schedule only where both of these node
 properties exist:
 
@@ -714,23 +702,6 @@ dedicated-builder toleration. The host must still state its own storage paths,
 API source ranges, worker budget, and Flux repository; start with
 `hosts/example/`, replace its inert values, and add the mini example module to
 that host's `extraModules` in `flake.nix`.
-
-`tests/integration/build-platform.sh` is the opt-in executable acceptance gate.
-Its topology is an isolated Git branch and worktree watched at `./builds` by a
-dedicated Flux `GitRepository` and `Kustomization`; that Kustomization must carry
-the production BuildRun CEL health expression. The gate commits and pushes the
-rendered request, waits for Flux to report that exact Git revision Ready, then
-checks the materialized BuildRun's source SHA and verifies the pushed digest
-with `crane`. It never applies a Build or BuildRun directly. Set
-`BUILD_TEST_FLUX_WORKTREE`, `BUILD_TEST_FLUX_BRANCH`,
-`BUILD_TEST_TARGET_REPOSITORY`, `BUILD_TEST_SOURCE_SECRET`, and
-`BUILD_TEST_OUTPUT_SECRET`; optionally select the dedicated Kustomization with
-`BUILD_TEST_FLUX_NAMESPACE` and `BUILD_TEST_FLUX_KUSTOMIZATION`.
-
-Every unavailable prerequisite exits 2 and is not a pass, including the lack of
-a schedulable amd64 builder carrying both the builder label and matching
-`NoSchedule` taint. Issue 28 remains open until an operator supplies this
-disposable topology and the gate completes successfully against a real cluster.
 
 Nothing releases from these builds, and a build result changes no environment.
 A release builds its own images, and is [the release

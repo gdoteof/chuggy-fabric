@@ -1,4 +1,5 @@
-# The pinned build controllers and the builder profile.
+# Pinned Tekton, the namespace builds run in, and the release pipeline with its
+# trigger.
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -6,8 +7,6 @@ metadata:
   name: build-system
   namespace: flux-system
 spec:
-  dependsOn:
-    - name: build-prerequisites
   interval: 5m
   path: ./cluster/build-system
   sourceRef:

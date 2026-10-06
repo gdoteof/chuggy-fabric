@@ -22,11 +22,10 @@
 # release registry, which admits the pods of `publish-release` and of no other
 # Task: cluster/apps/release-registry.yaml. A build pod runs a Dockerfile and
 # does not reach it. It reaches `registry`, as the pod of every build in this
-# namespace does, a build request's among them, and can write there any
-# image's tag at any commit and any image's `buildcache`; build.sh takes a tag
-# it finds as that commit's image. So the artifact is what `publish` wrote,
-# and the two digests it names are trusted as far as every build that has run
-# here is.
+# namespace does, and can write there any image's tag at any commit and any
+# image's `buildcache`; build.sh takes a tag it finds as that commit's image.
+# So the artifact is what `publish` wrote, and the two digests it names are
+# trusted as far as every build that has run here is.
 #
 # WHAT A STEP RUNS IS A FILE, NOT A STRING IN THIS ONE. kustomization.yaml
 # brings fetch.sh, build.sh, publish.sh and report.sh in as
@@ -38,8 +37,7 @@
 # the image, because the worker image is built by this Task as well, by hand,
 # from worker-image-run.yaml.
 #
-# THE `build` STEP CARRIES WHAT ROOTLESS BUILDKIT NEEDS, which the Shipwright
-# strategy beside this file carried before it: the two capabilities
+# THE `build` STEP CARRIES WHAT ROOTLESS BUILDKIT NEEDS: the two capabilities
 # RootlessKit maps ids with, no seccomp or AppArmor profile, the daemon's
 # flag, its state and runtime directories as volumes because the root
 # filesystem is read-only, and the resources of a build. Which node a build

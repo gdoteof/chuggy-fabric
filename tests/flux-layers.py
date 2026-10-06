@@ -15,8 +15,8 @@ THE ROSTER AND EVERY SPEC ARE HELD EXACTLY, so a change to a layer is a change
 to this file as well, and that is the point of it. The root prunes, so a layer
 that drops out of the render is deleted from the cluster, and one deleted
 without `deletionPolicy: Orphan` deletes everything it applied. A `dependsOn`
-that drops out has a layer applied before the one its CRDs come from, or the
-services of a release applied before its migration has run. `force` dropping
+that drops out has the services of a release applied before its migration has
+run, or its migration before what the Job stands on. `force` dropping
 out of `chuggy-migrate` leaves that layer failed on the first edit to a Job
 whose name did not change. Each of those still renders, and no other check
 reads the render.
@@ -71,9 +71,7 @@ def layer(path, timeout="3m", source=GIT, **rest):
 LAYERS = {
     "apps": layer("./cluster/apps", deletionPolicy="Orphan"),
     "build-prerequisites": layer("./cluster/build-prerequisites"),
-    "build-system": layer(
-        "./cluster/build-system", dependsOn=[{"name": "build-prerequisites"}]
-    ),
+    "build-system": layer("./cluster/build-system"),
     "chuggy-migrate": layer(
         "./release/chuggy-migrate",
         timeout="30m",
