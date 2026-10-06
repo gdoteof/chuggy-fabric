@@ -1,10 +1,13 @@
 # The release pipeline: chuggy's two images at one commit, then one artifact
 # that releases them.
 #
-# A RUN IS A FUNCTION OF ITS PARAMETERS. Each names a repository and a full
-# commit hash, and no task reads the API server, a Flux source or a branch for
-# anything else. The same four values give the same release whoever starts the
-# run.
+# A RUN IS GIVEN TWO REPOSITORIES AND A FULL COMMIT HASH OF EACH, and no task
+# reads the API server, a Flux source or a branch. The release is not a
+# function of those four alone. A build takes the image `registry` holds under
+# the commit's tag where there is one, and the cache under `buildcache` where
+# it builds; the version is the second `publish` ran at; and a step runs its
+# script as `release-pipeline-scripts` holds it when the step starts, a name
+# with no hash, so a change to one of those files reaches a run in flight.
 #
 # NO TASK HAS A TOKEN, AND NO POLICY GIVES ONE A ROUTE TO THE API SERVER.
 # Every pod here runs as `builder`, which mounts none, under release-run.yaml's

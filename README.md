@@ -857,6 +857,27 @@ pods of the `publish-release` Task and Flux's source-controller. A build pod
 does not reach it; `cluster/build-system/release-pipeline.yaml` says what one
 can still write.
 
+An operator reaches it from the node, by its Service's address, as
+`Registry operations` reaches `registry`:
+
+    kubectl -n chuggy-registry get service release-registry
+    curl -s http://<cluster-ip>:5000/v2/chuggy/release/tags/list
+
+A release is taken back by deleting it there. The registry deletes by digest,
+which the version's manifest answers with, and every tag of that digest goes
+with it:
+
+    curl -sI -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+      http://<cluster-ip>:5000/v2/chuggy/release/manifests/<version> \
+      | grep -i docker-content-digest
+    curl -s -o /dev/null -w '%{http_code}\n' -X DELETE \
+      http://<cluster-ip>:5000/v2/chuggy/release/manifests/<digest>
+
+`202`, and within its interval `chuggy-release` selects the highest version
+left. With none left it keeps the artifact it last held and reports that no
+version matches. The trigger does not publish the release again while its
+newest run is the one that published it, which `trigger.sh` argues.
+
 The `release-trigger` CronJob, in a namespace of its own, is the one part that
 reads the API server. Each time it runs it compares what `GitRepository`
 `chuggy` and `fabric-release` hold with the newest run and creates at most one,
@@ -865,6 +886,27 @@ creates to that file, for the address and the commit each source holds. While
 it is suspended a person runs that same comparison once:
 
     kubectl -n chuggy-release-trigger create job --from=cronjob/release-trigger by-hand-1
+
+The CronJob is the `build-system` layer's, which puts its `suspend` back to
+what Git declares at its next pass. So stopping the trigger, or resuming it
+for a while, starts by taking the object from the layer:
+
+    kubectl -n chuggy-release-trigger annotate cronjob release-trigger \
+      kustomize.toolkit.fluxcd.io/reconcile=disabled
+    kubectl -n chuggy-release-trigger patch cronjob release-trigger \
+      --type merge -p '{"spec":{"suspend":true}}'
+
+That starts no further Job and stops no run already started. While the
+annotation is there the layer applies nothing to the CronJob, and still
+prunes around it: a commit that changes `trigger.sh` or `release-run.yaml`
+renames their ConfigMap, and an annotated CronJob that is not suspended then
+names one that is gone, and fails each minute. Removing the annotation gives
+the object back, and at the layer's next pass it is what Git declares:
+
+    kubectl -n chuggy-release-trigger annotate cronjob release-trigger \
+      kustomize.toolkit.fluxcd.io/reconcile-
+
+A stop that is to outlast that is a commit.
 
 The scripts a pod runs are files beside the manifests — `fetch.sh`, `build.sh`,
 `publish.sh` and `trigger.sh` — and each argues its own rules in its header.

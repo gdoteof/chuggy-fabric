@@ -18,9 +18,8 @@ resources:
 configMapGenerator:
   # What the pipeline's steps run. The name carries no hash because a Task is
   # not a kind kustomize rewrites a ConfigMap's name in, so a hashed name is
-  # one no Task would mount. Nothing is lost by it: a task pod is created for
-  # one run and mounts what the name holds then, so there is no running pod
-  # for a new name to replace.
+  # one no Task would mount. release-pipeline.yaml says what that leaves a
+  # run in flight to.
   - name: release-pipeline-scripts
     namespace: chuggy-build
     files:

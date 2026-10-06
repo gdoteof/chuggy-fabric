@@ -16,9 +16,10 @@
 # cannot ask `registry` for a path outside that registry's own root, and not
 # anything the volume enforces.
 #
-# AN OPERATOR REACHES IT THROUGH THE API SERVER, as README.md's "Registry
-# operations" does `registry`: a port-forward to this Service is not a pod's
-# connection, and no policy below admits or refuses it.
+# AN OPERATOR REACHES IT FROM THE NODE, by this Service's address, as
+# README.md's "Registry operations" reaches `registry`. A NetworkPolicy binds
+# a pod's connections: a process on the node is not a pod, and a pod on the
+# node's network is not bound either.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -102,8 +103,15 @@ spec:
 ---
 # `tekton.dev/task` AND NOT `tekton.dev/taskRun`. Every task pod in
 # `chuggy-build` carries the second, a build's among them. The first is the
-# Task a TaskRun names, written on its pod by Tekton, and a build is a run of
-# another Task.
+# Task a TaskRun names, written on its pod by Tekton over whatever the run
+# carried, and a build is a run of another Task.
+#
+# A LABEL IS WHAT ITS WRITER SAYS. A run that carries steps of its own and
+# names no Task keeps the `tekton.dev/task` it was created with, and so does a
+# pod created there by hand. So this admits whoever can create a run or a pod
+# in `chuggy-build`. The release trigger's ServiceAccount can create runs
+# there, and cluster/build-system/release-trigger.yaml holds those to one by
+# admission.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

@@ -248,12 +248,15 @@ spec:
   podSelector: {}
   policyTypes: [Ingress, Egress]
 ---
-# THE API SERVER IS A HOST ADDRESS, NOT A POD. It listens on the node, whose
-# address is a DHCP lease, so the rule is everything outside the pod and
-# Service ranges: cluster/apps/chuggy-control-plane-network-policy.yaml argues
-# the same shape for the scheduler. This one is narrowed to the port the API
-# server listens on, which a rule is matched against after the `kubernetes`
-# Service's address has been rewritten to the node's.
+# WHAT THIS ADMITS IS THE CLUSTER'S DNS, AND TCP 6443 AT EVERY ADDRESS OUTSIDE
+# THE POD AND SERVICE RANGES. That is more than the API server, which is all
+# the trigger asks: whatever else listens on that port, on the LAN or past
+# it, is admitted with it. The API server is a host address and not a pod. It
+# listens on the node, whose address is a DHCP lease, so no rule names it:
+# cluster/apps/chuggy-control-plane-network-policy.yaml argues the same shape
+# for the scheduler. The port is the one it listens on, which a rule is
+# matched against after the `kubernetes` Service's address has been rewritten
+# to the node's.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -292,6 +295,11 @@ spec:
   # SUSPENDED: nothing here starts a run by itself. The pipeline is proved by
   # a run started by hand before this is taken out, and the two release layers
   # still read git until a later commit moves them.
+  #
+  # THE FIELD IS THE LAYER'S. Set with `kubectl`, it is back to what is
+  # written here at the layer's next pass, whichever way it was set.
+  # README.md's "The release pipeline" has the annotation that takes this
+  # object from the layer first, which is how the trigger is stopped.
   suspend: true
   concurrencyPolicy: Forbid
   startingDeadlineSeconds: 30
