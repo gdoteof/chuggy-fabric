@@ -189,8 +189,12 @@ spec:
               value: /var/run/chuggy/worker-capability/bearer
             - name: CHUG_SCHEDULER_WORKER_WORKSPACE_PATH
               value: /workspace
+            # A worker pod's deadline bounds a whole attempt: the agent's own
+            # work and every `ci.sh` it runs before it reports, each of which
+            # may take the Bash timeouts below. It is for a pod that is alive
+            # and going nowhere; one that died stops renewing its lease.
             - name: CHUG_SCHEDULER_WORKER_DEADLINE_SECS
-              value: "3600"
+              value: "14400"
             - name: CHUG_SCHEDULER_PASS_BOUNDS
               value: '{"attemptLeaseSecs":300}'
             # Keto's read port. The scheduler asks it whether each pool a
@@ -769,8 +773,8 @@ spec:
                   "memoryLimit": "4Gi",
                   "ephemeralStorageLimit": "4Gi"
                 }
-            # Four hours, against the worker's one. A session pod is not doing a
-            # thing that finishes, so this is not a bound on the work: it is how
+            # A session pod is not doing a thing that finishes, so this is not a
+            # bound on the work, as the worker's deadline above is: it is how
             # long one pod may go on standing for a session before the session
             # is resumed into a new one. That resume is the path this whole
             # slice exists to make ordinary, and running it on a schedule is how
