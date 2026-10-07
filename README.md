@@ -324,9 +324,8 @@ checked rather than described.
 
 **It was `0770`, and the group write bit was a permission nothing held.** The
 reason given for it was a second pod identity in the same group writing without
-being the owner, and there is no such identity: the reader mounts this
-read-only, and the writer runs as the owning uid, so the owner bits were doing
-all the work. A group write bit granted to a group with no members is not a
+being the owner, and there is no such identity: every pod that mounts this
+runs as the owning uid, so the owner bits were doing all the work. A group write bit granted to a group with no members is not a
 safeguard against a second identity arriving — it is a permission waiting for
 whoever gets that gid next. `0750` costs nothing today, and a second writer
 that genuinely needs it becomes a deliberate change to the option.
@@ -1648,8 +1647,8 @@ they are resumed.
 Artifacts are a static `PersistentVolume` over a host directory, in a
 `chuggy-retained` StorageClass that provisions nothing and reclaims `Retain`.
 Deleting the claim leaves the data and leaves the volume `Released`, which an
-operator has to clear before it binds again. The finalizer writes it; the API
-reads it read-only.
+operator has to clear before it binds again. The finalizer, the worker plane
+and the API write it; the ticket service reads it read-only.
 
 **PostgreSQL is not on that.** `pgdata-postgres-0` is still a dynamically
 provisioned `local-path` claim with `Delete` on it, holding live data. Moving it

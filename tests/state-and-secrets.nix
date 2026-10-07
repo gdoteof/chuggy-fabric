@@ -190,8 +190,8 @@ pkgs.testers.runNixOSTest {
     # read from nodes.machine, unlike namespace_timeout above: what this pins is
     # the option's *default*, and a check that asked the module what its default
     # was would agree with it whatever it became. 0750 and not 0770 -- the group
-    # write bit was granted to a group with no members, and the only writer owns
-    # the directory. The tmpfiles rule is what makes it true of a directory that
+    # write bit was granted to a group with no members, and every writer runs as
+    # the uid that owns the directory. The tmpfiles rule is what makes it true of a directory that
     # already exists, which the subtest below is about.
     artifacts_stat = "750 1000 1000"
     registry_stat = "750 1000 1000"

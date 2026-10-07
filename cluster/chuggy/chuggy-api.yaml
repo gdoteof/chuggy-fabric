@@ -118,7 +118,6 @@
 # credential belongs in this public tree, and none is mounted here any more.
 #
 # THE PV PINS THIS POD. Its node affinity is `chuggy.dev/durable=true`, so this
-# Deployment is now schedulable on the durable node alone -- which it already
 # Deployment is schedulable on the durable node alone.
 #
 # ------------------------------------------------------------ the Secrets ----
