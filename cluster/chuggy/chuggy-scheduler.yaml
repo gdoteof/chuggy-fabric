@@ -773,8 +773,8 @@ spec:
                   "memoryLimit": "4Gi",
                   "ephemeralStorageLimit": "4Gi"
                 }
-            # Four hours, against the worker's one. A session pod is not doing a
-            # thing that finishes, so this is not a bound on the work: it is how
+            # A session pod is not doing a thing that finishes, so this is not a
+            # bound on the work, as the worker's deadline above is: it is how
             # long one pod may go on standing for a session before the session
             # is resumed into a new one. That resume is the path this whole
             # slice exists to make ordinary, and running it on a schedule is how
