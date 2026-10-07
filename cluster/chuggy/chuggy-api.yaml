@@ -103,22 +103,21 @@
 #
 # ---------------------------------------------------------- the artifacts ----
 #
-# `CHUG_API_ARTIFACT_ROOT` names a directory the API only ever reads from. The
-# producer has arrived: chuggy-finalizer.yaml writes this store, so the emptyDir
-# that stood here -- correct while every read was a miss -- is now the claim in
-# chuggy-artifacts.yaml, which is the shared volume that file predicted.
+# `CHUG_API_ARTIFACT_ROOT` names the store the API reads artifacts from and
+# writes a member's uploads to: an image a member attaches is a POST to this
+# command, which stores it before it answers. It is the claim in
+# chuggy-artifacts.yaml, which the finalizer and the worker plane write too.
 #
-# Mounted read-only, which is the same claim the composition makes: the web
-# composition is handed the store through one read port and holds no write. The
-# finalizer mounts the same claim writable, and that asymmetry is the whole
-# division of labour between the two.
+# MOUNTED WRITABLE, BECAUSE THE COMPOSITION HOLDS THE STORE'S WRITE. It was
+# read-only while the web composition held the read alone. The image that first
+# held the write was released over that mount, and every upload answered
+# `ArtifactUnavailable` until this file followed it.
 #
 # Repository configuration imports use a separate empty Git scratch and a
 # credential this pod mints for itself under the portal App. No repository
 # credential belongs in this public tree, and none is mounted here any more.
 #
 # THE PV PINS THIS POD. Its node affinity is `chuggy.dev/durable=true`, so this
-# Deployment is now schedulable on the durable node alone -- which it already
 # Deployment is schedulable on the durable node alone.
 #
 # ------------------------------------------------------------ the Secrets ----
@@ -513,7 +512,6 @@ spec:
           volumeMounts:
             - name: artifacts
               mountPath: /var/lib/chuggy/artifacts
-              readOnly: true
             - name: git-scratch
               mountPath: /var/lib/chuggy/git
             - name: forge-app
@@ -580,11 +578,6 @@ spec:
         - name: artifacts
           persistentVolumeClaim:
             claimName: chuggy-artifacts
-            # Read-only on the claim as well as on the mount. The mount is what
-            # the process sees; this is what the kubelet is asked for, and a
-            # read-only claim cannot be made writable by a mount that forgot to
-            # say so.
-            readOnly: true
         - name: git-scratch
           emptyDir: {}
         - name: forge-app

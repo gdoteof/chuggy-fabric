@@ -1,5 +1,5 @@
 # The finalizer: the only process trusted to turn an accepted result into a
-# commit, and the only writer of the artifact store.
+# commit, and one of the writers of the artifact store.
 #
 # One responsibility, one pod, one command, one database role. The shared image,
 # what writes its digest, the login-role-becomes-group connection, the
@@ -57,8 +57,8 @@
 #
 # ---------------------------------------------------------- the artifact store ----
 #
-# Read-write here and read-only in chuggy-api.yaml, which is the whole
-# asymmetry: this process is the producer and the API is the reader. Both mount
+# Read-write here, and in chuggy-worker-plane.yaml and chuggy-api.yaml, which
+# store what an attempt and what a member upload. All three mount
 # the claim in chuggy-artifacts.yaml, whose volume is `Retain` over a host
 # directory -- which is the ARGUMENT that what this writes outlives this pod,
 # this Deployment and the node's next boot, and not the evidence. Nothing has
