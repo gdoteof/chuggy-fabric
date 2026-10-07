@@ -112,9 +112,9 @@
 #
 # `artifacts.root` names a directory this command only ever reads from: a
 # brief may name images, and a dispatch reads each one back to pin the digest
-# its bundle carries. It is the claim chuggy-api.yaml mounts and argues,
-# mounted read-only here as it is there, and the finalizer is still the one
-# pod that mounts it writable.
+# its bundle carries. It is the claim in cluster/apps/chuggy-artifacts.yaml,
+# read-only on the claim and on the mount, because the command is handed the
+# store's read and no write.
 #
 # THE KEY IS REQUIRED, AND THE COMMAND REFUSES TO START WITHOUT IT. The first
 # image that required it was released over this file before it named one, and
