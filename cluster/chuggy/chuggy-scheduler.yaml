@@ -215,13 +215,26 @@ spec:
             # against locally, pinned by digest. The scheduler knows nothing of
             # what a sidecar runs: every detail of the server is here, and its
             # address reaches the gates as `CHUG_PG_URL` below.
+            #
+            # It is a scratch server and is run as one. Nothing in it outlives
+            # the pod, so it does not flush to disk: with durability on, the
+            # databases a gate creates and drops waited on the node's disk and
+            # `check-postgres` went red on `statement timeout` in an evaluation
+            # of a change that was sound. Its CPU limit is above one core for
+            # the same gate, which drives it from several workers at once and
+            # had it throttled while they waited on it.
             - name: CHUG_SCHEDULER_WORKER_SIDECARS
               value: |
                 [
                   {
                     "name": "postgres",
                     "image": "docker.io/library/postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2",
-                    "args": ["-c", "listen_addresses=127.0.0.1"],
+                    "args": [
+                      "-c", "listen_addresses=127.0.0.1",
+                      "-c", "fsync=off",
+                      "-c", "synchronous_commit=off",
+                      "-c", "full_page_writes=off"
+                    ],
                     "environment": { "POSTGRES_HOST_AUTH_METHOD": "trust" },
                     "startupProbe": {
                       "exec": { "command": ["pg_isready", "-h", "127.0.0.1", "-U", "postgres"] },
@@ -230,7 +243,7 @@ spec:
                     },
                     "resources": {
                       "cpuRequest": "250m",
-                      "cpuLimit": "1",
+                      "cpuLimit": "2",
                       "memoryRequest": "256Mi",
                       "memoryLimit": "1Gi",
                       "ephemeralStorageLimit": "4Gi"
