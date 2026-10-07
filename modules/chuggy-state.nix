@@ -129,7 +129,8 @@ in
           The reason given for it was a second pod identity in the same group
           writing without being the owner, and there is no such identity:
           every pod that mounts this runs as `user` above, which owns the
-          directory -- so the owner bits alone were doing all the work. A group write bit granted to a group with no members is not a
+          directory -- so the owner bits alone were doing all the work. A
+          group write bit granted to a group with no members is not a
           safeguard against a second identity arriving; it is a permission
           already waiting for whoever gets that gid next, on a host where `user`
           is a human account. 0750 costs nothing today, and a second writer that

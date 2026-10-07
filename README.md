@@ -325,10 +325,11 @@ checked rather than described.
 **It was `0770`, and the group write bit was a permission nothing held.** The
 reason given for it was a second pod identity in the same group writing without
 being the owner, and there is no such identity: every pod that mounts this
-runs as the owning uid, so the owner bits were doing all the work. A group write bit granted to a group with no members is not a
-safeguard against a second identity arriving — it is a permission waiting for
-whoever gets that gid next. `0750` costs nothing today, and a second writer
-that genuinely needs it becomes a deliberate change to the option.
+runs as the owning uid, so the owner bits were doing all the work. A group
+write bit granted to a group with no members is not a safeguard against a
+second identity arriving — it is a permission waiting for whoever gets that gid
+next. `0750` costs nothing today, and a second writer that genuinely needs it
+becomes a deliberate change to the option.
 
 **Tightening the mode does not change who can already read it.** The directory
 is owned by a numeric uid matching the pods that read and write it, and on a
