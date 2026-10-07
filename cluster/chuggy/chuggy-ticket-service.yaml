@@ -108,6 +108,20 @@
 # under a process that read it once. cluster/apps/kustomization.yaml is the
 # other half of that answer, for the two workloads that do need files.
 #
+# ---------------------------------------------------------- the artifacts ----
+#
+# `artifacts.root` names a directory this command only ever reads from: a
+# brief may name images, and a dispatch reads each one back to pin the digest
+# its bundle carries. It is the claim in cluster/apps/chuggy-artifacts.yaml,
+# read-only on the claim and on the mount, because the command is handed the
+# store's read and no write.
+#
+# THE KEY IS REQUIRED, AND THE COMMAND REFUSES TO START WITHOUT IT. The first
+# image that required it was released over this file before it named one, and
+# the ticket service crash-looped on `artifacts is invalid` until it did.
+#
+# The claim's volume pins this pod to the durable node, as it pins the API.
+#
 # ------------------------------------------------------ what has no probe ----
 #
 # NOTHING HERE ANSWERS A HEALTH REQUEST, AND THAT IS A REAL GAP. This command
@@ -205,6 +219,7 @@ spec:
                   },
                   "rework": { "cyclesMax": 2 },
                   "owner": "$(CHUG_POD_NAME)",
+                  "artifacts": { "root": "/var/lib/chuggy/artifacts" },
                   "forge": {
                     "appId": "4708055",
                     "keyFile": "/var/run/chuggy/forge-app/private-key"
@@ -223,6 +238,9 @@ spec:
                   }
                 }
           volumeMounts:
+            - name: artifacts
+              mountPath: /var/lib/chuggy/artifacts
+              readOnly: true
             - name: git-scratch
               mountPath: /var/lib/chuggy/git
             - name: forge-app
@@ -244,6 +262,10 @@ spec:
       # expires is reported as a failure by the command itself.
       terminationGracePeriodSeconds: 30
       volumes:
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: chuggy-artifacts
+            readOnly: true
         - name: git-scratch
           emptyDir: {}
         # THE PORTAL APP'S KEY, WHICH THIS POD MINTS ITS OWN SOURCE READS FROM.
