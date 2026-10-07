@@ -76,6 +76,12 @@ spec:
             # the host and nothing after it; naming none hands no session out.
             - name: CHUG_POOL_PLANE_SESSION_API_URL
               value: https://chuggy.vteng.io
+            # The longest an execution handed to a pool may run, which the pool
+            # holds its workload to unless its own bound is sooner. It is the
+            # deadline chuggy-scheduler.yaml gives a worker pod, for the same
+            # attempt placed on a pool instead of on this cluster.
+            - name: CHUG_POOL_PLANE_DEADLINE_SECS
+              value: "14400"
             - name: CHUG_POOL_PLANE_HOST
               value: 0.0.0.0
             - name: CHUG_POOL_PLANE_PORT
