@@ -7,10 +7,11 @@
 # One policy and not three. Ingress only, and the same set of pods either way,
 # so there is one question here and one object to answer it.
 #
-# NO EGRESS RULE. Naming Egress would mean enumerating DNS, PostgreSQL and the
-# edge, and none of these is a service whose outbound reach is the worry --
-# what makes the administrative ports dangerous is who may call IN. Adding an
-# egress rule later is a change to this object, not a second one.
+# NO EGRESS RULE. Naming Egress would mean enumerating DNS, PostgreSQL, the
+# edge and GitHub, which Kratos calls to sign a person in, and none of these is
+# a service whose outbound reach is the worry -- what makes the administrative
+# ports dangerous is who may call IN. Adding an egress rule later is a change
+# to this object, not a second one.
 #
 # WHAT SELECTING A POD DOES NOT BOUND. Every exemption recorded in
 # postgres-network-policy.yaml applies here unchanged and for the same reasons:

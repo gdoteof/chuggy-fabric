@@ -37,6 +37,65 @@ selfservice:
       enabled: false
     link:
       enabled: false
+    # SIGN-IN WITH GITHUB, FOR AN IDENTITY THAT ALREADY HOLDS THE ACCOUNT.
+    # Kratos looks the account's numeric id up among the credentials its
+    # identities carry, as `github:<id>`, and signs in the one that holds it.
+    # An account no identity holds falls through to registration, which is
+    # closed below: that person is returned to the login page under
+    # "Registration is not allowed because it was disabled." and no identity
+    # is made. So this method opens nothing `registration` closes, and
+    # tests/kratos-github.py holds the two together -- with it on, an open
+    # registration flow is an identity for every GitHub account that asks.
+    #
+    # An identity comes to hold an account in one of two ways. Its owner,
+    # signed in by password, links it on the settings page; or whoever writes
+    # the identity through the admin API gives it the `oidc` credential. The
+    # settings page does not unlink an account from an identity it is the only
+    # way into.
+    #
+    # LINKING KEEPS A TOKEN, WHICH SIGNING IN DOES NOT. Kratos stores the
+    # GitHub access token a link was made with in the credential, encrypted
+    # under `secrets-cipher`, and its admin API returns it decrypted to
+    # whoever asks. That is the person's own token for chuggy-portal, good for
+    # whatever the App and they may both do; ory-kratos.yaml says what bounds
+    # the port that returns it. A credential written through the admin API
+    # carries none.
+    #
+    # ONE PROVIDER, AND ITS `id` IS IN TWO PLACES THIS FILE DOES NOT REACH:
+    # the callback URL registered on the GitHub App,
+    # https://id.vteng.io/self-service/methods/oidc/callback/github, and the
+    # `github:` every stored credential begins with. Renaming it sends
+    # GitHub's redirect to a path Kratos does not serve and strands every
+    # identity that linked an account.
+    #
+    # `github-app` BECAUSE chuggy-portal IS ONE. Such an App is granted
+    # permissions rather than scopes, and a scope on its authorize request
+    # gives the token nothing, so `scope` is empty. With this provider type
+    # Kratos also lists the account's email addresses on every sign-in and
+    # fails the sign-in when GitHub refuses, though nothing here uses the
+    # answer: the App has to hold the account permission "Email addresses",
+    # read-only. The README says what has to be true at GitHub and on the node
+    # before this is deployed, and what each omission looks like.
+    #
+    # NO `client_secret`, AND KRATOS DOES NOT START ON A PROVIDER WITHOUT ONE.
+    # It arrives as an environment variable that addresses this list by
+    # position; ory-kratos.yaml carries it. The client id is no secret: GitHub
+    # publishes it at https://api.github.com/apps/chuggy-portal and writes it
+    # into the address bar of everyone who presses the button.
+    #
+    # NO `after` HOOK ON LOGIN, AS THE PASSWORD METHOD HAS NONE. Kratos issues
+    # the session and answers Hydra's login challenge itself, for whichever
+    # method signed the person in.
+    oidc:
+      enabled: true
+      config:
+        providers:
+          - id: github
+            provider: github-app
+            label: GitHub
+            client_id: Iv23liGOoLdpeiDAFoWh
+            mapper_url: file:///etc/config/oidc.github.jsonnet
+            scope: []
 
   flows:
     error:
