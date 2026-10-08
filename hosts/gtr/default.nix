@@ -143,11 +143,11 @@
     # the self-service UI. Neither admin port appears here, and cluster/apps/
     # ory-hydra.yaml says why that matters.
     #
-    # chuggy is one name for two backends: the console at / and the web API at
-    # /api/v1. They share it because the API answers no cross-origin preflight,
-    # so a console on a second name could not read it -- the split is Traefik's,
-    # in cluster/chuggy/chuggy-ui.yaml, and this list cannot express it either
-    # way.
+    # chuggy is one name for three backends: the console at /, the web API at
+    # /api/v1 and the access plane at /access/v1. They share it because neither
+    # server answers a cross-origin preflight, so a console on a second name
+    # could not read them -- the split is Traefik's, in
+    # cluster/chuggy/chuggy-ui.yaml, and this list cannot express it either way.
     #
     # chuggy-pool and chuggy-worker are the two planes a worker pool on a
     # machine outside this cluster calls: the one it polls for assignments, and

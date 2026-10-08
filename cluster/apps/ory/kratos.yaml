@@ -124,7 +124,9 @@ selfservice:
     #
     # Identities are created administratively instead, through Kratos's
     # admin API, which no Ingress and no tunnel hostname reaches --
-    # ory-network-policy.yaml is what bounds who can.
+    # ory-network-policy.yaml is what bounds who can reach it. The access
+    # plane is the one caller it admits from outside `ory`, and it makes an
+    # identity only for a caller Keto permits to invite.
     registration:
       enabled: false
       ui_url: https://id.vteng.io/registration

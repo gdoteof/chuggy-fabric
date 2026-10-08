@@ -30,10 +30,12 @@
 # this, and nothing in this file would report it.
 #
 # The other two are bounded by who may exec in `ory`, which is nobody outside
-# the operator today. The chuggy API is the one caller admitted from outside
-# `ory`, so exec in its pod, or a pod made in `chuggy` with its labels, reaches
-# hydra-admin and keto-write as well. Both are `edit` in `chuggy`, which the
-# paragraph on the stores below shows already reaches what those ports write.
+# the operator today. The chuggy API and the access plane are the callers
+# admitted from outside `ory`, so exec in the API's pod, or a pod made in
+# `chuggy` with its labels, reaches hydra-admin and keto-write as well, and the
+# same done with the access plane's reaches keto-write and kratos-admin. Both
+# are `edit` in `chuggy`, which the paragraph on the stores below shows already
+# reaches what those ports write.
 #
 # NOTHING HERE DEPENDS ON THAT CNI BEHAVIOUR TO WORK. The exemption is a leak
 # and not a mechanism: every probe in `ory` is on a port this policy admits
@@ -110,12 +112,11 @@ spec:
           port: 4434 # kratos-admin
         - protocol: TCP
           port: 4467 # keto-write
-    # The one caller from outside `ory`: the chuggy API, writing the tuples a
-    # created project and a registered pool are granted, and a pool's client.
-    # Not kratos-admin -- the API creates no identity. The element reaches all
-    # three servers and each number is served by one of them, so it admits
-    # hydra-admin and keto-write and nothing on Kratos. chuggy-api-egress is the
-    # other half.
+    # From outside `ory`, the chuggy API: writing the tuples a created project
+    # and a registered pool are granted, and a pool's client. Not kratos-admin
+    # -- the API creates no identity. The element reaches all three servers and
+    # each number is served by one of them, so it admits hydra-admin and
+    # keto-write and nothing on Kratos. chuggy-api-egress is the other half.
     - from:
         - namespaceSelector:
             matchLabels:
@@ -128,3 +129,26 @@ spec:
           port: 4445 # hydra-admin
         - protocol: TCP
           port: 4467 # keto-write
+    # And the access plane, cluster/chuggy/chuggy-access-plane.yaml: writing the
+    # tuple a role granted or removed is, and finding or making the account an
+    # invitation names and reading who the people on a list are, which is
+    # kratos-admin. IT IS THE ONE WORKLOAD OUTSIDE `ory` ADMITTED THERE, and
+    # what it is admitted to is everything that port does, whatever the plane
+    # asks of it. Not hydra-admin -- it registers no client -- which is why it
+    # is an element of its own and not a second pod on the one above: there it
+    # would be admitted hydra-admin, and the API kratos-admin. Each number is
+    # served by one server here too, so this admits keto-write and kratos-admin
+    # and nothing on Hydra. chuggy-access-plane-egress is the other half, and
+    # tests/keto.py and tests/ory-admin.py hold both.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy
+          podSelector:
+            matchLabels:
+              app: chuggy-access-plane
+      ports:
+        - protocol: TCP
+          port: 4467 # keto-write
+        - protocol: TCP
+          port: 4434 # kratos-admin

@@ -198,7 +198,8 @@
         keto = import ./tests/keto.nix { inherit pkgs; };
 
         # Who may reach Hydra's and Kratos's admin ports, which register any
-        # client and create any identity: `ory`, and the API on Hydra's alone.
+        # client and create any identity: `ory`, the API on Hydra's alone and
+        # the access plane on Kratos's alone.
         ory-admin = import ./tests/ory-admin.nix { inherit pkgs; };
 
         # What signing in with GitHub may do: sign in an identity that holds
@@ -206,6 +207,11 @@
         # flow that bounds it are two sections of one document, and the client
         # secret reaches one element of a list by its position.
         kratos-github = import ./tests/kratos-github.nix { inherit pkgs; };
+
+        # The access plane's issuer, audience and algorithms against the API's,
+        # which they are copies of: the console signs a person out when one of
+        # the two refuses a token the other accepts.
+        access-plane = import ./tests/access-plane.nix { inherit pkgs; };
 
         # The rendered cluster, which must carry no per-repository token at
         # all now that every pod mints its own.
