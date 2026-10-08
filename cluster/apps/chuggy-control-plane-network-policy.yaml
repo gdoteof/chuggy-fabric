@@ -182,8 +182,8 @@ spec:
 # KETO'S WRITE PORT AND HYDRA'S ADMIN PORT ARE WHERE THIS POD GRANTS: the tuples
 # a created project and a registered pool hold, and a pool's client.
 # `ory-network-policy.yaml` admits Hydra's from `ory` and from this pod alone,
-# and Keto's from the access plane as well, and neither end admits Kratos's
-# admin port -- the API creates no identity.
+# and Keto's from the access plane as well, and neither end admits this pod to
+# Kratos's admin port -- the API creates no identity.
 #
 # The rig's own git service is not among its destinations: this pod's
 # configuration names no repository on it.

@@ -27,7 +27,7 @@
 #
 # 4466 answers checks and expansions, and serves both health endpoints. That is
 # why the probes below are on it: ory-kratos.yaml states what probing a port the
-# policy admits from the namespace alone would cost, and it applies unchanged.
+# policy does not admit from anywhere would cost, and it applies unchanged.
 #
 # Two further listeners: 4468 serves `/metrics/prometheus`, and 4469 serves
 # Keto's OPL syntax check. No Service names either and no policy admits either,
