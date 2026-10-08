@@ -3,11 +3,11 @@
 
 Keto's write port grants permission and authenticates nobody: one PUT on it
 makes any subject an administrator of any project. What holds it to callers
-inside `ory` and the chuggy API is a list of label values on one NetworkPolicy,
-and the way that goes wrong is silent -- a pod whose `app` is not in the list is
-selected by no policy in the namespace, which is not a denial but the whole pod
-network on every port it listens on, with every file still reading correctly on
-its own.
+inside `ory` and the WRITERS below is a list of label values on one
+NetworkPolicy, and the way that goes wrong is silent -- a pod whose `app` is not
+in the list is selected by no policy in the namespace, which is not a denial but
+the whole pod network on every port it listens on, with every file still reading
+correctly on its own.
 
 A CALLER FROM ANOTHER NAMESPACE IS READ AS THE RENDERED WORKLOADS IT SELECTS
 there, because that is the question: a peer selecting the API's pod by a label
@@ -72,12 +72,13 @@ WRITE_SERVICE = "keto-write"
 POSTGRES_POLICY = "postgres-admits-labelled-clients"
 POSTGRES_CLIENT = ("chuggy.dev/postgres-client", "true")
 
-# The API, the scheduler and the pool plane are each told where the read port
-# is, and each URL is a second copy of the Service's own number. The selector
-# holds a copy of its own, and tests/selector-reach.py resolves that one against
-# this Service and against the selector's egress arm; this gate reads the other
-# three, and the arm each workload's own policy has to carry for its URL to be
-# openable at all. Each is (deployment, container, variable, egress policy).
+# The API, the scheduler, the pool plane and the access plane are each told
+# where the read port is, and each URL is a second copy of the Service's own
+# number. The selector holds a copy of its own, and tests/selector-reach.py
+# resolves that one against this Service and against the selector's egress arm;
+# this gate reads the others, and the arm each workload's own policy has to
+# carry for its URL to be openable at all. Each is (deployment, container,
+# variable, egress policy).
 READERS = (
     ("chuggy-api", "api", "CHUG_API_KETO_READ_URL", "chuggy-api-egress"),
     (
@@ -92,13 +93,28 @@ READERS = (
         "CHUG_POOL_PLANE_KETO_READ_URL",
         "chuggy-pool-plane-egress",
     ),
+    (
+        "chuggy-access-plane",
+        "access-plane",
+        "CHUG_ACCESS_PLANE_KETO_READ_URL",
+        "chuggy-access-plane-egress",
+    ),
 )
 
-# The API is also told where the write port is, and it is the one caller from
-# outside `ory` that port admits. Its URL and egress arm are held as a reader's
-# are, and the admission from the other end: every writer's pod admitted, and
-# no other workload outside `ory`. The same shape as READERS.
-WRITERS = (("chuggy-api", "api", "CHUG_API_KETO_WRITE_URL", "chuggy-api-egress"),)
+# The API and the access plane are also told where the write port is, and they
+# are the callers from outside `ory` that port admits. Each one's URL and egress
+# arm are held as a reader's are, and the admission from the other end: every
+# writer's pod admitted, and no other workload outside `ory`. The same shape as
+# READERS.
+WRITERS = (
+    ("chuggy-api", "api", "CHUG_API_KETO_WRITE_URL", "chuggy-api-egress"),
+    (
+        "chuggy-access-plane",
+        "access-plane",
+        "CHUG_ACCESS_PLANE_KETO_WRITE_URL",
+        "chuggy-access-plane-egress",
+    ),
+)
 
 CLUSTER_SUFFIX = ".svc.cluster.local"
 

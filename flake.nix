@@ -201,6 +201,11 @@
         # client and create any identity: `ory`, and the API on Hydra's alone.
         ory-admin = import ./tests/ory-admin.nix { inherit pkgs; };
 
+        # The access plane's issuer, audience and algorithms against the API's,
+        # which they are copies of: the console signs a person out when one of
+        # the two refuses a token the other accepts.
+        access-plane = import ./tests/access-plane.nix { inherit pkgs; };
+
         # The rendered cluster, which must carry no per-repository token at
         # all now that every pod mints its own.
         github-repository-transition = githubRepositoryTransition;
