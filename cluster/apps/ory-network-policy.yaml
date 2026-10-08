@@ -35,7 +35,9 @@
 # `chuggy` with its labels, reaches hydra-admin and keto-write as well, and the
 # same done with the access plane's reaches keto-write and kratos-admin. Both
 # are `edit` in `chuggy`, which the paragraph on the stores below shows already
-# reaches what those ports write.
+# reaches what those ports write, though not what kratos-admin returns: a
+# linked account's GitHub tokens are ciphertext in the store and plaintext
+# from that port.
 #
 # NOTHING HERE DEPENDS ON THAT CNI BEHAVIOUR TO WORK. The exemption is a leak
 # and not a mechanism: every probe in `ory` is on a port this policy admits
@@ -46,8 +48,8 @@
 # It also does not bound the stores themselves. `hydra`, `kratos` and `keto`
 # are databases on the `chuggy` PostgreSQL, and `edit` in `chuggy` carries
 # pods/exec, which lands on a `trust` socket as superuser. Closing these ports
-# closes one of two roads to the same place; ory-namespace.yaml states the
-# other, which is inherent to sharing the server.
+# closes one of two roads to the same place, those tokens apart;
+# ory-namespace.yaml states the other, which is inherent to sharing the server.
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

@@ -1555,8 +1555,8 @@ is the other half, and `tests/ory-admin.py` and `tests/keto.py` hold both. That
 manifest argues what follows: a list of people is answered 503 while Kratos is
 not answering, though the pod stays Ready; an invitation asks `api.github.com`
 with no credential, out of an allowance GitHub counts against the public
-address everything here leaves by; and the account an invitation makes has no
-way to sign in until Kratos offers sign-in with GitHub.
+address everything here leaves by; and the account an invitation makes signs in
+with GitHub and no other way.
 
 **`chuggy-ui` is selected by none of the nine, in either direction**, and that
 is the state this PR leaves it in rather than a decision it argues. It is the
