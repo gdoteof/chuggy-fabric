@@ -1,4 +1,4 @@
-# The namespace Ory runs in, and by implication the four Secrets and the three
+# The namespace Ory runs in, and by implication the five Secrets and the three
 # databases inside it. Same arrangement as sirdocalot-namespace.yaml: none of
 # these values can live in a public repo, so the commands that create them are
 # recorded here, beside the Namespace whose deletion takes the Secrets with it.
@@ -198,9 +198,30 @@
 #     --from-literal=secrets-cookie="$(openssl rand -base64 32)" \
 #     --from-literal=secrets-cipher="$(openssl rand -hex 16)"
 #
-# `secrets-cipher` must be exactly 32 characters -- it is an AES-256 key and
-# Kratos refuses to start on any other length. `openssl rand -hex 16` is how
-# that length is guaranteed rather than hoped for.
+# `secrets-cipher` must be exactly 32 characters -- it is the key of the cipher
+# `ory/kratos.yaml` names, and Kratos refuses to start on any other length.
+# `openssl rand -hex 16` is how that length is guaranteed rather than hoped for.
+#
+# Kratos has a second Secret, and its value is GitHub's rather than this
+# shell's: the chuggy-portal App's client secret, which Kratos presents when it
+# exchanges the authorization code of a person signing in with GitHub. It is
+# the value chuggy-api.yaml copies into `chuggy`, out of the same root-only
+# file. A Secret does not cross a namespace, so there are two copies, and a
+# client secret regenerated in the App's settings means remaking both. On the
+# node as root:
+#
+#   kubectl create secret generic kratos-github-app-portal-client -n ory --from-env-file=/dev/stdin <<EOF
+#   client-secret=$(cat /var/lib/chuggy/secrets/github-app/chuggy-portal-client-secret)
+#   EOF
+#
+# NOT `--from-file`, WHICH IS HOW THE OTHER COPY IS MADE. That carries the
+# file's bytes, a newline at the end of them where the file has one, and Kratos
+# presents the variable to GitHub as it arrives. `$( )` drops the newline, and
+# the heredoc keeps the value out of the process table.
+#
+# THIS SECRET COMES BEFORE THE MERGE THAT NAMES IT; ory-kratos.yaml says what
+# the wrong order costs. Kratos reads it when its pod starts, so one remade
+# later is used after `kubectl -n ory rollout restart deployment/kratos`.
 #
 #   kubectl create secret generic keto -n ory \
 #     --from-literal=dsn="postgres://keto_app_login:$ORY_PG_KETO_APP_PASSWORD@postgres.chuggy.svc.cluster.local:5432/keto?sslmode=disable" \

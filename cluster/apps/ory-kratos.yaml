@@ -16,20 +16,41 @@
 # there is.
 #
 # 4434 IS THE UNAUTHENTICATED ADMIN API and can mint an identity or a session
-# for anyone. What holds it to callers inside `ory` and to the access plane is
-# the policy in ory-network-policy.yaml, which also states the three ways past
-# it and the one road to these same tables it does not touch at all.
+# for anyone, and it returns the GitHub tokens of anyone who linked an account,
+# which `ory/kratos.yaml` describes. What holds it to callers inside `ory` and
+# to the access plane is the policy in ory-network-policy.yaml, which also
+# states the three ways past it and the one road to these same tables it does
+# not touch at all.
 #
 # The migration initContainer and the DDL/DML role split are as ory-hydra.yaml
-# describes, and so is the config file: `ory/kratos.yaml` and
-# `ory/identity.default.schema.json` are the two files this pod mounts, and
-# cluster/apps/kustomization.yaml generates the hashed ConfigMap that carries
-# them. Editing either rolls this Deployment, which is
-# gdoteof/chuggy-fabric#7 -- the issue was found on this workload.
+# describes, and so is the config file: `ory/kratos.yaml`,
+# `ory/identity.default.schema.json` and `ory/oidc.github.jsonnet` are the
+# files this pod mounts, and cluster/apps/kustomization.yaml generates the
+# hashed ConfigMap that carries them. Editing any of them rolls this
+# Deployment, which is gdoteof/chuggy-fabric#7 -- the issue was found on this
+# workload.
 #
 # THE IDENTITY SCHEMA IS IN THAT HASH TOO, which matters more here than the
 # server config does: a schema change that did not reach the running pod would
 # leave Kratos validating new identities against the old shape.
+#
+# SIGN-IN WITH GITHUB NEEDS ONE VALUE THIS REPOSITORY CANNOT HOLD, the
+# chuggy-portal App's client secret, and `kratos-github-app-portal-client` is
+# where this pod reads it from. ory-namespace.yaml records the command that
+# makes it.
+#
+# THAT SECRET COMES BEFORE THE MERGE THAT NAMES IT, AND THE WRONG ORDER DOES
+# NOT COST SIGN-IN AT FIRST. The new pod is never built --
+# `CreateContainerConfigError`, in an event that names the Secret -- and the
+# pod it was to replace keeps serving, because a rolling update of one replica
+# takes nothing down until the replacement is Ready. What it costs is
+# everything behind it: `apps` waits on the rollout and reads not-Ready when
+# its timeout passes, which holds `chuggy-migrate` and `chuggy`, and so every
+# release, at `DependencyNotReady`. And the ConfigMap the serving pod mounted
+# is pruned by then, as cluster/apps/kustomization.yaml describes, so that pod
+# serves until something restarts it and after that nothing signs anyone in.
+# Making the Secret is the whole repair: the kubelet retries the container it
+# could not build.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -86,11 +107,27 @@ spec:
             - name: SECRETS_COOKIE
               valueFrom:
                 secretKeyRef: { name: kratos, key: secrets-cookie }
-            # Encrypts credentials at rest. Exactly 32 characters, because it is
-            # an AES-256 key -- ory-namespace.yaml says how that is guaranteed.
+            # The key of the cipher `ory/kratos.yaml` names, under which the
+            # GitHub tokens a linked account leaves are stored. Exactly 32
+            # characters -- ory-namespace.yaml says how that is guaranteed.
             - name: SECRETS_CIPHER
               valueFrom:
                 secretKeyRef: { name: kratos, key: secrets-cipher }
+            # The client secret `ory/kratos.yaml` leaves out of its one sign-in
+            # provider. Kratos reads its environment after its file, and a
+            # name of this shape sets one field of the provider at that
+            # position in the file's list: the `0` is an index, and
+            # tests/kratos-github.py holds it to the provider it is for.
+            #
+            # REQUIRED, NOT `optional`. Kratos exits on a provider with no
+            # client secret, so an optional reference would not start this pod
+            # without the Secret either -- it would trade an event that names
+            # the missing Secret for a crash loop on a schema error.
+            - name: SELFSERVICE_METHODS_OIDC_CONFIG_PROVIDERS_0_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: kratos-github-app-portal-client
+                  key: client-secret
           volumeMounts:
             - name: config
               mountPath: /etc/config

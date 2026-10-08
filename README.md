@@ -1555,8 +1555,8 @@ is the other half, and `tests/ory-admin.py` and `tests/keto.py` hold both. That
 manifest argues what follows: a list of people is answered 503 while Kratos is
 not answering, though the pod stays Ready; an invitation asks `api.github.com`
 with no credential, out of an allowance GitHub counts against the public
-address everything here leaves by; and the account an invitation makes has no
-way to sign in until Kratos offers sign-in with GitHub.
+address everything here leaves by; and the account an invitation makes signs in
+with GitHub and no other way.
 
 **`chuggy-ui` is selected by none of the nine, in either direction**, and that
 is the state this PR leaves it in rather than a decision it argues. It is the
@@ -1656,6 +1656,72 @@ they are resumed.
    finalizer, and the row is what they fence against; no migration writes it,
    because the table is created empty. `chuggy-finalizer.yaml` carries the two
    commands. The value is generated, never written down here.
+
+### Signing in with GitHub
+
+The login page at `id.vteng.io` offers GitHub beside the password, through the
+`chuggy-portal` App. **It signs in an identity that already holds the GitHub
+account, and makes none**: registration is closed, so an account no identity
+holds is returned to the login page under "Registration is not allowed because
+it was disabled." An identity holds an account because its owner, signed in by
+password, pressed `Link GitHub` on `https://id.vteng.io/settings`, or because
+whoever wrote it through Kratos's admin API gave it
+`credentials.oidc.config.providers` with `provider: github` and the account's
+numeric id as `subject` — the `id` that `https://api.github.com/users/<login>`
+prints. A link made on the settings page leaves that person's GitHub access
+token for the App, and a refresh token where the App issues one, in Kratos's
+database, encrypted, where the admin API returns them; a credential written
+through the admin API leaves none.
+`cluster/apps/ory/kratos.yaml` argues the configuration and
+`tests/kratos-github.py` holds it.
+
+**Three things come before the merge that deploys it, and nothing here can
+enforce the order.** Two are in the App's settings at GitHub,
+`https://github.com/organizations/kasofsk/settings/apps/chuggy-portal`:
+
+1. **A callback URL**,
+   `https://id.vteng.io/self-service/methods/oidc/callback/github`, added
+   beside the ones already there. GitHub accepts a `redirect_uri` only when it
+   is on that list. Without it Kratos starts and shows the button, and GitHub
+   refuses the request the button makes; password sign-in is untouched.
+2. **The account permission "Email addresses", read-only.** Kratos's
+   `github-app` provider lists the account's addresses on every sign-in and
+   fails the sign-in when GitHub refuses, though nothing here uses the answer.
+   Without it a person authorizes at GitHub and lands on `id.vteng.io/error`
+   under an upstream error naming `GET https://api.github.com/user/emails`.
+3. **The Secret `kratos-github-app-portal-client` in `ory`**, holding the App's
+   client secret. It is the value `chuggy-github-app-portal-client` carries in
+   `chuggy`, read from the same root-only file on the node,
+   `/var/lib/chuggy/secrets/github-app/chuggy-portal-client-secret`;
+   `cluster/apps/ory-namespace.yaml` carries the command and says why it is
+   not the other copy's. The client id needs no Secret and is in
+   `kratos.yaml`: GitHub publishes it, as `client_id` at
+   `https://api.github.com/apps/chuggy-portal` and as Client ID on the
+   settings page.
+
+   Kratos starts on an empty client secret and fails every GitHub sign-in at
+   the exchange, so read that the key holds something, without printing it:
+
+   ```sh
+   kubectl -n ory get secret kratos-github-app-portal-client \
+     -o jsonpath='{.data.client-secret}' | base64 -d | wc -c
+   ```
+
+**Merged before the Secret exists, it leaves sign-in up and holds every
+release.** `cluster/apps/ory-kratos.yaml` says how: the new Kratos pod is never
+built, the old one serves on from a ConfigMap that is already pruned, and
+`apps` reads not-Ready, with `chuggy-migrate` and `chuggy` held behind it.
+Making the Secret is the repair. After a merge in the right order,
+`kubectl -n ory rollout status deployment/kratos` returning is the Secret
+resolved, and the login page carrying `Sign in with GitHub` is the method
+served.
+
+**None of this has been run against GitHub.** It was run against the pinned
+Kratos and Hydra images and a stand-in for GitHub's two hosts: sign-in for an
+identity that holds the account, the refusal for one that does not, the failure
+on the email addresses, linking and unlinking, and a Hydra login challenge
+completed by a GitHub sign-in. The permission's name, and what GitHub does with
+a callback it does not list, are GitHub's documentation.
 
 ### Storage, and what it does and does not survive
 

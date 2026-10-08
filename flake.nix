@@ -202,6 +202,12 @@
         # the access plane on Kratos's alone.
         ory-admin = import ./tests/ory-admin.nix { inherit pkgs; };
 
+        # What signing in with GitHub may do: sign in an identity that holds
+        # the account and make none. The method and the closed registration
+        # flow that bounds it are two sections of one document, and the client
+        # secret reaches one element of a list by its position.
+        kratos-github = import ./tests/kratos-github.nix { inherit pkgs; };
+
         # The access plane's issuer, audience and algorithms against the API's,
         # which they are copies of: the console signs a person out when one of
         # the two refuses a token the other accepts.

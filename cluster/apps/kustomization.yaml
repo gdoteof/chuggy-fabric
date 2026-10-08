@@ -124,6 +124,7 @@ configMapGenerator:
     files:
       - kratos.yaml=ory/kratos.yaml
       - identity.default.schema.json=ory/identity.default.schema.json
+      - oidc.github.jsonnet=ory/oidc.github.jsonnet
   - name: ory-ui-views
     namespace: ory
     files:
