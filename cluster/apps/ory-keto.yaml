@@ -5,7 +5,9 @@
 # member whose thread is waking may still `read` the project and skips that
 # thread for the pass where no tuple says so, and so does the scheduler, which
 # asks only whether a pool a project registered still holds `Execute` -- as the
-# pool plane asks of every pool that polls it.
+# pool plane asks of every pool that polls it. The access plane asks whether a
+# caller administers a tenant or a project, and reads and writes the tuples
+# that say who holds a role in it.
 #
 # The model is `ory/namespaces.ts` -- object types, the relations a tuple may
 # state, and the permits computed from them. It is configuration for the reason
@@ -17,9 +19,9 @@
 #
 # 4467 IS UNAUTHENTICATED AND IT GRANTS PERMISSION. One PUT there makes any
 # subject an administrator of any project. ory-network-policy.yaml admits it
-# from the `ory` namespace and the chuggy API alone, and carries the argument
-# for what that does and does not cover -- `keto-read` and `keto-write` are
-# separate objects for the reason `hydra-admin` is one.
+# from the `ory` namespace, the chuggy API and the access plane alone, and
+# carries the argument for what that does and does not cover -- `keto-read` and
+# `keto-write` are separate objects for the reason `hydra-admin` is one.
 #
 # ------------------------------------------------------------ the read port ----
 #

@@ -181,8 +181,9 @@ spec:
 #
 # KETO'S WRITE PORT AND HYDRA'S ADMIN PORT ARE WHERE THIS POD GRANTS: the tuples
 # a created project and a registered pool hold, and a pool's client.
-# `ory-network-policy.yaml` admits both from `ory` and from this pod alone, and
-# neither end admits Kratos's admin port -- the API creates no identity.
+# `ory-network-policy.yaml` admits Hydra's from `ory` and from this pod alone,
+# and Keto's from the access plane as well, and neither end admits Kratos's
+# admin port -- the API creates no identity.
 #
 # The rig's own git service is not among its destinations: this pod's
 # configuration names no repository on it.
@@ -332,8 +333,9 @@ spec:
 # the selector checks what a principal may do, and the tuples it checks are
 # written out of band by kasofsk/chuggy's `src/roots/provisionProjectAccess.ts`
 # and never by this pod. `ory-network-policy.yaml` admits 4466 from anywhere on
-# the pod network and 4467 from `ory` and the API alone, so an arm for the write
-# port would be permitted at this end and refused at the other.
+# the pod network and 4467 from `ory`, the API and the access plane alone, so an
+# arm for the write port would be permitted at this end and refused at the
+# other.
 #
 # POSTGRESQL IS ALSO WHERE ITS DECISIONS COME FROM, which is why the rule did
 # not change when the policy did. The selector asks the project's lead for a

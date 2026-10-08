@@ -339,8 +339,8 @@ spec:
             # Keto's read port, and the two unauthenticated ports this pod
             # writes to: Keto's, for the tuples a created project and a
             # registered pool are granted, and Hydra's admin, for a pool's
-            # client. ory-network-policy.yaml admits those two from `ory` and
-            # from this pod alone.
+            # client. ory-network-policy.yaml admits Hydra's from `ory` and from
+            # this pod alone, and Keto's from the access plane as well.
             - name: CHUG_API_KETO_READ_URL
               value: http://keto-read.ory.svc.cluster.local:4466
             - name: CHUG_API_KETO_WRITE_URL

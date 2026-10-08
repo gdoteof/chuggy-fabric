@@ -11,18 +11,26 @@
 # ONE ORIGIN, AND THAT IS THE WHOLE REASON FOR THIS SHAPE. The API implements no
 # cross-origin preflight -- no OPTIONS handler and no Access-Control-Allow-Origin
 # anywhere in it -- so a console served from any other hostname could not read it
-# at all. `/api/v1` and `/` are therefore two backends behind one Ingress rather
-# than two Ingresses, and moving either to a host of its own breaks the console
-# without breaking anything a curl would notice.
+# at all, and the access plane, chuggy-access-plane.yaml, implements none
+# either. `/api/v1`, `/access/v1` and `/` are therefore three backends behind
+# one Ingress rather than three Ingresses, and moving any to a host of its own
+# breaks the console's reads of it without breaking anything a curl would
+# notice.
 #
-# Traefik orders rules by the length of the matcher it builds, so `/api/v1` wins
-# over `/` without anything here saying so.
+# Traefik orders rules by the length of the matcher it builds, so `/api/v1` and
+# `/access/v1` each win over `/` without anything here saying so, and neither
+# is a prefix of the other.
 #
 # `pathType: Prefix` IS A STRING PREFIX TO TRAEFIK, not a path-segment one, so
-# `/api/v1foo` reaches the API rather than the console. Harmless -- the API
-# answers it with its own 404 and the console has no such route to lose -- but
-# the two rules are disjoint by intent and not by the matcher, and a future rule
-# that assumed segment boundaries would be wrong here.
+# `/api/v1foo` reaches the API rather than the console, and `/access/v1foo` the
+# access plane, and each answers it with its own 404. Under `/api` that costs
+# the console nothing: the product refuses a new tenant named `api`, so the
+# console has no page there to lose. Under `/access` it costs nothing only
+# while the product refuses a tenant named `access` as well. The console's
+# pages are `/<tenant>/<project>`, so a tenant of that name with a project
+# whose name begins `v1` would have the hard loads of its pages answered by
+# the plane. The rules are disjoint by intent and not by the matcher, and a
+# future rule that assumed segment boundaries would be wrong here.
 #
 # The image proxies nothing. `/api/v1` reaches the API because this Ingress sends
 # it there and for no other reason -- there is no proxy_pass in the container, so
@@ -40,7 +48,10 @@
 # publishing it would put an unauthenticated round trip to the durable authority
 # on the open internet with nothing throttling it and no consumer asking for it.
 # What that costs is a `kubectl` away from anyone who needs the answer. Both
-# paths therefore fall to the console below and are served its index.
+# paths therefore fall to the console below and are served its index. The access
+# plane serves the same two paths at its own root, outside its prefix, so its
+# probes are not published either; its `/health/ready` asks Keto and no
+# database.
 #
 # --------------------------------------------------------- the runtime config ----
 #
@@ -255,6 +266,14 @@ spec:
               service:
                 name: chuggy-api
                 port: { number: 3000 }
+          # Unrewritten for the same reason: every route the access plane
+          # serves a caller is under this prefix.
+          - path: /access/v1
+            pathType: Prefix
+            backend:
+              service:
+                name: chuggy-access-plane
+                port: { number: 3003 }
           - path: /
             pathType: Prefix
             backend:

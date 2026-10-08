@@ -276,9 +276,10 @@ spec:
             # the project, so this process asks the read port itself instead of
             # reading the answer through the API; the arm that permits that is
             # in chuggy-control-plane-network-policy.yaml, and the write port is
-            # admitted to nothing outside `ory` but the API. `requestTimeoutMs`
-            # is optional and unset is the code's own default, which is why it
-            # is not written -- the same reason `selector` is omitted above.
+            # admitted to nothing outside `ory` but the API and the access
+            # plane. `requestTimeoutMs` is optional and unset is the code's own
+            # default, which is why it is not written -- the same reason
+            # `selector` is omitted above.
             #
             # It is required and the schema is strict, so an image built before
             # kasofsk/chuggy#635 refuses a document carrying it: this block and

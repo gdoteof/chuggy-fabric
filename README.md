@@ -1411,6 +1411,7 @@ One process per responsibility, all out of one image:
 | `chuggy-finalizer` | `src/roots/finalizer.ts` | `chuggy_finalizer` | no |
 | `chuggy-worker-plane` | `src/roots/workerPlane.ts` | `chuggy_worker_plane` | yes, 3001 |
 | `chuggy-pool-plane` | `src/roots/poolPlane.ts` | `chuggy_pool_plane` | yes, 3002 |
+| `chuggy-access-plane` | `src/roots/accessPlane.ts` | none: it reads and writes Keto alone | yes, 3003 |
 
 Plus `chuggy-migrate-<commit>-registry`, a Job that dumps the database and then
 applies the schema, named by a release for the chuggy commit it applies it
@@ -1517,7 +1518,7 @@ they move together. The migration Job's name changes with chuggy's commit
 because Kubernetes makes its pod template immutable; a release that changes
 the Job and not that commit is what `force` on its layer is for.
 
-Four of the five open no socket, so they have no probe and no Service. They
+Four of them open no socket, so they have no probe and no Service. They
 report an unmet precondition by name and exit; the kubelet restarts them. A
 process that is alive and making no progress is therefore invisible to
 Kubernetes, and closing that needs a health listener in chuggy itself.
