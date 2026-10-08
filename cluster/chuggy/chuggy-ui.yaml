@@ -23,10 +23,14 @@
 #
 # `pathType: Prefix` IS A STRING PREFIX TO TRAEFIK, not a path-segment one, so
 # `/api/v1foo` reaches the API rather than the console, and `/access/v1foo` the
-# access plane. Harmless -- each answers it with its own 404 and the console has
-# no such route to lose -- but the rules are disjoint by intent and not by the
-# matcher, and a future rule that assumed segment boundaries would be wrong
-# here.
+# access plane, and each answers it with its own 404. Under `/api` that costs
+# the console nothing: the product refuses a new tenant named `api`, so the
+# console has no page there to lose. Under `/access` it costs nothing only
+# while the product refuses a tenant named `access` as well. The console's
+# pages are `/<tenant>/<project>`, so a tenant of that name with a project
+# whose name begins `v1` would have the hard loads of its pages answered by
+# the plane. The rules are disjoint by intent and not by the matcher, and a
+# future rule that assumed segment boundaries would be wrong here.
 #
 # The image proxies nothing. `/api/v1` reaches the API because this Ingress sends
 # it there and for no other reason -- there is no proxy_pass in the container, so
