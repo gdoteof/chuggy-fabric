@@ -12,7 +12,8 @@
 // `account_creators` who may make an account for a new person, and
 // `authority_managers` who may change the holders of these. `Site` is the one
 // object above every tenant, and a tenant reaches it by its `site` tuple: a
-// tenant without one gets nothing from the site, and no error says so.
+// tenant without one is not managed from the site, and no error says so,
+// though a holder written there as the site's `admins` still holds.
 //
 // A HOLDER IS A PERSON OR THE HOLDERS OF A ROLE, written as a subject set, and
 // never the holders of another of these relations. Keto follows such a chain
@@ -36,7 +37,7 @@ class Site implements Namespace {
   related: {
     admins: User[]
     account_creators: (User | SubjectSet<Site, "admins"> | SubjectSet<Tenant, "admins">)[]
-    authority_managers: (User | SubjectSet<Site, "admins">)[]
+    authority_managers: User[]
   }
   permits = {
     administer: (ctx: Context): boolean => this.related.admins.includes(ctx.subject),
