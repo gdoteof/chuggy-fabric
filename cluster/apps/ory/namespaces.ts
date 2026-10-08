@@ -9,7 +9,8 @@
 //
 // WHO MAY CHANGE WHO HOLDS A ROLE IS HELD HERE AS WELL, as relations of its
 // own. Each `*_granters` names who may grant or remove one role,
-// `account_creators` who may make an account for a new person, and
+// `account_creators` who may make an account for a new person,
+// `tenant_creators` who may make a tenant nothing holds yet, and
 // `authority_managers` who may change the holders of these. `Site` is the one
 // object above every tenant, and a tenant reaches it by its `site` tuple: a
 // tenant without one is not managed from the site, and no error says so,
@@ -37,11 +38,13 @@ class Site implements Namespace {
   related: {
     admins: User[]
     account_creators: (User | SubjectSet<Site, "admins"> | SubjectSet<Tenant, "admins">)[]
+    tenant_creators: (User | SubjectSet<Site, "admins"> | SubjectSet<Tenant, "admins">)[]
     authority_managers: User[]
   }
   permits = {
     administer: (ctx: Context): boolean => this.related.admins.includes(ctx.subject),
     create_account: (ctx: Context): boolean => this.related.account_creators.includes(ctx.subject),
+    create_tenant: (ctx: Context): boolean => this.related.tenant_creators.includes(ctx.subject),
     manage_authorities: (ctx: Context): boolean =>
       this.related.authority_managers.includes(ctx.subject) || this.permits.administer(ctx),
   }
