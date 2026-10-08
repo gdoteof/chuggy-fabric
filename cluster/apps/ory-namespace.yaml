@@ -215,9 +215,9 @@
 #   EOF
 #
 # NOT `--from-file`, WHICH IS HOW THE OTHER COPY IS MADE. That carries the
-# file's bytes, a newline at the end of them included, and Kratos presents the
-# variable to GitHub as it arrives. `$( )` drops the newline, and the heredoc
-# keeps the value out of the process table.
+# file's bytes, a newline at the end of them where the file has one, and Kratos
+# presents the variable to GitHub as it arrives. `$( )` drops the newline, and
+# the heredoc keeps the value out of the process table.
 #
 # THIS SECRET COMES BEFORE THE MERGE THAT NAMES IT; ory-kratos.yaml says what
 # the wrong order costs. Kratos reads it when its pod starts, so one remade

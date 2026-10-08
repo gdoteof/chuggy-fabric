@@ -54,9 +54,10 @@ selfservice:
     # way into.
     #
     # LINKING KEEPS A TOKEN, WHICH SIGNING IN DOES NOT. Kratos stores the
-    # GitHub access token a link was made with in the credential, encrypted
-    # under `secrets-cipher`, and its admin API returns it decrypted to
-    # whoever asks. That is the person's own token for chuggy-portal, good for
+    # GitHub access token a link was made with in the credential, and the
+    # refresh token where the App issues one, encrypted under
+    # `secrets-cipher`, and its admin API returns them decrypted to whoever
+    # asks. That is the person's own token for chuggy-portal, good for
     # whatever the App and they may both do; ory-kratos.yaml says what bounds
     # the port that returns it. A credential written through the admin API
     # carries none.

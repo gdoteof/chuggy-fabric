@@ -16,7 +16,7 @@
 # there is.
 #
 # 4434 IS THE UNAUTHENTICATED ADMIN API and can mint an identity or a session
-# for anyone, and it returns the GitHub token of anyone who linked an account,
+# for anyone, and it returns the GitHub tokens of anyone who linked an account,
 # which `ory/kratos.yaml` describes. What holds it to callers inside `ory` is
 # the policy in ory-network-policy.yaml, which also states the three ways past
 # it and the one road to these same tables it does not touch at all.

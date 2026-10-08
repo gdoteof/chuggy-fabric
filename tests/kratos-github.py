@@ -15,9 +15,13 @@ WHAT THE PROCESS READS IS THE DOCUMENT AND THEN ITS ENVIRONMENT, and a variable
 named for a key replaces that key: `SELFSERVICE_FLOWS_REGISTRATION_ENABLED` on
 the container reopens the flow under a document that still says closed, and
 `SELFSERVICE_METHODS_OIDC_ENABLED` turns the method on under one that says off.
-So the container names one kind of `SELFSERVICE_` variable, the client secret
-below, and no `envFrom`, whose names no render shows. That is held whether or
-not the method is on, because it is what makes the document worth reading.
+Kratos reads a variable's name in any letter case and takes a dot for an
+underscore, so a name is judged as Kratos reads it and not as it is spelled.
+So the container names one variable under `selfservice`, the client secret
+below, and no `envFrom`, whose names no render shows. And it is started on the
+one document and nothing more: a second config flag, or a `command` carrying
+its own, names a document Kratos reads after this one. Both are held whether or
+not the method is on, because they are what makes the document worth reading.
 
 THE CLIENT SECRET IS ONE FIELD OF ONE ELEMENT OF A LIST, DELIVERED BY POSITION.
 The document leaves it out because the document is public, and the variable
@@ -38,10 +42,12 @@ ONE PROVIDER, WHOSE ID IS `github` AND WHOSE TYPE IS `github-app`. The id is
 the last segment of the callback URL registered on the GitHub App and the
 prefix of the credential every linked identity stores, so it has a copy at
 GitHub and a copy in the database, and a rename here strands both. The type is
-what chuggy-portal is. `github`, the type for an OAuth App, refuses a token
-lacking a scope the provider names, and a GitHub App's token carries none; any
-other type calls another host, or derives its subject some other way than from
-the account's numeric id, which is what the stored credentials are.
+what chuggy-portal is, and the one Ory's documentation names for a GitHub App.
+`github`, the type for an OAuth App, refuses a token lacking a scope the
+provider names, and a GitHub App's token carries none, so it signs a person in
+only for as long as the provider names no scope; any other type calls another
+host, or derives its subject some other way than from the account's numeric
+id, which is what the stored credentials are.
 
 NO POLICY ISOLATES KRATOS FOR EGRESS, AND ONE THAT DID IS REFUSED RATHER THAN
 READ. Signing in calls github.com and api.github.com from this pod, and
@@ -77,9 +83,10 @@ PROVIDER_TYPE = "github-app"
 REQUIRED = ("id", "provider", "client_id", "mapper_url")
 SECRET = "client_secret"
 
-# Every key under `selfservice` is a variable beginning with this, and one field
-# of one element of the provider list is spelled with the element's index in it.
-SELFSERVICE = "SELFSERVICE_"
+# Kratos lower-cases a variable's name and reads its underscores as dots before
+# it looks the key up, so that is the form a name is judged in. One field of one
+# element of the provider list is spelled with the element's index in it.
+SELFSERVICE = "selfservice"
 SECRET_VARIABLE = re.compile(
     r"SELFSERVICE_METHODS_OIDC_CONFIG_PROVIDERS_(0|[1-9][0-9]*)_CLIENT_SECRET"
 )
@@ -113,6 +120,12 @@ def container(deployment, name):
     refuse(f"{deployment['metadata']['name']} has no container {name}")
 
 
+def under_selfservice(variable):
+    """Whether Kratos reads the variable as a key under `selfservice`."""
+    key = variable.lower().replace("_", ".")
+    return key == SELFSERVICE or key.startswith(SELFSERVICE + ".")
+
+
 def selects(selector, labels, described):
     for key, value in (selector.get("matchLabels") or {}).items():
         if labels.get(key) != value:
@@ -129,13 +142,17 @@ def selects(selector, labels, described):
 
 
 def config_document(documents, deployment, entry):
-    """The document `--config` names, through the mount and the generated
-    ConfigMap, each step refused rather than guessed at -- as tests/ory-admin.py
-    resolves the same file."""
+    """The one document the server is started on, through the mount and the
+    generated ConfigMap, each step refused rather than guessed at -- as
+    tests/ory-admin.py resolves the same file."""
     args = entry.get("args") or []
-    if args.count(CONFIG_FLAG) != 1 or args.index(CONFIG_FLAG) + 1 >= len(args):
-        refuse(f"the {entry['name']} container does not name one {CONFIG_FLAG} and its value")
-    path = PurePosixPath(args[args.index(CONFIG_FLAG) + 1])
+    if "command" in entry or len(args) != 3 or args[:2] != ["serve", CONFIG_FLAG]:
+        refuse(
+            f"the {entry['name']} container is not started as `serve {CONFIG_FLAG} FILE` "
+            "and nothing more, and a second file or a command of its own is "
+            "configuration this gate does not read"
+        )
+    path = PurePosixPath(args[2])
     mounts = [
         mount
         for mount in entry.get("volumeMounts") or []
@@ -187,11 +204,11 @@ def main():
     if entry.get("envFrom"):
         refuse(
             f"the {SERVER} container takes variables by envFrom, whose names no render "
-            f"shows, and one beginning {SELFSERVICE} replaces what {name} says"
+            f"shows, and one named for a key under {SELFSERVICE} replaces what {name} says"
         )
     supplied = {}
     for item in entry.get("env") or []:
-        if not item["name"].startswith(SELFSERVICE):
+        if not under_selfservice(item["name"]):
             continue
         matched = SECRET_VARIABLE.fullmatch(item["name"])
         if not matched:

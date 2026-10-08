@@ -1654,9 +1654,10 @@ password, pressed `Link GitHub` on `https://id.vteng.io/settings`, or because
 whoever wrote it through Kratos's admin API gave it
 `credentials.oidc.config.providers` with `provider: github` and the account's
 numeric id as `subject` — the `id` that `https://api.github.com/users/<login>`
-prints. A link made on the settings page leaves that person's GitHub token for
-the App in Kratos's database, encrypted, where the admin API returns it; a
-credential written through the admin API leaves none.
+prints. A link made on the settings page leaves that person's GitHub access
+token for the App, and a refresh token where the App issues one, in Kratos's
+database, encrypted, where the admin API returns them; a credential written
+through the admin API leaves none.
 `cluster/apps/ory/kratos.yaml` argues the configuration and
 `tests/kratos-github.py` holds it.
 
@@ -1674,8 +1675,6 @@ enforce the order.** Two are in the App's settings at GitHub,
    fails the sign-in when GitHub refuses, though nothing here uses the answer.
    Without it a person authorizes at GitHub and lands on `id.vteng.io/error`
    under an upstream error naming `GET https://api.github.com/user/emails`.
-   GitHub asks everyone who authorized the App earlier to approve an added
-   account permission.
 3. **The Secret `kratos-github-app-portal-client` in `ory`**, holding the App's
    client secret. It is the value `chuggy-github-app-portal-client` carries in
    `chuggy`, read from the same root-only file on the node,
