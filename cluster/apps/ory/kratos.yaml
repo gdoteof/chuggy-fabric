@@ -71,12 +71,12 @@ selfservice:
     #
     # `github-app` BECAUSE chuggy-portal IS ONE. Such an App is granted
     # permissions rather than scopes, and a scope on its authorize request
-    # gives the token nothing, so `scope` is empty. With this provider type
-    # Kratos also lists the account's email addresses on every sign-in and
-    # fails the sign-in when GitHub refuses, though nothing here uses the
-    # answer: the App has to hold the account permission "Email addresses",
-    # read-only. The README says what has to be true at GitHub and on the node
-    # before this is deployed, and what each omission looks like.
+    # adds nothing to what the token may do, so `scope` is empty. With this
+    # provider type Kratos also lists the account's email addresses on every
+    # sign-in and fails the sign-in when GitHub refuses, though nothing here
+    # uses the answer: the App has to hold the account permission "Email
+    # addresses", read-only. The README says what has to be true at GitHub and
+    # on the node before this is deployed, and what each omission looks like.
     #
     # NO `client_secret`, AND KRATOS DOES NOT START ON A PROVIDER WITHOUT ONE.
     # It arrives as an environment variable that addresses this list by
@@ -159,6 +159,14 @@ identity:
   schemas:
     - id: default
       url: file:///etc/config/identity.default.schema.json
+
+# THE CIPHER IS NAMED, BECAUSE KRATOS'S DEFAULT IS NONE. Unsaid, this key is
+# `noop`, and what Kratos would encrypt under `secrets-cipher` -- the GitHub
+# tokens a linked account leaves -- is stored hex-encoded for whoever reads
+# the database. The key being supplied encrypts nothing. tests/kratos-github.py
+# holds a cipher named whenever the oidc method is on.
+ciphers:
+  algorithm: xchacha20-poly1305
 
 session:
   lifespan: 24h

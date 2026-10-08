@@ -106,8 +106,9 @@ spec:
             - name: SECRETS_COOKIE
               valueFrom:
                 secretKeyRef: { name: kratos, key: secrets-cookie }
-            # Encrypts credentials at rest. Exactly 32 characters, because it is
-            # an AES-256 key -- ory-namespace.yaml says how that is guaranteed.
+            # The key of the cipher `ory/kratos.yaml` names, under which the
+            # GitHub tokens a linked account leaves are stored. Exactly 32
+            # characters -- ory-namespace.yaml says how that is guaranteed.
             - name: SECRETS_CIPHER
               valueFrom:
                 secretKeyRef: { name: kratos, key: secrets-cipher }

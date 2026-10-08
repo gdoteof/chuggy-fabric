@@ -18,10 +18,13 @@ the container reopens the flow under a document that still says closed, and
 Kratos reads a variable's name in any letter case and takes a dot for an
 underscore, so a name is judged as Kratos reads it and not as it is spelled.
 So the container names one variable under `selfservice`, the client secret
-below, and no `envFrom`, whose names no render shows. And it is started on the
-one document and nothing more: a second config flag, or a `command` carrying
-its own, names a document Kratos reads after this one. Both are held whether or
-not the method is on, because they are what makes the document worth reading.
+below, none under `ciphers`, and no `envFrom`, whose names no render shows. And
+it is started on the one document and nothing more. A second config flag, a
+`command` carrying its own, or a comma in the flag's value names another
+document Kratos reads with this one; a mount over the file, or a ConfigMap
+volume that renames its keys, puts another document where this one is read
+from. Both are held whether or not the method is on, because they are what
+makes the document worth reading.
 
 THE CLIENT SECRET IS ONE FIELD OF ONE ELEMENT OF A LIST, DELIVERED BY POSITION.
 The document leaves it out because the document is public, and the variable
@@ -55,6 +58,12 @@ ory-network-policy.yaml invites an egress rule later. A rule that forgot those
 two would leave password sign-in working and every GitHub sign-in timing out,
 which no other gate here would notice.
 
+WHAT A LINK STORES IS ENCRYPTED ONLY WHERE THE DOCUMENT NAMES A CIPHER. Kratos
+keeps the GitHub tokens of a person who links an account, and its default for
+`ciphers.algorithm` is `noop`, which stores them hex-encoded for whoever reads
+the database. The key in `secrets-cipher` encrypts nothing by being there. So
+with the method on, the document names one of the two ciphers Kratos has.
+
 WHAT THIS GATE CANNOT SEE. Whether the Secret exists or holds the App's client
 secret, whether the App lists the callback URL, and whether the App holds the
 account permission Kratos's `github-app` provider needs: each is at GitHub or
@@ -83,13 +92,22 @@ PROVIDER_TYPE = "github-app"
 REQUIRED = ("id", "provider", "client_id", "mapper_url")
 SECRET = "client_secret"
 
+# The sections of the document this gate reads, which no variable may replace.
 # Kratos lower-cases a variable's name and reads its underscores as dots before
 # it looks the key up, so that is the form a name is judged in. One field of one
 # element of the provider list is spelled with the element's index in it.
 SELFSERVICE = "selfservice"
+CIPHERS = "ciphers"
 SECRET_VARIABLE = re.compile(
     r"SELFSERVICE_METHODS_OIDC_CONFIG_PROVIDERS_(0|[1-9][0-9]*)_CLIENT_SECRET"
 )
+
+# The values of `ciphers.algorithm` under which Kratos encrypts.
+ENCRYPTING = ("xchacha20-poly1305", "aes")
+
+# A value of the config flag that names one file. Kratos splits the value on a
+# comma, so one holding a comma names two.
+ONE_FILE = re.compile(r"/[A-Za-z0-9._/-]+")
 
 
 def refuse(message):
@@ -120,10 +138,10 @@ def container(deployment, name):
     refuse(f"{deployment['metadata']['name']} has no container {name}")
 
 
-def under_selfservice(variable):
-    """Whether Kratos reads the variable as a key under `selfservice`."""
+def under(variable, section):
+    """Whether Kratos reads the variable as the section or a key beneath it."""
     key = variable.lower().replace("_", ".")
-    return key == SELFSERVICE or key.startswith(SELFSERVICE + ".")
+    return key == section or key.startswith(section + ".")
 
 
 def selects(selector, labels, described):
@@ -143,31 +161,45 @@ def selects(selector, labels, described):
 
 def config_document(documents, deployment, entry):
     """The one document the server is started on, through the mount and the
-    generated ConfigMap, each step refused rather than guessed at -- as
-    tests/ory-admin.py resolves the same file."""
+    generated ConfigMap, each step refused rather than guessed at."""
     args = entry.get("args") or []
-    if "command" in entry or len(args) != 3 or args[:2] != ["serve", CONFIG_FLAG]:
+    if (
+        "command" in entry
+        or len(args) != 3
+        or args[:2] != ["serve", CONFIG_FLAG]
+        or not ONE_FILE.fullmatch(str(args[2]))
+    ):
         refuse(
             f"the {entry['name']} container is not started as `serve {CONFIG_FLAG} FILE` "
             "and nothing more, and a second file or a command of its own is "
             "configuration this gate does not read"
         )
     path = PurePosixPath(args[2])
+    directory = str(path.parent)
     mounts = [
         mount
         for mount in entry.get("volumeMounts") or []
-        if mount.get("mountPath") == str(path.parent)
+        if (mount["mountPath"] + "/").startswith(directory + "/")
     ]
-    if len(mounts) != 1:
-        refuse(f"{len(mounts)} volumeMounts cover {path.parent}, which {CONFIG_FLAG} reads from")
+    if (
+        len(mounts) != 1
+        or mounts[0]["mountPath"] != directory
+        or "subPath" in mounts[0]
+        or "subPathExpr" in mounts[0]
+    ):
+        refuse(
+            f"{directory}, which {CONFIG_FLAG} reads from, is not one whole volume mounted "
+            "there with nothing mounted beneath it"
+        )
     volumes = [
         volume
         for volume in deployment["spec"]["template"]["spec"].get("volumes") or []
         if volume["name"] == mounts[0]["name"]
     ]
-    if len(volumes) != 1 or "configMap" not in volumes[0]:
-        refuse(f"the volume {mounts[0]['name']!r} is not one ConfigMap this gate can open")
-    data = one(documents, "ConfigMap", volumes[0]["configMap"]["name"], ORY).get("data") or {}
+    source = volumes[0].get("configMap") if len(volumes) == 1 else None
+    if not source or "items" in source:
+        refuse(f"the volume {mounts[0]['name']!r} is not one whole ConfigMap this gate can open")
+    data = one(documents, "ConfigMap", source["name"], ORY).get("data") or {}
     if path.name not in data:
         refuse(f"the ConfigMap mounted at {path.parent} carries no {path.name}")
     try:
@@ -208,7 +240,7 @@ def main():
         )
     supplied = {}
     for item in entry.get("env") or []:
-        if not under_selfservice(item["name"]):
+        if not under(item["name"], SELFSERVICE) and not under(item["name"], CIPHERS):
             continue
         matched = SECRET_VARIABLE.fullmatch(item["name"])
         if not matched:
@@ -216,6 +248,8 @@ def main():
                 f"the {SERVER} container sets {item['name']}, which replaces a key of "
                 f"{name} that this gate reads from the document"
             )
+        if int(matched.group(1)) in supplied:
+            refuse(f"the {SERVER} container sets {item['name']} twice")
         supplied[int(matched.group(1))] = item
 
     # 2. Each variable is a required reference to a Secret, and never a literal.
@@ -263,7 +297,15 @@ def main():
             "so anyone with a GitHub account is given an identity by asking"
         )
 
-    # 5. One provider, the one the callback URL and the stored credentials name.
+    # 5. With the method on, what a linked account leaves is stored encrypted.
+    if within(document, CIPHERS).get("algorithm") not in ENCRYPTING:
+        refuse(
+            f"{name} enables the oidc method without naming a cipher in ciphers.algorithm, "
+            "and Kratos's default stores a linked account's GitHub tokens for anyone who "
+            "reads the database"
+        )
+
+    # 6. One provider, the one the callback URL and the stored credentials name.
     if len(providers) != 1:
         refuse(f"{name} lists {len(providers)} providers, and one is what is registered at GitHub")
     provider = providers[0]
@@ -278,7 +320,7 @@ def main():
             f"signs in with is a {PROVIDER_TYPE}"
         )
 
-    # 6. Nothing stands between this pod and GitHub that this gate has not read.
+    # 7. Nothing stands between this pod and GitHub that this gate has not read.
     labels = deployment["spec"]["template"]["metadata"].get("labels") or {}
     for policy in documents:
         if policy.get("kind") != "NetworkPolicy" or policy["metadata"].get("namespace") != ORY:
