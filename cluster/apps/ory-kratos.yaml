@@ -16,9 +16,9 @@
 # there is.
 #
 # 4434 IS THE UNAUTHENTICATED ADMIN API and can mint an identity or a session
-# for anyone. What holds it to callers inside `ory` is the policy in
-# ory-network-policy.yaml, which also states the three ways past it and the one
-# road to these same tables it does not touch at all.
+# for anyone. What holds it to callers inside `ory` and to the access plane is
+# the policy in ory-network-policy.yaml, which also states the three ways past
+# it and the one road to these same tables it does not touch at all.
 #
 # The migration initContainer and the DDL/DML role split are as ory-hydra.yaml
 # describes, and so is the config file: `ory/kratos.yaml` and

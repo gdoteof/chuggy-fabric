@@ -198,7 +198,8 @@
         keto = import ./tests/keto.nix { inherit pkgs; };
 
         # Who may reach Hydra's and Kratos's admin ports, which register any
-        # client and create any identity: `ory`, and the API on Hydra's alone.
+        # client and create any identity: `ory`, the API on Hydra's alone and
+        # the access plane on Kratos's alone.
         ory-admin = import ./tests/ory-admin.nix { inherit pkgs; };
 
         # The access plane's issuer, audience and algorithms against the API's,

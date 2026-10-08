@@ -6,10 +6,17 @@ Both authenticate nobody. Hydra's registers OAuth2 clients, accepts logins and
 consents, and reads every grant; Kratos's creates identities and mints sessions
 for them. Each is admitted from inside `ory` and from its declared callers
 outside it, and nothing else: the chuggy API on Hydra's, where it registers a
-pool's client, and nobody on Kratos's, because the API creates no identity.
-A caller is held from both ends -- admitted by the port, its URL naming the
-admin Service on the number it publishes, and its own egress reaching the pod
-on the container port.
+pool's client, and the access plane on Kratos's, where it finds or makes the
+account an invitation names and reads who the people on a list are. Neither is
+admitted the other's. A caller is held from both ends -- admitted by the port,
+its URL naming the admin Service on the number it publishes, and its own egress
+reaching the pod on the container port.
+
+THE ADMISSION IS THE END THAT BOUNDS, and it is held to exactly its callers. A
+caller's egress is held only to reach its port, without which its URL names a
+destination it is refused. No policy's egress is held to stop short of an admin
+port: a pod no egress policy selects may send anywhere, so an arm reaching one
+from a pod the port does not admit grants nothing, and reads green here.
 
 tests/keto.py holds Keto's write port to the same shape, and its header argues
 the fold over every policy selecting the pod, the port resolved through the
@@ -43,7 +50,19 @@ SERVERS = (
         "registers any client and accepts any login",
         (("chuggy-api", "api", "CHUG_API_HYDRA_ADMIN_URL", "chuggy-api-egress"),),
     ),
-    ("kratos", "kratos-admin", "creates any identity and mints it a session", ()),
+    (
+        "kratos",
+        "kratos-admin",
+        "creates any identity and mints it a session",
+        (
+            (
+                "chuggy-access-plane",
+                "access-plane",
+                "CHUG_ACCESS_PLANE_KRATOS_ADMIN_URL",
+                "chuggy-access-plane-egress",
+            ),
+        ),
+    ),
 )
 
 # `serve.admin.port` in the config document the server is told to read.

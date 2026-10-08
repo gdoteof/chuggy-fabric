@@ -1411,7 +1411,7 @@ One process per responsibility, all out of one image:
 | `chuggy-finalizer` | `src/roots/finalizer.ts` | `chuggy_finalizer` | no |
 | `chuggy-worker-plane` | `src/roots/workerPlane.ts` | `chuggy_worker_plane` | yes, 3001 |
 | `chuggy-pool-plane` | `src/roots/poolPlane.ts` | `chuggy_pool_plane` | yes, 3002 |
-| `chuggy-access-plane` | `src/roots/accessPlane.ts` | none: it reads and writes Keto alone | yes, 3003 |
+| `chuggy-access-plane` | `src/roots/accessPlane.ts` | none: it reads and writes Keto and Kratos over their APIs | yes, 3003 |
 
 Plus `chuggy-migrate-<commit>-registry`, a Job that dumps the database and then
 applies the schema, named by a release for the chuggy commit it applies it
@@ -1544,6 +1544,19 @@ leaves the cluster and comes back through the tunnel, `api.github.com` for the
 installation tokens the pod mints, and `github.com` for a bound repository's
 `ls-remote` and `fetch`. It is the only one of these the internet reaches, so it
 is the one whose rule fails as an outage rather than as a loop that stalls.
+
+**`chuggy-access-plane` is the one workload outside `ory` admitted to Kratos's
+admin port**, which authenticates nobody and makes an identity or a session for
+anyone. It finds or makes there the account an invitation names, and reads
+there who the people on a list are. `cluster/apps/ory-network-policy.yaml`
+admits its pod to that port and to Keto's write port and not to Hydra's admin
+port, `chuggy-access-plane-egress` in `cluster/chuggy/chuggy-access-plane.yaml`
+is the other half, and `tests/ory-admin.py` and `tests/keto.py` hold both. That
+manifest argues what follows: a list of people is answered 503 while Kratos is
+not answering, though the pod stays Ready; an invitation asks `api.github.com`
+with no credential, out of an allowance GitHub counts against the public
+address everything here leaves by; and the account an invitation makes has no
+way to sign in until Kratos offers sign-in with GitHub.
 
 **`chuggy-ui` is selected by none of the nine, in either direction**, and that
 is the state this PR leaves it in rather than a decision it argues. It is the
