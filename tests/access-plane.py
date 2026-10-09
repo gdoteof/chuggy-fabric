@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Refuse a rendered cluster whose access plane does not verify a token as the
-API does, or does not reach its database as the one role it is given.
+API does, does not reach its database as the one role it is given, or admits
+to its port anything but the edge and Kratos.
 
 The console reads both with one token. Answered 401, it renews that token once
 and signs the person out where the fresh one is refused too -- kasofsk/chuggy's
@@ -45,18 +46,33 @@ rolled. Keeps serving is the default strategy: the `Recreate` that workloads
 beside it carry, or a rolling update told to start no pod beside the old one,
 removes the old pod first.
 
+ITS PORT ADMITS TRAEFIK AND KRATOS, AND NO OTHER SOURCE. The plane's probes and
+its registration gate take no token, and the gate answers whoever reaches it
+whether the token it is sent is an open invite link whose maker may make
+accounts, reading the database to say so. chuggy-access-plane.yaml argues that
+its ingress policy is what keeps those paths from the pod network. A Kratos
+whose registration is open asks the gate before it makes an account, so a
+policy without Kratos refuses that call and no registration succeeds; one
+without Traefik refuses every page that reads the plane; and a third source is
+a pod that may ask the gate about any token. Policies add, so every one that
+isolates the plane's pod for ingress is read, and what they admit together is
+those two sources and no other, on the port the plane's Service lands on and
+no other.
+
 WHAT THIS GATE CANNOT READ IT REFUSES rather than passes: a variable either
 container names twice or not at all, one that is empty, one whose value comes
 from a Secret or a ConfigMap where a literal is held, one the kubelet would
 rewrite before the process read it, an environment taken whole with `envFrom`,
-a Secret mounted as a volume, an egress peer or port in a shape it does not
-resolve, and a surge that is neither a number of pods nor a percentage.
+a Secret mounted as a volume, a peer or port of either direction in a shape it
+does not resolve, and a surge that is neither a number of pods nor a
+percentage.
 
 WHAT IT DOES NOT HOLD is that the original is right: that the issuer is the one
 Hydra signs as, and the audience the one chuggy-ui.yaml has the console ask
 for. Nor that either role exists, that the login is a member of the group, or
 that the key holds the password PostgreSQL accepts: those are the roles file's
-and the migration's, on the rig.
+and the migration's, on the rig. Nor that the pods of either source carry the
+labels it is named by: Traefik's are k3s's, and no render shows them.
 """
 
 import re
@@ -100,6 +116,21 @@ POSTGRES_POLICY = "postgres-admits-labelled-clients"
 POSTGRES_CLIENT = ("chuggy.dev/postgres-client", "true")
 EGRESS_POLICY = "chuggy-access-plane-egress"
 
+# Who the plane's port admits, as (who, what a policy without it refuses).
+# chuggy-access-plane.yaml argues each.
+PLANE_SERVICE = "chuggy-access-plane"
+INGRESS_POLICY = "chuggy-access-plane-ingress"
+SOURCES = (
+    (
+        "app.kubernetes.io/name=traefik in kube-system",
+        "the edge, through which a browser reads the plane",
+    ),
+    (
+        "app=kratos in ory",
+        "Kratos, which asks the registration gate where its registration is open",
+    ),
+)
+
 # The path whose answer waits on the database. chuggy-access-plane.yaml says
 # what the process asks before it answers it.
 READY = "/health/ready"
@@ -112,6 +143,9 @@ NAMESPACE_LABEL = "kubernetes.io/metadata.name"
 
 # What a pod is rendered from, and so what a Service's selector is read against.
 WORKLOADS = ("Pod", "Deployment", "ReplicaSet", "StatefulSet", "DaemonSet", "Job", "CronJob")
+
+# What an arm of each direction calls its peers.
+PEERS = {"egress": "to", "ingress": "from"}
 
 # The ranges the public arm excepts, which chuggy-api-egress argues.
 PRIVATE = (
@@ -238,6 +272,14 @@ def isolates_for_egress(policy):
     if types is None:
         return "egress" in policy["spec"]
     return "Egress" in types
+
+
+def isolates_for_ingress(policy):
+    """Whether a policy confines the pods it selects for ingress. `policyTypes`
+    is authoritative when present; absent, the API server reads every policy
+    as one for Ingress."""
+    types = policy["spec"].get("policyTypes")
+    return types is None or "Ingress" in types
 
 
 def written(labels):
@@ -411,9 +453,9 @@ def landing(documents, port):
     return chosen, target
 
 
-def destination(peer, policy):
-    """One egress peer in words: the pods it selects and the namespace they are
-    in, or an address block and what it excepts."""
+def whom(peer, policy, way):
+    """One peer in words: the pods it selects and the namespace they are in, or
+    an address block and what it excepts."""
     if set(peer) == {"ipBlock"} and set(peer["ipBlock"]) <= {"cidr", "except"}:
         block = peer["ipBlock"]
         excepted = sorted(block.get("except") or [])
@@ -424,8 +466,8 @@ def destination(peer, policy):
         chosen = named.get("matchLabels") or {}
         if set(named) != {"matchLabels"} or set(chosen) != {NAMESPACE_LABEL}:
             refuse(
-                f"an egress peer on {policy} names namespaces by something other than "
-                f"{NAMESPACE_LABEL} alone, and this gate cannot say which it reaches"
+                f"an {way} peer on {policy} names namespaces by something other than "
+                f"{NAMESPACE_LABEL} alone, and this gate cannot say which it names"
             )
         namespace = chosen[NAMESPACE_LABEL]
     selector = peer.get("podSelector")
@@ -436,34 +478,34 @@ def destination(peer, policy):
         or not selector["matchLabels"]
     ):
         refuse(
-            f"an egress peer on {policy} is neither an address block nor pods named by "
-            "their labels, and this gate cannot say what it reaches: a peer naming no "
-            "label reaches every pod in its namespace"
+            f"an {way} peer on {policy} is neither an address block nor pods named by "
+            "their labels, and this gate cannot say what it names: a peer naming no "
+            "label is every pod in its namespace"
         )
     return f"{written(selector['matchLabels'])} in {namespace}"
 
 
-def reach(policy):
-    """Everything one policy's egress admits, as (who, protocol, port)."""
+def reach(policy, way):
+    """Everything one policy admits in one direction, as (who, protocol, port)."""
     name = policy["metadata"]["name"]
     found = set()
-    for arm in policy["spec"].get("egress") or []:
-        peers = arm.get("to") or []
+    for arm in policy["spec"].get(way) or []:
+        peers = arm.get(PEERS[way]) or []
         ports = arm.get("ports") or []
         if not peers or not ports:
             refuse(
-                f"an egress arm on {name} names no destination or no port, so it admits "
-                "every one of whichever it leaves out"
+                f"an {way} arm on {name} names no peer or no port, so it admits every "
+                "one of whichever it leaves out"
             )
         for port in ports:
             number = port.get("port")
             if "endPort" in port or isinstance(number, bool) or not isinstance(number, int):
                 refuse(
-                    f"an egress arm on {name} names the port {number!r} or a range from "
+                    f"an {way} arm on {name} names the port {number!r} or a range from "
                     "it, and this gate reads one number at a time"
                 )
             for peer in peers:
-                found.add((destination(peer, name), port.get("protocol", "TCP"), number))
+                found.add((whom(peer, name, way), port.get("protocol", "TCP"), number))
     return found
 
 
@@ -597,7 +639,7 @@ def database(documents):
         )
     reached = set()
     for document in isolating:
-        reached |= reach(document)
+        reached |= reach(document, "egress")
     server = (f"{written(chosen)} in {CONTROL}", "TCP", landed)
     if server not in reached:
         refuse(
@@ -650,6 +692,79 @@ def database(documents):
         )
 
 
+def served(documents, labels):
+    """The port on the plane's pod that a call to its Service lands on."""
+    service = one(documents, "Service", PLANE_SERVICE, CONTROL)
+    chosen = service["spec"].get("selector") or {}
+    if not chosen or any(labels.get(key) != value for key, value in chosen.items()):
+        refuse(
+            f"Service {PLANE_SERVICE} selects {written(chosen)!r}, which the plane's pod "
+            "does not carry, so the port it lands on is not one this gate can read"
+        )
+    published = service["spec"].get("ports") or []
+    if len(published) != 1 or published[0].get("protocol", "TCP") != "TCP":
+        refuse(
+            f"Service {PLANE_SERVICE} does not publish one TCP port, and this gate "
+            "resolves one"
+        )
+    target = published[0].get("targetPort", published[0]["port"])
+    if not isinstance(target, int):
+        numbers = {
+            entry["containerPort"]
+            for entry in container(documents, PLANE).get("ports") or []
+            if entry.get("name") == target
+        }
+        if len(numbers) != 1:
+            refuse(
+                f"Service {PLANE_SERVICE} targets the named port {target!r}, which the "
+                f"{PLANE[1]} container publishes {len(numbers)} numbers for"
+            )
+        target = numbers.pop()
+    return target
+
+
+def ingress(documents):
+    """Who reaches the plane's pod, and on what."""
+    plane = one(documents, "Deployment", PLANE[0], CONTROL)
+    labels = plane["spec"]["template"]["metadata"].get("labels") or {}
+    port = served(documents, labels)
+
+    # A pod no policy isolates for ingress admits the whole pod network, so
+    # the policy named for the plane is held to be one that does.
+    isolating = [
+        document
+        for document in documents
+        if document.get("kind") == "NetworkPolicy"
+        and document["metadata"].get("namespace") == CONTROL
+        and isolates_for_ingress(document)
+        and selects(document["spec"].get("podSelector") or {}, labels, document["metadata"]["name"])
+    ]
+    if INGRESS_POLICY not in [document["metadata"]["name"] for document in isolating]:
+        refuse(
+            f"{INGRESS_POLICY} does not isolate the plane's pod for ingress: its "
+            "policyTypes leave Ingress out or its podSelector selects another pod, so "
+            "the sources it names bound nothing here"
+        )
+    admitted = set()
+    for document in isolating:
+        admitted |= reach(document, "ingress")
+
+    wanted = {(who, "TCP", port) for who, _ in SOURCES}
+    wider = admitted - wanted
+    if wider:
+        refuse(
+            f"the plane's pod also admits {spoken(wider)}: its gate and its probes take "
+            f"no token, and {' and '.join(who for who, _ in SOURCES)} on TCP {port}, "
+            f"where Service {PLANE_SERVICE} lands, are the whole of who reaches them"
+        )
+    for who, what in SOURCES:
+        if (who, "TCP", port) not in admitted:
+            refuse(
+                f"the plane's pod does not admit {who} on TCP {port}, where Service "
+                f"{PLANE_SERVICE} lands: that is {what}, and it is refused"
+            )
+
+
 def main():
     if len(sys.argv) != 2:
         refuse("usage: access-plane.py RENDERED_MANIFEST")
@@ -670,6 +785,7 @@ def main():
             )
 
     database(documents)
+    ingress(documents)
 
 
 if __name__ == "__main__":

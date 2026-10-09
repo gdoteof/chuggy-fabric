@@ -1,7 +1,10 @@
 # The access plane: where a tenant's and a project's people are listed, a role
 # is granted to one or removed, and a person is invited. kasofsk/chuggy's
 # `src/roots/accessPlane.ts` is the process and `src/contract/accessPlane.ts`
-# its routes, every one of them under `/access/v1`.
+# its routes. Every one a signed-in caller is served is under `/access/v1`. One
+# is not, and takes no token: the registration gate, which a Kratos whose
+# registration is open asks before it makes an account. The policy below says
+# who reaches it.
 #
 # It has the pool plane's arrangement: the image, one replica rolled by the
 # default strategy, the URL assembled from the Secret's password, the label and
@@ -220,18 +223,32 @@ spec:
       port: 3003
       targetPort: http
 ---
-# Traefik alone, as the pool plane: a browser reaches this plane through the
-# tunnel and the `chuggy` Ingress, and no process on this cluster calls it.
+# Traefik and Kratos, and no other source. A browser reaches this plane through
+# the tunnel and the `chuggy` Ingress, which forwards its prefix and nothing
+# else of it. Kratos is the one process on this cluster admitted to call it,
+# for the registration gate: `accessRegistrationGatePath` in kasofsk/chuggy's
+# `src/contract/accessPlane.ts`, which answers whether the token it is sent is
+# an open invite link whose maker may make accounts.
+# `cluster/apps/ory/kratos.yaml` says whether Kratos's registration is open,
+# and so whether anything asks.
 #
 # THAT IS ENOUGH, AND IT IS NOT WHAT GUARDS THE TWO PORTS BEHIND THIS POD THAT
 # AUTHENTICATE NOBODY, Keto's write port and Kratos's admin port. Traefik is
 # the open internet's way in, so who is admitted here bounds nothing about who
-# may ask. What bounds that is the plane: every route under the prefix verifies
-# a bearer before it reads a body, then asks Keto whether that principal
-# administers the tenant or the project it names, and answers anyone else as
-# absent. What this policy keeps from the pod network is the probes' two
-# paths, which take no token and which Traefik does not route; `/health/ready`
-# costs the database a read and Keto a round of them each time it is asked.
+# may ask under the prefix. What bounds that is the plane: every route under
+# the prefix verifies a bearer before it reads a body, then asks Keto whether
+# that principal administers the tenant or the project it names, and answers
+# anyone else as absent.
+#
+# WHAT THIS POLICY KEEPS FROM THE POD NETWORK IS EVERY PATH THAT TAKES NO
+# TOKEN, none of which Traefik routes: the gate and the probes' two. The gate
+# answers whoever reaches it, at a read of the database for each token it is
+# asked about; `/health/ready` costs the database a read and Keto a round of
+# them each time it is asked. So a pod admitted here may ask the gate about
+# any token, and Kratos is the one pod that has to. It asks from `ory`, so the
+# element names that namespace and the label Kratos's pod carries there, and
+# any pod made in `ory` under that label is admitted with it.
+# tests/access-plane.py holds the policy to these two sources on this port.
 #
 # The kubelet's probes need no element, for the reason
 # chuggy-control-plane-network-policy.yaml gives over the API's.
@@ -252,6 +269,11 @@ spec:
           podSelector:
             matchLabels:
               app.kubernetes.io/name: traefik
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ory
+          podSelector:
+            matchLabels: { app: kratos }
       ports:
         - { protocol: TCP, port: 3003 }
 ---

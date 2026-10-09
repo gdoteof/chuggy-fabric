@@ -213,7 +213,8 @@
         # the two refuses a token the other accepts. And its database: the URL
         # against its login role and its group role, the password against one
         # Secret key, and its egress against PostgreSQL beside what it reached
-        # before it had one.
+        # before it had one. And who reaches its port, where its gate and its
+        # probes take no token: the edge and Kratos, and no other source.
         access-plane = import ./tests/access-plane.nix { inherit pkgs; };
 
         # The rendered cluster, which must carry no per-repository token at
