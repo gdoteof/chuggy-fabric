@@ -211,6 +211,12 @@
         # evaluated.
         kratos-github = import ./tests/kratos-github.nix { inherit pkgs; };
 
+        # The image the login page is served by against the one its view was
+        # read against. The view hides parts of a card by where that image
+        # draws them, and a new image is one line that evaluates whatever the
+        # card then looks like.
+        ory-ui-view = import ./tests/ory-ui-view.nix { inherit pkgs; };
+
         # The access plane's issuer, audience and algorithms against the API's,
         # which they are copies of: the console signs a person out when one of
         # the two refuses a token the other accepts. And its database: the URL
