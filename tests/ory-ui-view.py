@@ -101,8 +101,9 @@ def main():
             f"Deployment {NAMESPACE}/{DEPLOYMENT} runs {container['image']} and {VIEW} was "
             f"read against {read[0]}. The view hides parts of the login card by where that "
             "image draws them, so drive the card under the new image first -- as it arrives, "
-            "after `Use a password`, after a refused password, after an expired flow -- and "
-            "see the GitHub button on every one. Then name the new digest in the view."
+            "after `Use a password`, after a refused password, after an expired flow, after a "
+            "Cancel at GitHub -- and see the GitHub button on every one. Then name the new "
+            "digest in the view."
         )
 
 

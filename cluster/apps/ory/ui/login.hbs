@@ -9,9 +9,9 @@
   {{/if}}
 </div>
 {{! The image's own login.hbs with three differences: two of the card's links
-    are hidden, its password form is closed until asked for, and its GitHub
-    button is filled. The element and the link above are the second, and the
-    rest is the rules below, each under its reason.
+    are hidden, its E-Mail and password fields are closed until asked for,
+    and its GitHub button is filled. The element and the link above are the
+    second, and the rest is the rules below, each under its reason.
 
     READ AGAINST THE IMAGE
     sha256:46a7bac1ad0c67c692b37d0380613fd4618fd751afac2c5314aa8d3ae77ef1f0
@@ -57,14 +57,37 @@
       asks again: a form's post keeps no fragment and the new flow nothing
       that was typed, so the page cannot tell the two people apart.
 
-      ONLY A CARD THAT OFFERS BOTH IS CLOSED. Without the GitHub button, which
-      a refresh leaves out for an identity that holds no GitHub account, a
-      closed card would offer nothing but the link that opens it.
+      NOR ON A FLOW THAT HAS BEEN SENT TO GITHUB, whatever message it carries.
+      A person new here who pressed the GitHub button and pressed Cancel there
+      comes back to the same flow under a message, and would be drawn a
+      password form. So the message is drawn and the card stays closed. A
+      password posted to such a flow leaves it a flow sent to GitHub, so a
+      person who holds one and gets it wrong there comes back to a closed card
+      as well, that refusal drawn over it, and asks once more; the E-Mail that
+      was typed is kept.
+
+      SUCH A FLOW IS KNOWN BY ITS CARD. The image draws the card's E-Mail
+      field a second time on it, in the GitHub form above the button. The
+      button signs in without it, and to a person new here it is something to
+      fill in, so it is hidden: a person who pressed the button, did not
+      finish at GitHub and opens the same address again meets the card they
+      first met. A refresh keeps the identity's address in that form as well,
+      in a field of the hidden type, and is no flow sent to GitHub; so the
+      card is asked for a field of another type.
+
+      ONLY A CARD THAT OFFERS BOTH IS CLOSED. Without the GitHub button a
+      closed card would offer nothing but the link that opens it, and two
+      cards come without it: a refresh for an identity that holds no GitHub
+      account, and the one that asks for an identity's password before a
+      GitHub account is added to it.
 
       The fields are read by the names Kratos gives them, which a form has to
       post under whatever draws it. The message is read by the image's test
-      id, which another image may not carry: a refused password is then still
-      told, above a form that is closed. }}
+      id, and so is the GitHub form where the card is asked which form holds
+      an E-Mail field, because one :has() cannot hold another. Another image
+      may carry neither id. Without the message's a refused password is still
+      told, above a form that is closed; without the form's a card sent to
+      GitHub is drawn open under its message, as the image draws it. }}
   #login {
     position: relative;
   }
@@ -88,9 +111,15 @@
     color: var(--ory-theme-foreground-def);
   }
   #use-password:not(:target)
-    ~ div:has(button[name="provider"]):has(input[name="password"]):not(
+    ~ div:has(button[name="provider"]):has(input[name="password"]):is(
+      :not(
+        :has(
+          [data-testid^="ui/message/"]:not([data-testid="ui/message/4010001"])
+        )
+      ),
       :has(
-        [data-testid^="ui/message/"]:not([data-testid="ui/message/4010001"])
+        [data-testid="login-flow-oidc"]
+          input[name="identifier"]:not([type="hidden"])
       )
     ) {
     {{! The room under the GitHub button that the link is drawn in. }}
@@ -102,6 +131,12 @@
     & ~ a[href="#use-password"] {
       display: block;
     }
+  }
+  {{! The E-Mail field of a flow that has been sent to GitHub. }}
+  #login
+    form:has(button[name="provider"])
+    div:has(input[name="identifier"]):not(:has(button[name="provider"])) {
+    display: none;
   }
 
   {{! The image draws the GitHub button outlined and the password's filled.
