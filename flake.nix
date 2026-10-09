@@ -210,7 +210,10 @@
 
         # The access plane's issuer, audience and algorithms against the API's,
         # which they are copies of: the console signs a person out when one of
-        # the two refuses a token the other accepts.
+        # the two refuses a token the other accepts. And its database: the URL
+        # against its login role and its group role, the password against one
+        # Secret key, and its egress against PostgreSQL beside what it reached
+        # before it had one.
         access-plane = import ./tests/access-plane.nix { inherit pkgs; };
 
         # The rendered cluster, which must carry no per-repository token at
