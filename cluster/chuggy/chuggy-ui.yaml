@@ -50,8 +50,8 @@
 # What that costs is a `kubectl` away from anyone who needs the answer. Both
 # paths therefore fall to the console below and are served its index. The access
 # plane serves the same two paths at its own root, outside its prefix, so its
-# probes are not published either; its `/health/ready` asks Keto and no
-# database.
+# probes are not published either; its `/health/ready` asks its own database
+# and Keto.
 #
 # --------------------------------------------------------- the runtime config ----
 #

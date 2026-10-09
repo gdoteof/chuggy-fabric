@@ -230,7 +230,7 @@ spec:
 # administers the tenant or the project it names, and answers anyone else as
 # absent. What this policy keeps from the pod network is the probes' two
 # paths, which take no token and which Traefik does not route; `/health/ready`
-# costs Keto a round of reads each time it is asked.
+# costs the database a read and Keto a round of them each time it is asked.
 #
 # The kubelet's probes need no element, for the reason
 # chuggy-control-plane-network-policy.yaml gives over the API's.
