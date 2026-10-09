@@ -16,19 +16,20 @@
 # there is.
 #
 # 4434 IS THE UNAUTHENTICATED ADMIN API and can mint an identity or a session
-# for anyone, and it returns the GitHub tokens of anyone who linked an account,
-# which `ory/kratos.yaml` describes. What holds it to callers inside `ory` and
-# to the access plane is the policy in ory-network-policy.yaml, which also
-# states the three ways past it and the one road to these same tables it does
-# not touch at all.
+# for anyone, and it returns the GitHub tokens of anyone who registered with an
+# account or linked one, which `ory/kratos.yaml` describes. What holds it to
+# callers inside `ory` and to the access plane is the policy in
+# ory-network-policy.yaml, which also states the three ways past it and the one
+# road to these same tables it does not touch at all.
 #
 # The migration initContainer and the DDL/DML role split are as ory-hydra.yaml
 # describes, and so is the config file: `ory/kratos.yaml`,
-# `ory/identity.default.schema.json` and `ory/oidc.github.jsonnet` are the
-# files this pod mounts, and cluster/apps/kustomization.yaml generates the
-# hashed ConfigMap that carries them. Editing any of them rolls this
-# Deployment, which is gdoteof/chuggy-fabric#7 -- the issue was found on this
-# workload.
+# `ory/identity.default.schema.json`, `ory/oidc.github.jsonnet` and the two
+# hook bodies, `ory/registration.gate.jsonnet` and
+# `ory/registration.refusal.jsonnet`, are the files this pod mounts, and
+# cluster/apps/kustomization.yaml generates the hashed ConfigMap that carries
+# them. Editing any of them rolls this Deployment, which is
+# gdoteof/chuggy-fabric#7 -- the issue was found on this workload.
 #
 # THE IDENTITY SCHEMA IS IN THAT HASH TOO, which matters more here than the
 # server config does: a schema change that did not reach the running pod would
@@ -108,8 +109,9 @@ spec:
               valueFrom:
                 secretKeyRef: { name: kratos, key: secrets-cookie }
             # The key of the cipher `ory/kratos.yaml` names, under which the
-            # GitHub tokens a linked account leaves are stored. Exactly 32
-            # characters -- ory-namespace.yaml says how that is guaranteed.
+            # GitHub tokens a registered or linked account leaves are stored.
+            # Exactly 32 characters -- ory-namespace.yaml says how that is
+            # guaranteed.
             - name: SECRETS_CIPHER
               valueFrom:
                 secretKeyRef: { name: kratos, key: secrets-cipher }

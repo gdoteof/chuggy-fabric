@@ -203,9 +203,12 @@
         ory-admin = import ./tests/ory-admin.nix { inherit pkgs; };
 
         # What signing in with GitHub may do: sign in an identity that holds
-        # the account and make none. The method and the closed registration
-        # flow that bounds it are two sections of one document, and the client
-        # secret reaches one element of a list by its position.
+        # the account, and make one only for a person the access plane's gate
+        # admits. The method and the registration flow that bounds it are two
+        # sections of one document, each method that can register carries its
+        # own hook to that gate, and the client secret reaches one element of
+        # a list by its position. The mapper and the hooks' bodies are
+        # evaluated.
         kratos-github = import ./tests/kratos-github.nix { inherit pkgs; };
 
         # The access plane's issuer, audience and algorithms against the API's,

@@ -72,7 +72,9 @@ Hydra signs as, and the audience the one chuggy-ui.yaml has the console ask
 for. Nor that either role exists, that the login is a member of the group, or
 that the key holds the password PostgreSQL accepts: those are the roles file's
 and the migration's, on the rig. Nor that the pods of either source carry the
-labels it is named by: Traefik's are k3s's, and no render shows them.
+labels it is named by: Traefik's are k3s's, and no render shows them, and
+Kratos's are tests/kratos-github.py's, which reads this policy with the labels
+that Deployment renders wherever Kratos's registration is open.
 """
 
 import re
