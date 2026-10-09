@@ -170,6 +170,7 @@ pkgs.testers.runNixOSTest {
         "scheduler-password",
         "finalizer-password",
         "worker-plane-password",
+        "access-plane-password",
         "configuration-importer-password",
     ]
     pgdir = "/var/lib/chuggy/secrets/chuggy-postgres-credentials"
@@ -345,8 +346,8 @@ pkgs.testers.runNixOSTest {
     with subtest("every declared credential exists, root-only, and is 256 bits"):
         # The length is asserted, not just non-emptiness. `test -s` and
         # distinctness both pass on four hex characters, so a generator whose
-        # `openssl rand -hex 32` had become `-hex 4` would leave eight passwords
-        # with 32 bits behind them and nothing here would have noticed.
+        # `openssl rand -hex 32` had become `-hex 4` would leave every password
+        # with 32 bits behind it and nothing here would have noticed.
         for key in keys:
             assert machine.succeed("stat -c '%a %U' " + pgdir + "/" + key).strip() == "600 root"
             machine.succeed("grep -qxE '[0-9a-f]{64}' " + pgdir + "/" + key)
@@ -376,7 +377,7 @@ pkgs.testers.runNixOSTest {
 
     first = read_secrets()
 
-    with subtest("distinct credentials, not one value copied eight times"):
+    with subtest("distinct credentials, not one value copied to every key"):
         assert len(set(first[name] for name in keys + tokens)) == len(keys + tokens)
 
     with subtest("no value reached the journal or /etc"):
