@@ -99,6 +99,14 @@ spec:
             - name: admin
               containerPort: 4434
           env:
+            # Ory's telemetry opt-out, which hydra.yaml and ory-keto.yaml
+            # make too. Kratos's schema has no `sqa` key and
+            # tests/kratos-github.py holds its command to the one document,
+            # so it is the variable Kratos reads for it. It ends the reports
+            # of use; a start still tells Ory once that this instance opted
+            # out.
+            - name: SQA_OPT_OUT
+              value: "true"
             - name: DSN
               valueFrom:
                 secretKeyRef: { name: kratos, key: dsn }
