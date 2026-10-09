@@ -1411,7 +1411,7 @@ One process per responsibility, all out of one image:
 | `chuggy-finalizer` | `src/roots/finalizer.ts` | `chuggy_finalizer` | no |
 | `chuggy-worker-plane` | `src/roots/workerPlane.ts` | `chuggy_worker_plane` | yes, 3001 |
 | `chuggy-pool-plane` | `src/roots/poolPlane.ts` | `chuggy_pool_plane` | yes, 3002 |
-| `chuggy-access-plane` | `src/roots/accessPlane.ts` | none: it reads and writes Keto and Kratos over their APIs | yes, 3003 |
+| `chuggy-access-plane` | `src/roots/accessPlane.ts` | `chuggy_access_plane`, for invite links alone: roles are Keto's and people Kratos's, over their APIs | yes, 3003 |
 
 Plus `chuggy-migrate-<commit>-registry`, a Job that dumps the database and then
 applies the schema, named by a release for the chuggy commit it applies it

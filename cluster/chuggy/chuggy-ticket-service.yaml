@@ -2,9 +2,9 @@
 # tickets through authoring, work, evaluation and completion.
 #
 # One responsibility, one pod, one command out of the shared image, one database
-# role. The selector, scheduler, finalizer, worker plane, pool plane and API
-# beside it are the same arrangement with a different command and role, and the
-# parts they share are argued here rather than in each.
+# role. The selector, scheduler, finalizer, worker plane, pool plane, access
+# plane and API beside it are the same arrangement with a different command and
+# role, and the parts they share are argued here rather than in each.
 #
 # ------------------------------------------------------- the shared image ----
 #
