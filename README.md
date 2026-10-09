@@ -1659,15 +1659,16 @@ they are resumed.
 
 ### Signing in with GitHub
 
-The login page at `id.vteng.io` offers GitHub beside the password, through the
-`chuggy-portal` App. **It signs in an identity that already holds the GitHub
-account, and makes one only for a person the access plane's gate admits.** An
-account no identity holds falls through to registration, and before Kratos
-stores anything it asks the plane whether the browser holds an open invite
-link whose maker may make accounts. Admitted, the person is given an identity
-and signed in. Refused, they are sent to `https://chuggy.vteng.io/invite` with
-the flow's id and no identity. Registering with a password asks the same gate
-with no token and is always refused.
+The login page at `id.vteng.io` opens on GitHub alone, through the
+`chuggy-portal` App, and keeps the password form behind `Use a password`. **It
+signs in an identity that already holds the GitHub account, and makes one only
+for a person the access plane's gate admits.** An account no identity holds
+falls through to registration, and before Kratos stores anything it asks the
+plane whether the browser holds an open invite link whose maker may make
+accounts. Admitted, the person is given an identity and signed in. Refused,
+they are sent to `https://chuggy.vteng.io/invite` with the flow's id and no
+identity. Registering with a password asks the same gate with no token and is
+always refused.
 
 An identity also holds an account because its owner, signed in by password,
 pressed `Link GitHub` on `https://id.vteng.io/settings`, or because whoever

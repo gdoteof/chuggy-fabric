@@ -1,21 +1,113 @@
 <div id="login">
+  <span id="use-password"></span>
   {{{card}}}
+  <a href="#use-password">Use a password</a>
 
   {{> js_setup nodes=nodes}}
   {{#if extraPartial }}
     {{> (extraPartial) }}
   {{/if}}
 </div>
-{{! The image's own login.hbs with one addition. The card links sign-up and
-    recovery whether or not kratos.yaml enables them. It enables no recovery.
-    It opens registration only to a person who signs in with GitHub from a
-    browser holding an invite link, and that is the GitHub button on this
-    card. The sign-up link starts a registration by hand instead, which
-    kratos.yaml sends to a page of the console that registers nobody, so the
-    link stays hidden. }}
+{{! The image's own login.hbs with three differences: two of the card's links
+    are hidden, its password form is closed until asked for, and its GitHub
+    button is filled. The element and the link above are the second, and the
+    rest is the rules below, each under its reason. }}
 <style>
+  {{! The card links sign-up and recovery whether or not kratos.yaml enables
+      them. It enables no recovery. It opens registration only to a person who
+      signs in with GitHub from a browser holding an invite link, and that is
+      the GitHub button on this card. The sign-up link starts a registration by
+      hand instead, which kratos.yaml sends to a page of the console that
+      registers nobody, so the link stays hidden. }}
   div:has(> a[data-testid="forgot-password-link"]),
   div:has(> div > a[data-testid="signup-link"]) {
     display: none;
+  }
+
+  {{! THE CARD OPENS ON GITHUB ALONE. A person new here has no password and
+      cannot make one on this card, for the reasons above, and the image draws
+      the password form open all the same, which reads as an account to be
+      made. An identity that holds a password still signs in with it, so the
+      form stays in the card, closed, and the link under the GitHub button
+      opens it.
+
+      NO SCRIPT. The link names the empty element before the card, and the
+      form is closed only while the page's address does not. Following the
+      link also moves where the Tab key starts to that element, so the keys
+      after it walk the card from its top.
+
+      A CARD THAT CARRIES A MESSAGE IS DRAWN OPEN. A refused password comes
+      back as the same flow with a message, at an address without the
+      fragment, and a closed form would hide what the message is about. A
+      refresh carries one too, so it is drawn as the image draws it.
+
+      ONLY A CARD THAT OFFERS BOTH IS CLOSED. Without the GitHub button, which
+      a refresh leaves out for an identity that holds no GitHub account, a
+      closed card would offer nothing but the link that opens it.
+
+      The fields are read by the names Kratos gives them, which a form has to
+      post under whatever draws it. The message is read by the image's test
+      id, which another image may not carry: a refused password is then still
+      told, above a form that is closed. }}
+  #login {
+    position: relative;
+  }
+  a[href="#use-password"] {
+    display: none;
+    position: absolute;
+    inset-inline: 0;
+    bottom: 1.75rem;
+    width: fit-content;
+    margin-inline: auto;
+    padding: 0.75rem;
+    border-radius: 0.25rem;
+    font-family: var(--ory-theme-font-family);
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    color: var(--ory-theme-foreground-muted);
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+  a[href="#use-password"]:hover {
+    color: var(--ory-theme-foreground-def);
+  }
+  #use-password:not(:target)
+    ~ div:has(button[name="provider"]):has(input[name="password"]):not(
+      :has([data-testid^="ui/message/"])
+    ) {
+    {{! The room under the GitHub button that the link is drawn in. }}
+    padding-bottom: 5.25rem;
+    & form:has(input[name="password"]),
+    & form:has(button[name="provider"]) + hr {
+      display: none;
+    }
+    & ~ a[href="#use-password"] {
+      display: block;
+    }
+  }
+
+  {{! The image draws the GitHub button outlined and the password's filled.
+      This one is filled in the colours the image gives it while it is
+      pressed. The image marks focus on it by the colour of its border, which
+      a filled button does not show, so a ring is drawn: around the link, and
+      inside the button, because the card's grids clip what is drawn outside
+      one. }}
+  #login button[name="provider"] {
+    color: var(--ory-theme-foreground-on-dark);
+    background-color: var(--ory-theme-foreground-def);
+    border-color: var(--ory-theme-foreground-def);
+  }
+  #login button[name="provider"]:hover,
+  #login button[name="provider"]:active {
+    background-color: var(--ory-theme-foreground-muted);
+    border-color: var(--ory-theme-foreground-muted);
+  }
+  #login button[name="provider"]:focus-visible {
+    outline: 2px solid var(--ory-theme-foreground-on-dark);
+    outline-offset: -5px;
+  }
+  a[href="#use-password"]:focus-visible {
+    outline: 2px solid var(--ory-theme-accent-def);
+    outline-offset: 2px;
   }
 </style>
