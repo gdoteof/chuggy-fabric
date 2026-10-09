@@ -25,11 +25,11 @@ is refused the server at its first connection, and the plane is never ready.
 So:
 
   - the URL signs in as `chuggy_access_plane_login`, sets `chuggy_access_plane`
-    and nothing else, and addresses PostgreSQL's Service on the port it
-    publishes, and the container names no second database;
-  - the password in it is the variable defined above it, which is one key of
-    `chuggy-postgres-credentials`, and the pod is handed no other key of any
-    Secret;
+    and nothing else, and names PostgreSQL's Service and a port that lands on
+    one its server declares, and the container names no second database;
+  - the password in it is the variable the same container defines above it,
+    which is one key of `chuggy-postgres-credentials`, and no container of the
+    pod is handed another key of any Secret, or that one a second time;
   - the pod carries the client label, and `postgres-admits-labelled-clients`
     admits a pod so labelled on the port the URL lands on;
   - the pod's egress reaches the pods that Service selects on that port, and
@@ -38,15 +38,19 @@ So:
 
 AND A ROLLOUT LEAVES THE OLD POD SERVING. chuggy-access-plane.yaml says a plane
 whose login role does not exist yet is never ready while the pod before it
-keeps serving. That is the default strategy's doing, and the `Recreate` that
-workloads beside it carry would remove the old pod first.
+keeps serving, and each half is a line of the manifest. Never ready is the
+readiness probe asking `/health/ready`: with no probe, or one on another path,
+a started pod is a ready one, and a plane that cannot sign in is reported
+rolled. Keeps serving is the default strategy: the `Recreate` that workloads
+beside it carry, or a rolling update told to start no pod beside the old one,
+removes the old pod first.
 
 WHAT THIS GATE CANNOT READ IT REFUSES rather than passes: a variable either
 container names twice or not at all, one that is empty, one whose value comes
 from a Secret or a ConfigMap where a literal is held, one the kubelet would
 rewrite before the process read it, an environment taken whole with `envFrom`,
-a Secret mounted as a volume, and an egress peer or port in a shape it does not
-resolve.
+a Secret mounted as a volume, an egress peer or port in a shape it does not
+resolve, and a surge that is neither a number of pods nor a percentage.
 
 WHAT IT DOES NOT HOLD is that the original is right: that the issuer is the one
 Hydra signs as, and the audience the one chuggy-ui.yaml has the console ask
@@ -55,6 +59,7 @@ that the key holds the password PostgreSQL accepts: those are the roles file's
 and the migration's, on the rig.
 """
 
+import re
 import sys
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
@@ -94,6 +99,10 @@ POSTGRES_SERVICE = "postgres"
 POSTGRES_POLICY = "postgres-admits-labelled-clients"
 POSTGRES_CLIENT = ("chuggy.dev/postgres-client", "true")
 EGRESS_POLICY = "chuggy-access-plane-egress"
+
+# The path whose answer waits on the database. chuggy-access-plane.yaml says
+# what the process asks before it answers it.
+READY = "/health/ready"
 
 CLUSTER_SUFFIX = ".svc.cluster.local"
 
@@ -146,8 +155,8 @@ def one(documents, kind, name, namespace):
     return found[0]
 
 
-def environment(documents, workload):
-    """The `env` of one container of one Deployment in the control namespace."""
+def container(documents, workload):
+    """One container of one Deployment in the control namespace."""
     deployment, box = workload
     found = [
         document
@@ -165,7 +174,12 @@ def environment(documents, workload):
     ]
     if len(boxes) != 1:
         refuse(f"{deployment} has {len(boxes)} containers named {box}")
-    return boxes[0].get("env") or []
+    return boxes[0]
+
+
+def environment(documents, workload):
+    """The `env` of that container."""
+    return container(documents, workload).get("env") or []
 
 
 def literal(env, workload, variable):
@@ -231,9 +245,9 @@ def written(labels):
 
 
 def secrets_handed(pod):
-    """Every Secret key the pod's containers are handed, as (variable, Secret,
-    key), and a refusal where one arrives in a way this gate does not read a
-    key from."""
+    """Every Secret key the pod's containers are handed, as (container,
+    variable, Secret, key), and a refusal where one arrives in a way this gate
+    does not read a key from."""
     found = []
     for entry in (pod.get("initContainers") or []) + (pod.get("containers") or []):
         if entry.get("envFrom"):
@@ -250,7 +264,9 @@ def secrets_handed(pod):
                         "starts with the variable unset and whatever names it reads as "
                         "the text it was written as"
                     )
-                found.append((item["name"], reference.get("name"), reference.get("key")))
+                found.append(
+                    (entry["name"], item["name"], reference.get("name"), reference.get("key"))
+                )
     for volume in pod.get("volumes") or []:
         if "secret" in volume or "projected" in volume:
             refuse(
@@ -323,19 +339,19 @@ def database_url(env):
 
 def landing(documents, port):
     """Where a connection to PostgreSQL's Service on `port` lands: the labels
-    its selector names and the container port, resolved as the kernel does."""
+    its selector names, and the port on the pod so labelled.
+
+    A HEADLESS SERVICE TRANSLATES NOTHING. Its name resolves to the server's
+    own address, so the connection lands on the port the URL names and the
+    Service's `port` and `targetPort` are never consulted: a Service that
+    published another number, with the URL following it, would have the plane
+    dial a port nothing listens on. Behind a cluster address the port is the
+    one the Service publishes, and it lands on that one's `targetPort`.
+
+    Either way it is held to a port the server's containers declare, which is
+    what the manifest says of where the server listens.
+    """
     service = one(documents, "Service", POSTGRES_SERVICE, CONTROL)
-    published = service["spec"].get("ports") or []
-    if len(published) != 1:
-        refuse(
-            f"Service {POSTGRES_SERVICE} publishes {len(published)} ports, and this gate "
-            "resolves one"
-        )
-    if published[0]["port"] != port:
-        refuse(
-            f"{DATABASE_URL} reaches port {port}, and Service {POSTGRES_SERVICE} publishes "
-            f"{published[0]['port']}"
-        )
     chosen = service["spec"].get("selector") or {}
     servers = [
         document
@@ -350,21 +366,49 @@ def landing(documents, port):
             f"Service {POSTGRES_SERVICE} selects {len(servers)} workloads in `{CONTROL}`, "
             "and this gate resolves the one that answers it"
         )
-    target = published[0].get("targetPort", published[0]["port"])
-    if isinstance(target, int):
-        return chosen, target
-    numbers = {
-        declared["containerPort"]
-        for entry in servers[0]["spec"]["template"]["spec"]["containers"]
-        for declared in entry.get("ports", [])
-        if declared.get("name") == target
-    }
-    if len(numbers) != 1:
+    declared = [
+        entry
+        for box in servers[0]["spec"]["template"]["spec"]["containers"]
+        for entry in box.get("ports") or []
+    ]
+    listening = sorted({entry["containerPort"] for entry in declared})
+
+    if service["spec"].get("clusterIP") == "None":
+        if port not in listening:
+            refuse(
+                f"{DATABASE_URL} names port {port}, and Service {POSTGRES_SERVICE} is "
+                "headless: its name resolves to the server's own address and nothing "
+                f"translates the port, so the connection lands on {port}, where the "
+                f"server's containers declare {listening}"
+            )
+        return chosen, port
+
+    published = service["spec"].get("ports") or []
+    if len(published) != 1:
         refuse(
-            f"Service {POSTGRES_SERVICE} targets the named port {target!r}, which its pod "
-            f"publishes {len(numbers)} numbers for"
+            f"Service {POSTGRES_SERVICE} publishes {len(published)} ports, and this gate "
+            "resolves one"
         )
-    return chosen, numbers.pop()
+    if published[0]["port"] != port:
+        refuse(
+            f"{DATABASE_URL} reaches port {port}, and Service {POSTGRES_SERVICE} publishes "
+            f"{published[0]['port']}"
+        )
+    target = published[0].get("targetPort", published[0]["port"])
+    if not isinstance(target, int):
+        numbers = {entry["containerPort"] for entry in declared if entry.get("name") == target}
+        if len(numbers) != 1:
+            refuse(
+                f"Service {POSTGRES_SERVICE} targets the named port {target!r}, which its "
+                f"pod publishes {len(numbers)} numbers for"
+            )
+        target = numbers.pop()
+    if target not in listening:
+        refuse(
+            f"Service {POSTGRES_SERVICE} lands port {port} on {target}, where the server's "
+            f"containers declare {listening}"
+        )
+    return chosen, target
 
 
 def destination(peer, policy):
@@ -427,6 +471,22 @@ def spoken(triples):
     return "; ".join(f"{who} on {protocol} {port}" for who, protocol, port in sorted(triples))
 
 
+def surges(bound):
+    """Whether a rolling update's `maxSurge` starts a pod beside the old one.
+
+    The controller rounds a percentage of the replicas up, so every percentage
+    above nought is a pod. What is neither a number of pods nor a percentage
+    is not read as one.
+    """
+    if isinstance(bound, bool):
+        return False
+    if isinstance(bound, int):
+        return bound > 0
+    if isinstance(bound, str) and re.fullmatch(r"[0-9]+%", bound):
+        return int(bound[:-1]) > 0
+    return False
+
+
 def database(documents):
     plane = one(documents, "Deployment", PLANE[0], CONTROL)
     pod = plane["spec"]["template"]["spec"]
@@ -459,24 +519,35 @@ def database(documents):
             f"{PASSWORD} is not defined once and above {DATABASE_URL}, so the kubelet "
             "leaves the reference to it in the URL as the text it is written as"
         )
-    handed = secrets_handed(pod)
-    wanted = (PASSWORD, *CREDENTIAL)
-    if wanted not in handed:
+    #    It is read off the container the URL was read off, because that is
+    #    where the kubelet takes the reference from: the right key under the
+    #    right name in a container beside this one is not this password.
+    given = env[names.index(PASSWORD)]
+    source = given.get("valueFrom") or {}
+    reference = source.get("secretKeyRef") or {}
+    if (
+        "value" in given
+        or set(source) != {"secretKeyRef"}
+        or (reference.get("name"), reference.get("key")) != CREDENTIAL
+    ):
         refuse(
             f"{PASSWORD} is not the key {CREDENTIAL[1]} of the Secret {CREDENTIAL[0]}, "
             "which is the password the host generates for the plane's login role"
         )
+    wanted = (PLANE[1], PASSWORD, *CREDENTIAL)
     others = sorted(
-        f"{secret}/{key} as {name}" for name, secret, key in handed if (name, secret, key) != wanted
+        f"{secret}/{key} as {name} in the {box} container"
+        for box, name, secret, key in secrets_handed(pod)
+        if (box, name, secret, key) != wanted
     )
     if others:
         refuse(
-            f"the plane's pod is also handed {', '.join(others)}: its database password "
-            "is the one Secret key it has a use for"
+            f"the plane's pod is also handed {', '.join(others)}: its database password, "
+            f"in the {PLANE[1]} container, is the one Secret key it has a use for"
         )
 
     # 3. Admission at the server's end: the label, and then that the policy
-    #    asking for it admits a pod so labelled on the port the kernel matches.
+    #    asking for it admits a pod so labelled on the port the URL lands on.
     #    A bare podSelector there is scoped to `chuggy`, where this pod is.
     key, value = POSTGRES_CLIENT
     if labels.get(key) != value:
@@ -548,17 +619,34 @@ def database(documents):
         )
 
     # 5. A rollout starts the new pod beside the old one and removes the old
-    #    one only when the new one is ready, which the API server's defaults
-    #    give at any number of replicas. `Recreate`, or a rolling update told
-    #    it may take a pod away first, serves nothing while a new pod waits on
-    #    a login role that does not exist yet.
+    #    one only when the new one is ready, which is what the API server's
+    #    defaults come to at one replica. `Recreate`, or a rolling update told
+    #    it may take a pod away first or may start none beside it, serves
+    #    nothing while a new pod waits on a login role that does not exist yet.
     strategy = plane["spec"].get("strategy") or {}
-    unavailable = (strategy.get("rollingUpdate") or {}).get("maxUnavailable")
-    if strategy.get("type", "RollingUpdate") != "RollingUpdate" or unavailable not in (None, 0):
+    rolling = strategy.get("rollingUpdate") or {}
+    surge = rolling.get("maxSurge")
+    if (
+        strategy.get("type", "RollingUpdate") != "RollingUpdate"
+        or rolling.get("maxUnavailable") not in (None, 0)
+        or (surge is not None and not surges(surge))
+    ):
         refuse(
             f"{PLANE[0]} is rolled by {strategy!r}, which may remove the old pod before "
             "the new one is ready: a plane that cannot reach its database yet would then "
             "serve nothing, where the default strategy leaves the old pod serving"
+        )
+
+    # 6. And "ready" is the answer of the path that asks the database. With
+    #    no probe a started container is a ready pod, and the path beside this
+    #    one answers without asking.
+    probe = container(documents, PLANE).get("readinessProbe") or {}
+    if (probe.get("httpGet") or {}).get("path") != READY:
+        refuse(
+            f"the {PLANE[1]} container's readiness is not a probe of {READY}, the path "
+            "that asks the database who the plane is connected as: a plane that cannot "
+            "sign in would then be a ready pod, the rollout would remove the old one, and "
+            "the release would report it rolled"
         )
 
 

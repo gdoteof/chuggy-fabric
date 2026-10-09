@@ -34,7 +34,8 @@
 # strategy, the new pod is started beside the old one and the old one is
 # removed only once the new one is ready, so the pod of the release before
 # keeps serving what it served; tests/access-plane.py refuses a strategy that
-# would remove it first. What reports the new pod is the `chuggy` layer,
+# would remove it first, and a readiness probe on any path but the one that
+# asks the database. What reports the new pod is the `chuggy` layer,
 # cluster/flux/chuggy.yaml, whose `wait` does not see this Deployment ready.
 #
 # Beyond the database and the issuer, what it stands on is Keto, Kratos and the
