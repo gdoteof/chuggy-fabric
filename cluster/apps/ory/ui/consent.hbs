@@ -1,0 +1,90 @@
+<div id="consent">
+  {{{card}}}
+  <p id="asks">Wants to act as you on chuggy</p>
+  <script>
+    for (const box of document.querySelectorAll('#consent input[name="grant_scope"]'))
+      box.checked = true;
+    document.querySelector("#consent form").prepend(document.getElementById("asks"));
+  </script>
+</div>
+{{! The image's own consent.hbs, changed in what its card asks of a person. The
+    image draws a tick box for each permission a client asked for, unticked,
+    and its Allow grants the ticked ones. Pressed alone it grants none: the
+    sign-in goes through, and the client is given no renewal token though it
+    asked for one. This card is the client's name, the line above, Deny and
+    Allow, and its Allow grants every permission asked. The element and the
+    script above do that with the rules below, each under its reason.
+
+    A PROGRAM THAT SIGNS IN FROM A TERMINAL IS SHOWN THIS PAGE, where
+    `skip_consent` on its client or TRUSTED_CLIENT_IDS on this app would answer
+    for the person. It is a public client with a loopback redirect, and any
+    program on the same machine can ask as that client. This page is where a
+    person sees that one is about to act as them.
+
+    A SCRIPT, because the image's route hands a view the card as a string
+    already drawn: nothing here can write a tick into it, a box is posted only
+    when ticked, and the form has no id for a field outside it to join. The
+    script ticks every permission and then puts the line into the form. Hydra
+    has already refused a permission the client is not registered for, and the
+    image's route grants the same list itself for a client it skips this page
+    for. `remember` stays unticked, so a person is asked each time.
+
+    NOTHING IS HIDDEN UNLESS THE SCRIPT RAN, AND ONLY WHILE WHAT IT DID HOLDS.
+    The rule that hides the image's boxes asks for the line in the form, for
+    every tick box there but `remember` ticked, and for `remember` unticked. A
+    browser that runs no script draws the image's card, boxes and all, and so
+    does one in which a box has changed since: never a card whose Allow grants
+    other than what it shows.
+
+    THE IMAGE'S VIEW ALSO INCLUDES THE `scripts` PARTIAL, AND THIS ONE DOES
+    NOT. The layout this page is drawn in includes it already, and the script
+    it loads declares a constant, so loaded again it is an error in the
+    browser's console. It serves a password field, and this card has none.
+
+    READ AGAINST THE IMAGE
+    sha256:46a7bac1ad0c67c692b37d0380613fd4618fd751afac2c5314aa8d3ae77ef1f0
+    because the script and the rules read the card by the names its form posts
+    and by a tick box being what it draws a permission as. One that drew a
+    permission as anything else would leave the script nothing to tick and the
+    rule nothing unticked to see: the card would be Deny and Allow, and Allow
+    would grant nothing. So tests/ory-ui-view.py holds ory-ui.yaml to that
+    image, and another is named here once Allow has been pressed under it and
+    the token answer read for what was granted. }}
+<style>
+  {{! The line is drawn in the form alone, where the script puts it, and
+      close under the name: the card keeps its heading and its form further
+      apart than a name and what is said of it. }}
+  #consent > #asks {
+    display: none;
+  }
+  #asks {
+    margin: -1.5rem 0 2rem;
+    text-align: center;
+    color: var(--ory-theme-foreground-muted);
+  }
+
+  {{! Everything the form holds but the row Deny and Allow are in, and the
+      row of links to a client's own policy and terms, which the image draws
+      for a client registered with them. The boxes and the buttons are read by
+      the names the form posts them under, and the rows are taken to be the
+      children of the one element the form holds them in. }}
+  form:has(> #asks):not(
+      :has(
+        input[type="checkbox"]:not(:checked, [name="remember"]),
+        input[name="remember"]:checked
+      )
+    )
+    > div
+    > :not(:has(button[name="consent_action"], a)) {
+    display: none;
+  }
+
+  {{! The image marks keyboard focus on Allow by the colour of a border it
+      does not draw, and on Deny by a darker text alone. So a ring is drawn,
+      inside the button because the card's grids clip what is drawn outside
+      one. }}
+  #consent button[name="consent_action"]:focus-visible {
+    outline: 2px solid currentcolor;
+    outline-offset: -5px;
+  }
+</style>

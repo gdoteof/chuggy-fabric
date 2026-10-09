@@ -1,5 +1,5 @@
-# The image the self-service UI runs against the one its login view names, read
-# off the rendered manifests: the view reaches the pod through a generated
+# The image the self-service UI runs against the one each of its views names,
+# read off the rendered manifests: a view reaches the pod through a generated
 # ConfigMap whose name only the render knows. The argument is in
 # ory-ui-view.py's own header.
 { pkgs }:
