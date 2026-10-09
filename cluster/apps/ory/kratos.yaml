@@ -37,30 +37,38 @@ selfservice:
       enabled: false
     link:
       enabled: false
-    # SIGN-IN WITH GITHUB, FOR AN IDENTITY THAT ALREADY HOLDS THE ACCOUNT.
+    # OFF, AND SAID. Each can register an identity where it is on, and Kratos's
+    # default for both is off; tests/kratos-github.py reads this document and
+    # not Kratos's defaults, so each says so here. `flows.registration` below
+    # argues what a method that registers has to carry.
+    webauthn:
+      enabled: false
+    passkey:
+      enabled: false
+    # SIGN-IN WITH GITHUB, AND AN IDENTITY FOR AN ACCOUNT THE GATE ADMITS.
     # Kratos looks the account's numeric id up among the credentials its
     # identities carry, as `github:<id>`, and signs in the one that holds it.
-    # An account no identity holds falls through to registration, which is
-    # closed below: that person is returned to the login page under
-    # "Registration is not allowed because it was disabled." and no identity
-    # is made. So this method opens nothing `registration` closes, and
-    # tests/kratos-github.py holds the two together -- with it on, an open
-    # registration flow is an identity for every GitHub account that asks.
+    # An account no identity holds falls through to registration in the same
+    # request, and `flows.registration` below decides it: an identity is made
+    # where the access plane's gate admits the person, and none is made
+    # otherwise. tests/kratos-github.py holds the two together -- with this
+    # method on and that flow open without its gate, an identity is made for
+    # every GitHub account that asks.
     #
-    # An identity comes to hold an account in one of two ways. Its owner,
-    # signed in by password, links it on the settings page; or whoever writes
-    # the identity through the admin API gives it the `oidc` credential. The
-    # settings page does not unlink an account from an identity it is the only
-    # way into.
+    # An identity comes to hold an account by being registered with it, past
+    # that gate; by its owner, signed in by password, linking it on the
+    # settings page; or by whoever writes the identity through the admin API
+    # giving it the `oidc` credential. The settings page does not unlink an
+    # account from an identity it is the only way into.
     #
-    # LINKING KEEPS A TOKEN, WHICH SIGNING IN DOES NOT. Kratos stores the
-    # GitHub access token a link was made with in the credential, and the
-    # refresh token where the App issues one, encrypted under
-    # `secrets-cipher`, and its admin API returns them decrypted to whoever
-    # asks. That is the person's own token for chuggy-portal, good for
-    # whatever the App and they may both do; ory-kratos.yaml says what bounds
-    # the port that returns it. A credential written through the admin API
-    # carries none.
+    # REGISTERING AND LINKING KEEP A TOKEN, WHICH SIGNING IN DOES NOT. Kratos
+    # stores the GitHub access token a registration or a link was made with in
+    # the credential, and the refresh token where the App issues one,
+    # encrypted under `secrets-cipher`, and its admin API returns them
+    # decrypted to whoever asks. That is the person's own token for
+    # chuggy-portal, good for whatever the App and they may both do;
+    # ory-kratos.yaml says what bounds the port that returns it. A credential
+    # written through the admin API carries none.
     #
     # ONE PROVIDER, AND ITS `id` IS IN TWO PLACES THIS FILE DOES NOT REACH:
     # the callback URL registered on the GitHub App,
@@ -73,10 +81,11 @@ selfservice:
     # permissions rather than scopes, and a scope on its authorize request
     # adds nothing to what the token may do, so `scope` is empty. With this
     # provider type Kratos also lists the account's email addresses on every
-    # sign-in and fails the sign-in when GitHub refuses, though nothing here
-    # uses the answer: the App has to hold the account permission "Email
-    # addresses", read-only. The README says what has to be true at GitHub and
-    # on the node before this is deployed, and what each omission looks like.
+    # sign-in and fails the sign-in when GitHub refuses, though only a
+    # registration uses the answer, in `oidc.github.jsonnet`: the App has to
+    # hold the account permission "Email addresses", read-only. The README
+    # says what has to be true at GitHub and on the node before this is
+    # deployed, and what each omission looks like.
     #
     # NO `client_secret`, AND KRATOS DOES NOT START ON A PROVIDER WITHOUT ONE.
     # It arrives as an environment variable that addresses this list by
@@ -104,41 +113,123 @@ selfservice:
     login:
       ui_url: https://id.vteng.io/login
       lifespan: 10m
-    # CLOSED, AND THIS HOST IS ON THE OPEN INTERNET. Kratos serves
-    # id.vteng.io through the tunnel with nothing in front of it, so an
-    # enabled registration flow is an invitation to the whole internet to
-    # create identities -- and `verification` and `recovery` below are off,
-    # so nothing would even establish that an address belongs to whoever
-    # typed it.
+    # OPEN TO ONE KIND OF PERSON, AND THIS HOST IS ON THE OPEN INTERNET. Kratos
+    # serves id.vteng.io through the tunnel with nothing in front of it, so
+    # what stands between the whole internet and an identity here is the hooks
+    # below and nothing else -- and `verification` and `recovery` are off, so
+    # nothing establishes that an address belongs to whoever gave it.
     #
-    # What that would NOT grant is worth stating, because it is the reason
-    # this is a decision rather than an emergency: an identity carries no
-    # authorization here. Access is a relation tuple in Keto, and registering
-    # writes none: a stranger who registered would hold a valid token and see
-    # 404 on every resource no tuple grants them. The cost is unbounded
-    # identity creation, not access to anything already here.
+    # WHO IS MADE AN IDENTITY: a person who signs in with a GitHub account no
+    # identity holds, from a browser holding an open invite link whose maker
+    # may make accounts. The console's page for a link keeps its token in the
+    # cookie `chuggy_invite`; the `oidc` hook sends that token to the access
+    # plane's registration gate before the identity is stored, and the plane
+    # answers from its links. It only reads: asking spends no link.
     #
-    # Disabling the flow is what refuses it. Removing `ui_url` alone would
-    # not: the flow would still be created and the browser sent nowhere
-    # useful, which reads as a broken page rather than a closed door.
+    # WHAT REFUSES EVERYONE ELSE IS THE GATE'S ANSWER, AND KRATOS FAILS CLOSED
+    # ON EVERY OTHER. The gate answers 204 to admit and 403 with a message to
+    # refuse, and a refused person is sent to `ui_url` with the flow's id and
+    # no identity. Every other failure fails the registration onto the error
+    # page, with no identity made: a plane that is down or refuses this pod's
+    # connection, a 5xx, a route the plane does not serve, and the 400 the
+    # plane gives a token longer than it reads. A call the plane accepts and
+    # never answers fails the same way when Kratos stops waiting, and by then
+    # with no page. Only an answer under 400 makes an identity.
     #
-    # Identities are created administratively instead, through Kratos's
-    # admin API, which no Ingress and no tunnel hostname reaches --
-    # ory-network-policy.yaml is what bounds who can reach it. The access
-    # plane is the one caller it admits from outside `ory`, and it makes an
-    # identity only for a caller Keto permits to invite.
+    # A METHOD WITH NO HOOKS OF ITS OWN HAS NO GATE. Kratos reads the hooks
+    # that run before it stores an identity from the registering method's own
+    # list, and does not fall back to a list for the whole flow. So every
+    # method that can register is either off above or hooked here:
+    # `code`, `webauthn` and `passkey` are off, `oidc` carries the gate, and
+    # `password`, which signing in needs on, carries the refusal.
+    # tests/kratos-github.py holds each, and refuses a method it does not
+    # know.
+    #
+    # WHAT AN OPEN FLOW STILL COSTS. An identity for every GitHub account that
+    # asks while its browser holds an open link: the gate spends nothing, so
+    # one link admits each account that presents it until the link is used,
+    # revoked or expired. And for anyone at all, the work of being refused: a
+    # flow row for each one started, and for a password a hash and a breach
+    # lookup before the refusal is asked for.
+    #
+    # What an identity does NOT grant is the reason that cost is bearable: it
+    # carries no authorization here. Access is a relation tuple in Keto, and
+    # registering writes none: a person who registered and was granted nothing
+    # holds a valid token and sees 404 on every resource no tuple grants them.
+    #
+    # Identities are also made through Kratos's admin API, which no Ingress
+    # and no tunnel hostname reaches -- ory-network-policy.yaml is what bounds
+    # who can reach it. The access plane is the one caller it admits from
+    # outside `ory`, and it makes an identity there only for a caller Keto
+    # permits to invite.
     registration:
-      enabled: false
-      ui_url: https://id.vteng.io/registration
+      enabled: true
+      # THE CONSOLE'S PAGE, NOT THIS HOST'S. A refused person is sent here
+      # with the flow's id, and so is anyone who starts a registration by
+      # hand. The stock page at id.vteng.io/registration is still served by
+      # ory-ui, and Kratos sends nobody to it. Handed a flow's id by someone
+      # who carried it there, it draws that flow's form, a password's fields
+      # among them, and what refuses that form is the `password` hook below.
+      # tests/kratos-github.py refuses a `ui_url` on the host Kratos serves.
+      ui_url: https://chuggy.vteng.io/invite
       lifespan: 10m
       after:
+        oidc:
+          hooks:
+            # THE GATE. `response.parse` is what makes Kratos send this
+            # before it stores the identity and act on the answer. Without
+            # it the hook is sent once the identity is stored, and no answer
+            # unmakes one.
+            #
+            # `url` IS THE PLANE'S SERVICE, INSIDE THE CLUSTER. The gate is
+            # outside the prefix the `chuggy` Ingress forwards, and takes no
+            # token, so what reaches it is what
+            # cluster/chuggy/chuggy-access-plane.yaml admits: that policy
+            # names this pod, and a release applies it, not the merge that
+            # applies this file. The README says what the wrong order costs.
+            #
+            # THE BODY READS THE COOKIE AS A FIELD AND CALLS NOTHING. Kratos
+            # skips a hook whose body fails with an error whose text contains
+            # `RUNTIME ERROR: cancel`, and goes on as if the hook were not
+            # there. The test is on the text, so a body that passed the
+            # cookie to a function which failed and echoed it would be
+            # cancelled by whoever chose the cookie. So
+            # `registration.gate.jsonnet` sends the cookie's value as `token`
+            # and the empty string where the request carries none, by adding
+            # two objects and reading a field. The cookie's name is the
+            # console's and has a copy in that file. tests/kratos-github.py
+            # carries the text of both bodies, refuses a mounted one that
+            # differs, and evaluates each against a cookie holding that text.
+            - hook: web_hook
+              config:
+                url: http://chuggy-access-plane.chuggy.svc.cluster.local:3003/hooks/v1/registration
+                method: POST
+                body: file:///etc/config/registration.gate.jsonnet
+                response:
+                  parse: true
+            # WHAT GIVES THE NEW IDENTITY ITS SESSION AT THIS HOST. Without
+            # it the identity is stored and the browser is handed no session
+            # cookie. A sign-in that came through Hydra still completes,
+            # because Kratos answers Hydra's challenge either way; what is
+            # lost is the session at id.vteng.io, so the settings page and
+            # the next sign-in ask the person to sign in again.
+            - hook: session
         password:
           hooks:
-            # Without this a new account is created and then asked to log
-            # in again -- which drops the OAuth2 flow it was registering in
-            # the middle of. Kept against the flow being reopened: it is
-            # the hook's absence that breaks a registration mid-OAuth2,
-            # and that is not a thing to rediscover.
+            # THE REFUSAL: the same question with an empty token, which the
+            # gate always refuses. It never reads the cookie. A link admits a
+            # GitHub account; an identity made with a password holds none,
+            # and nothing would say who had used the link.
+            - hook: web_hook
+              config:
+                url: http://chuggy-access-plane.chuggy.svc.cluster.local:3003/hooks/v1/registration
+                method: POST
+                body: file:///etc/config/registration.refusal.jsonnet
+                response:
+                  parse: true
+            # Nothing reaches this while the refusal stands in front of it.
+            # Kept against that changing, for what the `oidc` list says its
+            # absence costs.
             - hook: session
     settings:
       ui_url: https://id.vteng.io/settings
@@ -164,9 +255,9 @@ identity:
 
 # THE CIPHER IS NAMED, BECAUSE KRATOS'S DEFAULT IS NONE. Unsaid, this key is
 # `noop`, and what Kratos would encrypt under `secrets-cipher` -- the GitHub
-# tokens a linked account leaves -- is stored hex-encoded for whoever reads
-# the database. The key being supplied encrypts nothing. tests/kratos-github.py
-# holds a cipher named whenever the oidc method is on.
+# tokens a registered or linked account leaves -- is stored hex-encoded for
+# whoever reads the database. The key being supplied encrypts nothing.
+# tests/kratos-github.py holds a cipher named whenever the oidc method is on.
 ciphers:
   algorithm: xchacha20-poly1305
 

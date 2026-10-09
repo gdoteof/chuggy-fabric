@@ -1,9 +1,12 @@
 # The self-service UI, and the Ingress for the host it shares with Kratos.
 #
-# One app, two jobs: it renders Kratos's login, registration and settings flows,
-# and it is also Hydra's consent endpoint. Ory ships it as a reference
-# implementation, which is what it is here -- a rig needs a login page, not a
-# product.
+# One app, two jobs: it renders Kratos's login and settings flows, and it is
+# also Hydra's consent endpoint. Ory ships it as a reference implementation,
+# which is what it is here -- a rig needs a login page, not a product.
+#
+# ITS REGISTRATION PAGE IS STILL SERVED, AND KRATOS SENDS NOBODY TO IT.
+# `ory/kratos.yaml` names the console's page for that flow, and says what
+# refuses the form this one draws for a flow carried to it by hand.
 #
 # ------------------------------------------------------- the id.vteng.io split ----
 #

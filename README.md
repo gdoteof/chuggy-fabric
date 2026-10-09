@@ -1661,17 +1661,23 @@ they are resumed.
 
 The login page at `id.vteng.io` offers GitHub beside the password, through the
 `chuggy-portal` App. **It signs in an identity that already holds the GitHub
-account, and makes none**: registration is closed, so an account no identity
-holds is returned to the login page under "Registration is not allowed because
-it was disabled." An identity holds an account because its owner, signed in by
-password, pressed `Link GitHub` on `https://id.vteng.io/settings`, or because
-whoever wrote it through Kratos's admin API gave it
+account, and makes one only for a person the access plane's gate admits.** An
+account no identity holds falls through to registration, and before Kratos
+stores anything it asks the plane whether the browser holds an open invite
+link whose maker may make accounts. Admitted, the person is given an identity
+and signed in. Refused, they are sent to `https://chuggy.vteng.io/invite` with
+the flow's id and no identity. Registering with a password asks the same gate
+with no token and is always refused.
+
+An identity also holds an account because its owner, signed in by password,
+pressed `Link GitHub` on `https://id.vteng.io/settings`, or because whoever
+wrote it through Kratos's admin API gave it
 `credentials.oidc.config.providers` with `provider: github` and the account's
 numeric id as `subject` — the `id` that `https://api.github.com/users/<login>`
-prints. A link made on the settings page leaves that person's GitHub access
-token for the App, and a refresh token where the App issues one, in Kratos's
-database, encrypted, where the admin API returns them; a credential written
-through the admin API leaves none.
+prints. A registration, and a link made on the settings page, each leave that
+person's GitHub access token for the App, and a refresh token where the App
+issues one, in Kratos's database, encrypted, where the admin API returns them;
+a credential written through the admin API leaves none.
 `cluster/apps/ory/kratos.yaml` argues the configuration and
 `tests/kratos-github.py` holds it.
 
@@ -1686,9 +1692,10 @@ enforce the order.** Two are in the App's settings at GitHub,
    refuses the request the button makes; password sign-in is untouched.
 2. **The account permission "Email addresses", read-only.** Kratos's
    `github-app` provider lists the account's addresses on every sign-in and
-   fails the sign-in when GitHub refuses, though nothing here uses the answer.
-   Without it a person authorizes at GitHub and lands on `id.vteng.io/error`
-   under an upstream error naming `GET https://api.github.com/user/emails`.
+   fails the sign-in when GitHub refuses, though only a registration uses the
+   answer. Without it a person authorizes at GitHub and lands on
+   `id.vteng.io/error` under an upstream error naming
+   `GET https://api.github.com/user/emails`.
 3. **The Secret `kratos-github-app-portal-client` in `ory`**, holding the App's
    client secret. It is the value `chuggy-github-app-portal-client` carries in
    `chuggy`, read from the same root-only file on the node,
@@ -1716,12 +1723,33 @@ Making the Secret is the repair. After a merge in the right order,
 resolved, and the login page carrying `Sign in with GitHub` is the method
 served.
 
-**None of this has been run against GitHub.** It was run against the pinned
-Kratos and Hydra images and a stand-in for GitHub's two hosts: sign-in for an
-identity that holds the account, the refusal for one that does not, the failure
-on the email addresses, linking and unlinking, and a Hydra login challenge
-completed by a GitHub sign-in. The permission's name, and what GitHub does with
-a callback it does not list, are GitHub's documentation.
+**The plane admits Kratos before Kratos asks it, and nothing on the rig
+enforces that order.** The hook is under `cluster/apps`, which a merge
+applies; the element of the plane's ingress policy that admits Kratos is under
+`cluster/chuggy`, which a release applies. `tests/kratos-github.py` refuses a
+tree that has the first without the second, so what can still be wrong is the
+rig: the hook merged while the release running there is older than the
+policy, or than the plane that serves the gate. Nobody is admitted by any of
+it, and signing in is untouched. A person whose GitHub account no identity
+holds is shown `id.vteng.io/error` in place of the console: at once where the
+plane answers and has no such route, and after three attempts and about three
+seconds where it is down or its policy refuses Kratos, which
+`cluster/chuggy/chuggy-api.yaml` records a policy here doing rather than
+dropping. The error behind that page is Kratos's own, and for a call that was
+not answered it names the gate's address inside the cluster.
+
+**None of this has been run against GitHub, and registration has not been run
+against the access plane.** Signing in was run against the pinned Kratos and
+Hydra images and a stand-in for GitHub's two hosts: sign-in for an identity
+that holds the account, the failure on the email addresses, linking and
+unlinking, and a Hydra login challenge completed by a GitHub sign-in.
+Registration was run against the Kratos the pinned image carries and nothing
+else, started on the files this tree mounts, with stand-ins for GitHub's two
+hosts and for the plane's gate: the gate admitting and refusing, a password
+refused, the plane down, without the route, and never answering, and a cookie
+holding the text Kratos skips a hook on. It was not run through Hydra, the
+edge or the console. The permission's name, and what GitHub does with a
+callback it does not list, are GitHub's documentation.
 
 ### Storage, and what it does and does not survive
 

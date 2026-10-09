@@ -8,10 +8,11 @@
 # so there is one question here and one object to answer it.
 #
 # NO EGRESS RULE. Naming Egress would mean enumerating DNS, PostgreSQL, the
-# edge and GitHub, which Kratos calls to sign a person in, and none of these is
-# a service whose outbound reach is the worry -- what makes the administrative
-# ports dangerous is who may call IN. Adding an egress rule later is a change
-# to this object, not a second one.
+# edge, GitHub, which Kratos calls to sign a person in, and the access plane's
+# gate, which it asks before it registers one, and none of these is a service
+# whose outbound reach is the worry -- what makes the administrative ports
+# dangerous is who may call IN. Adding an egress rule later is a change to
+# this object, not a second one.
 #
 # WHAT SELECTING A POD DOES NOT BOUND. Every exemption recorded in
 # postgres-network-policy.yaml applies here unchanged and for the same reasons:
@@ -36,8 +37,8 @@
 # same done with the access plane's reaches keto-write and kratos-admin. Both
 # are `edit` in `chuggy`, which the paragraph on the stores below shows already
 # reaches what those ports write, though not what kratos-admin returns: a
-# linked account's GitHub tokens are ciphertext in the store and plaintext
-# from that port.
+# registered or linked account's GitHub tokens are ciphertext in the store and
+# plaintext from that port.
 #
 # NOTHING HERE DEPENDS ON THAT CNI BEHAVIOUR TO WORK. The exemption is a leak
 # and not a mechanism: every probe in `ory` is on a port this policy admits

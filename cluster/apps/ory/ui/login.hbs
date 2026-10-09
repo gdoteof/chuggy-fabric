@@ -7,7 +7,12 @@
   {{/if}}
 </div>
 {{! The image's own login.hbs with one addition. The card links sign-up and
-    recovery whether or not kratos.yaml enables them, and it enables neither. }}
+    recovery whether or not kratos.yaml enables them. It enables no recovery.
+    It opens registration only to a person who signs in with GitHub from a
+    browser holding an invite link, and that is the GitHub button on this
+    card. The sign-up link starts a registration by hand instead, which
+    kratos.yaml sends to a page of the console that registers nobody, so the
+    link stays hidden. }}
 <style>
   div:has(> a[data-testid="forgot-password-link"]),
   div:has(> div > a[data-testid="signup-link"]) {
