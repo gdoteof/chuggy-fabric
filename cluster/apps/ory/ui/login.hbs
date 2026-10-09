@@ -11,7 +11,15 @@
 {{! The image's own login.hbs with three differences: two of the card's links
     are hidden, its password form is closed until asked for, and its GitHub
     button is filled. The element and the link above are the second, and the
-    rest is the rules below, each under its reason. }}
+    rest is the rules below, each under its reason.
+
+    READ AGAINST THE IMAGE
+    sha256:46a7bac1ad0c67c692b37d0380613fd4618fd751afac2c5314aa8d3ae77ef1f0
+    because the rules are about where that image draws things. One that drew
+    the GitHub button in the password's form would have the closed card hide
+    both, and leave a person new here only the link to a password. So
+    tests/ory-ui-view.py holds ory-ui.yaml to that image, and another is named
+    here once its card has been looked at under these rules. }}
 <style>
   {{! The card links sign-up and recovery whether or not kratos.yaml enables
       them. It enables no recovery. It opens registration only to a person who
@@ -40,6 +48,14 @@
       back as the same flow with a message, at an address without the
       fragment, and a closed form would hide what the message is about. A
       refresh carries one too, so it is drawn as the image draws it.
+
+      BUT NOT BY THE MESSAGE THAT ITS FLOW EXPIRED. Kratos answers either
+      button of a card left past its flow's lifetime with a new flow carrying
+      that message, and a person new here who pressed the GitHub button would
+      come back to a password form. So the message is drawn and the card stays
+      closed. A person who had the form open comes back to it closed too, and
+      asks again: a form's post keeps no fragment and the new flow nothing
+      that was typed, so the page cannot tell the two people apart.
 
       ONLY A CARD THAT OFFERS BOTH IS CLOSED. Without the GitHub button, which
       a refresh leaves out for an identity that holds no GitHub account, a
@@ -73,7 +89,9 @@
   }
   #use-password:not(:target)
     ~ div:has(button[name="provider"]):has(input[name="password"]):not(
-      :has([data-testid^="ui/message/"])
+      :has(
+        [data-testid^="ui/message/"]:not([data-testid="ui/message/4010001"])
+      )
     ) {
     {{! The room under the GitHub button that the link is drawn in. }}
     padding-bottom: 5.25rem;

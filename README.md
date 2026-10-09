@@ -1680,7 +1680,9 @@ person's GitHub access token for the App, and a refresh token where the App
 issues one, in Kratos's database, encrypted, where the admin API returns them;
 a credential written through the admin API leaves none.
 `cluster/apps/ory/kratos.yaml` argues the configuration and
-`tests/kratos-github.py` holds it.
+`tests/kratos-github.py` holds it. `cluster/apps/ory/ui/login.hbs` draws the
+card over one image's markup, and `tests/ory-ui-view.py` refuses another image
+until the view names it.
 
 **Three things come before the merge that deploys it, and nothing here can
 enforce the order.** Two are in the App's settings at GitHub,
