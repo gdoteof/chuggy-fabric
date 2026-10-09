@@ -1,7 +1,8 @@
 # The image the self-service UI runs against the one each of its views names,
-# read off the rendered manifests: a view reaches the pod through a generated
-# ConfigMap whose name only the render knows. The argument is in
-# ory-ui-view.py's own header.
+# and where each view is mounted against where that image reads it, read off
+# the rendered manifests: a view reaches the pod through a generated ConfigMap
+# whose name only the render knows. The argument is in ory-ui-view.py's own
+# header.
 { pkgs }:
 
 let
