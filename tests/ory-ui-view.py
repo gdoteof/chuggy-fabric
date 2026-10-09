@@ -18,7 +18,9 @@ that of the container which mounts it, and the text is the ConfigMap's which
 that mount's volume names, under whatever name the render gave it.
 
 WHAT THIS GATE CANNOT SEE. Whether the view is right for the image it names.
-That takes a browser, and nothing in this tree drives one.
+That takes a browser, and nothing in this tree drives one. Nor where the mount
+puts the view: moved to a path the image does not read, it passes here while
+the image serves its own card.
 """
 
 import re

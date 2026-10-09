@@ -8,10 +8,11 @@
     {{> (extraPartial) }}
   {{/if}}
 </div>
-{{! The image's own login.hbs with three differences: two of the card's links
-    are hidden, its E-Mail and password fields are closed until asked for,
-    and its GitHub button is filled. The element and the link above are the
-    second, and the rest is the rules below, each under its reason.
+{{! The image's own login.hbs, changed in what its card shows: two of the
+    card's links are hidden, its E-Mail and password fields are closed until
+    asked for, and its GitHub button is filled. The element and the link above
+    close and open the fields, and the rest is the rules below, each under its
+    reason.
 
     READ AGAINST THE IMAGE
     sha256:46a7bac1ad0c67c692b37d0380613fd4618fd751afac2c5314aa8d3ae77ef1f0
@@ -57,7 +58,8 @@
       asks again: a form's post keeps no fragment and the new flow nothing
       that was typed, so the page cannot tell the two people apart.
 
-      NOR ON A FLOW THAT HAS BEEN SENT TO GITHUB, whatever message it carries.
+      NOR ON A FLOW THAT HAS BEEN SENT TO GITHUB, whatever message it carries,
+      a refresh apart.
       A person new here who pressed the GitHub button and pressed Cancel there
       comes back to the same flow under a message, and would be drawn a
       password form. So the message is drawn and the card stays closed. A
@@ -72,14 +74,15 @@
       fill in, so it is hidden: a person who pressed the button, did not
       finish at GitHub and opens the same address again meets the card they
       first met. A refresh keeps the identity's address in that form as well,
-      in a field of the hidden type, and is no flow sent to GitHub; so the
-      card is asked for a field of another type.
+      in a field of the hidden type, sent to GitHub or not; so the card is
+      asked for a field of another type, and a refresh turned back at GitHub
+      is drawn open under GitHub's message, as the image draws it.
 
       ONLY A CARD THAT OFFERS BOTH IS CLOSED. Without the GitHub button a
-      closed card would offer nothing but the link that opens it, and two
-      cards come without it: a refresh for an identity that holds no GitHub
-      account, and the one that asks for an identity's password before a
-      GitHub account is added to it.
+      closed card would offer nothing but the link that opens it, and a
+      password form comes without it on a refresh for an identity that holds
+      no GitHub account, and on the card that asks for an identity's password
+      before a GitHub account is added to it.
 
       The fields are read by the names Kratos gives them, which a form has to
       post under whatever draws it. The message is read by the image's test
@@ -87,7 +90,8 @@
       an E-Mail field, because one :has() cannot hold another. Another image
       may carry neither id. Without the message's a refused password is still
       told, above a form that is closed; without the form's a card sent to
-      GitHub is drawn open under its message, as the image draws it. }}
+      GitHub is drawn open under its message, its second E-Mail field hidden
+      still. }}
   #login {
     position: relative;
   }
