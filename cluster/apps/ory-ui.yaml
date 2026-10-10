@@ -41,6 +41,10 @@
 # registered either way, so a missing variable presents as a broken OAuth2 flow
 # and not as a failure to start.
 #
+# The page it draws is this tree's and not the image's. `ory/ui/consent.hbs`
+# says what its Allow grants, and why a program that signs in from a terminal
+# is shown it.
+#
 # It echoes Hydra's `requested_access_token_audience` back as
 # `grant_access_token_audience`, which is the half of the audience chain that
 # lives here. The other half is the client's registered allow-list and the
@@ -119,11 +123,15 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 6
-          # Two of the image's views replaced; `ory/ui/` says why each one.
+          # The image's views replaced; `ory/ui/` says why each one.
           volumeMounts:
             - name: views
               mountPath: /usr/src/app/views/login.hbs
               subPath: login.hbs
+              readOnly: true
+            - name: views
+              mountPath: /usr/src/app/views/consent.hbs
+              subPath: consent.hbs
               readOnly: true
             - name: views
               mountPath: /usr/src/app/views/layouts/welcome.hbs

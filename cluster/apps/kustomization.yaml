@@ -131,4 +131,5 @@ configMapGenerator:
     namespace: ory
     files:
       - login.hbs=ory/ui/login.hbs
+      - consent.hbs=ory/ui/consent.hbs
       - welcome.hbs=ory/ui/welcome.hbs
