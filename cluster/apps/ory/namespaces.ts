@@ -56,19 +56,24 @@ class Tenant implements Namespace {
     admins: User[]
     members: User[]
     hosted_execution: User[]
+    personal_runners: User[]
     admin_granters: (User | SubjectSet<Tenant, "admins"> | SubjectSet<Site, "admins">)[]
     member_granters: (User | SubjectSet<Tenant, "admins"> | SubjectSet<Tenant, "members"> | SubjectSet<Site, "admins">)[]
     hosted_execution_granters: (User | SubjectSet<Tenant, "admins"> | SubjectSet<Site, "admins">)[]
+    personal_runners_granters: (User | SubjectSet<Tenant, "admins"> | SubjectSet<Site, "admins">)[]
     authority_managers: (User | SubjectSet<Tenant, "admins">)[]
   }
   permits = {
     administer: (ctx: Context): boolean => this.related.admins.includes(ctx.subject),
     invite: (ctx: Context): boolean => this.permits.administer(ctx),
     execute_hosted: (ctx: Context): boolean => this.related.hosted_execution.includes(ctx.subject),
+    register_personal_runner: (ctx: Context): boolean => this.related.personal_runners.includes(ctx.subject),
     grant_admin: (ctx: Context): boolean => this.related.admin_granters.includes(ctx.subject),
     grant_member: (ctx: Context): boolean => this.related.member_granters.includes(ctx.subject),
     grant_hosted_execution: (ctx: Context): boolean =>
       this.related.hosted_execution_granters.includes(ctx.subject),
+    grant_personal_runners: (ctx: Context): boolean =>
+      this.related.personal_runners_granters.includes(ctx.subject),
     manage_site_held_authorities: (ctx: Context): boolean =>
       this.related.site.traverse((s) => s.permits.manage_authorities(ctx)),
     manage_authorities: (ctx: Context): boolean =>
