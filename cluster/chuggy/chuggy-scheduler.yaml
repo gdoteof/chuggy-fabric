@@ -349,26 +349,6 @@ spec:
               value: |
                 [
                   {
-                    "image": "docker.io/library/debian@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f",
-                    "name": "probe-slim",
-                    "version": "0.1"
-                  },
-                  {
-                    "image": "docker.io/library/alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8",
-                    "name": "probe-alpine",
-                    "version": "0.1"
-                  },
-                  {
-                    "image": "gcr.io/distroless/static-debian12@sha256:d75cdd72874d4790092fcb1b058493ecf6bb5bf2b2b897045b00ff01d91843f2",
-                    "name": "probe-distroless",
-                    "version": "0.1"
-                  },
-                  {
-                    "image": "registry.chuggy.internal/chuggy/worker@sha256:00000000000000000000000000000000000000000000000000000000000000c5",
-                    "name": "probe-unpullable",
-                    "version": "0.1"
-                  },
-                  {
                     "image": "registry.chuggy.internal/chuggy/worker@sha256:de1409a2a51b82bc18f6517bc62603956ad5698b26e36ed64b7f84c793e62cae",
                     "name": "chuggy-worker",
                     "version": "0.1"
