@@ -756,10 +756,10 @@ def main():
         )
 
     runtimes = [runtime(entry) for entry in offered]
-    offered = sorted({capability for _, _, capabilities in runtimes for capability in capabilities})
+    published = sorted({capability for _, _, capabilities in runtimes for capability in capabilities})
     for platform in sorted({platform for _, platform, _ in runtimes}):
-        for size in range(1, len(offered) + 1):
-            for asked in combinations(offered, size):
+        for size in range(1, len(published) + 1):
+            for asked in combinations(published, size):
                 serving = [
                     image
                     for image, served, capabilities in runtimes

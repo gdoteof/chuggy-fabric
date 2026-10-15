@@ -37,8 +37,8 @@
 #
 # A REFUSAL FROM THE API SERVER AND A REFUSAL FROM POLICY ARE NOT THE SAME
 # ANSWER. `kubernetesWorkerPodRequest` resolves the profile first and answers
-# `Denied` before it builds a request, so a placement policy refuses is refused
-# without the API server ever being asked. A 403 that did arrive is held as unavailable
+# `Denied` before it builds a request, so a placement the policy refuses is
+# refused without the API server ever being asked. A 403 that did arrive is held as unavailable
 # rather than denied -- only 400, 413, 415 and 422 are refusals of the document
 # itself -- and that is the right reading: a 403 cannot be told apart from an
 # exhausted quota by its status line.
