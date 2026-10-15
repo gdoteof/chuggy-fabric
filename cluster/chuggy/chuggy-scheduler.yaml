@@ -666,6 +666,22 @@ spec:
                     "operatingSystem": "Linux",
                     "architecture": "Amd64",
                     "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker-generic@sha256:e45838089ef7bedcd30ab0f7e7274c1d15b1f4fd2c2b582d92b91e8bf330e5ff",
+                    "name": "generic-worker",
+                    "version": "0.3",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:6c4d434a45f30edd80ce8b8a16f8b2871fb174bc6c6c0fa75c08dee1d09d7e9e",
+                    "name": "chuggy-worker",
+                    "version": "0.44",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
                   }
                 ]
             # The memory limit is what chuggy's own `ci.sh` needs: Node sizes
@@ -951,7 +967,7 @@ spec:
             - name: CHUG_SCHEDULER_SESSION_POLICY
               value: |
                 {
-                  "image": "registry.chuggy.internal/chuggy/worker@sha256:9e0d8dd81bf3d9fd8b03eef5294d6b67fe5521c13b41dd265d4f0a2e9ec61fe2",
+                  "image": "registry.chuggy.internal/chuggy/worker@sha256:6c4d434a45f30edd80ce8b8a16f8b2871fb174bc6c6c0fa75c08dee1d09d7e9e",
                   "profile": "chuggy-development",
                   "runtimeVersion": "claude-code-latest",
                   "grant": {
