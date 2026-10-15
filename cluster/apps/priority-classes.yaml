@@ -1,0 +1,19 @@
+# What the durable node keeps when it runs short.
+#
+# Worker pods run on the durable node too: it is the cluster's only Linux node,
+# so no selector can keep them off it. Once a project may name its own image, an
+# image of any size can be pulled there. Under DiskPressure the kubelet evicts
+# first the pods using more than they requested and, among those, the lower
+# priority first; and where the node has no room for a pod, the scheduler
+# preempts lower-priority pods to place it. Every pod that holds the cluster's
+# state, PostgreSQL and the registries, carries this class, so among pods ranked
+# alike a worker is evicted first, and a restarting PostgreSQL displaces workers
+# rather than waiting behind them. Worker and session pods carry no class and
+# keep the default of zero.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: chuggy-durable
+value: 1000000
+globalDefault: false
+description: "A pod holding the cluster's state: placed ahead of a worker, and evicted after one ranked alike."
