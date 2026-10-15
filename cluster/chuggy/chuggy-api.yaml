@@ -417,7 +417,7 @@ spec:
             # starts on: the scheduler's `generic-worker`, which carries no
             # practices of chuggy's. Its bootstrap ticket is told to name it.
             - name: CHUG_API_BOOTSTRAP_WORKER_IMAGE
-              value: registry.chuggy.internal/chuggy/worker-generic@sha256:e45838089ef7bedcd30ab0f7e7274c1d15b1f4fd2c2b582d92b91e8bf330e5ff
+              value: registry.chuggy.internal/chuggy/worker-generic@sha256:6057be425f1d5b54485744f1b06696da9563a19d75db405cc3260890a264cbb0
             # The named credential mount a member's thread speaks to the model
             # through, written on the API because the API is what opens a
             # thread's session. It is not free: `kubernetesSessionPodRequest`
