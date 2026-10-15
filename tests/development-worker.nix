@@ -48,7 +48,11 @@ pkgs.runCommand "chuggy-development-worker" {
     exit 1
   fi
   grep -F '"secretName": "claude-code"' "$scheduler" >/dev/null
-  grep -F '"CHUG_WORKER_WORKSPACE": "/workspace"' "$scheduler" >/dev/null
+  grep -E 'value: "registry\.chuggy\.internal/chuggy/worker-runtime@sha256:[0-9a-f]{64}"' "$scheduler" >/dev/null
+  if grep -F '"CHUG_WORKER_WORKSPACE"' "$scheduler" >/dev/null; then
+    echo "development-worker: CHUG_WORKER_WORKSPACE is written by the launchers, and a map that supplies it is refused" >&2
+    exit 1
+  fi
   grep -F '"ephemeralStorageLimit": "20Gi"' "$scheduler" >/dev/null
   grep -F '"fsGroup":1000' "$scheduler" >/dev/null
   grep -F '"mayCompleteTask": false' "$scheduler" >/dev/null
