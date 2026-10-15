@@ -142,8 +142,9 @@ spec:
 ---
 # Two kinds of pod in `chuggy-work` reach this listener, and each is admitted by
 # the label its own egress policy is keyed on rather than by the namespace: a
-# namespace rule alone would admit anything anyone ever places there. Traefik is
-# the third, for a harness on a pool outside this cluster.
+# namespace rule alone would admit anything anyone ever places there. The
+# scheduler is the third, and Traefik the fourth, for a harness on a pool
+# outside this cluster.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -174,6 +175,18 @@ spec:
           podSelector:
             matchLabels:
               chuggy.dev/session: "true"
+      ports:
+        - { protocol: TCP, port: 3001 }
+    # The scheduler, for the error text of a job whose image could not run
+    # chuggy: it writes that text under the attempt's own bearer, because the
+    # job never started to write it.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy
+          podSelector:
+            matchLabels:
+              app: chuggy-scheduler
       ports:
         - { protocol: TCP, port: 3001 }
     # The kubelet's probes need no element, for the reason
