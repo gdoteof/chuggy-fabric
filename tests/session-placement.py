@@ -73,17 +73,17 @@ literal either:
     the row exists, the turn is queued, and nothing ever runs it.
 
 THE IMAGE A SESSION RUNS ON IS WRITTEN TWICE and held nowhere else. It is
-admitted in `CHUG_SCHEDULER_ADMITTED_IMAGES` and pinned in
+offered in `CHUG_SCHEDULER_OFFERED_IMAGES` and pinned in
 `CHUG_SCHEDULER_SESSION_POLICY`, and every other check over these two is a
 `grep -F` for one digest, which answers whether a string is in a file and never
 how many times or where -- so either site could carry a digest the other does
 not while that line stayed green. Held here, over the parsed render, in the
-direction a release moves them: the pinned image is admitted, and it is the
-newest admission under its own name or none.
+direction a release moves them: the pinned image is offered, and it is the
+newest offer under its own name.
 
 AND A TASK THAT ASKS FOR A CAPABILITY RUNS ON THAT SAME WORKER. The scheduler
-resolves a capability, rather than a digest, to the last admitted entry
-publishing it on the asked platform, so a second worker admitted after the
+resolves a capability, rather than a digest, to the last offered entry
+publishing it on the asked platform, so a second worker offered after the
 session's -- `generic-worker`, which a repository with no image of its own
 starts on -- takes every such task while each check above stays green. The
 resolution is mirrored from `suppliedCapabilityAdmission` and `schedulerRuntime`
@@ -91,14 +91,15 @@ in kasofsk/chuggy `src/adapters/supplied/schedulerPorts.ts` and
 `src/roots/schedulerConfig.ts`, an entry publishing no capabilities read as a
 Linux/Amd64 Claude worker as they read it; a copy, and it moves when they move.
 
-AND THE ADMITTED LIST IS ONE THE SCHEDULER CAN PARSE AT ALL. Its parser refuses
-a list that admits one image twice or spells one (name, version) label twice,
+AND THE OFFERED LIST IS ONE THE SCHEDULER CAN PARSE AT ALL. Its parser refuses
+a list that offers one image twice or spells one (name, version) label twice,
+or holds an entry that is not an object naming an image, a name and a version,
 and a refusal at parse time is not a bad placement, it is a CrashLoopBackOff:
 the whole deployment, before a ticket is read. Nothing in this repository held
-that rule, so an admit entry renumbered to a version already admitted was green
-in every check here while the scheduler would not have booted. Mirrored below
-key for key, and the key is the point: a label is name AND version together, so
-the same version published under a second worker name is admitted and only a
+that rule, so an entry renumbered to a version already offered was green in
+every check here while the scheduler would not have booted. Mirrored below key
+for key, and the key is the point: a label is name AND version together, so the
+same version published under a second worker name is offered and only a
 repeated pair is refused. The original is `schedulerImagesAreDistinct` in
 kasofsk/chuggy `src/roots/schedulerConfig.ts`, whose refusal wording this
 follows; a copy is what this is, and it moves when that moves.
@@ -118,7 +119,7 @@ SESSION_LABELS_VARIABLE = "CHUG_SCHEDULER_SESSION_LABELS"
 SESSION_API_URL_VARIABLE = "CHUG_SCHEDULER_SESSION_API_URL"
 SESSION_ENVIRONMENT_VARIABLE = "CHUG_SCHEDULER_SESSION_ENVIRONMENT"
 SESSION_POLICY_VARIABLE = "CHUG_SCHEDULER_SESSION_POLICY"
-ADMITTED_IMAGES_VARIABLE = "CHUG_SCHEDULER_ADMITTED_IMAGES"
+OFFERED_IMAGES_VARIABLE = "CHUG_SCHEDULER_OFFERED_IMAGES"
 WORKER_ENVIRONMENT_VARIABLE = "CHUG_SCHEDULER_WORKER_ENVIRONMENT"
 EXECUTION_POLICY_VARIABLE = "CHUG_SCHEDULER_EXECUTION_POLICY"
 CREDENTIAL_MOUNTS_VARIABLE = "CHUG_SCHEDULER_WORKER_CREDENTIAL_MOUNTS"
@@ -301,14 +302,10 @@ def environment_map(entry, name):
         refuse(f"{name} is not JSON: {error}")
 
 
-def admitted_image(entry):
-    """The image one admitted entry names, in either shape the scheduler parses.
-
-    An entry is a bare reference, admitted and unnamed, or that same reference
-    labelled with a worker name and version -- so a deployment adopts labels one
-    image at a time, and neither shape may be read as the other.
-    """
-    return entry if isinstance(entry, str) else entry.get("image")
+def offered_image(entry):
+    """The image one offered entry names: an object labelling it with a worker
+    name and version, the one shape the scheduler parses."""
+    return entry.get("image")
 
 
 def cluster_service(url, name):
@@ -684,85 +681,85 @@ def main():
                 f"{entry.get('credential')!r} it does not grant, so that clone cannot authenticate"
             )
 
-    # 9. The image a session is placed on is one the scheduler admits, and it is
-    #    the newest admission. Both halves are written in this one file and
-    #    nothing in either repository held them together: `tests/development-worker`
+    # 9. The image a session is placed on is one the scheduler offers, and it is
+    #    the newest offer. Both halves are written in this one file and nothing
+    #    in either repository held them together: `tests/development-worker`
     #    greps each digest, and a `grep -F` answers whether a string is in a file
     #    and never how many times or where, so either site alone could carry a
     #    digest the other does not while that line stayed satisfied. Newest and
-    #    not merely present, because admission order is release order: a policy
-    #    on an older admitted image is a release that moved one site and not the
-    #    other. Newest under its own name, because a second worker admitted
+    #    not merely present, because offer order is release order: a policy on
+    #    an older offered image is a release that moved one site and not the
+    #    other. Newest under its own name, because a second worker offered
     #    beside it -- `generic-worker`, which a repository with no image of its
     #    own starts on -- is not a release of the one sessions run on.
-    admitted = json_variable(scheduled, ADMITTED_IMAGES_VARIABLE)
+    offered = json_variable(scheduled, OFFERED_IMAGES_VARIABLE)
 
-    # 9a. And that list is one the scheduler's parser accepts: no image admitted
-    #     twice, no (name, version) label spelled twice. This arm is prior to the
-    #     two below -- a list refused at parse time is not a misplaced session,
-    #     it is a deployment that never boots -- and it is a mirror of
-    #     `schedulerImagesAreDistinct`, so the key is the pair and a version
-    #     reused under a different worker name is admitted here as it is there.
+    # 9a. And that list is one the scheduler's parser accepts: every entry an
+    #     object naming an image, a name and a version, no image offered twice,
+    #     no (name, version) label spelled twice. This arm is prior to the two
+    #     below -- a list refused at parse time is not a misplaced session, it
+    #     is a deployment that never boots -- and it is a mirror of
+    #     `schedulerOfferedImageSchema` and `schedulerImagesAreDistinct`, so the
+    #     key is the pair and a version reused under a different worker name is
+    #     offered here as it is there.
     seen_images = set()
     seen_labels = set()
-    for index, entry in enumerate(admitted):
-        image = admitted_image(entry)
+    for index, entry in enumerate(offered):
+        if not isinstance(entry, dict) or any(
+            not isinstance(entry.get(key), str) for key in ("image", "name", "version")
+        ):
+            refuse(
+                f"{OFFERED_IMAGES_VARIABLE}: {index} is not an object naming an image, a name "
+                "and a version, which the scheduler refuses to parse, so it would not boot"
+            )
+        image = offered_image(entry)
         if image in seen_images:
             refuse(
-                f"{ADMITTED_IMAGES_VARIABLE}: {index} admits the image {image} twice, "
+                f"{OFFERED_IMAGES_VARIABLE}: {index} offers the image {image} twice, "
                 "which the scheduler refuses to parse, so it would not boot"
             )
         seen_images.add(image)
-        if isinstance(entry, str):
-            continue
         label = (entry.get("name"), entry.get("version"))
         if label in seen_labels:
             refuse(
-                f"{ADMITTED_IMAGES_VARIABLE}: {index} names the worker {label[0]} version "
+                f"{OFFERED_IMAGES_VARIABLE}: {index} names the worker {label[0]} version "
                 f"{label[1]} twice, which the scheduler refuses to parse, so it would not boot"
             )
         seen_labels.add(label)
 
-    images = [admitted_image(entry) for entry in admitted]
+    images = [offered_image(entry) for entry in offered]
     if policy.get("image") not in images:
         refuse(
             f"{SESSION_POLICY_VARIABLE} places sessions on an image "
-            f"{ADMITTED_IMAGES_VARIABLE} does not admit, so every placement is denied"
+            f"{OFFERED_IMAGES_VARIABLE} does not offer, so no task resolved to a "
+            "capability runs the binary sessions do"
         )
-    def admitted_name(entry):
-        return None if isinstance(entry, str) else entry.get("name")
 
-    # An unlabelled entry says nothing of which worker it releases, so it is
-    # read as a release of every one, and sessions placed on one answer to all.
-    placed_name = admitted_name(admitted[images.index(policy.get("image"))])
-    lineage = [
-        admitted_image(entry)
-        for entry in admitted
-        if placed_name is None or admitted_name(entry) in (placed_name, None)
-    ]
+    placed_name = offered[images.index(policy.get("image"))].get("name")
+    lineage = [offered_image(entry) for entry in offered if entry.get("name") == placed_name]
     if policy.get("image") != lineage[-1]:
         refuse(
             f"{SESSION_POLICY_VARIABLE} places sessions on an image older than the newest "
-            f"{ADMITTED_IMAGES_VARIABLE} entry of its name or none, so one of the two was "
+            f"{OFFERED_IMAGES_VARIABLE} entry of its name, so one of the two was "
             "repinned without the other"
         )
 
     # 9b. Every capability a task can ask for resolves, by the scheduler's rule,
     #     to an image of the session's own lineage.
     def runtime(entry):
-        if isinstance(entry, str) or entry.get("capabilities") is None:
-            return (admitted_image(entry), ("Linux", "Amd64"), {"Agent:Claude"})
+        if entry.get("capabilities") is None:
+            return (offered_image(entry), ("Linux", "Amd64"), {"Agent:Claude"})
         return (
             entry.get("image"),
             (entry.get("operatingSystem", "Linux"), entry.get("architecture", "Amd64")),
             set(entry.get("capabilities")),
         )
 
-    runtimes = [runtime(entry) for entry in admitted]
-    offered = sorted({capability for _, _, capabilities in runtimes for capability in capabilities})
+    runtimes = [runtime(entry) for entry in offered]
+    published = sorted({capability for _, _, capabilities in runtimes for capability in capabilities})
     for platform in sorted({platform for _, platform, _ in runtimes}):
-        for size in range(1, len(offered) + 1):
-            for asked in combinations(offered, size):
+        for size in range(1, len(published) + 1):
+            for asked in combinations(published, size):
                 serving = [
                     image
                     for image, served, capabilities in runtimes
@@ -770,7 +767,7 @@ def main():
                 ]
                 if serving and serving[-1] not in lineage:
                     refuse(
-                        f"{ADMITTED_IMAGES_VARIABLE}: a task asking for {', '.join(asked)} on "
+                        f"{OFFERED_IMAGES_VARIABLE}: a task asking for {', '.join(asked)} on "
                         f"{'/'.join(platform)} resolves to {serving[-1]}, the last entry "
                         "publishing it, which is not the worker sessions run on"
                     )
