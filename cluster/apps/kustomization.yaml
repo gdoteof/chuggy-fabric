@@ -58,6 +58,7 @@ resources:
   - ory-ui.yaml
   - postgres-network-policy.yaml
   - postgres.yaml
+  - priority-classes.yaml
   - registry-public.yaml
   - registry.yaml
   - release-dashboard.yaml

@@ -706,6 +706,370 @@ spec:
                     "capabilities": ["Agent:Claude", "Agent:Codex"]
                   }
                 ]
+            # The same entries under the name the next scheduler reads, where
+            # they name images for capability resolution and catalog labels and
+            # admit nothing. The name above goes once that scheduler is live.
+            - name: CHUG_SCHEDULER_OFFERED_IMAGES
+              value: |
+                [
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:de1409a2a51b82bc18f6517bc62603956ad5698b26e36ed64b7f84c793e62cae",
+                    "name": "chuggy-worker",
+                    "version": "0.1"
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:cfe57dd168347730f91aec689be4adaf53750f237af54bb9effedf53319d34a6",
+                    "name": "chuggy-worker",
+                    "version": "0.2"
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:49cc3c3d713e4b40341f68dfb83e1bf1acabb6d5986e1f1786ea5706afe0690f",
+                    "name": "chuggy-worker",
+                    "version": "0.3"
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:beb6ed311a398723fc33c47269077a3c55fcac51627f65db5d82932f6183fc38",
+                    "name": "chuggy-worker",
+                    "version": "0.4"
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:c50b3333142063e90c6d7d6143119bcf1dd9b138e8aa740b831dc48699896e1f",
+                    "name": "chuggy-worker",
+                    "version": "0.5"
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:9949c44297be92b3a49d11c3982b897730e4e283031f1b8b21b285e0ca04dbbe",
+                    "name": "chuggy-worker",
+                    "version": "0.6"
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:dfcc2b3ec6c4d371157379d132ed24783564ab115d4b5978101bc691e21aae6f",
+                    "name": "chuggy-worker",
+                    "version": "0.7"
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:11ae1f496957dd7b5315caf75faffb520cbbfaf355d398e0393af354e17e5010",
+                    "name": "chuggy-worker",
+                    "version": "0.8"
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:64e5f0216584270e71c32ffc0cb9b05003c8c3e59c49eaf34f38a7cac08ec06c",
+                    "name": "chuggy-worker",
+                    "version": "0.9"
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:842a0297acb5a83fb80baee1b885e82e7b356d182914ff9d6606973da8fba448",
+                    "name": "chuggy-worker",
+                    "version": "0.10",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:fe7018f6ea36630cdbe71f7aba03f93f8f73a14c0ac1405411d6d034aa07a8ef",
+                    "name": "chuggy-worker",
+                    "version": "0.11",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:e2aac0fc9347a936dc6b279385f0100e005c4e219227ed4c619f2b61e3e89261",
+                    "name": "chuggy-worker",
+                    "version": "0.12",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:06a094c632eb2d6715ab35f3d1cd11c7fdd1ba7e95c04652f5cc259db00e994e",
+                    "name": "chuggy-worker",
+                    "version": "0.13",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:3e37aa3529dd22235c3ff13c05a3f7ef3ec4694ce1652eeeb29cde3a8f58ca82",
+                    "name": "chuggy-worker",
+                    "version": "0.14",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:782b97c2f557fda741dedf58005d830aae1556e29d9433aa286f3da9694ced33",
+                    "name": "chuggy-worker",
+                    "version": "0.15",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:eccacebea8fccaab485fac4d2bfb8990173853a7c44d1f0eec49806b274920b6",
+                    "name": "chuggy-worker",
+                    "version": "0.16",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:00598efb07666fbe0a66ce7a8951b0aadf93cbb5ca2bca00581142f77ec17458",
+                    "name": "chuggy-worker",
+                    "version": "0.17",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:a49a5244f556be7996b1d8a20e61a23504546e32f9eb1a3d636d4fb2b421d071",
+                    "name": "chuggy-worker",
+                    "version": "0.18",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:0f728b620c5e35fa5872fe9642ee90d75b49c5b33f822999926f17f2b00e4009",
+                    "name": "chuggy-worker",
+                    "version": "0.19",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:528b60992328f9076fc97a731027f2aef38e23c42f1261067ef417e03b06bb27",
+                    "name": "chuggy-worker",
+                    "version": "0.20",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:7d9397bad9d1174314a83be8d5aaad1a0e2aa83af767b7892aa789d23ced2362",
+                    "name": "chuggy-worker",
+                    "version": "0.21",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:1ebb03cbda88b0f7f6e99e622c85595ec394c7638df6b4a97015916e00b3f70d",
+                    "name": "chuggy-worker",
+                    "version": "0.22",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:143e0efa327efc6dc3760fb5a8867dd9be51af125951d347409668b660a3f9df",
+                    "name": "chuggy-worker",
+                    "version": "0.23",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:014a8d934621f27819d7bd547dec0b1a4e4ca0bafc9e446254536f37cc2b7436",
+                    "name": "chuggy-worker",
+                    "version": "0.24",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:a33575679ba64d13ecf9a6b9c9bcfdea1eeae854abc6dc187f5b7a6b0505b555",
+                    "name": "chuggy-worker",
+                    "version": "0.25",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:cd841adc9744c02748e775188a499ad10166fb2ae420ae11b5965cb15f87fc48",
+                    "name": "chuggy-worker",
+                    "version": "0.26",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:c3226d5e9a7d7522991b21592ae5e403635fca783f953347722b4bbb4cea9d56",
+                    "name": "chuggy-worker",
+                    "version": "0.27",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:e4030527130fa68fd7d05d2b8ff21cb98b4387646ef8656fc540d6c5a6f97291",
+                    "name": "chuggy-worker",
+                    "version": "0.28",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:da990b14983166e03b6c7ac852c90c74c5bfa8e57517557100c22db121f5c846",
+                    "name": "chuggy-worker",
+                    "version": "0.29",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:23b3dea3eaea7cbd3ec134993ad618efb4f42b358381210a92a7c85a177f6861",
+                    "name": "chuggy-worker",
+                    "version": "0.30",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:f9c0b2987cf3d3172ff760752aee7fdb102d0280a6021c6063dd55fb2b1af3eb",
+                    "name": "chuggy-worker",
+                    "version": "0.31",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:44c5193a8e779f0ae3dee5a763d21a98727f7ec98039fc720b0f9afc35367a3c",
+                    "name": "chuggy-worker",
+                    "version": "0.32",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:4a5c7e7e58535e17611d455901ec2e4ed0d877d2747ec73a34027977843b7fb3",
+                    "name": "chuggy-worker",
+                    "version": "0.33",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:3ac00c5816949fb1c7889a61afb63ee0d913b62a75642f15d7c7b12aabd83351",
+                    "name": "chuggy-worker",
+                    "version": "0.34",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker-generic@sha256:2d00b0a9bbba5b5663c36850abfd5f2456c6d09f1bcc0c147c383896ad75f201",
+                    "name": "generic-worker",
+                    "version": "0.1",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker-generic@sha256:ad6336b57803c276d5dd0ae49d8c2accf65eeba00df00f504c0cb2927658dfb7",
+                    "name": "generic-worker",
+                    "version": "0.2",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:ca67620f116530f797308dfa749ca37c13749974d3c0d7610b59743b4cfab9c6",
+                    "name": "chuggy-worker",
+                    "version": "0.35",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:82565c660b871fbc1ea12439a9d7336f4c8880b0a12e1991ff16a0de362c9e07",
+                    "name": "chuggy-worker",
+                    "version": "0.36",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:a4da037da9e988a6af67fa2e0fdcfb3ee8e3c007c21c348a2dd3e6946aa3fbc5",
+                    "name": "chuggy-worker",
+                    "version": "0.37",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:0089d75d137ee358cab163b1abbd084dbe867d61e606117f99dc3a998e4a2e02",
+                    "name": "chuggy-worker",
+                    "version": "0.38",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:8a5711bc6537a2d0d25c101294a125b430f9ff25efcb0d059c84a10a171d37e1",
+                    "name": "chuggy-worker",
+                    "version": "0.40",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:97cb5292d814c9790c5731898dd3e0e1f28487d5358058210109b2351e5d72fc",
+                    "name": "chuggy-worker",
+                    "version": "0.41",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:be94fcd8ab81defd285ebab9b34719a653107fbefc543de4bc41c363a434bafe",
+                    "name": "chuggy-worker",
+                    "version": "0.42",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:9e0d8dd81bf3d9fd8b03eef5294d6b67fe5521c13b41dd265d4f0a2e9ec61fe2",
+                    "name": "chuggy-worker",
+                    "version": "0.43",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker-generic@sha256:e45838089ef7bedcd30ab0f7e7274c1d15b1f4fd2c2b582d92b91e8bf330e5ff",
+                    "name": "generic-worker",
+                    "version": "0.3",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:6c4d434a45f30edd80ce8b8a16f8b2871fb174bc6c6c0fa75c08dee1d09d7e9e",
+                    "name": "chuggy-worker",
+                    "version": "0.44",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker-generic@sha256:6057be425f1d5b54485744f1b06696da9563a19d75db405cc3260890a264cbb0",
+                    "name": "generic-worker",
+                    "version": "0.4",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:4247a23b974749f26f77491ccca8c322d657648c80face922c95c5437eb24b66",
+                    "name": "chuggy-worker",
+                    "version": "0.45",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  }
+                ]
             # The memory limit is what chuggy's own `ci.sh` needs: Node sizes
             # its heap from the container's limit, and the typed lint stage of
             # `check-source` over the whole tree outgrew the limit this used to

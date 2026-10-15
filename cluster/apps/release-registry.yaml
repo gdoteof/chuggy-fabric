@@ -42,6 +42,7 @@ spec:
       # `registry` does.
       nodeSelector:
         chuggy.dev/durable: "true"
+      priorityClassName: chuggy-durable
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
