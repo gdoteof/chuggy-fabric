@@ -21,3 +21,4 @@ resources:
   - chuggy-migrate.yaml
   - chuggy.yaml
   - sources.yaml
+  - track-record.yaml

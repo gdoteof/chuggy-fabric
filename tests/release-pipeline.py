@@ -4,9 +4,9 @@
 usage: release-pipeline.py RENDERED_BUILD_SYSTEM RENDERED_APPS RENDERED_FLUX
            BUILD_SYSTEM_DIRECTORY [RENDERED_LAYER ...]
 
-Every assertion is made against what the layers render, except for the one
-manifest nothing renders: worker-image-run.yaml is read as a file, and
-release-run.yaml as the trigger's ConfigMap carries it.
+Every assertion is made against what the layers render, except for the
+manifests nothing renders: each run a person creates, BY_HAND below, is read
+as a file, and release-run.yaml as the trigger's ConfigMap carries it.
 
 EVERY LAYER GIVEN IS READ AS ONE CLUSTER, because a namespace's policies add
 up across whoever applies them, and so do its bindings: what is held of a
@@ -14,8 +14,8 @@ namespace here is held of every render this is given, and
 tests/release-pipeline.nix lists them. An object two of them render is
 refused. Each layer would put its own back at its interval.
 
-NO TASK POD HAS A TOKEN. A run's pods are placed by the run, so both
-manifests for one name the `builder` ServiceAccount and a pod template that
+NO TASK POD HAS A TOKEN. A run's pods are placed by the run, so every
+manifest for one names the `builder` ServiceAccount and a pod template that
 mounts no token, `builder` mounts none itself and is bound to no role, and no
 Task has a volume that is anything but a ConfigMap or an empty directory.
 
@@ -129,6 +129,8 @@ TRIGGER = "release-trigger"
 BUILDER = "builder"
 PIPELINE = "chuggy-release"
 RUN_FILE = "release-run.yaml"
+# The TaskRuns of `build-image` a person creates, as files in the directory.
+BY_HAND = ("worker-image-run.yaml", "track-record-image-run.yaml")
 PINNED = re.compile(r"[a-z0-9./-]+:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}")
 REFERENCE = re.compile(r"\$\(([^)]+)\)")
 
@@ -855,7 +857,7 @@ def main():
         refuse(f"Pipeline {PIPELINE} is not rendered in {BUILD_NAMESPACE}")
     params = pipeline_is_sound(pipeline, tasks)
 
-    # The two manifests for a run.
+    # The manifests for a run.
     trigger_configs = of(cluster, "ConfigMap", TRIGGER_NAMESPACE)
     carried = [config["data"][RUN_FILE] for config in trigger_configs.values() if RUN_FILE in config["data"]]
     if len(carried) != 1:
@@ -872,15 +874,16 @@ def main():
         sorted(param["name"] for param in release_run["spec"]["params"]),
         sorted(params),
     )
-    (worker_run,) = objects((directory / "worker-image-run.yaml").read_text())
-    exactly("worker-image-run.yaml's kind", (worker_run["apiVersion"], worker_run["kind"]), ("tekton.dev/v1", "TaskRun"))
-    run_is_placed("worker-image-run.yaml", worker_run, worker_run["spec"])
-    worker_task = tasks.get(worker_run["spec"]["taskRef"]["name"])
-    if worker_task is None:
-        refuse(f"worker-image-run.yaml is of {worker_run['spec']['taskRef']}, which is not a Task rendered in {BUILD_NAMESPACE}")
-    passes_what_is_declared(
-        "worker-image-run.yaml", {param["name"] for param in worker_run["spec"]["params"]}, worker_task
-    )
+    by_hand = {}
+    for file in BY_HAND:
+        (run,) = objects((directory / file).read_text())
+        exactly(f"{file}'s kind", (run["apiVersion"], run["kind"]), ("tekton.dev/v1", "TaskRun"))
+        run_is_placed(file, run, run["spec"])
+        task = tasks.get(run["spec"]["taskRef"]["name"])
+        if task is None:
+            refuse(f"{file} is of {run['spec']['taskRef']}, which is not a Task rendered in {BUILD_NAMESPACE}")
+        passes_what_is_declared(file, {param["name"] for param in run["spec"]["params"]}, task)
+        by_hand[file] = run
 
     # No token, and no role, for a task pod.
     builder = of(cluster, "ServiceAccount", BUILD_NAMESPACE).get(BUILDER)
@@ -1040,9 +1043,10 @@ def main():
         refuse(f"the pipeline publishes to {passed['publish']['release']}, which is not what OCIRepository chuggy-release reads")
     if not passed["publish"]["release"].startswith(published_to):
         refuse(f"the pipeline publishes to {passed['publish']['release']}, which is not the release registry's Service")
-    worker = {param["name"]: param["value"] for param in worker_run["spec"]["params"]}
-    if not worker["image"].startswith(pushed_to):
-        refuse(f"worker-image-run.yaml pushes {worker['image']}, which is not the registry's Service")
+    for file, run in by_hand.items():
+        image = {param["name"]: param["value"] for param in run["spec"]["params"]}["image"]
+        if not image.startswith(pushed_to):
+            refuse(f"{file} pushes {image}, which is not the registry's Service")
 
 
 if __name__ == "__main__":

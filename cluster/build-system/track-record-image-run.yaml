@@ -1,0 +1,46 @@
+# One build of Track Record's server image, started by hand.
+#
+# NOT APPLIED, and in no ConfigMap either, as worker-image-run.yaml is not. An
+# operator writes the commit in and creates it:
+#
+#   sed 's/@track-record-commit@/<full commit hash>/' cluster/build-system/track-record-image-run.yaml |
+#     kubectl create --filename -
+#
+# The run's `digest` result is what cluster/track-record/track-record.yaml
+# names the image at, and a commit writing it there is what deploys it.
+#
+# NOT UNDER `chuggy/` IN THE REGISTRY. tests/rollout-order.py reads an image
+# under that prefix as a release's, and refuses one outside the release layers.
+#
+# THE SAME TASK AND THE SAME PLACEMENT AS A RELEASE'S BUILDS. release-run.yaml
+# argues the pod template; a TaskRun carries it at the top of its spec.
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: track-record-image-
+  namespace: chuggy-build
+spec:
+  taskRef:
+    name: build-image
+  params:
+    - name: url
+      value: https://github.com/kasofsk/track-record.git
+    - name: commit
+      value: "@track-record-commit@"
+    - name: image
+      value: registry.chuggy-registry.svc.cluster.local:5000/track-record/server
+    - name: dockerfile
+      value: Dockerfile
+  timeout: 1h
+  serviceAccountName: builder
+  podTemplate:
+    automountServiceAccountToken: false
+    nodeSelector:
+      chuggy.dev/node-role: builder
+      kubernetes.io/os: linux
+      kubernetes.io/arch: amd64
+    tolerations:
+      - key: chuggy.dev/node-role
+        operator: Equal
+        value: builder
+        effect: NoSchedule

@@ -1,6 +1,6 @@
-# The order a release rolls out in, read off the three rendered directories a
-# release is spread over rather than off the layer declarations. The argument
-# for each assertion is in rollout-order.py's own header.
+# The order a release rolls out in, read off each rendered directory rather
+# than off the layer declarations. The argument for each assertion is in
+# rollout-order.py's own header.
 #
 # The owner of the dumps directory is handed over from the host rather than
 # restated here, so that the uid this holds the dump to is the one the tmpfiles
