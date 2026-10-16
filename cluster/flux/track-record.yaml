@@ -1,0 +1,33 @@
+# What cluster/track-record/ declares: Track Record, a service no part of a
+# chuggy release uses.
+#
+# A LAYER OF ITS OWN, AND NOTHING DEPENDS ON IT. In `apps` its health would be
+# that layer's, and `chuggy-migrate` waits on `apps`: a Track Record that did
+# not come up would hold every chuggy release. Here it holds nothing.
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: track-record
+  namespace: flux-system
+spec:
+  # NO `dependsOn`, because nothing here needs another layer's object to be
+  # applied: its namespace is its own, and Traefik, its IngressClass and the
+  # `local-path` StorageClass are k3s's, there before Flux is. What it takes
+  # from `apps` is the registry its image is pulled through, and only for a
+  # digest the node does not hold yet; a pod that finds the registry down
+  # retries the pull itself. Waiting on `apps` would order nothing the kubelet
+  # does not, and would hold a change here on everything `apps` reads as
+  # unhealthy.
+  interval: 5m
+  path: ./cluster/track-record
+  sourceRef:
+    kind: GitRepository
+    name: fabric
+  # No `deletionPolicy: Orphan`, which `apps` sets for the data under it: what
+  # this layer holds is disposable, so deleting the layer deletes its claim.
+  prune: true
+  # So Ready says the Deployment rolled and the claim bound. Nothing reads it
+  # but a person: a roll that hangs holds this layer alone, until `timeout`.
+  wait: true
+  timeout: 3m

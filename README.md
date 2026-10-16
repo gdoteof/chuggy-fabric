@@ -47,6 +47,8 @@ only by their own directory.
     cluster/chuggy/                 a chuggy release's services; a release is
                                     made over these two, and names itself in
                                     neither
+    cluster/track-record/           Track Record, in a layer of its own that
+                                    no other layer waits on
 
     hosts/gtr/default.nix           geoff's Beelink GTR: hostname, radios, mesh, k3s, tunnel
     hosts/gtr/hardware-configuration.nix
@@ -88,9 +90,9 @@ That remaining fixture is a **second Flux control loop**, which is why the
 reconciles a ConfigMap beside it every minute, so that object carries
 `kustomize.toolkit.fluxcd.io/name: rig` — Flux-managed, and no business of this
 repo. What this repo owns carries the name of a layer `cluster/flux/` declares
-— `apps`, `build-system`, `chuggy-migrate` or `chuggy` — in `namespace:
-flux-system`. Anything else, labelled or not, came from somewhere that is not
-this repo.
+— `apps`, `build-system`, `chuggy-migrate`, `chuggy` or `track-record` — in
+`namespace: flux-system`. Anything else, labelled or not, came from somewhere
+that is not this repo.
 
 ## Workflow
 
@@ -930,6 +932,10 @@ builds the worker image at a chuggy commit. Flux applies neither it nor
     sed 's/@chuggy-commit@/<full commit hash>/' cluster/build-system/worker-image-run.yaml |
       kubectl create --filename -
 
+`track-record-image-run.yaml` is another, of Track Record's server image at a
+kasofsk/track-record commit, created the same way with `@track-record-commit@`.
+Its `digest` result is what `cluster/track-record/track-record.yaml` names.
+
 ## Ingress
 
 Public traffic arrives through a **Cloudflare Tunnel**, not a port-forward. The
@@ -1055,8 +1061,8 @@ and `cluster/chuggy/`, and no `Kustomization` reads it: the release trigger
 does. The
 root applies `cluster/flux/`, where each layer Flux reconciles is declared as
 its own `Kustomization`, so what Flux reconciles, and in what order, is changed
-by a commit and not by a host rebuild. `apps` and `build-system` read
-`fabric`, each a directory of this repository;
+by a commit and not by a host rebuild. `apps`, `build-system` and
+`track-record` read `fabric`, each a directory of this repository;
 `chuggy-migrate` and `chuggy` read `OCIRepository` `chuggy-release`, each an
 overlay of the release it holds. `cluster/flux/sources.yaml` declares that
 source and `GitRepository` `chuggy`, the two of a release that are the same on
@@ -1086,6 +1092,11 @@ is declared under `cluster/`.
 
 Drop a manifest in `cluster/apps/`, commit, push. Flux picks it up within 5
 minutes, or immediately with `flux reconcile kustomization apps`.
+
+`apps` waits on its health, and `chuggy-migrate` waits on `apps`, so an app
+there that does not come up holds every chuggy release. A service no release
+uses can have a layer of its own that no other layer waits on instead, as
+`cluster/flux/track-record.yaml` does, with a spec in `tests/flux-layers.py`.
 
 **State the namespace on every resource.** Flux rejects namespaced resources that
 declare none when the Kustomization sets no `targetNamespace` — the error is

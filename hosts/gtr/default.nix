@@ -159,6 +159,8 @@
     #
     # chuggy-registry is the read-only registry front such a pool pulls its
     # image from, cluster/apps/registry-public.yaml.
+    #
+    # track-record is Track Record's API, cluster/track-record/track-record.yaml.
     hostnames = [
       "whoami.vteng.io"
       "grafana.vteng.io"
@@ -169,6 +171,7 @@
       "chuggy-pool.vteng.io"
       "chuggy-worker.vteng.io"
       "chuggy-registry.vteng.io"
+      "track-record.vteng.io"
     ];
   };
 

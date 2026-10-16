@@ -33,6 +33,11 @@ THE TWO RELEASE LAYERS READ THE RELEASE AND NO OTHER LAYER DOES.
 layer names the `fabric` source. Either of the two on `fabric` and its own
 directory still renders, and applies manifests that name no release: a Job
 and services whose image no registry holds.
+
+NO LAYER WAITS ON `track-record`. A layer that named it in `dependsOn` would be
+held by a Track Record that did not come up, and so would every layer waiting
+on that one, which is how a chuggy release comes to wait on it.
+cluster/flux/track-record.yaml argues the layer.
 """
 
 import json
@@ -78,7 +83,11 @@ LAYERS = {
         source=RELEASE,
         dependsOn=[{"name": "chuggy-migrate"}],
     ),
+    "track-record": layer("./cluster/track-record"),
 }
+
+# The layers no other layer may wait on.
+WAITED_ON_BY_NONE = ("track-record",)
 
 
 SOURCES = {
@@ -141,6 +150,14 @@ def main():
 
     for kind, name in sorted((kind, name) for _, kind, name in SOURCES.keys() - sources.keys()):
         refuse(f"{kind} {name} is not rendered, and the root prunes what it stops applying")
+
+    for name, spec in sorted(rendered.items()):
+        for dependency in spec.get("dependsOn") or []:
+            if dependency.get("name") in WAITED_ON_BY_NONE:
+                refuse(
+                    f"layer {name} waits on {dependency['name']}, which no layer may: "
+                    "its health would hold that layer and every layer waiting on it"
+                )
 
     held = [(f"layer {name}", expected, rendered[name]) for name, expected in LAYERS.items()]
     held += [(f"{kind} {name}", expected, sources[_, kind, name]) for (_, kind, name), expected in SOURCES.items()]

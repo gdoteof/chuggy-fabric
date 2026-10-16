@@ -6,10 +6,11 @@ the dump, then the migration, then the services.
 `chuggy` -- and `tests/flux-layers.py` holds that each waits on the one before.
 That orders the LAYERS. What orders a RELEASE is which objects are in which,
 and nothing but a reader holds that: a Deployment that runs a release image and
-is listed in `cluster/apps` is rolled before the migration has run, and every
-layer still reads as declared.
+is listed in `cluster/apps`, or in `cluster/track-record`, which waits on
+nothing, is rolled before the migration has run, and every layer still reads as
+declared.
 
-SO THE THREE RENDERS ARE READ AS THREE, never as one stream. An object is held
+SO EACH RENDER IS READ ON ITS OWN, never as one stream. An object is held
 to the layer that renders it, and a release image is read off the pod that
 runs it rather than off the name of the file it came from. The two release
 layers are read as git carries their directories: a release's overlay writes
@@ -57,7 +58,7 @@ from pathlib import Path
 
 import yaml
 
-LAYERS = ("apps", "chuggy-migrate", "chuggy")
+LAYERS = ("apps", "track-record", "chuggy-migrate", "chuggy")
 MIGRATION_LAYER = "chuggy-migrate"
 SERVICE_LAYER = "chuggy"
 

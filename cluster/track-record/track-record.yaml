@@ -1,0 +1,174 @@
+# Track Record: a store of "this command passed on inputs with this key",
+# from kasofsk/track-record, at `track-record.vteng.io`. Nothing in it knows
+# about chuggy, and no chuggy release moves it: its image is built by hand from
+# cluster/build-system/track-record-image-run.yaml, and a new one is admitted
+# by a commit that writes the digest that run reports.
+#
+# ITS OWN LAYER, cluster/flux/track-record.yaml, which says why.
+#
+# ITS DATA IS DISPOSABLE. A lost record is a command run again, so the claim is
+# `local-path` with no retained volume and no backup. The tokens are in the
+# same database, though: losing it revokes every one, and each is minted again.
+#
+# A TOKEN IS MINTED INSIDE THE POD, against the database, and goes straight
+# into a Secret without being printed. A write token for the `chuggy`
+# namespace, for this cluster's work pods:
+#
+#   kubectl -n track-record exec deploy/track-record -- \
+#     /usr/local/bin/track-record token create --db /data/track-record.db \
+#       --namespace chuggy --scope write --label gtr-work |
+#     kubectl -n chuggy-work create secret generic track-record-chuggy \
+#       --from-file=token=/dev/stdin
+#
+# `token list --db /data/track-record.db` says what is live, and `token revoke
+# --db /data/track-record.db <id>` ends one. Neither prints a token.
+#
+# The host is public only once it is also in `chuggy.tunnel.hostnames` and has
+# a CNAME to the tunnel, as cluster/chuggy/chuggy-ui.yaml's "the host, three
+# ways" describes.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: track-record
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+# `local-path`, whose reclaim policy is `Delete`: the database goes with the
+# claim, which disposable data can afford. The pod sets `fsGroup` for it, as
+# postgres.yaml sets one for its own.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: track-record-data
+  namespace: track-record
+spec:
+  storageClassName: local-path
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: { storage: 10Gi }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: track-record
+  namespace: track-record
+  labels: { app: track-record }
+spec:
+  replicas: 1
+  # One SQLite database on a ReadWriteOnce claim: the old pod stops before the
+  # new one opens it.
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: track-record }
+  template:
+    metadata:
+      labels: { app: track-record }
+    spec:
+      # A local-path claim is a directory on the node that made it.
+      nodeSelector:
+        chuggy.dev/durable: "true"
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: track-record
+          image: registry.chuggy.internal/track-record/server@sha256:f94c8071c9b825fd5eebcef94ae329c2f83bd50da96a3c204e362288c4e5bbe1
+          imagePullPolicy: IfNotPresent
+          command: [/usr/local/bin/track-record]
+          args: [serve, --listen, ":8080", --db, /data/track-record.db]
+          ports:
+            - name: http
+              containerPort: 8080
+          # The one route that takes no token.
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: track-record-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: track-record
+  namespace: track-record
+spec:
+  selector: { app: track-record }
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+# Traefik alone, and nowhere out: the server calls nothing. The kubelet's
+# probes need no element, for the reason
+# cluster/apps/chuggy-control-plane-network-policy.yaml gives over the API's.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: track-record-admits-traefik
+  namespace: track-record
+spec:
+  podSelector:
+    matchLabels: { app: track-record }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - { protocol: TCP, port: 8080 }
+---
+# The API under /v1 and the health route, and nothing else of the server.
+# Single-label and with no `tls:`, for the reasons chuggy-ui.yaml gives.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: track-record
+  namespace: track-record
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: track-record.vteng.io
+      http:
+        paths:
+          - path: /v1
+            pathType: Prefix
+            backend:
+              service:
+                name: track-record
+                port: { name: http }
+          - path: /healthz
+            pathType: Exact
+            backend:
+              service:
+                name: track-record
+                port: { name: http }
