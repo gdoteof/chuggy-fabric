@@ -79,7 +79,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: track-record
-          image: registry.chuggy.internal/track-record/server@sha256:f94c8071c9b825fd5eebcef94ae329c2f83bd50da96a3c204e362288c4e5bbe1
+          image: registry.chuggy.internal/track-record/server@sha256:7af0658bd0ed1628ac52c5ee8452b4fc44236d43a32609c4e03689a3fcacdd52
           imagePullPolicy: IfNotPresent
           command: [/usr/local/bin/track-record]
           args: [serve, --listen, ":8080", --db, /data/track-record.db]
