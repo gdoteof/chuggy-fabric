@@ -79,10 +79,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: track-record
-          # The digest of sixty-four zeroes names no image. NOT YET BUILT:
-          # replace it with the `digest` result of a track-record-image run
-          # before this lands.
-          image: registry.chuggy.internal/track-record/server@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          image: registry.chuggy.internal/track-record/server@sha256:f94c8071c9b825fd5eebcef94ae329c2f83bd50da96a3c204e362288c4e5bbe1
           imagePullPolicy: IfNotPresent
           command: [/usr/local/bin/track-record]
           args: [serve, --listen, ":8080", --db, /data/track-record.db]
@@ -110,15 +107,10 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
-            # The root is read-only, and the server needs a writable /tmp.
-            - name: tmp
-              mountPath: /tmp
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: track-record-data
-        - name: tmp
-          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
