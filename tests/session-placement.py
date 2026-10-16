@@ -599,7 +599,7 @@ def main():
     #    Every arm that places a pod is held, because the slot is denied per
     #    placement: the two attempt arms and the session's are three grants.
     #    An attempt holds what its arm grants less what its configuration
-    #    leaves out, and one that names no credentials leaves out nothing, so
+    #    leaves out, and one that omits `credentials` leaves out nothing, so
     #    a slot an arm grants and nothing mounts denies every such attempt.
     #    The policy's other keys, `projectRoutes`, grant nothing.
     policy = json_variable(scheduled, SESSION_POLICY_VARIABLE)

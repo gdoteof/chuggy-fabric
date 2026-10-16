@@ -756,10 +756,11 @@ spec:
             # A GRANT IS A CEILING, AND `track-record` IS IN BOTH. What a pod
             # holds is the grant met with what its task's configuration asks
             # for, so a configuration that lists its credentials holds
-            # `track-record` only if it lists it -- and one that lists none
-            # asks for nothing, which leaves it the whole grant, this slot
-            # included. Work routed to a project's pool runs with that pool's
-            # own credentials, and none of these is mounted there.
+            # `track-record` only if it lists it -- and one that omits
+            # `credentials` asks for nothing, which leaves it the whole grant,
+            # this slot included; an empty list holds nothing. Work routed to
+            # a project's pool runs with that pool's own credentials, and none
+            # of these is mounted there.
             - name: CHUG_SCHEDULER_EXECUTION_POLICY
               value: |
                 {
