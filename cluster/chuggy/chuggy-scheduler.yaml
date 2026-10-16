@@ -253,6 +253,14 @@ spec:
                     "scratch": { "mountPath": "/var/lib/postgresql" }
                   }
                 ]
+            # `track-record` is a write token for the `chuggy` namespace of the
+            # Track Record store, where kasofsk/chuggy's `ci.sh` records each
+            # gate that passed and reuses that pass on identical inputs. It is
+            # a mounted credential rather than a variable so that the worker
+            # core scrubs it from everything it reports, as it does every
+            # credential file a pod is given. Its Secret is made by hand and
+            # declared nowhere here, and a pod mounting a Secret that is
+            # missing stays in FailedMount.
             - name: CHUG_SCHEDULER_WORKER_CREDENTIAL_MOUNTS
               value: |
                 {
@@ -265,6 +273,11 @@ spec:
                     "secretName": "claude-code",
                     "key": "oauth-token",
                     "mountPath": "/var/run/chuggy/credentials/claude-code"
+                  },
+                  "track-record": {
+                    "secretName": "track-record-chuggy",
+                    "key": "token",
+                    "mountPath": "/var/run/chuggy/credentials/track-record"
                   }
                 }
             # chuggy's own runtime, which a job's pod copies in from this image
@@ -293,7 +306,8 @@ spec:
                   "CHUG_PG_WORKERS": "4",
                   "VITEST_MAX_WORKERS": "4",
                   "BASH_DEFAULT_TIMEOUT_MS": "1800000",
-                  "BASH_MAX_TIMEOUT_MS": "3000000"
+                  "BASH_MAX_TIMEOUT_MS": "3000000",
+                  "TRACK_RECORD_TOKEN_FILE": "/var/run/chuggy/credentials/track-record"
                 }
             # `CHUG_PG_URL` and `CHUG_PG_WORKERS` are kasofsk/chuggy's own: its
             # gates run against the server the first names, and the second is
@@ -311,6 +325,12 @@ spec:
             # is killed instead: the default is long enough for a whole
             # `ci.sh`, and the most an agent may ask for is shorter than
             # `CHUG_SCHEDULER_WORKER_DEADLINE_SECS`.
+            # `TRACK_RECORD_TOKEN_FILE` is the path the `track-record` mount
+            # above puts its token at, and not the token; the store's address
+            # and namespace are left to `ci.sh`, whose defaults are this
+            # site's. Every worker pod is given the path, and the file is
+            # there only in a pod whose authority holds the slot; where it is
+            # absent, `track-record` runs each gate unrecorded.
             # `chuggy.dev/worker` is what chuggy-work.yaml's egress policy
             # selects on. It is possession of a label and not authentication,
             # and it is not `chuggy.dev/postgres-client`: a worker's PostgreSQL
@@ -732,6 +752,14 @@ spec:
             # tenant granted hosted runs may choose (kasofsk/chuggy#810). Every
             # project that stood before that release was given a row keeping it
             # here, so this default reaches only projects created since.
+            #
+            # A GRANT IS A CEILING, AND `track-record` IS IN BOTH. What a pod
+            # holds is the grant met with what its task's configuration asks
+            # for, so a configuration that lists its credentials holds
+            # `track-record` only if it lists it -- and one that lists none
+            # asks for nothing, which leaves it the whole grant, this slot
+            # included. Work routed to a project's pool runs with that pool's
+            # own credentials, and none of these is mounted there.
             - name: CHUG_SCHEDULER_EXECUTION_POLICY
               value: |
                 {
@@ -740,7 +768,7 @@ spec:
                     "runtimeVersion": "claude-code-latest",
                     "grant": {
                       "tools": ["claude-code", "shell"],
-                      "credentials": ["chuggy-git-worker", "claude-code"],
+                      "credentials": ["chuggy-git-worker", "claude-code", "track-record"],
                       "network": true,
                       "filesystem": "WriteWorkspace",
                       "mayCompleteTask": false
@@ -752,7 +780,7 @@ spec:
                     "runtimeVersion": "claude-code-latest",
                     "grant": {
                       "tools": ["claude-code", "shell"],
-                      "credentials": ["chuggy-git-worker", "claude-code"],
+                      "credentials": ["chuggy-git-worker", "claude-code", "track-record"],
                       "network": true,
                       "filesystem": "WriteWorkspace",
                       "mayCompleteTask": false
@@ -936,10 +964,11 @@ spec:
             # this site run the same binary, and this is the only variable that
             # says so twice.
             #
-            # `credentials` is the execution policy's list, which is now the
-            # same two slots. `kubernetesSessionPodRequest` denies a credential
-            # slot this list does not name, so it is the list and not the mounts
-            # above that decides what a session can authenticate as.
+            # `credentials` is the execution policy's list less `track-record`,
+            # since a session runs no gates. `kubernetesSessionPodRequest`
+            # denies a credential slot this list does not name, so it is the
+            # list and not the mounts above that decides what a session can
+            # authenticate as.
             #
             # `claude-code` is what the runtime speaks to the model with.
             # `chuggy-git-worker` is what it clones this cluster's own git

@@ -52,18 +52,20 @@ literal either:
     after the ClusterIP is translated away, so an arm copied from the URL's own
     number is wrong for a Service that renames its port.
   * A checkout takes a reach, a credential and a repository map, and this file
-    already holds the reach. Every credential the session policy grants must be
-    one the credential mounts carry, or the placement is denied. The map is
-    read only where the worker plane minted nothing -- it mints for a forge, so
-    what is left is this cluster's own git service -- and that is the whole of
-    what the map is for: one row, on this cluster, whose credential every arm
-    that places a pod grants. A forge row would be a second answer to which
-    repositories exist, kept by hand beside the mint; an empty map is a mounted
-    credential no placement can resolve a reference with; and a map on one kind
-    of pod alone leaves a session unable to resolve a binding the API accepted,
-    so the two are held equal. A mirror is that same pairing once more: it is
-    what a session clones in place of the binding, so it must be in that map and
-    its credential must be granted.
+    already holds the reach. Every credential the session policy or either
+    attempt arm grants must be one the credential mounts carry, or the
+    placement is denied. The map is read only where the worker plane minted
+    nothing -- it mints for a forge, so what is left is this cluster's own git
+    service -- and that is the whole of what the map is for: one row, on this
+    cluster, whose credential every arm that places a pod grants. A forge row
+    would be a second answer to which repositories exist, kept by hand beside
+    the mint; an empty map is a mounted credential no placement can resolve a
+    reference with; and a map on one kind of pod alone leaves a session unable
+    to resolve a binding the API accepted, so the two are held equal. A mirror
+    is that same pairing once more: it is what a session clones in place of the
+    binding, so it must be in that map and its credential must be granted. The
+    Track Record token is read from a file, so the path the worker environment
+    names for it is the path its slot is mounted at.
   * A CREDENTIAL SLOT IS NAMED WHERE A SESSION IS OPENED AND ENFORCED WHERE ONE
     IS PLACED, and those are three manifests. The api names the slot a member's
     thread speaks through and the selector names the slot a lead it opens speaks
@@ -124,6 +126,8 @@ WORKER_ENVIRONMENT_VARIABLE = "CHUG_SCHEDULER_WORKER_ENVIRONMENT"
 EXECUTION_POLICY_VARIABLE = "CHUG_SCHEDULER_EXECUTION_POLICY"
 CREDENTIAL_MOUNTS_VARIABLE = "CHUG_SCHEDULER_WORKER_CREDENTIAL_MOUNTS"
 REPOSITORIES_VARIABLE = "CHUG_WORKER_REPOSITORIES"
+TRACK_RECORD_FILE_VARIABLE = "TRACK_RECORD_TOKEN_FILE"
+TRACK_RECORD_SLOT = "track-record"
 
 # Where the two credential slots this site opens sessions on are written, which
 # is neither of them in the scheduler that enforces them. The api's is a plain
@@ -591,15 +595,32 @@ def main():
     #    service -- and every arm that places a pod grants that row's
     #    credential, or the git arm above permits a clone that cannot
     #    authenticate.
+    #
+    #    Every arm that places a pod is held, because the slot is denied per
+    #    placement: the two attempt arms and the session's are three grants.
+    #    An attempt holds what its arm grants less what its configuration
+    #    leaves out, and one that names no credentials leaves out nothing, so
+    #    a slot an arm grants and nothing mounts denies every such attempt.
+    #    The policy's other keys, `projectRoutes`, grant nothing.
     policy = json_variable(scheduled, SESSION_POLICY_VARIABLE)
     granted = set(policy.get("grant", {}).get("credentials", []))
-    mounts = set(json_variable(scheduled, CREDENTIAL_MOUNTS_VARIABLE))
-    ungrantable = granted - mounts
-    if ungrantable:
-        refuse(
-            f"{SESSION_POLICY_VARIABLE} grants {sorted(ungrantable)}, which "
-            f"{CREDENTIAL_MOUNTS_VARIABLE} does not mount, so every placement is denied"
+    mounts = json_variable(scheduled, CREDENTIAL_MOUNTS_VARIABLE)
+    execution = json_variable(scheduled, EXECUTION_POLICY_VARIABLE)
+    arms = {
+        f"{EXECUTION_POLICY_VARIABLE}.{name}": set(
+            execution[name].get("grant", {}).get("credentials", [])
         )
+        for name in ("Work", "Evaluation")
+        if name in execution
+    }
+    arms[SESSION_POLICY_VARIABLE] = granted
+    for owner, credentials in sorted(arms.items()):
+        ungrantable = credentials - set(mounts)
+        if ungrantable:
+            refuse(
+                f"{owner} grants {sorted(ungrantable)}, which "
+                f"{CREDENTIAL_MOUNTS_VARIABLE} does not mount, so a placement holding it is denied"
+            )
     sessions_map = environment_map(scheduled, SESSION_ENVIRONMENT_VARIABLE)
     workers_map = environment_map(scheduled, WORKER_ENVIRONMENT_VARIABLE)
     if (sessions_map is None) != (workers_map is None):
@@ -623,19 +644,8 @@ def main():
             "this site mounts a credential for: an empty map leaves the mounted arm unable to "
             "resolve anything, and a second row is an address kept by hand beside the mint"
         )
-    # Every arm that places a pod, because the slot is denied per placement: the
-    # two attempt arms and the session's are three grants, and a row whose
-    # credential one of them omits is a checkout that fails only on that arm.
-    # The policy's other keys, `projectRoutes`, grant nothing.
-    execution = json_variable(scheduled, EXECUTION_POLICY_VARIABLE)
-    arms = {
-        f"{EXECUTION_POLICY_VARIABLE}.{name}": set(
-            execution[name].get("grant", {}).get("credentials", [])
-        )
-        for name in ("Work", "Evaluation")
-        if name in execution
-    }
-    arms[SESSION_POLICY_VARIABLE] = granted
+    # The same three grants, because a row whose credential one of them omits is
+    # a checkout that fails only on that arm.
     for reference, entry in repositories.items():
         if entry.get("url") != reference:
             refuse(
@@ -661,6 +671,22 @@ def main():
                     f"{entry.get('credential')!r}, which {owner} does not grant, so a pod placed "
                     "there cannot authenticate"
                 )
+
+    # 7a. A token's file is named in two places: `ci.sh` reads the Track Record
+    #     token from the path the worker environment names, and the slot is
+    #     mounted at the path the mounts name. A pod in which the two differ
+    #     holds the token and runs every gate unrecorded, so they are held
+    #     equal, and either written without the other is refused.
+    token_file = json.loads(variable(scheduled, WORKER_ENVIRONMENT_VARIABLE) or "{}").get(
+        TRACK_RECORD_FILE_VARIABLE
+    )
+    token_mount = (mounts.get(TRACK_RECORD_SLOT) or {}).get("mountPath")
+    if token_file != token_mount:
+        refuse(
+            f"{WORKER_ENVIRONMENT_VARIABLE} names {TRACK_RECORD_FILE_VARIABLE} {token_file!r} and "
+            f"{CREDENTIAL_MOUNTS_VARIABLE} mounts {TRACK_RECORD_SLOT!r} at {token_mount!r}, so "
+            "the path a pod is told is not the path its token is mounted at"
+        )
 
     # 8. A mirror is the third half of the same reach: what a session clones is
     #    the binding put through this map, so a value the map above does not
