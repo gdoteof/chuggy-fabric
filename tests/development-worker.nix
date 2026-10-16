@@ -37,17 +37,20 @@ pkgs.runCommand "chuggy-development-worker" {
   grep -F 'registry.chuggy.internal/chuggy/worker@sha256:0f728b620c5e35fa5872fe9642ee90d75b49c5b33f822999926f17f2b00e4009' "$scheduler" >/dev/null
   grep -F 'registry.chuggy.internal/chuggy/worker@sha256:528b60992328f9076fc97a731027f2aef38e23c42f1261067ef417e03b06bb27' "$scheduler" >/dev/null
   grep -F 'registry.chuggy.internal/chuggy/worker@sha256:7d9397bad9d1174314a83be8d5aaad1a0e2aa83af767b7892aa789d23ced2362' "$scheduler" >/dev/null
-  # Every grant this file writes has one shape: the in-cluster git credential
-  # and the model credential. Nothing per repository sits between them -- a
-  # forge credential is minted per act rather than granted as a slot -- and the
-  # three are the two attempt arms and the session policy.
-  grant_count="$(grep -Fc '"credentials": ["chuggy-git-worker", "claude-code"]' "$scheduler" || true)"
+  # Every grant this file writes starts with the in-cluster git credential and
+  # the model credential. Nothing per repository sits between them -- a forge
+  # credential is minted per act rather than granted as a slot. The three are
+  # the two attempt arms, which add the Track Record token, and the session
+  # policy, which does not: a session runs no gates.
+  session_grants="$(grep -Fc '"credentials": ["chuggy-git-worker", "claude-code"]' "$scheduler" || true)"
+  attempt_grants="$(grep -Fc '"credentials": ["chuggy-git-worker", "claude-code", "track-record"]' "$scheduler" || true)"
   grants="$(grep -Ec '^ +"credentials": \[' "$scheduler" || true)"
-  if [ "$grant_count" != 3 ] || [ "$grants" != 3 ]; then
-    echo "development-worker: expected all three grants to be the in-cluster git credential and the model credential \"claude-code\", found $grant_count of $grants" >&2
+  if [ "$attempt_grants" != 2 ] || [ "$session_grants" != 1 ] || [ "$grants" != 3 ]; then
+    echo "development-worker: expected two grants of the in-cluster git credential, the model credential \"claude-code\" and \"track-record\", and one of the first two alone; found $attempt_grants and $session_grants of $grants" >&2
     exit 1
   fi
   grep -F '"secretName": "claude-code"' "$scheduler" >/dev/null
+  grep -F '"secretName": "track-record-chuggy"' "$scheduler" >/dev/null
   grep -E 'value: "registry\.chuggy\.internal/chuggy/worker-runtime@sha256:[0-9a-f]{64}"' "$scheduler" >/dev/null
   if grep -F '"CHUG_WORKER_WORKSPACE"' "$scheduler" >/dev/null; then
     echo "development-worker: CHUG_WORKER_WORKSPACE is written by the launchers, and a map that supplies it is refused" >&2
