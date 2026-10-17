@@ -888,7 +888,7 @@ spec:
             # and not a session's: the lead is the project's standing reader,
             # and reading a project well is the work.
             - name: CHUG_SCHEDULER_SESSION_MODEL
-              value: claude-opus-5
+              value: opus
             # Where the pod's own tools reach this installation's API. THE
             # IMAGE READS IT AND REQUIRES IT: `schedulerSessions` takes it with
             # `schedulerRequired`, so deleting this variable does not place
