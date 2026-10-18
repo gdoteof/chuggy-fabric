@@ -86,8 +86,8 @@ newest offer under its own name.
 AND A TASK THAT ASKS FOR A CAPABILITY RUNS ON THAT SAME WORKER. The scheduler
 resolves a capability, rather than a digest, to the last offered entry
 publishing it on the asked platform, so a second worker offered after the
-session's -- `generic-worker`, which a repository with no image of its own
-starts on -- takes every such task while each check above stays green. The
+session's, such as `generic-worker`, takes every such task while each check
+above stays green. The
 resolution is mirrored from `suppliedCapabilityAdmission` and `schedulerRuntime`
 in kasofsk/chuggy `src/adapters/supplied/schedulerPorts.ts` and
 `src/roots/schedulerConfig.ts`, an entry publishing no capabilities read as a
@@ -716,8 +716,8 @@ def main():
     #    not merely present, because offer order is release order: a policy on
     #    an older offered image is a release that moved one site and not the
     #    other. Newest under its own name, because a second worker offered
-    #    beside it -- `generic-worker`, which a repository with no image of its
-    #    own starts on -- is not a release of the one sessions run on.
+    #    beside it, such as `generic-worker`, is not a release of the one
+    #    sessions run on.
     offered = json_variable(scheduled, OFFERED_IMAGES_VARIABLE)
 
     # 9a. And that list is one the scheduler's parser accepts: every entry an
