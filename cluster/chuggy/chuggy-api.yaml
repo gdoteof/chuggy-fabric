@@ -414,10 +414,12 @@ spec:
                   }
                 ]
             # The image a repository bound with no configuration of its own
-            # starts on: the scheduler's `generic-worker`, which carries no
-            # practices of chuggy's. Its bootstrap ticket is told to name it.
+            # starts on, and its bootstrap ticket is told to name: a public
+            # one (node:24-bookworm's index), so a project that builds its own
+            # image on it can pull it from anywhere, as it cannot an image of
+            # this cluster's registry.
             - name: CHUG_API_BOOTSTRAP_WORKER_IMAGE
-              value: registry.chuggy.internal/chuggy/worker-generic@sha256:6057be425f1d5b54485744f1b06696da9563a19d75db405cc3260890a264cbb0
+              value: docker.io/library/node@sha256:14078204b6bb268c107ceff6d3c43f45a888105e5c2b18b14c32b3409d93a1b0
             # The origin a job reaches the API at, so the bootstrap ticket is
             # told the schema's whole URL. No trailing slash: the API refuses
             # to start on anything but an origin exactly as a URL writes one.
