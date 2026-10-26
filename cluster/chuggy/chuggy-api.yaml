@@ -267,7 +267,7 @@ spec:
         # `ECONNREFUSED` from the database's correct and current address, which
         # reads like a server that is down and is not. The process has no retry
         # around its first connection, so on its own it exits 1 and is
-        # restarted on every rollout.
+        # restarted.
         #
         # WHAT ENDS THE RACE IS ASKING AGAIN FROM THE SAME POD, and the
         # distinction is the whole difference between "retry" and "retry in the
@@ -281,7 +281,7 @@ spec:
         # SO THE POD WAITS BEFORE THE PROCESS STARTS, in `wait-for-postgres`
         # below, and the process's first connection is the one admitted. A
         # kubelet restart would get there as well and is not left to: a process
-        # here reports an unmet precondition by exiting, so a restart on every
+        # here reports an unmet precondition by exiting, so a restart on a
         # rollout reads like one. The migration Job waits the same way, for the
         # reason cluster/chuggy-migrate/chuggy-migrate.yaml measures: its pods
         # are replaced rather than restarted, so no restart could have got it

@@ -1451,7 +1451,7 @@ distinct IPs, over 2m42s, every one refused. A pod that asked again inside the
 same sandbox was admitted on its second attempt, two seconds in. That is also
 why the api, the ticket service, the selector, the scheduler and the finalizer
 each wait the same way before their process starts: a process whose first
-connection is refused exits, and a restart on every rollout reads like a fault.
+connection is refused exits, and a restart on a rollout reads like a fault.
 
 **A dump or a migration that fails is terminal and needs a human.** A release
 of another chuggy commit carries a Job of another name, but until there is one
