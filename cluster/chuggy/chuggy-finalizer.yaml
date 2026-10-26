@@ -166,6 +166,31 @@ spec:
         # first. So the choice is not bought by avoiding a chgrp of a growing
         # store. What it is bought by is the Secret mode below, which is the
         # only thing an fsGroup would change here.
+      # Until the policy controller admits this pod's address its connections
+      # are refused, and the process does not retry its first. chuggy-api.yaml
+      # argues the wait; `-U` is this process's login.
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:18.3-trixie
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              for i in $(seq 1 15); do
+                pg_isready -h postgres.chuggy.svc.cluster.local -U chuggy_finalizer_login -t 2 && exit 0
+                sleep 2
+              done
+              exit 1
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile: { type: RuntimeDefault }
       containers:
         - name: finalizer
           image: registry.chuggy.internal/chuggy/api@sha256:0000000000000000000000000000000000000000000000000000000000000000

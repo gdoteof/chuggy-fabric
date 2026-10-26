@@ -287,10 +287,10 @@ spec:
         # THE WAIT THE RETRY BUDGET COULD NOT BE. What kube-router admits is
         # this pod's IP, and it needs a few seconds after that IP appears; a
         # container that keeps asking keeps the IP it is admitted for and gets
-        # in. That is the same reason chuggy-api recovers on a kubelet RESTART
-        # -- same sandbox, same address -- and the reason a replacement Job pod
-        # never could. So the wait belongs here: same pod, same IP, and finished
-        # before the migration opens anything.
+        # in. That is the same reason a service's container would recover on a
+        # kubelet RESTART -- same sandbox, same address -- and the reason a
+        # replacement Job pod never could. So the wait belongs here: same pod,
+        # same IP, and finished before the migration opens anything.
         #
         # `postgres:18.3-trixie` because the control-plane image is node and
         # carries nothing that can ask -- no `pg_isready`, no `psql`, no `nc`.

@@ -261,32 +261,31 @@ spec:
         # namespace. Drop this label and every connection to the database is
         # refused, with no error anywhere to say the label is why.
         #
-        # EXPECT `RESTARTS 1` ON EVERY ROLLOUT, and do not read it as a fault.
-        # The policy controller learns a new pod's labels on its own schedule,
-        # so the first connection races it and loses -- kube-router REJECTs
-        # rather than drops, so it arrives as `ECONNREFUSED` from the database's
-        # correct and current address, which reads like a server that is down
-        # and is not. The process has no retry around its first connection: it
-        # exits 1, the kubelet restarts it, and the second attempt is after the
-        # controller has caught up. Reproduced on all three rollouts of this
-        # Deployment. What would remove it is a retry in the composition root
-        # of kasofsk/chuggy, not anything in this file -- an initContainer here
-        # would only move the same wait somewhere quieter.
+        # A NEW POD'S FIRST CONNECTION RACES THE POLICY CONTROLLER AND LOSES.
+        # The controller learns a new pod's labels on its own schedule, and
+        # kube-router REJECTs rather than drops, so the loss arrives as
+        # `ECONNREFUSED` from the database's correct and current address, which
+        # reads like a server that is down and is not. The process has no retry
+        # around its first connection, so on its own it exits 1 and is
+        # restarted.
         #
-        # WHAT MAKES THAT RESTART WORK IS THAT IT IS THE SAME POD, and the
+        # WHAT ENDS THE RACE IS ASKING AGAIN FROM THE SAME POD, and the
         # distinction is the whole difference between "retry" and "retry in the
         # same pod". kube-router admits an IP, not a label as such: the label
         # decides which IP goes into the set, and the set is what the packet is
-        # matched against. A kubelet restart keeps the sandbox and so keeps the
-        # address the controller has by then admitted, which is why the second
-        # attempt is free. A REPLACEMENT pod is issued a new address and starts
-        # the same wait over from nothing.
+        # matched against. A pod keeps its address for its whole life, so
+        # whatever asks from inside it is admitted once the controller catches
+        # up. A REPLACEMENT pod is issued a new address and starts the same wait
+        # over from nothing.
         #
-        # That is why the migration Job cannot get past this the way this
-        # Deployment does. It is a Job, its pods are replaced rather than
-        # restarted, and no `backoffLimit` reaches the state a restart reaches
-        # for free -- so it waits inside its pod instead. Measured in
-        # cluster/chuggy-migrate/chuggy-migrate.yaml.
+        # SO THE POD WAITS BEFORE THE PROCESS STARTS, in `wait-for-postgres`
+        # below, and the process's first connection is the one admitted. A
+        # kubelet restart would get there as well and is not left to: a process
+        # here reports an unmet precondition by exiting, so a restart on a
+        # rollout reads like one. The migration Job waits the same way, for the
+        # reason cluster/chuggy-migrate/chuggy-migrate.yaml measures: its pods
+        # are replaced rather than restarted, so no restart could have got it
+        # there.
         chuggy.dev/postgres-client: "true"
     spec:
       # This process calls no Kubernetes API, so the token the kubelet would
@@ -301,6 +300,33 @@ spec:
         # number: it cannot tell that the image's `node` user is not root.
         runAsUser: 1000
         runAsGroup: 1000
+      # The wait argued at the label above. chuggy-migrate.yaml argues its image
+      # and its `-U`, which names this process's login and never authenticates
+      # as it. The bound is the importer's; in a Deployment a wait that runs
+      # out is restarted by the kubelet, so the bound decides only how soon a
+      # database that is down reads as `Init:CrashLoopBackOff`.
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:18.3-trixie
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              for i in $(seq 1 15); do
+                pg_isready -h postgres.chuggy.svc.cluster.local -U chuggy_api_login -t 2 && exit 0
+                sleep 2
+              done
+              exit 1
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile: { type: RuntimeDefault }
       containers:
         - name: api
           image: registry.chuggy.internal/chuggy/api@sha256:0000000000000000000000000000000000000000000000000000000000000000

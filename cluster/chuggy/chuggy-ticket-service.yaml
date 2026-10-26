@@ -159,9 +159,6 @@ spec:
         # What postgres-network-policy.yaml admits, together with this
         # namespace. Drop this label and every connection is refused with
         # nothing anywhere to say the label is why.
-        #
-        # EXPECT `RESTARTS 1` ON EVERY ROLLOUT: that file documents the race
-        # between a new pod and the policy controller, and it is not a fault.
         chuggy.dev/postgres-client: "true"
     spec:
       # This process calls no Kubernetes API. The scheduler is the only
@@ -173,6 +170,31 @@ spec:
         # kubelet cannot tell that the image's `node` user is not root.
         runAsUser: 1000
         runAsGroup: 1000
+      # Until the policy controller admits this pod's address its connections
+      # are refused, and the process does not retry its first. chuggy-api.yaml
+      # argues the wait; `-U` is this process's login.
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:18.3-trixie
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              for i in $(seq 1 15); do
+                pg_isready -h postgres.chuggy.svc.cluster.local -U chuggy_ticket_service_login -t 2 && exit 0
+                sleep 2
+              done
+              exit 1
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile: { type: RuntimeDefault }
       containers:
         - name: ticket-service
           image: registry.chuggy.internal/chuggy/api@sha256:0000000000000000000000000000000000000000000000000000000000000000
