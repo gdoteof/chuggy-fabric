@@ -23,15 +23,16 @@ reads the render.
 
 A SOURCE'S SPEC IS HELD THE SAME WAY, for what would still render: `chuggy` on
 another branch has the trigger release commits that are not `main`'s, and
-`chug-gy` on another has the image trigger build the site at them;
+`chug-gy` on another has the site trigger release the site at them;
 `chuggy-release` without `insecure` never reads a registry that is plain HTTP,
 and with a `tag` or a `digest` beside its range holds the cluster at one
 release without saying so.
 
-THE TWO RELEASE LAYERS READ THE RELEASE AND NO OTHER LAYER DOES.
+THE RELEASE LAYERS READ THEIR RELEASE AND NO OTHER LAYER DOES.
 `chuggy-migrate` and `chuggy` name `chuggy-release` and the overlay under
-`./release` that cluster/build-system/publish.sh writes for each; every other
-layer names the `fabric` source. Either of the two on `fabric` and its own
+`./release` that cluster/build-system/publish.sh writes for each; `chug-gy`
+names `chug-gy-release` and the overlay publish-site.sh writes; every other
+layer names the `fabric` source. Any of the three on `fabric` and its own
 directory still renders, and applies manifests that name no release: a Job
 and services whose image no registry holds.
 
@@ -55,6 +56,7 @@ NAMESPACE = "flux-system"
 
 GIT = {"kind": "GitRepository", "name": "fabric"}
 RELEASE = {"kind": "OCIRepository", "name": "chuggy-release"}
+SITE_RELEASE = {"kind": "OCIRepository", "name": "chug-gy-release"}
 
 
 def layer(path, timeout="3m", source=GIT, **rest):
@@ -86,7 +88,7 @@ LAYERS = {
         dependsOn=[{"name": "chuggy-migrate"}],
     ),
     "track-record": layer("./cluster/track-record"),
-    "chug-gy": layer("./cluster/chug-gy"),
+    "chug-gy": layer("./release/chug-gy", source=SITE_RELEASE),
 }
 
 # The layers no other layer may wait on.
@@ -107,6 +109,12 @@ SOURCES = {
     ("source.toolkit.fluxcd.io/v1", "OCIRepository", "chuggy-release"): {
         "interval": "1m",
         "url": "oci://release-registry.chuggy-registry.svc.cluster.local:5000/chuggy/release",
+        "insecure": True,
+        "ref": {"semver": "*"},
+    },
+    ("source.toolkit.fluxcd.io/v1", "OCIRepository", "chug-gy-release"): {
+        "interval": "1m",
+        "url": "oci://release-registry.chuggy-registry.svc.cluster.local:5000/chug-gy/release",
         "insecure": True,
         "ref": {"semver": "*"},
     },

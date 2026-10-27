@@ -925,8 +925,8 @@ while the cluster keeps the event, a Warning on its Alert:
 A trigger that is not suspended and has stopped succeeding fires
 `TriggerNotSucceeding`, from `cluster/apps/release-trigger-alert.yaml`, which
 `tests/release-alert.nix` evaluates. The rule names no CronJob, so it announces
-the [site's image trigger](#the-sites-image) beside the release trigger, under
-the `cronjob` label. Like every alert here it is
+the [site trigger](#the-sites-release) beside the release trigger, under the
+`cronjob` label. Like every alert here it is
 [found by looking](#alerts-evaluate-and-go-nowhere).
 
 `worker-image-run.yaml` is a `TaskRun` of the same `build-image` Task that
@@ -939,37 +939,49 @@ builds the worker image at a chuggy commit. Flux applies neither it nor
 `track-record-image-run.yaml` is another, of Track Record's server image at a
 kasofsk/track-record commit, created the same way with `@track-record-commit@`.
 Its `digest` result is what `cluster/track-record/track-record.yaml` names.
-`chug-gy-image-run.yaml` is of the same Task, for the site's image, and is not
-created by hand: the [site's image trigger](#the-sites-image) creates it.
 
-#### The site's image
+#### The site's release
 
-The site at chug.gy is built at every commit to kasofsk/chug.gy's `main`, and
-deployed by a commit here. `cluster/build-system/image-trigger.yaml` is the
-release trigger's shape over one source and one Task: GitRepository `chug-gy`
-in `cluster/flux/sources.yaml` follows the site's `main`, and each minute the
-CronJob `chug-gy-image-trigger` in `chuggy-release-trigger` compares the commit
-it holds with the newest `TaskRun` of `build-image` for `chug-gy/web` in
-`chuggy-build`. Where they differ it creates one from `chug-gy-image-run.yaml`,
-with that commit written in; `image-trigger.sh` argues each decision, and
-`tests/image-trigger.nix` runs every line of it. Its token can read that one
-source and list, create and delete TaskRuns, and admission holds what it
-creates to that file, for that image and that Dockerfile, at the address and
-the commit the source holds.
+The site at chug.gy is built and deployed at every commit to kasofsk/chug.gy's
+`main`, with no commit here, the way a chuggy release is. The pieces are the
+release pipeline's, each over one image and one layer:
 
-A build is not a deployment. `cluster/chug-gy/chug-gy.yaml` names the image by
-digest, and the trigger writes nothing here. The run's `digest` result is read
-off the run, and a commit that writes it into that file is what deploys it:
+- `cluster/build-system/site-pipeline.yaml` is the Pipeline `chug-gy-site`: a
+  run of `build-image` for `chug-gy/web` at a site commit, then `publish-site`,
+  whose `publish-site.sh` pushes `cluster/chug-gy` as the fabric commit carries
+  it, with an overlay under `release/chug-gy` that writes the image's digest in
+  and annotates the Deployment with the site commit, to `chug-gy/release` in the
+  release registry. The pods of `publish-site` are the only ones besides
+  `publish-release`'s that the release registry admits.
+- `OCIRepository` `chug-gy-release` in `cluster/flux/sources.yaml` holds the
+  highest version published, and the `chug-gy` layer applies `./release/chug-gy`
+  from it, not from git. The image line in `cluster/chug-gy/chug-gy.yaml`
+  carries the digest of sixty-four zeroes, as the two release directories do.
+- `site-trigger.yaml` is the release trigger again, with a ServiceAccount of its
+  own: the same `trigger.sh`, told by its CronJob's environment to compare
+  `GitRepository` `chug-gy`, which follows the site's `main`, and `fabric` with
+  the newest run of `chug-gy-site`, and to create one from `site-run.yaml` when
+  they hold something it was not started for. Admission holds what it creates to
+  that file and to what the two sources hold, as the release trigger's does.
+  Its source bindings say `parameterNotFoundAction: Allow` where the release's
+  say `Deny`, so a site source that is gone refuses the site trigger and not
+  every PipelineRun; `site-trigger.yaml` argues it.
 
-    kubectl -n chuggy-build get taskruns --sort-by=.metadata.creationTimestamp \
-      -o custom-columns='NAME:.metadata.name,COMMIT:.spec.params[?(@.name=="commit")].value,DONE:.status.conditions[0].status,DIGEST:.status.results[?(@.name=="digest")].value' \
-      | grep chug-gy-image
+The manifests source is `fabric`, the whole repository, and not one narrowed to
+`cluster/chug-gy`: a narrowed source would be a third that `modules/flux.nix`
+generates, which lands by a host rebuild and not by a commit. So a push to the
+fabric that changes nothing under `cluster/chug-gy` still starts a site run,
+which builds nothing, publishes an artifact that renders the same objects, and
+moves no pod.
 
-The trigger is stopped, run by hand and retried as the release trigger is,
-under its own names: `cronjob chug-gy-image-trigger` in the commands under
-[Operating a release](#operating-a-release), and deleting the newest
-`chug-gy-image-*` TaskRun to build a commit again. The trigger keeps the ten
-newest runs of the image and deletes the finished ones before them.
+Operating it is [operating a release](#operating-a-release) under its own
+names: `cronjob site-trigger`, `PipelineRun`s named `chug-gy-site-*`,
+`flux get sources oci chug-gy-release`, and `chug-gy/release` where the
+commands name `chuggy/release`. A site release is taken back the same way,
+by deleting it from the registry, and the layer applies the one before.
+`tests/release-trigger.nix` runs every line of the trigger for both CronJobs,
+and `tests/site-publish.nix` runs the publish step over this tree's own
+`cluster/chug-gy`.
 
 ## Ingress
 
@@ -1096,8 +1108,9 @@ and `cluster/chuggy/`, and no `Kustomization` reads it: the release trigger
 does. The
 root applies `cluster/flux/`, where each layer Flux reconciles is declared as
 its own `Kustomization`, so what Flux reconciles, and in what order, is changed
-by a commit and not by a host rebuild. `apps`, `build-system`, `track-record`
-and `chug-gy` read `fabric`, each a directory of this repository;
+by a commit and not by a host rebuild. `apps`, `build-system` and
+`track-record` read `fabric`, each a directory of this repository; `chug-gy`
+reads [the site's release](#the-sites-release);
 `chuggy-migrate` and `chuggy` read `OCIRepository` `chuggy-release`, each an
 overlay of the release it holds. `cluster/flux/sources.yaml` declares that
 source and `GitRepository` `chuggy`, the two of a release that are the same on

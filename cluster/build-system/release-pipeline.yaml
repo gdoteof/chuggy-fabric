@@ -34,9 +34,10 @@
 # for its entrypoint.
 ---
 # One image of one commit. General over the repository, the Dockerfile and
-# the image, because the worker image, Track Record's and the site's are built
-# by this Task as well, by hand, from worker-image-run.yaml,
-# track-record-image-run.yaml and chug-gy-image-run.yaml.
+# the image, because the worker image and Track Record's are built by this
+# Task as well, by hand, from worker-image-run.yaml and
+# track-record-image-run.yaml, and the site's by the site pipeline,
+# site-pipeline.yaml.
 #
 # THE `build` STEP CARRIES WHAT ROOTLESS BUILDKIT NEEDS: the two capabilities
 # RootlessKit maps ids with, no seccomp or AppArmor profile, the daemon's

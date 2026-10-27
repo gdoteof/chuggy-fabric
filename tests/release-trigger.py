@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""Run the release trigger as its pod is given it, against an API server that
-is a file, and hold what it starts and what it deletes.
+"""Run each trigger as its pod is given it, against an API server that is a
+file, and hold what it starts and what it deletes.
 
-WHAT IS RENDERED AND WHAT IS THIS SUITE'S. The script and the run it creates
-are the files of the ConfigMap the rendered CronJob mounts, run by the
-container's own `command` under a BusyBox shell, which is what its image has,
-with every environment value the manifest writes: the retry delay and the
-count kept are the manifest's, and the cases are laid out around them.
-`kubectl` is stood in for, by this file run again. So is the one question
-`date` is asked that no build can fix, what second it is, which is answered
-with the second this suite began: a failure can then be put on the last
-second of the delay and on the first after it. Every other call of `date` is
-BusyBox's.
+TWO CronJobs, ONE SCRIPT, ONE SUITE. The release trigger and the site trigger
+mount the same trigger.sh with a run file each, and their environments name
+the sources, the pipeline and the annotations each works over. The suite runs
+once for each CronJob, reading everything it stands in for off that CronJob's
+render: the script and the run file are the files of the ConfigMap it mounts,
+run by the container's own `command` under a BusyBox shell, which is what its
+image has, with every environment value the manifest writes. The retry delay
+and the count kept are the manifest's, and the cases are laid out around
+them. `kubectl` is stood in for, by this file run again. So is the one
+question `date` is asked that no build can fix, what second it is, which is
+answered with the second this suite began: a failure can then be put on the
+last second of the delay and on the first after it. Every other call of
+`date` is BusyBox's.
 
 WHAT THE STAND-IN IS HELD TO. It answers the calls the script makes and
 refuses any other. It allows a call only if a Role in the same render, bound
@@ -24,6 +27,13 @@ a template outside it is refused.
 
 WHAT IT IS NOT. It is not kubectl, and whether kubectl prints what this
 prints for the same objects is not decided here.
+
+A RUN IS WHAT THE RUN FILE SAYS IT IS. The parameters and annotations a
+created run must carry are read off the run file as the ConfigMap carries it,
+each placeholder filled with the value the source it names holds; and the two
+annotations the CronJob tells the script to read a run by have to be the ones
+the file writes the commit and the digest into, or a run would be compared by
+something it does not carry.
 
 A STARTED RUN IS READ BACK. The first case starts a run, finishes it as
 Tekton would, and runs the script again over what it created: the
@@ -67,17 +77,26 @@ from pathlib import Path
 
 import yaml
 
-CRONJOB = "release-trigger"
+TRIGGERS = ("release-trigger", "site-trigger")
 SOURCES = "gitrepositories.source.toolkit.fluxcd.io"
 RUNS = "pipelineruns.tekton.dev"
 
 COMMIT = "a" * 40
 OTHER_COMMIT = "b" * 40
-FABRIC_COMMIT = "c" * 40
+MANIFESTS_COMMIT = "c" * 40
 DIGEST = "sha256:" + "d" * 64
 OTHER_DIGEST = "sha256:" + "e" * 64
-CHUGGY_URL = "https://chuggy.example.invalid/chuggy.git"
-FABRIC_URL = "https://fabric.example.invalid/fabric"
+BUILT_URL = "https://built.example.invalid/built.git"
+MANIFESTS_URL = "https://fabric.example.invalid/fabric"
+# What the trigger writes into each placeholder of the run file, apart from
+# the commit and the digest, which are each case's.
+PLACEHOLDERS = {
+    "@source-url@": BUILT_URL,
+    "@manifests-url@": MANIFESTS_URL,
+    "@manifests-commit@": MANIFESTS_COMMIT,
+}
+COMMIT_PLACEHOLDER = "@source-commit@"
+DIGEST_PLACEHOLDER = "@manifests-digest@"
 
 FAILURES = []
 
@@ -268,19 +287,21 @@ def one(documents, kind, name, namespace=None):
 
 
 class Pod:
-    """What the rendered CronJob gives its one container."""
+    """What the rendered CronJob gives its one container, and the run file it
+    creates from."""
 
-    def __init__(self, rendered):
+    def __init__(self, rendered, cronjob):
         documents = objects(rendered)
-        cronjob = one(documents, "CronJob", CRONJOB)
-        self.namespace = cronjob["metadata"]["namespace"]
-        pod = cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+        job = one(documents, "CronJob", cronjob)
+        self.cronjob = cronjob
+        self.namespace = job["metadata"]["namespace"]
+        pod = job["spec"]["jobTemplate"]["spec"]["template"]["spec"]
         if len(pod["containers"]) != 1 or pod.get("initContainers"):
-            refuse("the trigger's pod is not one container")
+            refuse(f"{cronjob}'s pod is not one container")
         self.container = pod["containers"][0]
         command = self.container.get("command")
         if not command or command[0] != "/bin/sh" or len(command) != 2:
-            refuse(f"the trigger runs {command}, not /bin/sh over one script")
+            refuse(f"{cronjob} runs {command}, not /bin/sh over one script")
         self.script = command[1]
         volumes = {volume["name"]: volume for volume in pod["volumes"]}
         self.files = {}
@@ -291,19 +312,42 @@ class Pod:
                 for name, text in config["data"].items():
                     self.files[f"{mount['mountPath']}/{name}"] = text
             elif "emptyDir" not in volume:
-                refuse(f"the trigger mounts {mount['name']}, which this suite does not stand in for")
+                refuse(f"{cronjob} mounts {mount['name']}, which this suite does not stand in for")
         if self.script not in self.files:
-            refuse(f"{self.script} is not a file of a ConfigMap the trigger mounts")
+            refuse(f"{self.script} is not a file of a ConfigMap {cronjob} mounts")
         self.env = {}
         for entry in self.container["env"]:
             if set(entry) != {"name", "value"}:
-                refuse(f"the trigger takes {entry['name']} from a source this suite does not stand in for")
+                refuse(f"{cronjob} takes {entry['name']} from a source this suite does not stand in for")
             self.env[entry["name"]] = entry["value"]
         self.delay = int(self.env["RETRY_DELAY_SECONDS"])
         self.keep = int(self.env["KEEP_RUNS"])
         self.sources = self.env["SOURCES_NAMESPACE"]
+        self.source = self.env["SOURCE"]
+        self.manifests = self.env["MANIFESTS_SOURCE"]
         self.runs = self.env["RUNS_NAMESPACE"]
         self.pipeline = self.env["PIPELINE"]
+        self.commit_annotation = self.env["COMMIT_ANNOTATION"]
+        self.digest_annotation = self.env["DIGEST_ANNOTATION"]
+
+        # The run file, placeholders and all.
+        manifest = self.env["RUN_MANIFEST"]
+        if manifest not in self.files:
+            refuse(f"{manifest} is not a file of a ConfigMap {cronjob} mounts")
+        (template,) = yaml.safe_load_all(self.files[manifest])
+        self.params = {param["name"]: param["value"] for param in template["spec"]["params"]}
+        self.annotations = dict(template["metadata"].get("annotations") or {})
+        for key, placeholder, what in (
+            (self.commit_annotation, COMMIT_PLACEHOLDER, "commit"),
+            (self.digest_annotation, DIGEST_PLACEHOLDER, "digest"),
+        ):
+            if self.annotations.get(key) != placeholder:
+                refuse(
+                    f"{cronjob} reads a run's {what} by the annotation {key}, and {manifest} "
+                    f"writes {self.annotations.get(key)!r} there, not {placeholder}"
+                )
+        if template["spec"]["pipelineRef"] != {"name": self.pipeline}:
+            refuse(f"{cronjob} reads the runs of {self.pipeline}, and {manifest} is of {template['spec']['pipelineRef']}")
 
         account = pod["serviceAccountName"]
         self.grants = []
@@ -318,7 +362,7 @@ class Pod:
             ):
                 continue
             if binding["roleRef"]["kind"] != "Role":
-                refuse(f"RoleBinding {binding['metadata']['name']} binds the trigger to what is not a Role")
+                refuse(f"RoleBinding {binding['metadata']['name']} binds {cronjob} to what is not a Role")
             role = one(documents, "Role", binding["roleRef"]["name"], binding["metadata"]["namespace"])
             for rule in role["rules"]:
                 self.grants.append(
@@ -330,6 +374,11 @@ class Pod:
                         "names": rule.get("resourceNames", []),
                     }
                 )
+
+    def filled(self, values, commit, digest):
+        """The run file's values with each placeholder filled."""
+        given = {**PLACEHOLDERS, COMMIT_PLACEHOLDER: commit, DIGEST_PLACEHOLDER: digest}
+        return {name: given.get(value, value) for name, value in values.items()}
 
 
 def source(name, url, commit=COMMIT, digest=DIGEST, revision=None):
@@ -352,10 +401,10 @@ def source(name, url, commit=COMMIT, digest=DIGEST, revision=None):
 
 
 class Suite:
-    def __init__(self, rendered, busybox, work):
-        self.pod = Pod(rendered)
+    def __init__(self, rendered, busybox, work, cronjob):
+        self.pod = Pod(rendered, cronjob)
         self.busybox = Path(busybox)
-        self.work = Path(work)
+        self.work = Path(work) / cronjob
         self.now = int(time.time())
 
     def run(self, name, created, state, commit=COMMIT, digest=DIGEST, decided=None, pipeline=None):
@@ -368,11 +417,7 @@ class Suite:
                 "name": name,
                 "namespace": self.pod.runs,
                 "creationTimestamp": stamp(self.now - created),
-                "annotations": {
-                    "fabric.chuggy.dev/chuggy-commit": commit,
-                    "fabric.chuggy.dev/manifests-digest": digest,
-                    "fabric.chuggy.dev/manifests-commit": FABRIC_COMMIT,
-                },
+                "annotations": self.pod.filled(self.pod.annotations, commit, digest),
                 "labels": {"tekton.dev/pipeline": pipeline or self.pod.pipeline},
             },
             "spec": {"pipelineRef": {"name": pipeline or self.pod.pipeline}},
@@ -393,8 +438,16 @@ class Suite:
             }
         return found
 
-    def case(self, name, runs=(), chuggy=None, fabric=None, refused=(), beside=None, env=None, state=None):
-        """Lay one case out, run the script once, and return what it left."""
+    def built(self, **arguments):
+        return source(self.pod.source, BUILT_URL, **arguments)
+
+    def manifests(self, **arguments):
+        return source(self.pod.manifests, MANIFESTS_URL, **{"commit": MANIFESTS_COMMIT, **arguments})
+
+    def case(self, name, runs=(), built=None, manifests=None, refused=(), beside=None, env=None, state=None):
+        """Lay one case out, run the script once, and return what it left.
+        `built` and `manifests` are the two sources: None for one holding
+        what the suite's constants say, False for none."""
         case = self.work / name
         case.mkdir(parents=True, exist_ok=True)
         (case / "tmp").mkdir(exist_ok=True)
@@ -402,8 +455,8 @@ class Suite:
         if state is None:
             sources = {}
             for found in (
-                source("chuggy", CHUGGY_URL, digest="sha256:" + "f" * 64) if chuggy is None else chuggy,
-                source("fabric-release", FABRIC_URL, commit=FABRIC_COMMIT) if fabric is None else fabric,
+                self.built(digest="sha256:" + "f" * 64) if built is None else built,
+                self.manifests() if manifests is None else manifests,
             ):
                 if found:
                     sources[found["metadata"]["name"]] = found
@@ -443,7 +496,7 @@ class Suite:
             if value == "/tmp" or any(value.startswith(path.rsplit("/", 1)[0] + "/") for path in self.pod.files):
                 value = str(case / value.lstrip("/"))
             elif value.startswith("/"):
-                refuse(f"the trigger is given the path {value}, which this suite does not stand in for")
+                refuse(f"{self.pod.cronjob} is given the path {value}, which this suite does not stand in for")
             environment[key] = value
         environment["PATH"] = f"{programs}:{self.busybox}"
         completed = subprocess.run(
@@ -456,7 +509,7 @@ class Suite:
         before = {run["metadata"]["name"] for run in (state["runs"][self.pod.runs])}
         after = {run["metadata"]["name"]: run for run in left["runs"][self.pod.runs]}
         return {
-            "name": name,
+            "name": f"{self.pod.cronjob}/{name}",
             "completed": completed,
             "state": left,
             "started": [after[made] for made in after if made not in before],
@@ -487,7 +540,7 @@ class Suite:
     def starts(self, name, says=None, commit=COMMIT, digest=DIGEST, **arguments):
         result = self.expect(self.case(name, **arguments), started=1, says=says)
         if len(result["started"]) == 1:
-            self.as_the_sources_say(name, result["started"][0], commit, digest)
+            self.as_the_sources_say(result["name"], result["started"][0], commit, digest)
         return result
 
     def as_the_sources_say(self, name, started, commit, digest):
@@ -500,21 +553,14 @@ class Suite:
         if started["spec"]["pipelineRef"] != {"name": self.pod.pipeline}:
             report(name, f"the run is of {started['spec']['pipelineRef']}")
         params = {param["name"]: param["value"] for param in started["spec"]["params"]}
-        expected = {
-            "chuggy-url": CHUGGY_URL,
-            "chuggy-commit": commit,
-            "manifests-url": FABRIC_URL,
-            "manifests-commit": FABRIC_COMMIT,
-        }
+        expected = self.pod.filled(self.pod.params, commit, digest)
         if params != expected:
             report(name, f"the run's parameters are {params}, not {expected}")
-        annotations = {
-            "fabric.chuggy.dev/chuggy-commit": commit,
-            "fabric.chuggy.dev/manifests-digest": digest,
-            "fabric.chuggy.dev/manifests-commit": FABRIC_COMMIT,
-        }
+        annotations = self.pod.filled(self.pod.annotations, commit, digest)
         if metadata.get("annotations") != annotations:
             report(name, f"the run's annotations are {metadata.get('annotations')}, not {annotations}")
+        if metadata.get("labels"):
+            report(name, f"the run carries labels {metadata['labels']}, and the file writes none")
 
     def again(self, name, earlier, finish=None, decided=0, **expected):
         """Run the script over what an earlier case left, having finished the
@@ -536,18 +582,16 @@ class Suite:
         return self.expect(result, **expected)
 
 
-def main():
-    if len(sys.argv) != 4:
-        refuse("usage: release-trigger.py RENDERED_BUILD_SYSTEM BUSYBOX_BIN WORK")
-    suite = Suite(*sys.argv[1:])
+def cases(suite):
     pod, run = suite.pod, suite.run
     inside, past = pod.delay - 20, pod.delay + 20
     if inside <= 0:
         refuse(f"a retry delay of {pod.delay} seconds leaves no case inside it")
+    released = f"released {pod.source}"
 
     first = suite.starts("no-runs", says="(there is none)")
     suite.again("started-run-is-unfinished", first, says="has not finished: nothing is started")
-    suite.again("started-run-succeeded", first, finish="succeeded", says="released chuggy")
+    suite.again("started-run-succeeded", first, finish="succeeded", says=released)
     failed = suite.starts("no-runs-then-failed")
     suite.again("started-run-failed-lately", failed, finish="failed", says="inside the retry delay")
     failed = suite.starts("no-runs-then-failed-long-ago")
@@ -566,7 +610,7 @@ def main():
         says="r1 r2 has not finished",
     )
 
-    suite.nothing("succeeded-for-these", runs=[run("r1", 600, "succeeded")], says="r1 released chuggy")
+    suite.nothing("succeeded-for-these", runs=[run("r1", 600, "succeeded")], says=f"r1 {released}")
     suite.starts("succeeded-for-another-commit", runs=[run("r1", 600, "succeeded", OTHER_COMMIT)])
     suite.starts("succeeded-for-another-digest", runs=[run("r1", 600, "succeeded", digest=OTHER_DIGEST)])
     suite.starts(
@@ -576,7 +620,7 @@ def main():
     suite.nothing(
         "newest-is-by-time-not-name",
         runs=[run("zz", 900, "succeeded", OTHER_COMMIT), run("aa", 600, "succeeded")],
-        says="aa released chuggy",
+        says=f"aa {released}",
     )
 
     suite.nothing(
@@ -611,8 +655,8 @@ def main():
     )
 
     for missing, sources in (
-        ("chuggy", {"chuggy": source("chuggy", CHUGGY_URL, commit=None)}),
-        ("fabric", {"fabric": source("fabric-release", FABRIC_URL, commit=None)}),
+        ("built", {"built": suite.built(commit=None)}),
+        ("manifests", {"manifests": suite.manifests(commit=None)}),
     ):
         suite.nothing(
             f"no-artifact-{missing}",
@@ -620,54 +664,43 @@ def main():
             says="holds no artifact yet",
             **sources,
         )
+    suite.expect(suite.case("source-is-not-there", built=False), fails=True, says="NotFound")
+    suite.expect(suite.case("manifests-source-is-not-there", manifests=False), fails=True, says="NotFound")
     suite.expect(
-        suite.case("source-is-not-there", chuggy=False), fails=True, says="NotFound"
+        suite.case("another-source-is-there", built=source("another", BUILT_URL)), fails=True, says="NotFound"
     )
-    suite.expect(
-        suite.case("fabric-source-is-not-there", fabric=False), fails=True, says="NotFound"
-    )
-    suite.expect(
-        suite.case("source-read-refused", refused=[SOURCES]), fails=True, says="Forbidden"
-    )
+    suite.expect(suite.case("source-read-refused", refused=[SOURCES]), fails=True, says="Forbidden")
     suite.expect(suite.case("runs-read-refused", refused=[RUNS]), fails=True, says="Forbidden")
+    suite.expect(suite.case("create-refused", refused=["create"]), fails=True, says="Forbidden", creates=1)
     suite.expect(
-        suite.case("create-refused", refused=["create"]), fails=True, says="Forbidden", creates=1
-    )
-    suite.expect(
-        suite.case("revision-names-no-commit", chuggy=source("chuggy", CHUGGY_URL, revision="main@sha1:" + "a" * 39)),
+        suite.case("revision-names-no-commit", built=suite.built(revision="main@sha1:" + "a" * 39)),
         fails=True,
         says="names no full commit hash",
     )
     suite.expect(
-        suite.case("revision-is-not-git's", chuggy=source("chuggy", CHUGGY_URL, revision="latest@sha256:" + "a" * 64)),
+        suite.case("revision-is-not-git's", built=suite.built(revision="latest@sha256:" + "a" * 64)),
         fails=True,
         says="is not a branch and a commit",
     )
     suite.expect(
-        suite.case("revision-names-no-hash", chuggy=source("chuggy", CHUGGY_URL, revision="main@sha1:" + "g" * 40)),
+        suite.case("revision-names-no-hash", built=suite.built(revision="main@sha1:" + "g" * 40)),
         fails=True,
         says="names no commit hash",
     )
     suite.expect(
-        suite.case(
-            "fabric-revision-names-no-commit",
-            fabric=source("fabric-release", FABRIC_URL, commit=FABRIC_COMMIT, revision="main@sha1:" + "c" * 39),
-        ),
+        suite.case("manifests-revision-names-no-commit", manifests=suite.manifests(revision="main@sha1:" + "c" * 39)),
         fails=True,
         says="names no full commit hash",
     )
     suite.expect(
-        suite.case(
-            "fabric-revision-is-not-git's",
-            fabric=source("fabric-release", FABRIC_URL, commit=FABRIC_COMMIT, revision="latest@sha256:" + "c" * 64),
-        ),
+        suite.case("manifests-revision-is-not-git's", manifests=suite.manifests(revision="latest@sha256:" + "c" * 64)),
         fails=True,
         says="is not a branch and a commit",
     )
     for case, sources in (
-        ("address-would-rewrite", {"fabric": source("fabric-release", "https://example.invalid/a&b", commit=FABRIC_COMMIT)}),
-        ("address-holds-a-placeholder", {"chuggy": source("chuggy", "https://example.invalid/@chuggy-commit@")}),
-        ("digest-would-rewrite", {"fabric": source("fabric-release", FABRIC_URL, commit=FABRIC_COMMIT, digest=DIGEST[:-1] + "&")}),
+        ("address-would-rewrite", {"manifests": source(pod.manifests, "https://example.invalid/a&b", commit=MANIFESTS_COMMIT)}),
+        ("address-holds-a-placeholder", {"built": source(pod.source, "https://example.invalid/@source-commit@")}),
+        ("digest-would-rewrite", {"manifests": suite.manifests(digest=DIGEST[:-1] + "&")}),
     ):
         suite.expect(suite.case(case, **sources), fails=True, says="is not one this writes into a manifest")
     suite.expect(suite.case("keep-none", env={"KEEP_RUNS": "0"}), fails=True, says="would delete the run")
@@ -681,8 +714,8 @@ def main():
         says="beside had not finished either",
     )
     if [made["metadata"]["name"] for made in result["started"]] != ["beside"]:
-        report("another-started-in-the-same-moment", f"left {result['started']}")
-    result = suite.expect(
+        report(result["name"], f"left {result['started']}")
+    suite.expect(
         suite.case(
             "another-pipeline-started-in-the-same-moment",
             runs=[run("r1", 600, "succeeded", OTHER_COMMIT)],
@@ -726,15 +759,17 @@ def main():
         deleted=["old00", "old01", "old02"],
     )
     suite.expect(
-        suite.case(
-            "retention-without-an-artifact",
-            runs=finished,
-            chuggy=source("chuggy", CHUGGY_URL, commit=None),
-        ),
+        suite.case("retention-without-an-artifact", runs=finished, built=suite.built(commit=None)),
         deleted=["old00", "old01", "old02"],
         says="holds no artifact yet",
     )
 
+
+def main():
+    if len(sys.argv) != 4:
+        refuse("usage: release-trigger.py RENDERED_BUILD_SYSTEM BUSYBOX_BIN WORK")
+    for cronjob in TRIGGERS:
+        cases(Suite(sys.argv[1], sys.argv[2], sys.argv[3], cronjob))
     if FAILURES:
         raise SystemExit(f"release-trigger: {len(FAILURES)} failed: {', '.join(FAILURES)}")
 

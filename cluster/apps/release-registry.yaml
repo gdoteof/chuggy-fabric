@@ -110,9 +110,10 @@ spec:
 # A LABEL IS WHAT ITS WRITER SAYS. A run that carries steps of its own and
 # names no Task keeps the `tekton.dev/task` it was created with, and so does a
 # pod created there by hand. So this admits whoever can create a run or a pod
-# in `chuggy-build`. The release trigger's ServiceAccount can create runs
-# there, and cluster/build-system/release-trigger.yaml holds those to one by
-# admission.
+# in `chuggy-build`. The two triggers' ServiceAccounts can create runs there,
+# and cluster/build-system/release-trigger.yaml and site-trigger.yaml hold
+# each to one run by admission. `publish-site` is the site pipeline's publish,
+# admitted as `publish-release` is: cluster/build-system/site-pipeline.yaml.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -129,6 +130,11 @@ spec:
               kubernetes.io/metadata.name: chuggy-build
           podSelector:
             matchLabels: { tekton.dev/task: publish-release }
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chuggy-build
+          podSelector:
+            matchLabels: { tekton.dev/task: publish-site }
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: flux-system

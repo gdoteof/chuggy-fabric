@@ -1,10 +1,10 @@
 # Tekton, the namespace builds run in, the release pipeline with its trigger,
-# and the trigger that builds the site's image.
+# and the site pipeline with its own.
 #
 # A FILE THAT IS NOT IN `resources` IS NOT APPLIED. The manifests here left
 # out on purpose say so in their own headers: release-run.yaml and
-# chug-gy-image-run.yaml, which a trigger creates, and worker-image-run.yaml
-# and track-record-image-run.yaml, which a person does.
+# site-run.yaml, which a trigger creates, and worker-image-run.yaml and
+# track-record-image-run.yaml, which a person does.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -12,7 +12,8 @@ resources:
   - platform.yaml
   - release-pipeline.yaml
   - release-trigger.yaml
-  - image-trigger.yaml
+  - site-pipeline.yaml
+  - site-trigger.yaml
 
 configMapGenerator:
   # What the pipeline's steps run. The name carries no hash because a Task is
@@ -25,6 +26,7 @@ configMapGenerator:
       - fetch.sh
       - build.sh
       - publish.sh
+      - publish-site.sh
       - report.sh
     options:
       disableNameSuffixHash: true
@@ -35,9 +37,9 @@ configMapGenerator:
     files:
       - trigger.sh
       - release-run.yaml
-  # What an image trigger runs, and the run each creates. Hashed the same way.
-  - name: image-trigger
+  # The same script again for the site trigger, with the run it creates.
+  - name: site-trigger
     namespace: chuggy-release-trigger
     files:
-      - image-trigger.sh
-      - chug-gy-image-run.yaml
+      - trigger.sh
+      - site-run.yaml

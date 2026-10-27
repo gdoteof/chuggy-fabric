@@ -12,7 +12,7 @@ what those series do over one story of a trigger, a sample a minute, and what
 the alert is at the minutes named: for which CronJobs it fires. Where a case
 fires, the minute before is held silent, so the wait is held from both sides.
 
-ONE RULE FOR EVERY TRIGGER IN THE NAMESPACE. The image trigger's CronJob is
+ONE RULE FOR EVERY TRIGGER IN THE NAMESPACE. The site trigger's CronJob is
 rendered beside the release trigger's, and the rule names neither: a sibling
 in the namespace that stops is announced under its own `cronjob` label while
 this one is not, and a CronJob in another namespace never is. The cases with
@@ -88,7 +88,7 @@ ALWAYS = range(MINUTES + 1)
 NEVER = range(0)
 
 # Another CronJob's two series, in this namespace or another.
-SIBLING = {"namespace": TRIGGER_NAMESPACE, "cronjob": "chug-gy-image-trigger"}
+SIBLING = {"namespace": TRIGGER_NAMESPACE, "cronjob": "site-trigger"}
 ELSEWHERE = {"namespace": "another", "cronjob": "another"}
 THIS = {"namespace": TRIGGER_NAMESPACE, "cronjob": TRIGGER}
 

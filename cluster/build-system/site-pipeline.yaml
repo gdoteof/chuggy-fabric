@@ -1,0 +1,194 @@
+# The site pipeline: the site's image at one commit, then one artifact that
+# releases it.
+#
+# THE RELEASE PIPELINE'S SHAPE OVER ONE IMAGE AND ONE LAYER. A run is given
+# two repositories and a full commit hash of each, kasofsk/chug.gy's and the
+# fabric's, and no task reads the API server, a Flux source or a branch;
+# release-pipeline.yaml argues that, and what a task pod can and cannot
+# reach, and each of its rules holds of the two Tasks a run of this uses: its
+# own `build-image`, and `publish-site` below, which is `publish-release` over
+# cluster/chug-gy with one image and no Job.
+#
+# WHO CAN WRITE WHAT THE SITE RUNS. The artifact is pushed to the release
+# registry, which admits the pods of `publish-site` as it admits those of
+# `publish-release`, and no build pod: cluster/apps/release-registry.yaml.
+---
+# One artifact of the site's layer in the cluster's registry: cluster/chug-gy
+# as the fabric commit carries it, and beside it an overlay that writes the
+# image's digest in. Two steps, for the reason publish-release gives: git is
+# in one pinned image and flux in another.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: publish-site
+  namespace: chuggy-build
+spec:
+  params:
+    - name: site-url
+      description: The repository the image was built from.
+      type: string
+    - name: site-commit
+      description: The full hash of the commit it was built at.
+      type: string
+    - name: manifests-url
+      description: The repository that carries the site's layer.
+      type: string
+    - name: manifests-commit
+      description: The full hash of the commit the layer is read at.
+      type: string
+    - name: layer
+      description: The directory under cluster/ that is the site's layer.
+      type: string
+    - name: image
+      description: The image as the layer names it, with no digest.
+      type: string
+    - name: digest
+      description: The digest this release runs it at.
+      type: string
+    - name: release
+      description: The registry and repository the artifact is pushed to, with no tag.
+      type: string
+  results:
+    - name: version
+      description: The tag the artifact was pushed under, which is the one Flux selects by.
+      type: string
+    - name: digest
+      description: The artifact's digest.
+      type: string
+  volumes:
+    - name: scripts
+      configMap:
+        name: release-pipeline-scripts
+    - name: tmp
+      emptyDir: {}
+  steps:
+    - name: fetch
+      image: moby/buildkit:v0.26.2-rootless@sha256:0ffa2fcf6b8757c47d569b3ef0f03f9d5eb3b9ff5ce68d858f994f89b749da0c
+      imagePullPolicy: IfNotPresent
+      command: [/bin/sh, /scripts/fetch.sh]
+      env:
+        - { name: URL, value: $(params.manifests-url) }
+        - { name: COMMIT, value: $(params.manifests-commit) }
+        - { name: DIRECTORY, value: /workspace/manifests }
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+        readOnlyRootFilesystem: true
+        seccompProfile: { type: RuntimeDefault }
+      computeResources:
+        requests: { cpu: 100m, memory: 128Mi }
+        limits: { memory: 1Gi }
+      volumeMounts:
+        - { name: scripts, mountPath: /scripts, readOnly: true }
+        - { name: tmp, mountPath: /tmp }
+    - name: publish
+      image: ghcr.io/fluxcd/flux-cli:v2.6.4@sha256:d6734ea180b0f5135e6a343482da1a669c526ef85525da53a6415c6a9f359861
+      imagePullPolicy: IfNotPresent
+      command: [/bin/sh, /scripts/publish-site.sh]
+      env:
+        - { name: HOME, value: /tmp }
+        - { name: SOURCE, value: /workspace/manifests }
+        - { name: WORK, value: /workspace/release }
+        - { name: SITE_URL, value: $(params.site-url) }
+        - { name: SITE_COMMIT, value: $(params.site-commit) }
+        - { name: LAYER, value: $(params.layer) }
+        - { name: IMAGE, value: $(params.image) }
+        - { name: DIGEST, value: $(params.digest) }
+        - { name: RELEASE, value: $(params.release) }
+        - { name: RESULT_VERSION, value: $(results.version.path) }
+        - { name: RESULT_DIGEST, value: $(results.digest.path) }
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+        readOnlyRootFilesystem: true
+        seccompProfile: { type: RuntimeDefault }
+      computeResources:
+        requests: { cpu: 100m, memory: 128Mi }
+        limits: { memory: 1Gi }
+      volumeMounts:
+        - { name: scripts, mountPath: /scripts, readOnly: true }
+        - { name: tmp, mountPath: /tmp }
+---
+# Where a pod of `publish-site` is let go that no other task pod is: the
+# release registry, as `release-publish-egress` lets `publish-release`'s.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: site-publish-egress
+  namespace: chuggy-build
+spec:
+  podSelector:
+    matchLabels: { tekton.dev/task: publish-site }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: chuggy-registry }
+          podSelector:
+            matchLabels: { app: release-registry }
+      ports:
+        - { protocol: TCP, port: 5000 }
+---
+# The build, then the release of what it built. The image has two names and
+# they are one repository, as release-pipeline.yaml argues; the artifact goes
+# to the release registry, under a repository of the site's own, which
+# OCIRepository `chug-gy-release` in cluster/flux/sources.yaml reads. Each
+# task retries, and a run that still fails is the trigger's to start again.
+# No `finally`: nothing reports a site release to chuggy.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: chug-gy-site
+  namespace: chuggy-build
+spec:
+  params:
+    - name: site-url
+      description: The site's repository, kasofsk/chug.gy.
+      type: string
+    - name: site-commit
+      description: The full hash of the site commit to build and release.
+      type: string
+    - name: manifests-url
+      description: The fabric repository.
+      type: string
+    - name: manifests-commit
+      description: The full hash of the fabric commit whose cluster/chug-gy is released.
+      type: string
+  results:
+    - name: version
+      description: The tag the release was published under.
+      value: $(tasks.publish.results.version)
+    - name: digest
+      description: The digest of the published artifact.
+      value: $(tasks.publish.results.digest)
+  tasks:
+    - name: build
+      retries: 2
+      taskRef:
+        name: build-image
+      params:
+        - { name: url, value: $(params.site-url) }
+        - { name: commit, value: $(params.site-commit) }
+        - { name: image, value: registry.chuggy-registry.svc.cluster.local:5000/chug-gy/web }
+        - { name: dockerfile, value: Dockerfile }
+    - name: publish
+      retries: 2
+      taskRef:
+        name: publish-site
+      params:
+        - { name: site-url, value: $(params.site-url) }
+        - { name: site-commit, value: $(params.site-commit) }
+        - { name: manifests-url, value: $(params.manifests-url) }
+        - { name: manifests-commit, value: $(params.manifests-commit) }
+        - { name: layer, value: chug-gy }
+        - { name: image, value: registry.chuggy.internal/chug-gy/web }
+        - { name: digest, value: $(tasks.build.results.digest) }
+        - { name: release, value: release-registry.chuggy-registry.svc.cluster.local:5000/chug-gy/release }

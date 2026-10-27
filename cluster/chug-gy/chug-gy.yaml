@@ -4,11 +4,15 @@
 # file back to the holder of the admin token. It opens no connection of its
 # own, so its policy admits Traefik and lets nothing out.
 #
-# ITS OWN LAYER, cluster/flux/chug-gy.yaml, which says why. Its image is built
-# at each commit to kasofsk/chug.gy's `main` by the image trigger,
-# cluster/build-system/image-trigger.yaml, from chug-gy-image-run.yaml beside
-# it; a new one is admitted by a commit that writes the digest that run
-# reports, as Track Record's is.
+# ITS OWN LAYER, cluster/flux/chug-gy.yaml, which says why, and the layer
+# reads this directory from the site's release and not from git. A run of the
+# site pipeline, cluster/build-system/site-pipeline.yaml, builds the image at
+# a commit of kasofsk/chug.gy's `main` and publishes this directory with an
+# overlay that writes the digest in; the site trigger starts one at each push.
+#
+# THE DIGEST BELOW IS NO IMAGE'S. Sixty-four zeroes, as the two release
+# directories carry: publish-site.sh writes the run's digest over it, so one
+# written here deploys nothing and a reader of the file would believe it.
 #
 # THE REQUESTS ARE THE ONE THING HERE WORTH KEEPING, and they are small. The
 # claim is `local-path` with no retained volume and no backup: a request is
@@ -81,7 +85,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: web
-          image: registry.chuggy.internal/chug-gy/web@sha256:8b74d95e35b3f70555afaf28eaa42b96be1cec9964b54144436b00389be83d70
+          image: registry.chuggy.internal/chug-gy/web@sha256:0000000000000000000000000000000000000000000000000000000000000000
           imagePullPolicy: IfNotPresent
           env:
             - { name: CHUG_SITE_LISTEN, value: ":8080" }

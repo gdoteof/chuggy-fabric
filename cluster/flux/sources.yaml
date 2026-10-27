@@ -1,5 +1,5 @@
 # The sources that are declared by a commit, beside the layers: the two of a
-# release, and the one the site's image is built from.
+# chuggy release, and the two of the site's.
 #
 # HERE AND NOT IN A LAYER, because the root that applies this directory waits
 # on nothing: a source with no artifact yet holds nothing else up. In a layer
@@ -22,9 +22,10 @@ spec:
   ref:
     branch: main
 ---
-# The site's `main`. No layer applies it either: the image trigger reads the
-# commit it holds, in cluster/build-system/image-trigger.sh, and builds the
-# site's image at it. Public, so it names no Secret.
+# The site's `main`. No layer applies it either: the site trigger reads the
+# commit it holds, as the release trigger reads chuggy's, and a run of the
+# site pipeline builds and releases the site at it. Public, so it names no
+# Secret.
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
 metadata:
@@ -67,6 +68,22 @@ metadata:
 spec:
   interval: 1m
   url: oci://release-registry.chuggy-registry.svc.cluster.local:5000/chuggy/release
+  insecure: true
+  ref:
+    semver: "*"
+---
+# The site's releases, which cluster/build-system/publish-site.sh pushes, of
+# which this holds the highest. `chug-gy` reads it and no other layer does.
+# Everything chuggy-release says of itself above holds here: of a source that
+# is failing, of the range, and of `insecure`.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: chug-gy-release
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: oci://release-registry.chuggy-registry.svc.cluster.local:5000/chug-gy/release
   insecure: true
   ref:
     semver: "*"

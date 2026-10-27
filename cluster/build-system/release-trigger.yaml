@@ -4,7 +4,7 @@
 # THE API SERVER. `chuggy-build` denies everything by default and no pod in it
 # mounts a token; a trigger there would be the exception to both. Here the
 # tokens and the route are the only things in the namespace: this trigger's,
-# and image-trigger.yaml's beside it, which builds the site's image.
+# and site-trigger.yaml's beside it, which releases the site.
 #
 # WHAT ITS TOKEN CAN DO IS THREE VERBS AND ONE READ. `get` on the two sources
 # it compares, by name, in `flux-system`; `list`, `create` and `delete` on
@@ -23,7 +23,8 @@
 # trigger would start.
 #
 # trigger.sh, in the ConfigMap kustomization.yaml generates beside
-# release-run.yaml, argues what it decides.
+# release-run.yaml, argues what it decides. The same script runs the site
+# trigger, over the sources, pipeline and annotations its own CronJob names.
 ---
 apiVersion: v1
 kind: Namespace
@@ -348,9 +349,13 @@ spec:
                 # kubectl keeps a discovery cache under it.
                 - { name: HOME, value: /tmp }
                 - { name: SOURCES_NAMESPACE, value: flux-system }
+                - { name: SOURCE, value: chuggy }
+                - { name: MANIFESTS_SOURCE, value: fabric-release }
                 - { name: RUNS_NAMESPACE, value: chuggy-build }
                 - { name: PIPELINE, value: chuggy-release }
                 - { name: RUN_MANIFEST, value: /trigger/release-run.yaml }
+                - { name: COMMIT_ANNOTATION, value: fabric.chuggy.dev/chuggy-commit }
+                - { name: DIGEST_ANNOTATION, value: fabric.chuggy.dev/manifests-digest }
                 - { name: RETRY_DELAY_SECONDS, value: "300" }
                 - { name: KEEP_RUNS, value: "10" }
               resources:

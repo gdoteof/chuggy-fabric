@@ -1,0 +1,347 @@
+# The site trigger: each minute, whether a run of the site pipeline is
+# started.
+#
+# THE RELEASE TRIGGER'S NAMESPACE, BECAUSE THE SAME ARGUMENT PLACES IT THERE:
+# release-trigger.yaml says why a thing that reads the API server is not in
+# `chuggy-build`, and that namespace is where the tokens and the one route
+# are. A ServiceAccount of its own, so that what each token can do is said
+# once, and so that admission can hold each token to its own run.
+#
+# WHAT ITS TOKEN CAN DO IS THREE VERBS AND ONE READ, as the release trigger's:
+# `get` on the two sources it compares, by name, in `flux-system`; `list`,
+# `create` and `delete` on PipelineRuns in `chuggy-build`.
+#
+# WHAT `create` CREATES IS HELD BY ADMISSION, as the release trigger's is and
+# for the reason release-trigger.yaml gives. The two policies below admit from
+# this ServiceAccount a run whose `spec` is site-run.yaml's, for the address
+# and the commit each source holds, with no label and no annotation but that
+# file's.
+#
+# THE MANIFESTS SOURCE IS `fabric`, THE WHOLE REPOSITORY, where the release
+# trigger reads `fabric-release`, narrowed to the two release directories. A
+# source narrowed to cluster/chug-gy would be a third one modules/flux.nix
+# generates, which lands by a rebuild of every host and not by a commit; until
+# then a push to the fabric that changes no byte of the site's layer starts a
+# run all the same, which builds nothing, publishes an artifact that renders
+# the same objects, and moves no pod.
+#
+# trigger.sh, in the ConfigMap kustomization.yaml generates beside
+# site-run.yaml, argues what it decides.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: site-trigger
+  namespace: chuggy-release-trigger
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: site-trigger-reads-sources
+  namespace: flux-system
+rules:
+  - apiGroups: [source.toolkit.fluxcd.io]
+    resources: [gitrepositories]
+    resourceNames: [chug-gy, fabric]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: site-trigger-reads-sources
+  namespace: flux-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: site-trigger-reads-sources
+subjects:
+  - kind: ServiceAccount
+    name: site-trigger
+    namespace: chuggy-release-trigger
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: site-trigger-runs
+  namespace: chuggy-build
+rules:
+  - apiGroups: [tekton.dev]
+    resources: [pipelineruns]
+    verbs: [list, create, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: site-trigger-runs
+  namespace: chuggy-build
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: site-trigger-runs
+subjects:
+  - kind: ServiceAccount
+    name: site-trigger
+    namespace: chuggy-release-trigger
+---
+# THE RUN, LESS WHAT THE TRIGGER WRITES INTO IT: site-run.yaml's `spec`
+# without its parameters, as CEL, as release-trigger.yaml's policy carries
+# release-run.yaml's. tests/release-pipeline.py writes the same from that file
+# and refuses a difference, so neither moves alone. What that file argues of
+# how a run is read, of its version and of whom it holds, holds here.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: site-trigger-creates-the-site-run
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [tekton.dev]
+        apiVersions: ["*"]
+        operations: [CREATE]
+        resources: [pipelineruns]
+  matchConditions:
+    - name: created-by-the-site-trigger
+      expression: request.userInfo.username == "system:serviceaccount:chuggy-release-trigger:site-trigger"
+  variables:
+    - name: spec
+      expression: |-
+        {
+          "pipelineRef": dyn({"name": "chug-gy-site"}),
+          "timeouts": dyn({"pipeline": "1h0m0s"}),
+          "taskRunTemplate": dyn({
+            "serviceAccountName": dyn("builder"),
+            "podTemplate": dyn({
+              "automountServiceAccountToken": dyn(false),
+              "nodeSelector": dyn({
+                "chuggy.dev/node-role": "builder",
+                "kubernetes.io/os": "linux",
+                "kubernetes.io/arch": "amd64"
+              }),
+              "tolerations": dyn([
+                {"key": "chuggy.dev/node-role", "operator": "Equal", "value": "builder", "effect": "NoSchedule"}
+              ])
+            })
+          })
+        }
+  validations:
+    - expression: object.apiVersion == "tekton.dev/v1"
+      message: >-
+        a run the site trigger creates is a tekton.dev/v1 PipelineRun, and in
+        another version what is held here goes by other names
+    - expression: "!has(object.metadata.labels)"
+      message: >-
+        a run the site trigger creates carries no label, and a run's labels
+        are its pods' labels
+    - expression: >-
+        !has(object.metadata.annotations) || object.metadata.annotations.all(name, name in
+        ["fabric.chuggy.dev/site-commit", "fabric.chuggy.dev/manifests-digest", "fabric.chuggy.dev/manifests-commit"])
+      message: >-
+        a run the site trigger creates carries no annotation but
+        site-run.yaml's, and a run's annotations are its pods' annotations
+    - expression: object.spec.all(field, field == "params" || field in variables.spec)
+      message: >-
+        a run the site trigger creates sets nothing site-run.yaml does not, and
+        a pipeline, a task's overrides or a pod template of its own is a pod of
+        its writer's choosing
+    - expression: variables.spec.all(field, field in object.spec && object.spec[field] == variables.spec[field])
+      message: >-
+        a run the site trigger creates is of site-run.yaml's pipeline, within
+        its time, and its pods run where and as what that file says
+    - expression: >-
+        has(object.spec.params) && object.spec.params.map(param, param.name) ==
+        ["site-url", "site-commit", "manifests-url", "manifests-commit"]
+      message: >-
+        a run the site trigger creates passes the parameters site-run.yaml
+        passes, each once
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: site-trigger-creates-the-site-run
+spec:
+  policyName: site-trigger-creates-the-site-run
+  validationActions: [Deny]
+---
+# WHAT A RUN IS FOR IS WHAT A SOURCE HOLDS, as release-trigger.yaml's policy of
+# this shape argues: one binding a source, and the two parameters `named`
+# gives for it are the address the source fetches and the commit it holds.
+#
+# A SOURCE THAT IS NOT THERE REFUSES THE TRIGGER, NOT EVERYONE. The release
+# policy's bindings say `parameterNotFoundAction: Deny`, and a release source
+# that is gone then refuses every PipelineRun, which is the release's to
+# decide. The site's sources are not: a `chug-gy` source that is gone must
+# not hold a chuggy release, so the bindings below say `Allow`, which skips
+# this policy for a run created while its source is not there. The trigger
+# creates none then, because it reads the source first and a read that fails
+# is a failure; the policy above still holds the run's shape; and what a token
+# could start without a source is a run of the site pipeline at a commit of
+# its choosing, which publishes an artifact of this repository's own layer.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: site-trigger-runs-what-a-source-holds
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: GitRepository
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [tekton.dev]
+        apiVersions: ["*"]
+        operations: [CREATE]
+        resources: [pipelineruns]
+  matchConditions:
+    - name: created-by-the-site-trigger
+      expression: request.userInfo.username == "system:serviceaccount:chuggy-release-trigger:site-trigger"
+  variables:
+    - name: named
+      expression: >-
+        {"chug-gy": {"address": "site-url", "commit": "site-commit"},
+        "fabric": {"address": "manifests-url", "commit": "manifests-commit"}}[params.metadata.name]
+  validations:
+    - expression: >-
+        has(params.status.artifact) && has(object.spec.params)
+        && object.spec.params.exists(param, param.name == variables.named.address && param.value == params.spec.url)
+        && object.spec.params.exists(param, param.name == variables.named.commit && type(param.value) == string
+        && params.status.artifact.revision.endsWith("@sha1:" + param.value))
+      messageExpression: >-
+        "a run the site trigger creates is for the address and the commit GitRepository "
+        + params.metadata.name + " holds"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: site-trigger-runs-what-chug-gy-holds
+spec:
+  policyName: site-trigger-runs-what-a-source-holds
+  validationActions: [Deny]
+  paramRef:
+    name: chug-gy
+    namespace: flux-system
+    parameterNotFoundAction: Allow
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: site-trigger-runs-what-fabric-holds
+spec:
+  policyName: site-trigger-runs-what-a-source-holds
+  validationActions: [Deny]
+  paramRef:
+    name: fabric
+    namespace: flux-system
+    parameterNotFoundAction: Allow
+---
+# WHERE THE TRIGGER'S POD MAY GO: the cluster's DNS and the API server's port,
+# as release-trigger.yaml's `release-trigger-egress` argues. The same rule
+# again, selected by this trigger's label, because a policy's selector names
+# one label and each trigger carries its own.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: site-trigger-egress
+  namespace: chuggy-release-trigger
+spec:
+  podSelector:
+    matchLabels: { app: site-trigger }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.42.0.0/16
+              - 10.43.0.0/16
+      ports:
+        - { protocol: TCP, port: 6443 }
+---
+# THE SITE. Each minute, whether GitRepository `chug-gy` or `fabric` holds
+# something the newest run of `chug-gy-site` was not started for. Its timing
+# is the release trigger's, for the reasons release-trigger.yaml gives of each
+# value, and tests/release-pipeline.py holds the two to one timing.
+#
+# NOT SUSPENDED: each minute's Job starts a run where the sources hold
+# something the newest run did not release, and the `chug-gy` layer applies
+# what it publishes. Nobody is asked.
+#
+# THE FIELD IS THE LAYER'S, and README.md's "The site's release" has the
+# annotation that takes this object from the layer first, which is how the
+# trigger is stopped.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: site-trigger
+  namespace: chuggy-release-trigger
+  labels: { app: site-trigger }
+spec:
+  schedule: "* * * * *"
+  suspend: false
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 30
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 45
+      ttlSecondsAfterFinished: 600
+      template:
+        metadata:
+          labels: { app: site-trigger }
+        spec:
+          serviceAccountName: site-trigger
+          automountServiceAccountToken: true
+          restartPolicy: Never
+          terminationGracePeriodSeconds: 5
+          nodeSelector:
+            kubernetes.io/os: linux
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: trigger
+              image: ghcr.io/fluxcd/flux-cli:v2.6.4@sha256:d6734ea180b0f5135e6a343482da1a669c526ef85525da53a6415c6a9f359861
+              imagePullPolicy: IfNotPresent
+              command: [/bin/sh, /trigger/trigger.sh]
+              env:
+                # kubectl keeps a discovery cache under it.
+                - { name: HOME, value: /tmp }
+                - { name: SOURCES_NAMESPACE, value: flux-system }
+                - { name: SOURCE, value: chug-gy }
+                - { name: MANIFESTS_SOURCE, value: fabric }
+                - { name: RUNS_NAMESPACE, value: chuggy-build }
+                - { name: PIPELINE, value: chug-gy-site }
+                - { name: RUN_MANIFEST, value: /trigger/site-run.yaml }
+                - { name: COMMIT_ANNOTATION, value: fabric.chuggy.dev/site-commit }
+                - { name: DIGEST_ANNOTATION, value: fabric.chuggy.dev/manifests-digest }
+                - { name: RETRY_DELAY_SECONDS, value: "300" }
+                - { name: KEEP_RUNS, value: "10" }
+              resources:
+                requests: { cpu: 25m, memory: 64Mi }
+                limits: { memory: 256Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - { name: trigger, mountPath: /trigger, readOnly: true }
+                - { name: tmp, mountPath: /tmp }
+          volumes:
+            - name: trigger
+              configMap:
+                name: site-trigger
+            - name: tmp
+              emptyDir: {}
