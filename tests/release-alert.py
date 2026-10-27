@@ -1,16 +1,22 @@
 #!/usr/bin/env python3
-"""Refuse a release trigger that can stop with nothing saying so, or that is
-announced as stopped when a person switched it off.
+"""Refuse a trigger that can stop with nothing saying so, or that is announced
+as stopped when a person switched it off.
 
 usage: release-alert.py RENDERED_BUILD_SYSTEM RENDERED_APPS WORK
 
 THE RULE IS EVALUATED, NOT READ. promtool runs the rule the `apps` layer
 renders over the two series kube-state-metrics exports for a CronJob, labelled
-for the trigger as `cluster/build-system` renders it, so a rule about another
-object is silent where a case expects it to fire. Each case below is what
-those series do over one story of a trigger, a sample a minute, and what the
-alert is at the minutes named. Where a case fires, the minute before is held
-silent, so the wait is held from both sides.
+for the release trigger as `cluster/build-system` renders it, so a rule about
+another object is silent where a case expects it to fire. Each case below is
+what those series do over one story of a trigger, a sample a minute, and what
+the alert is at the minutes named: for which CronJobs it fires. Where a case
+fires, the minute before is held silent, so the wait is held from both sides.
+
+ONE RULE FOR EVERY TRIGGER IN THE NAMESPACE. The image trigger's CronJob is
+rendered beside the release trigger's, and the rule names neither: a sibling
+in the namespace that stops is announced under its own `cronjob` label while
+this one is not, and a CronJob in another namespace never is. The cases with
+another CronJob say which.
 
 WHAT IS READ is the one thing evaluating cannot show: the label this
 Prometheus selects a rule by. An object without it is loaded by nothing, and
@@ -81,59 +87,85 @@ def suspended(during):
 ALWAYS = range(MINUTES + 1)
 NEVER = range(0)
 
+# Another CronJob's two series, in this namespace or another.
+SIBLING = {"namespace": TRIGGER_NAMESPACE, "cronjob": "chug-gy-image-trigger"}
+ELSEWHERE = {"namespace": "another", "cronjob": "another"}
+THIS = {"namespace": TRIGGER_NAMESPACE, "cronjob": TRIGGER}
+
 # name: (whether it is suspended, when it last succeeded, another CronJob's
-# two series, {minute: whether the alert fires}).
+# labels and two series or None, {minute: the CronJobs the alert fires for}).
+NONE = ()
+ME = (TRIGGER,)
+IT = (SIBLING["cronjob"],)
 CASES = {
-    "suspended-and-never-ran": (suspended(ALWAYS), None, None, {0: False, 10: False, 30: False}),
+    "suspended-and-never-ran": (suspended(ALWAYS), None, None, {0: NONE, 10: NONE, 30: NONE}),
     "suspended-since-a-success-long-ago": (
         suspended(ALWAYS),
         each_minute(lambda minute: LONG_AGO),
         None,
-        {0: False, 10: False, 30: False},
+        {0: NONE, 10: NONE, 30: NONE},
     ),
-    "succeeding-each-minute": (suspended(NEVER), succeeding(), None, {0: False, 10: False, 30: False}),
+    "succeeding-each-minute": (suspended(NEVER), succeeding(), None, {0: NONE, 10: NONE, 30: NONE}),
     "resumed-and-its-first-job-succeeds": (
         suspended(range(10)),
         succeeding(until=-1, before=LONG_AGO, again=12),
         None,
-        {9: False, 10: False, 11: False, 12: False, 20: False, 30: False},
+        {9: NONE, 10: NONE, 11: NONE, 12: NONE, 20: NONE, 30: NONE},
     ),
     "resumed-and-nothing-succeeds": (
         suspended(range(10)),
         each_minute(lambda minute: LONG_AGO),
         None,
-        {9: False, 14: False, 15: True, 30: True},
+        {9: NONE, 14: NONE, 15: ME, 30: ME},
     ),
-    "never-suspended-and-never-succeeded": (suspended(NEVER), None, None, {4: False, 5: True, 30: True}),
+    "never-suspended-and-never-succeeded": (suspended(NEVER), None, None, {4: NONE, 5: ME, 30: ME}),
     "some-minutes-fail-and-the-next-succeeds": (
         suspended(NEVER),
         succeeding(until=9, again=18),
         None,
-        {minute: False for minute in range(9, 26)},
+        {minute: NONE for minute in range(9, 26)},
     ),
     "stops-succeeding": (
         suspended(NEVER),
         succeeding(until=9, again=31),
         None,
-        {9: False, 18: False, 19: True, 30: True, 31: False, 35: False},
+        {9: NONE, 18: NONE, 19: ME, 30: ME, 31: NONE, 35: NONE},
     ),
     "stops-succeeding-and-is-suspended": (
         suspended(range(25, MINUTES + 1)),
         succeeding(until=9),
         None,
-        {18: False, 19: True, 24: True, 25: False, 35: False},
+        {18: NONE, 19: ME, 24: ME, 25: NONE, 35: NONE},
     ),
-    "stops-succeeding-while-another-cronjob-succeeds": (
+    "stops-succeeding-while-a-cronjob-elsewhere-succeeds": (
         suspended(NEVER),
         succeeding(until=9),
-        (suspended(NEVER), succeeding()),
-        {18: False, 19: True, 30: True},
+        (ELSEWHERE, suspended(NEVER), succeeding()),
+        {18: NONE, 19: ME, 30: ME},
     ),
-    "succeeding-while-another-cronjob-does-not": (
+    "succeeding-while-a-cronjob-elsewhere-does-not": (
         suspended(NEVER),
         succeeding(),
-        (suspended(NEVER), None),
-        {10: False, 30: False},
+        (ELSEWHERE, suspended(NEVER), None),
+        {10: NONE, 30: NONE},
+    ),
+    "succeeding-while-the-sibling-stops": (
+        suspended(NEVER),
+        succeeding(),
+        (SIBLING, suspended(NEVER), succeeding(until=9)),
+        {18: NONE, 19: IT, 30: IT},
+    ),
+    "stops-while-the-sibling-is-suspended": (
+        suspended(NEVER),
+        succeeding(until=9),
+        (SIBLING, suspended(ALWAYS), None),
+        {18: NONE, 19: ME, 30: ME},
+    ),
+    "both-stop": (
+        suspended(NEVER),
+        succeeding(until=9),
+        (SIBLING, suspended(NEVER), succeeding(until=14)),
+        {18: NONE, 19: ME, 23: ME, 24: ME + IT, 30: ME + IT},
     ),
 }
 
@@ -153,6 +185,7 @@ def main():
     work = Path(sys.argv[3])
 
     one(build, "CronJob", TRIGGER_NAMESPACE, TRIGGER)
+    one(build, "CronJob", SIBLING["namespace"], SIBLING["cronjob"])
     one(apps, "HelmRelease", NAMESPACE, RELEASE)
     rule = one(apps, "PrometheusRule", NAMESPACE, RULE)
     if (rule["metadata"].get("labels") or {}).get("release") != RELEASE:
@@ -169,25 +202,27 @@ def main():
     if checked.returncode != 0:
         refuse(f"promtool does not take PrometheusRule {RULE}: {checked.stderr.strip() or checked.stdout.strip()}")
 
-    this = {"namespace": TRIGGER_NAMESPACE, "cronjob": TRIGGER}
-    other = {"namespace": "another", "cronjob": "another"}
-    firing = [
-        {
-            "exp_labels": {**this, **(alert.get("labels") or {})},
-            "exp_annotations": alert.get("annotations") or {},
-        }
-    ]
+    def firing(cronjobs):
+        return [
+            {
+                "exp_labels": {"namespace": TRIGGER_NAMESPACE, "cronjob": cronjob, **(alert.get("labels") or {})},
+                "exp_annotations": alert.get("annotations") or {},
+            }
+            for cronjob in sorted(cronjobs)
+        ]
+
     failed = []
     asked = 0
     for name, (suspend, succeeded, another, expected) in CASES.items():
-        given = [series("kube_cronjob_spec_suspend", this, suspend)]
+        given = [series("kube_cronjob_spec_suspend", THIS, suspend)]
         if succeeded is not None:
-            given.append(series("kube_cronjob_status_last_successful_time", this, succeeded))
+            given.append(series("kube_cronjob_status_last_successful_time", THIS, succeeded))
         if another is not None:
-            given.append(series("kube_cronjob_spec_suspend", other, another[0]))
-            if another[1] is not None:
-                given.append(series("kube_cronjob_status_last_successful_time", other, another[1]))
-        for minute, fires in expected.items():
+            labels, other_suspend, other_succeeded = another
+            given.append(series("kube_cronjob_spec_suspend", labels, other_suspend))
+            if other_succeeded is not None:
+                given.append(series("kube_cronjob_status_last_successful_time", labels, other_succeeded))
+        for minute, cronjobs in expected.items():
             asked += 1
             case = work / f"{name}-{minute}.yaml"
             case.write_text(
@@ -203,7 +238,7 @@ def main():
                                     {
                                         "eval_time": f"{minute}m",
                                         "alertname": alert["alert"],
-                                        "exp_alerts": firing if fires else [],
+                                        "exp_alerts": firing(cronjobs),
                                     }
                                 ],
                             }
@@ -213,8 +248,8 @@ def main():
             )
             ran = subprocess.run(["promtool", "test", "rules", case.name], cwd=work, capture_output=True, text=True)
             if ran.returncode != 0:
-                was = "silent, or fires with other labels or annotations" if fires else "firing"
-                failed.append(f"{name}: at {minute}m {alert['alert']} is {was}")
+                was = "silent, or fires with other labels or annotations" if cronjobs else "firing"
+                failed.append(f"{name}: at {minute}m {alert['alert']} is {was}, not firing for {list(cronjobs)}")
                 print(f"release-alert: {failed[-1]}")
                 print(ran.stdout + ran.stderr)
     if failed:

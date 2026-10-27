@@ -1,10 +1,16 @@
-# One build of the site's image, started by hand.
+# One build of the site's image, and the only manifest for one.
 #
-# NOT APPLIED, and in no ConfigMap either, as track-record-image-run.yaml is
-# not. An operator writes the commit in and creates it:
+# NOT APPLIED. It is not in kustomization.yaml's `resources`: Flux applying a
+# run would start one at every reconcile. The generator there puts this file
+# in the image trigger's ConfigMap beside image-trigger.sh, which writes the
+# two values into it and creates it each time GitRepository `chug-gy` holds a
+# commit the newest build did not build. A person who starts a build does it
+# through that script, by `kubectl create job --from=cronjob/chug-gy-image-trigger`
+# in `chuggy-release-trigger`. So a run has one shape whoever started it.
 #
-#   sed 's/@chug-gy-commit@/<full commit hash>/' cluster/build-system/chug-gy-image-run.yaml |
-#     kubectl create --filename -
+# EACH `@name@` IS A VALUE THE TRIGGER READ off the Flux source: the address it
+# fetches and the commit it holds. The `commit` parameter is also what the next
+# comparison reads this run by, so no annotation says it again.
 #
 # The run's `digest` result is what cluster/chug-gy/chug-gy.yaml names the
 # image at, and a commit writing it there is what deploys it.
@@ -14,6 +20,8 @@
 #
 # THE SAME TASK AND THE SAME PLACEMENT AS A RELEASE'S BUILDS. release-run.yaml
 # argues the pod template; a TaskRun carries it at the top of its spec.
+# `taskRef.kind` and the timeout are written as Tekton's webhook would write
+# them, because admission compares what that wrote.
 apiVersion: tekton.dev/v1
 kind: TaskRun
 metadata:
@@ -22,16 +30,17 @@ metadata:
 spec:
   taskRef:
     name: build-image
+    kind: Task
   params:
     - name: url
-      value: https://github.com/kasofsk/chug.gy.git
+      value: "@source-url@"
     - name: commit
-      value: "@chug-gy-commit@"
+      value: "@source-commit@"
     - name: image
       value: registry.chuggy-registry.svc.cluster.local:5000/chug-gy/web
     - name: dockerfile
       value: Dockerfile
-  timeout: 1h
+  timeout: 1h0m0s
   serviceAccountName: builder
   podTemplate:
     automountServiceAccountToken: false

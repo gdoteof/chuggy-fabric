@@ -5,9 +5,10 @@
 # own, so its policy admits Traefik and lets nothing out.
 #
 # ITS OWN LAYER, cluster/flux/chug-gy.yaml, which says why. Its image is built
-# by hand from cluster/build-system/chug-gy-image-run.yaml, and a new one is
-# admitted by a commit that writes the digest that run reports, as Track
-# Record's is.
+# at each commit to kasofsk/chug.gy's `main` by the image trigger,
+# cluster/build-system/image-trigger.yaml, from chug-gy-image-run.yaml beside
+# it; a new one is admitted by a commit that writes the digest that run
+# reports, as Track Record's is.
 #
 # THE REQUESTS ARE THE ONE THING HERE WORTH KEEPING, and they are small. The
 # claim is `local-path` with no retained volume and no backup: a request is

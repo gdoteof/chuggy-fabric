@@ -22,7 +22,8 @@ whose name did not change. Each of those still renders, and no other check
 reads the render.
 
 A SOURCE'S SPEC IS HELD THE SAME WAY, for what would still render: `chuggy` on
-another branch has the trigger release commits that are not `main`'s;
+another branch has the trigger release commits that are not `main`'s, and
+`chug-gy` on another has the image trigger build the site at them;
 `chuggy-release` without `insecure` never reads a registry that is plain HTTP,
 and with a `tag` or a `digest` beside its range holds the cluster at one
 release without saying so.
@@ -96,6 +97,11 @@ SOURCES = {
     ("source.toolkit.fluxcd.io/v1", "GitRepository", "chuggy"): {
         "interval": "1m",
         "url": "https://github.com/kasofsk/chuggy.git",
+        "ref": {"branch": "main"},
+    },
+    ("source.toolkit.fluxcd.io/v1", "GitRepository", "chug-gy"): {
+        "interval": "1m",
+        "url": "https://github.com/kasofsk/chug.gy.git",
         "ref": {"branch": "main"},
     },
     ("source.toolkit.fluxcd.io/v1", "OCIRepository", "chuggy-release"): {

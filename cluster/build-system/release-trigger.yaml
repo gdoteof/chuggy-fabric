@@ -1,9 +1,10 @@
 # The release trigger: each minute, whether a release run is started.
 #
-# A NAMESPACE OF ITS OWN, BECAUSE IT IS THE ONE PART THAT READS THE API
-# SERVER. `chuggy-build` denies everything by default and no pod in it mounts
-# a token; a trigger there would be the exception to both. Here its token and
-# its route are the only things in the namespace.
+# A NAMESPACE OF ITS OWN, BECAUSE THE TRIGGERS ARE THE ONE PART THAT READS
+# THE API SERVER. `chuggy-build` denies everything by default and no pod in it
+# mounts a token; a trigger there would be the exception to both. Here the
+# tokens and the route are the only things in the namespace: this trigger's,
+# and image-trigger.yaml's beside it, which builds the site's image.
 #
 # WHAT ITS TOKEN CAN DO IS THREE VERBS AND ONE READ. `get` on the two sources
 # it compares, by name, in `flux-system`; `list`, `create` and `delete` on
