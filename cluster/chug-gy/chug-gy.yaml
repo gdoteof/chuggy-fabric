@@ -80,7 +80,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: web
-          image: registry.chuggy.internal/chug-gy/web@sha256:e65f76252b49b91a34f1aa92571858f64f7bfc3481732dfc675865de651c3310
+          image: registry.chuggy.internal/chug-gy/web@sha256:579f017286dd1c2c82167c0d1a39b1be64ce182b68446ccde2123b87cacb410d
           imagePullPolicy: IfNotPresent
           env:
             - { name: CHUG_SITE_LISTEN, value: ":8080" }
