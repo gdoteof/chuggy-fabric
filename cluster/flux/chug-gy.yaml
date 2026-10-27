@@ -1,0 +1,29 @@
+# What cluster/chug-gy/ declares: chuggy's public site, which no part of a
+# chuggy release uses and which uses no part of one.
+#
+# A LAYER OF ITS OWN, AND NOTHING DEPENDS ON IT, for the reason
+# track-record.yaml gives: in `apps` its health would be that layer's, and a
+# site that did not come up would hold every chuggy release. Here it holds
+# nothing, and tests/flux-layers.py refuses a layer that waits on it.
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: chug-gy
+  namespace: flux-system
+spec:
+  # NO `dependsOn`: its namespace is its own, and Traefik, its IngressClass
+  # and the `local-path` StorageClass are k3s's. What it takes from `apps` is
+  # the registry its image is pulled through, and a pod that finds the
+  # registry down retries the pull itself.
+  interval: 5m
+  path: ./cluster/chug-gy
+  sourceRef:
+    kind: GitRepository
+    name: fabric
+  # No `deletionPolicy: Orphan`: the one claim here holds requests for an
+  # invite, which are read and answered as they arrive, so deleting the layer
+  # deleting its claim costs nothing a person has not already seen.
+  prune: true
+  wait: true
+  timeout: 3m

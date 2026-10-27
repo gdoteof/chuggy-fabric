@@ -3,8 +3,8 @@
 #
 # A FILE THAT IS NOT IN `resources` IS NOT APPLIED. The manifests here left
 # out on purpose say so in their own headers: release-run.yaml, which the
-# trigger creates, and worker-image-run.yaml and track-record-image-run.yaml,
-# which a person does.
+# trigger creates, and worker-image-run.yaml, track-record-image-run.yaml and
+# chug-gy-image-run.yaml, which a person does.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:

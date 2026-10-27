@@ -49,6 +49,8 @@ only by their own directory.
                                     neither
     cluster/track-record/           Track Record, in a layer of its own that
                                     no other layer waits on
+    cluster/chug-gy/                chuggy's public site at chug.gy, in a
+                                    layer of its own the same way
 
     hosts/gtr/default.nix           geoff's Beelink GTR: hostname, radios, mesh, k3s, tunnel
     hosts/gtr/hardware-configuration.nix
@@ -90,8 +92,8 @@ That remaining fixture is a **second Flux control loop**, which is why the
 reconciles a ConfigMap beside it every minute, so that object carries
 `kustomize.toolkit.fluxcd.io/name: rig` — Flux-managed, and no business of this
 repo. What this repo owns carries the name of a layer `cluster/flux/` declares
-— `apps`, `build-system`, `chuggy-migrate`, `chuggy` or `track-record` — in
-`namespace: flux-system`. Anything else, labelled or not, came from somewhere
+— `apps`, `build-system`, `chuggy-migrate`, `chuggy`, `track-record` or
+`chug-gy` — in `namespace: flux-system`. Anything else, labelled or not, came from somewhere
 that is not this repo.
 
 ## Workflow
@@ -935,6 +937,9 @@ builds the worker image at a chuggy commit. Flux applies neither it nor
 `track-record-image-run.yaml` is another, of Track Record's server image at a
 kasofsk/track-record commit, created the same way with `@track-record-commit@`.
 Its `digest` result is what `cluster/track-record/track-record.yaml` names.
+`chug-gy-image-run.yaml` is a third, of the site's image at a kasofsk/chug.gy
+commit, with `@chug-gy-commit@`; `cluster/chug-gy/chug-gy.yaml` names its
+result.
 
 ## Ingress
 
@@ -1061,8 +1066,8 @@ and `cluster/chuggy/`, and no `Kustomization` reads it: the release trigger
 does. The
 root applies `cluster/flux/`, where each layer Flux reconciles is declared as
 its own `Kustomization`, so what Flux reconciles, and in what order, is changed
-by a commit and not by a host rebuild. `apps`, `build-system` and
-`track-record` read `fabric`, each a directory of this repository;
+by a commit and not by a host rebuild. `apps`, `build-system`, `track-record`
+and `chug-gy` read `fabric`, each a directory of this repository;
 `chuggy-migrate` and `chuggy` read `OCIRepository` `chuggy-release`, each an
 overlay of the release it holds. `cluster/flux/sources.yaml` declares that
 source and `GitRepository` `chuggy`, the two of a release that are the same on

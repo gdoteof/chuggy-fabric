@@ -18,6 +18,7 @@ kind: Kustomization
 resources:
   - apps.yaml
   - build-system.yaml
+  - chug-gy.yaml
   - chuggy-migrate.yaml
   - chuggy.yaml
   - sources.yaml

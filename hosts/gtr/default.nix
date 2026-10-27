@@ -161,6 +161,11 @@
     # image from, cluster/apps/registry-public.yaml.
     #
     # track-record is Track Record's API, cluster/track-record/track-record.yaml.
+    #
+    # chug.gy and www.chug.gy are chuggy's public site, cluster/chug-gy/chug-gy.yaml.
+    # A second zone on the same Cloudflare account: its apex and one label under
+    # it are what Universal SSL covers there, as on vteng.io. The site answers
+    # www with a redirect to the apex.
     hostnames = [
       "whoami.vteng.io"
       "grafana.vteng.io"
@@ -172,6 +177,8 @@
       "chuggy-worker.vteng.io"
       "chuggy-registry.vteng.io"
       "track-record.vteng.io"
+      "chug.gy"
+      "www.chug.gy"
     ];
   };
 

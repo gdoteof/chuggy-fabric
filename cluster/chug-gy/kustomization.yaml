@@ -1,0 +1,6 @@
+# What the `chug-gy` layer applies: every manifest here, and nothing else. A
+# file that is not in `resources` is not applied, and the layer prunes.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - chug-gy.yaml

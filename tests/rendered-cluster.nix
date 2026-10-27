@@ -13,7 +13,7 @@ pkgs.runCommand "chuggy-rendered-cluster" {
 } ''
   set -eu
   mkdir "$out"
-  for directory in apps track-record chuggy-migrate chuggy; do
+  for directory in apps track-record chug-gy chuggy-migrate chuggy; do
     kubectl kustomize ${../cluster}/"$directory" > "$out/$directory.yaml"
     test -s "$out/$directory.yaml"
     if [ -e "$out/cluster.yaml" ]; then echo '---' >> "$out/cluster.yaml"; fi
