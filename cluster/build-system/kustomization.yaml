@@ -1,10 +1,10 @@
-# Tekton, the namespace builds run in, and the release pipeline with its
-# trigger.
+# Tekton, the namespace builds run in, the release pipeline with its trigger,
+# and the trigger that builds the site's image.
 #
 # A FILE THAT IS NOT IN `resources` IS NOT APPLIED. The manifests here left
-# out on purpose say so in their own headers: release-run.yaml, which the
-# trigger creates, and worker-image-run.yaml, track-record-image-run.yaml and
-# chug-gy-image-run.yaml, which a person does.
+# out on purpose say so in their own headers: release-run.yaml and
+# chug-gy-image-run.yaml, which a trigger creates, and worker-image-run.yaml
+# and track-record-image-run.yaml, which a person does.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -12,6 +12,7 @@ resources:
   - platform.yaml
   - release-pipeline.yaml
   - release-trigger.yaml
+  - image-trigger.yaml
 
 configMapGenerator:
   # What the pipeline's steps run. The name carries no hash because a Task is
@@ -27,10 +28,16 @@ configMapGenerator:
       - report.sh
     options:
       disableNameSuffixHash: true
-  # What the trigger runs, and the run it creates. Hashed, and kustomize
-  # rewrites the CronJob's volume to the name.
+  # What the release trigger runs, and the run it creates. Hashed, and
+  # kustomize rewrites the CronJob's volume to the name.
   - name: release-trigger
     namespace: chuggy-release-trigger
     files:
       - trigger.sh
       - release-run.yaml
+  # What an image trigger runs, and the run each creates. Hashed the same way.
+  - name: image-trigger
+    namespace: chuggy-release-trigger
+    files:
+      - image-trigger.sh
+      - chug-gy-image-run.yaml

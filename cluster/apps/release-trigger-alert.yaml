@@ -1,11 +1,17 @@
-# What announces a release trigger that has stopped.
+# What announces a trigger that has stopped: the release trigger, or an image
+# trigger beside it.
 #
 # A TRIGGER THAT IS NOT SUSPENDED AND HAS NOT SUCCEEDED. Each minute's Job
 # exits 0 or fails, and the CronJob records when one last succeeded. When none
 # has inside the window in the expression, and that has been so for the `for`
-# as well, nothing is comparing the sources and no commit starts a release. A
-# success Prometheus reads before both have passed starts both again, so a
-# failed minute between two that succeed does not fire.
+# as well, nothing is comparing that trigger's sources and no commit starts
+# what it starts. A success Prometheus reads before both have passed starts
+# both again, so a failed minute between two that succeed does not fire.
+#
+# EVERY CronJob OF THE NAMESPACE, ONE ALERT EACH. The namespace holds the
+# triggers and nothing else, cluster/build-system/release-trigger.yaml says
+# why, and the rule names no CronJob: one added there is announced without a
+# rule being added here. The `cronjob` label on the alert says which.
 #
 # SILENT WHILE THE TRIGGER IS SUSPENDED: a trigger a person switched off has
 # not stopped. The `for` is also what a trigger just resumed is given to
@@ -14,12 +20,12 @@
 #
 # NOT A FAILED JOB. The chart's `KubeJobFailed` waits on a failed Job and then
 # fires for as long as that Job is there. A trigger failing every minute keeps
-# three and each is gone before the wait is over, and release-trigger.yaml
+# three and each is gone before the wait is over, and each trigger's manifest
 # gives a finished Job a time to live so that one failed minute is not there
 # for good either.
 #
-# NOT A FAILED RUN. The trigger succeeds when it starts a run and when it
-# finds one failed; what a run did is on the release dashboard.
+# NOT A FAILED RUN. A trigger succeeds when it starts a run and when it finds
+# one failed; what a run did is on the release dashboard.
 #
 # The `release` label is what this Prometheus selects a rule by, in every
 # namespace. tests/release-alert.py evaluates the rule over each of the cases
@@ -35,18 +41,18 @@ spec:
   groups:
     - name: release-trigger
       rules:
-        - alert: ReleaseTriggerNotSucceeding
+        - alert: TriggerNotSucceeding
           expr: |-
-            kube_cronjob_spec_suspend{namespace="chuggy-release-trigger", cronjob="release-trigger"} == 0
+            kube_cronjob_spec_suspend{namespace="chuggy-release-trigger"} == 0
             unless on (namespace, cronjob)
-            time() - kube_cronjob_status_last_successful_time{namespace="chuggy-release-trigger", cronjob="release-trigger"} < 300
+            time() - kube_cronjob_status_last_successful_time{namespace="chuggy-release-trigger"} < 300
           for: 5m
           labels:
             severity: warning
           annotations:
-            summary: The release trigger is not suspended and no Job of it has succeeded.
+            summary: A trigger in chuggy-release-trigger is not suspended and no Job of it has succeeded.
             description: >-
-              No commit starts a release until one does.
+              No commit starts what that CronJob starts until one does.
               `kubectl -n chuggy-release-trigger get jobs` lists the last ones:
               one whose pod is still there says why in its log, and one that
               ended at its deadline has no pod, so what stopped it is in

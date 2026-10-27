@@ -114,6 +114,20 @@ under one name and the release overrides
 under another path, the source the trigger reads in a namespace where it is
 not, and a release pushed to a repository the Flux source does not read, or
 to a registry that is not the release registry's Service.
+
+THE IMAGE TRIGGER IS HELD BESIDE THE RELEASE TRIGGER, TO THE SAME THINGS. It
+shares the namespace, and the namespace is still held to exactly what is
+rendered there: each trigger's ServiceAccount, each CronJob, the ConfigMaps
+and one egress policy a trigger. Each CronJob is held to the one timing, the
+one pod and the one container shape; each ServiceAccount to its own two Roles,
+bound to it alone; `chuggy-build`'s RoleBindings to the two. What the image
+trigger creates is a TaskRun, so its two policies are held to that file as the
+release trigger's are to release-run.yaml: the spec written from the file as
+the trigger's ConfigMap carries it, the four parameters each once, the image
+and the Dockerfile the file names, and the source the CronJob reads. Its
+source binding says `Allow` where the release's say `Deny`, because a TaskRun
+is every build's and a site source that is gone must not hold a release;
+image-trigger.yaml argues it.
 """
 
 import json
@@ -130,7 +144,8 @@ BUILDER = "builder"
 PIPELINE = "chuggy-release"
 RUN_FILE = "release-run.yaml"
 # The TaskRuns of `build-image` a person creates, as files in the directory.
-BY_HAND = ("worker-image-run.yaml", "track-record-image-run.yaml", "chug-gy-image-run.yaml")
+BY_HAND = ("worker-image-run.yaml", "track-record-image-run.yaml")
+BUILD_TASK = "build-image"
 PINNED = re.compile(r"[a-z0-9./-]+:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}")
 REFERENCE = re.compile(r"\$\(([^)]+)\)")
 
@@ -216,10 +231,13 @@ BUILD_POLICIES = {
     },
 }
 
-TRIGGER_POLICIES = {
-    "release-trigger-default-deny": {"podSelector": {}, "policyTypes": ["Ingress", "Egress"]},
-    "release-trigger-egress": {
-        "podSelector": {"matchLabels": {"app": "release-trigger"}},
+
+
+def trigger_egress(app):
+    """Where a trigger's pod may go: the cluster's DNS and the API server's
+    port, selected by that trigger's label."""
+    return {
+        "podSelector": {"matchLabels": {"app": app}},
         "policyTypes": ["Egress"],
         "egress": [
             KUBE_DNS,
@@ -228,7 +246,13 @@ TRIGGER_POLICIES = {
                 "ports": [{"protocol": "TCP", "port": 6443}],
             },
         ],
-    },
+    }
+
+
+TRIGGER_POLICIES = {
+    "release-trigger-default-deny": {"podSelector": {}, "policyTypes": ["Ingress", "Egress"]},
+    "release-trigger-egress": trigger_egress(TRIGGER),
+    "image-trigger-egress": trigger_egress("image-trigger"),
 }
 
 # Each Distribution process of the namespace: who its one policy admits, the
@@ -304,6 +328,29 @@ TRIGGER_ROLES = {
     ],
 }
 TRIGGER_RUNS = "release-trigger-runs"
+
+# The image trigger: one ServiceAccount, and a CronJob for each image it
+# builds, each named with the source it reads, the run file it creates from and
+# the policy that selects its pod.
+IMAGE_TRIGGER = "image-trigger"
+IMAGE_TRIGGER_RUNS = "image-trigger-runs"
+IMAGE_TRIGGERS = {
+    "chug-gy-image-trigger": {"source": "chug-gy", "run": "chug-gy-image-run.yaml", "policy": "image-trigger-egress"},
+}
+IMAGE_SOURCES = {trigger["source"]: {"address": "url", "commit": "commit"} for trigger in IMAGE_TRIGGERS.values()}
+IMAGE_TRIGGER_ROLES = {
+    "flux-system": [
+        {
+            "apiGroups": ["source.toolkit.fluxcd.io"],
+            "resources": ["gitrepositories"],
+            "resourceNames": list(IMAGE_SOURCES),
+            "verbs": ["get"],
+        }
+    ],
+    BUILD_NAMESPACE: [{"apiGroups": ["tekton.dev"], "resources": ["taskruns"], "verbs": ["list", "create", "delete"]}],
+}
+IMAGE_RUN_FIELDS = {"taskRef", "params", "timeout", "serviceAccountName", "podTemplate"}
+IMAGE_PARAMS = ["url", "commit", "image", "dockerfile"]
 # The one binding a layer renders for everyone who is authenticated, which a
 # ServiceAccount's token is: Tekton's release lets each read the ConfigMap
 # that says its version.
@@ -415,23 +462,41 @@ STATUS_LINE = re.compile(r"(\S+) \$\(tasks\.(\S+)\.status\)")
 ON_ERROR_GATES = ("alpha", "beta")
 DURATION = re.compile(r"(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?")
 
-# What admission asks of a PipelineRun the trigger's ServiceAccount creates.
+# What admission asks of a PipelineRun the trigger's ServiceAccount creates,
+# and of a TaskRun the image trigger's does.
 RUN_POLICY = "release-trigger-creates-the-release-run"
 SOURCE_POLICY = "release-trigger-runs-what-a-source-holds"
-ASKED_OF = {
-    "failurePolicy": "Fail",
-    "matchConstraints": {
-        "resourceRules": [
-            {"apiGroups": ["tekton.dev"], "apiVersions": ["*"], "operations": ["CREATE"], "resources": ["pipelineruns"]}
-        ]
-    },
-    "matchConditions": [
-        {
-            "name": "created-by-the-release-trigger",
-            "expression": f'request.userInfo.username == "system:serviceaccount:{TRIGGER_NAMESPACE}:{TRIGGER}"',
-        }
-    ],
-}
+IMAGE_RUN_POLICY = "image-trigger-creates-an-image-run"
+IMAGE_SOURCE_POLICY = "image-trigger-builds-what-a-source-holds"
+
+
+def asked_of(resource, account, condition):
+    """Whom and what a policy is asked about: one kind of run, created by one
+    of the triggers' ServiceAccounts."""
+    return {
+        "failurePolicy": "Fail",
+        "matchConstraints": {
+            "resourceRules": [
+                {"apiGroups": ["tekton.dev"], "apiVersions": ["*"], "operations": ["CREATE"], "resources": [resource]}
+            ]
+        },
+        "matchConditions": [
+            {
+                "name": condition,
+                "expression": f'request.userInfo.username == "system:serviceaccount:{TRIGGER_NAMESPACE}:{account}"',
+            }
+        ],
+    }
+
+
+ASKED_OF = asked_of("pipelineruns", TRIGGER, "created-by-the-release-trigger")
+IMAGE_ASKED_OF = asked_of("taskruns", IMAGE_TRIGGER, "created-by-the-image-trigger")
+# The image and the Dockerfile a run the image trigger creates may name.
+BUILDS_WHAT_IS_NAMED = (
+    'variables.params.exists(param, param.name == "image" && type(param.value) == string && param.value in variables.images)'
+    ' && variables.params.exists(param, param.name == "dockerfile" && type(param.value) == string'
+    ' && variables.params.exists(image, image.name == "image" && variables.images[string(image.value)] == param.value))'
+)
 FOR_A_SOURCE = (
     "has(params.status.artifact) && has(object.spec.params)"
     " && object.spec.params.exists(param, param.name == variables.named.address && param.value == params.spec.url)"
@@ -756,12 +821,22 @@ def tokens(expression):
     return re.findall(r'"(?:[^"\\]|\\.)*"|[A-Za-z_]+|\S', expression)
 
 
-def admission_is_held(cluster, release_run, sources_namespace):
+def param_values(run):
+    return {param["name"]: param["value"] for param in run["spec"]["params"]}
+
+
+def admission_is_held(cluster, release_run, image_runs, sources_namespace):
     run = release_run["spec"]
     annotations = json.dumps(list(release_run["metadata"]["annotations"]))
     parameters = [param["name"] for param in run["params"]]
+    # One spec for every image run, because one policy holds them all.
+    specs = [{name: value for name, value in image_run["spec"].items() if name != "params"} for image_run in image_runs.values()]
+    for file, spec in zip(image_runs, specs):
+        exactly(f"{file}'s spec, its parameters apart,", spec, specs[0])
+    images = {param_values(image_run)["image"]: param_values(image_run)["dockerfile"] for image_run in image_runs.values()}
     expected = {
         RUN_POLICY: {
+            "asked": ASKED_OF,
             "variables": {"spec": cel({name: value for name, value in run.items() if name != "params"})},
             "validations": [
                 f'object.apiVersion == {json.dumps(release_run["apiVersion"])}',
@@ -773,8 +848,30 @@ def admission_is_held(cluster, release_run, sources_namespace):
             ],
         },
         SOURCE_POLICY: {
-            "paramKind": SOURCE_KIND,
+            "asked": {**ASKED_OF, "paramKind": SOURCE_KIND},
             "variables": {"named": f"{json.dumps(SOURCES)}[params.metadata.name]"},
+            "validations": [FOR_A_SOURCE],
+        },
+        IMAGE_RUN_POLICY: {
+            "asked": IMAGE_ASKED_OF,
+            "variables": {
+                "spec": cel(specs[0]),
+                "images": cel(images),
+                "params": "has(object.spec.params) ? object.spec.params : []",
+            },
+            "validations": [
+                'object.apiVersion == "tekton.dev/v1"',
+                "!has(object.metadata.labels)",
+                "!has(object.metadata.annotations)",
+                'object.spec.all(field, field == "params" || field in variables.spec)',
+                "variables.spec.all(field, field in object.spec && object.spec[field] == variables.spec[field])",
+                f"variables.params.map(param, param.name) == {json.dumps(IMAGE_PARAMS)}",
+                BUILDS_WHAT_IS_NAMED,
+            ],
+        },
+        IMAGE_SOURCE_POLICY: {
+            "asked": {**IMAGE_ASKED_OF, "paramKind": SOURCE_KIND},
+            "variables": {"named": f"{json.dumps(IMAGE_SOURCES)}[params.metadata.name]"},
             "validations": [FOR_A_SOURCE],
         },
     }
@@ -784,6 +881,12 @@ def admission_is_held(cluster, release_run, sources_namespace):
         sorted(parameter for named in SOURCES.values() for parameter in named.values()),
         sorted(parameters),
     )
+    for file, image_run in image_runs.items():
+        exactly(
+            f"the parameters {file} is held to",
+            [name for name in IMAGE_PARAMS if name not in ("image", "dockerfile")],
+            [parameter for named in IMAGE_SOURCES.values() for parameter in named.values()][:2],
+        )
     policies = {name: policy["spec"] for name, policy in of(cluster, "ValidatingAdmissionPolicy").items()}
     exactly("the admission policies rendered", sorted(policies), sorted(expected))
     for name, held in expected.items():
@@ -791,7 +894,7 @@ def admission_is_held(cluster, release_run, sources_namespace):
         exactly(
             f"whom and what ValidatingAdmissionPolicy {name} is asked about",
             {field: value for field, value in policy.items() if field not in ("variables", "validations")},
-            {**ASKED_OF, **{field: value for field, value in held.items() if field == "paramKind"}},
+            held["asked"],
         )
         exactly(
             f"what ValidatingAdmissionPolicy {name} names",
@@ -816,8 +919,58 @@ def admission_is_held(cluster, release_run, sources_namespace):
                 }
                 for source in SOURCES
             },
+            IMAGE_RUN_POLICY: {"policyName": IMAGE_RUN_POLICY, "validationActions": ["Deny"]},
+            **{
+                f"image-trigger-builds-what-{source}-holds": {
+                    "policyName": IMAGE_SOURCE_POLICY,
+                    "validationActions": ["Deny"],
+                    "paramRef": {"name": source, "namespace": sources_namespace, "parameterNotFoundAction": "Allow"},
+                }
+                for source in IMAGE_SOURCES
+            },
         },
     )
+
+
+def carried(configs, file):
+    """The one copy of a run file the trigger namespace's ConfigMaps carry."""
+    found = [config["data"][file] for config in configs.values() if file in config["data"]]
+    if len(found) != 1:
+        refuse(f"{len(found)} ConfigMaps in {TRIGGER_NAMESPACE} carry {file}, not one")
+    return found[0]
+
+
+def cronjob_is_held(cluster, name, account):
+    """One trigger's CronJob: its timing, its Job, its pod and its container,
+    each to what every trigger's is. Returns the Job and the environment."""
+    cronjob = of(cluster, "CronJob", TRIGGER_NAMESPACE)[name]
+    exactly(f"CronJob {name}'s concurrencyPolicy", cronjob["spec"].get("concurrencyPolicy"), "Forbid")
+    job = cronjob["spec"]["jobTemplate"]["spec"]
+    if not job.get("activeDeadlineSeconds"):
+        refuse(f"CronJob {name} has no activeDeadlineSeconds, and a trigger that hangs holds every later one back")
+    exactly(
+        f"CronJob {name}'s timing",
+        {field: value for field, value in cronjob["spec"].items() if field != "jobTemplate"},
+        TRIGGER_TIMING,
+    )
+    exactly(f"CronJob {name}'s Job", {field: value for field, value in job.items() if field != "template"}, TRIGGER_JOB)
+    pod = job["template"]["spec"]
+    exactly(f"CronJob {name}'s ServiceAccount", pod.get("serviceAccountName"), account)
+    exactly(f"what CronJob {name}'s pod carries", sorted(pod), sorted(TRIGGER_POD_FIELDS))
+    exactly(f"what CronJob {name}'s pod may do", pod["securityContext"], TRIGGER_POD_SECURITY)
+    (container,) = pod["containers"]
+    exactly(f"what CronJob {name}'s container carries", sorted(container), sorted(TRIGGER_CONTAINER_FIELDS))
+    exactly(f"what CronJob {name}'s container may do", container["securityContext"], TRIGGER_CONTAINER_SECURITY)
+    for volume in pod["volumes"]:
+        kinds = set(volume) - {"name"}
+        if not kinds <= {"configMap", "emptyDir"}:
+            refuse(f"CronJob {name} has the volume {volume['name']} of {sorted(kinds)}, and a trigger is given nothing but its script and scratch")
+    for each in pod["containers"] + pod.get("initContainers", []):
+        if not PINNED.fullmatch(each["image"]):
+            refuse(f"CronJob {name} runs {each['image']}, which is not a tag pinned by digest")
+    environment = {entry["name"]: entry.get("value") for entry in container["env"]}
+    exactly(f"the namespace CronJob {name} creates runs in", environment.get("RUNS_NAMESPACE"), BUILD_NAMESPACE)
+    return job, environment
 
 
 def run_is_placed(subject, run, template):
@@ -859,10 +1012,7 @@ def main():
 
     # The manifests for a run.
     trigger_configs = of(cluster, "ConfigMap", TRIGGER_NAMESPACE)
-    carried = [config["data"][RUN_FILE] for config in trigger_configs.values() if RUN_FILE in config["data"]]
-    if len(carried) != 1:
-        refuse(f"{len(carried)} ConfigMaps in {TRIGGER_NAMESPACE} carry {RUN_FILE}, not one")
-    (release_run,) = objects(carried[0])
+    (release_run,) = objects(carried(trigger_configs, RUN_FILE))
     exactly("release-run.yaml's kind", (release_run["apiVersion"], release_run["kind"]), ("tekton.dev/v1", "PipelineRun"))
     run_is_placed("release-run.yaml", release_run, release_run["spec"].get("taskRunTemplate", {}))
     exactly("release-run.yaml's pipeline", release_run["spec"]["pipelineRef"], {"name": PIPELINE})
@@ -874,6 +1024,20 @@ def main():
         sorted(param["name"] for param in release_run["spec"]["params"]),
         sorted(params),
     )
+    image_runs = {}
+    for cronjob, trigger in IMAGE_TRIGGERS.items():
+        file = trigger["run"]
+        (run,) = objects(carried(trigger_configs, file))
+        exactly(f"{file}'s kind", (run["apiVersion"], run["kind"]), ("tekton.dev/v1", "TaskRun"))
+        run_is_placed(file, run, run["spec"])
+        exactly(f"{file}'s Task", run["spec"]["taskRef"], {"name": BUILD_TASK, "kind": "Task"})
+        exactly(f"what {file}'s spec carries", sorted(run["spec"]), sorted(IMAGE_RUN_FIELDS))
+        exactly(f"{file}'s timeout", run["spec"]["timeout"], RUN_TIMEOUTS["pipeline"])
+        exactly(f"what {file} passes", [param["name"] for param in run["spec"]["params"]], IMAGE_PARAMS)
+        passes_what_is_declared(file, set(IMAGE_PARAMS), tasks[BUILD_TASK])
+        exactly(f"the labels {file} carries", run["metadata"].get("labels"), None)
+        exactly(f"the annotations {file} carries", run["metadata"].get("annotations"), None)
+        image_runs[file] = run
     by_hand = {}
     for file in BY_HAND:
         (run,) = objects((directory / file).read_text())
@@ -922,7 +1086,8 @@ def main():
         f"what is in {TRIGGER_NAMESPACE}",
         in_trigger,
         sorted(
-            [("ServiceAccount", TRIGGER), ("CronJob", TRIGGER)]
+            [("ServiceAccount", TRIGGER), ("CronJob", TRIGGER), ("ServiceAccount", IMAGE_TRIGGER)]
+            + [("CronJob", name) for name in IMAGE_TRIGGERS]
             + [("ConfigMap", name) for name in trigger_configs]
             + [("NetworkPolicy", name) for name in TRIGGER_POLICIES]
         ),
@@ -934,64 +1099,68 @@ def main():
         of(cluster, "Namespace")[TRIGGER_NAMESPACE]["metadata"].get("labels"),
         RESTRICTED,
     )
-    cronjob = of(cluster, "CronJob", TRIGGER_NAMESPACE)[TRIGGER]
-    exactly(f"CronJob {TRIGGER}'s concurrencyPolicy", cronjob["spec"].get("concurrencyPolicy"), "Forbid")
-    job = cronjob["spec"]["jobTemplate"]["spec"]
-    if not job.get("activeDeadlineSeconds"):
-        refuse(f"CronJob {TRIGGER} has no activeDeadlineSeconds, and a trigger that hangs holds every later one back")
-    exactly(
-        f"CronJob {TRIGGER}'s timing",
-        {name: value for name, value in cronjob["spec"].items() if name != "jobTemplate"},
-        TRIGGER_TIMING,
-    )
-    exactly(f"CronJob {TRIGGER}'s Job", {name: value for name, value in job.items() if name != "template"}, TRIGGER_JOB)
-    pod = job["template"]["spec"]
-    exactly(f"CronJob {TRIGGER}'s ServiceAccount", pod.get("serviceAccountName"), TRIGGER)
-    exactly(f"what CronJob {TRIGGER}'s pod carries", sorted(pod), sorted(TRIGGER_POD_FIELDS))
-    exactly(f"what CronJob {TRIGGER}'s pod may do", pod["securityContext"], TRIGGER_POD_SECURITY)
-    (container,) = pod["containers"]
-    exactly(f"what CronJob {TRIGGER}'s container carries", sorted(container), sorted(TRIGGER_CONTAINER_FIELDS))
-    exactly(f"what CronJob {TRIGGER}'s container may do", container["securityContext"], TRIGGER_CONTAINER_SECURITY)
-    for volume in pod["volumes"]:
-        kinds = set(volume) - {"name"}
-        if not kinds <= {"configMap", "emptyDir"}:
-            refuse(f"CronJob {TRIGGER} has the volume {volume['name']} of {sorted(kinds)}, and the trigger is given nothing but its script and scratch")
-    for container in pod["containers"] + pod.get("initContainers", []):
-        if not PINNED.fullmatch(container["image"]):
-            refuse(f"CronJob {TRIGGER} runs {container['image']}, which is not a tag pinned by digest")
-    environment = {entry["name"]: entry.get("value") for entry in pod["containers"][0]["env"]}
-    exactly("the namespace the trigger creates runs in", environment.get("RUNS_NAMESPACE"), BUILD_NAMESPACE)
+    job, environment = cronjob_is_held(cluster, TRIGGER, TRIGGER)
     exactly("the pipeline the trigger reads the runs of", environment.get("PIPELINE"), PIPELINE)
+    image_jobs = {}
+    for cronjob, trigger in IMAGE_TRIGGERS.items():
+        image_job, image_environment = cronjob_is_held(cluster, cronjob, IMAGE_TRIGGER)
+        exactly(f"the Task CronJob {cronjob} reads the runs of", image_environment.get("TASK"), BUILD_TASK)
+        exactly(f"the source CronJob {cronjob} reads", image_environment.get("SOURCE"), trigger["source"])
+        exactly(
+            f"the image CronJob {cronjob} reads the runs by",
+            image_environment.get("IMAGE"),
+            param_values(image_runs[trigger["run"]])["image"],
+        )
+        exactly(
+            f"the run file CronJob {cronjob} creates from",
+            (image_environment.get("RUN_MANIFEST") or "").rpartition("/")[2],
+            trigger["run"],
+        )
+        exactly(
+            f"the namespace CronJob {cronjob} reads its source in",
+            image_environment.get("SOURCES_NAMESPACE"),
+            environment.get("SOURCES_NAMESPACE"),
+        )
+        image_jobs[cronjob] = image_job
 
     # Whoever is bound in the build namespace can start a pod there under a
     # label of their choosing, so it is bound to the trigger and to nobody
     # else, whichever layer renders the binding.
-    exactly(f"the RoleBindings of {BUILD_NAMESPACE}", sorted(of(cluster, "RoleBinding", BUILD_NAMESPACE)), [TRIGGER_RUNS])
-    bindings = bound_to(TRIGGER, TRIGGER_NAMESPACE)
-    roles = {}
-    for binding in bindings:
-        namespace = binding["metadata"].get("namespace")
-        if binding["kind"] != "RoleBinding" or binding["roleRef"]["kind"] != "Role":
-            refuse(f"{binding['kind']} {binding['metadata']['name']} gives the trigger rights that are not a Role's")
-        if len(binding["subjects"]) != 1:
-            refuse(f"RoleBinding {binding['metadata']['name']} binds the trigger's Role to others as well")
-        if binding["subjects"][0]["kind"] != "ServiceAccount":
-            refuse(f"RoleBinding {binding['metadata']['name']} names a {binding['subjects'][0]['kind']} the trigger's token answers to, and not its ServiceAccount")
-        role = of(cluster, "Role", namespace).get(binding["roleRef"]["name"])
-        if role is None or namespace in roles:
-            refuse(f"RoleBinding {binding['metadata']['name']} in {namespace} is not the one binding of one Role rendered there")
-        roles[namespace] = role["rules"]
-        others = [
-            other["metadata"]["name"]
-            for other in cluster
-            if other["kind"] == "RoleBinding"
-            and other["metadata"].get("namespace") == namespace
-            and other["roleRef"]["name"] == binding["roleRef"]["name"]
-            and other is not binding
-        ]
-        if others:
-            refuse(f"Role {binding['roleRef']['name']} is the trigger's and is also bound by {others}")
-    exactly("what the trigger's ServiceAccount may do", roles, TRIGGER_ROLES)
+    exactly(
+        f"the RoleBindings of {BUILD_NAMESPACE}",
+        sorted(of(cluster, "RoleBinding", BUILD_NAMESPACE)),
+        sorted([TRIGGER_RUNS, IMAGE_TRIGGER_RUNS]),
+    )
+    def rights_of(account):
+        """What one trigger's ServiceAccount may do: one Role in each
+        namespace, bound to it alone, by its one RoleBinding there."""
+        roles = {}
+        for binding in bound_to(account, TRIGGER_NAMESPACE):
+            namespace = binding["metadata"].get("namespace")
+            if binding["kind"] != "RoleBinding" or binding["roleRef"]["kind"] != "Role":
+                refuse(f"{binding['kind']} {binding['metadata']['name']} gives {account} rights that are not a Role's")
+            if len(binding["subjects"]) != 1:
+                refuse(f"RoleBinding {binding['metadata']['name']} binds {account}'s Role to others as well")
+            if binding["subjects"][0]["kind"] != "ServiceAccount":
+                refuse(f"RoleBinding {binding['metadata']['name']} names a {binding['subjects'][0]['kind']} {account}'s token answers to, and not its ServiceAccount")
+            role = of(cluster, "Role", namespace).get(binding["roleRef"]["name"])
+            if role is None or namespace in roles:
+                refuse(f"RoleBinding {binding['metadata']['name']} in {namespace} is not the one binding of one Role rendered there")
+            roles[namespace] = role["rules"]
+            others = [
+                other["metadata"]["name"]
+                for other in cluster
+                if other["kind"] == "RoleBinding"
+                and other["metadata"].get("namespace") == namespace
+                and other["roleRef"]["name"] == binding["roleRef"]["name"]
+                and other is not binding
+            ]
+            if others:
+                refuse(f"Role {binding['roleRef']['name']} is {account}'s and is also bound by {others}")
+        return roles
+
+    exactly("what the trigger's ServiceAccount may do", rights_of(TRIGGER), TRIGGER_ROLES)
+    exactly("what the image trigger's ServiceAccount may do", rights_of(IMAGE_TRIGGER), IMAGE_TRIGGER_ROLES)
     sources = of(cluster, "GitRepository", environment.get("SOURCES_NAMESPACE"))
     if "chuggy" not in sources:
         refuse(f"the trigger reads GitRepository chuggy in {environment.get('SOURCES_NAMESPACE')}, and no layer renders one there")
@@ -1000,7 +1169,11 @@ def main():
         {field: sources["chuggy"][field] for field in SOURCE_KIND},
         SOURCE_KIND,
     )
-    admission_is_held(cluster, release_run, environment.get("SOURCES_NAMESPACE"))
+    for name in IMAGE_SOURCES:
+        if name not in sources:
+            refuse(f"the image trigger reads GitRepository {name} in {environment.get('SOURCES_NAMESPACE')}, and no layer renders one there")
+        exactly(f"the kind of GitRepository {name}", {field: sources[name][field] for field in SOURCE_KIND}, SOURCE_KIND)
+    admission_is_held(cluster, release_run, image_runs, environment.get("SOURCES_NAMESPACE"))
 
     # The policies.
     def policies(documents, namespace):
@@ -1012,6 +1185,12 @@ def main():
         job["template"]["metadata"].get("labels"),
         TRIGGER_POLICIES["release-trigger-egress"]["podSelector"]["matchLabels"],
     )
+    for cronjob, trigger in IMAGE_TRIGGERS.items():
+        exactly(
+            f"the labels the policy of CronJob {cronjob} selects its pod by",
+            image_jobs[cronjob]["template"]["metadata"].get("labels"),
+            TRIGGER_POLICIES[trigger["policy"]]["podSelector"]["matchLabels"],
+        )
     exactly(f"the NetworkPolicies of {BUILD_NAMESPACE}", policies(cluster, BUILD_NAMESPACE), BUILD_POLICIES)
     registries = {name: registry_is_held(cluster, name, expected) for name, expected in REGISTRIES.items()}
     exactly(
@@ -1043,8 +1222,8 @@ def main():
         refuse(f"the pipeline publishes to {passed['publish']['release']}, which is not what OCIRepository chuggy-release reads")
     if not passed["publish"]["release"].startswith(published_to):
         refuse(f"the pipeline publishes to {passed['publish']['release']}, which is not the release registry's Service")
-    for file, run in by_hand.items():
-        image = {param["name"]: param["value"] for param in run["spec"]["params"]}["image"]
+    for file, run in {**by_hand, **image_runs}.items():
+        image = param_values(run)["image"]
         if not image.startswith(pushed_to):
             refuse(f"{file} pushes {image}, which is not the registry's Service")
 

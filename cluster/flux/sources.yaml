@@ -1,5 +1,5 @@
-# The two sources of a release that are declared by a commit, beside the
-# layers.
+# The sources that are declared by a commit, beside the layers: the two of a
+# release, and the one the site's image is built from.
 #
 # HERE AND NOT IN A LAYER, because the root that applies this directory waits
 # on nothing: a source with no artifact yet holds nothing else up. In a layer
@@ -19,6 +19,20 @@ metadata:
 spec:
   interval: 1m
   url: https://github.com/kasofsk/chuggy.git
+  ref:
+    branch: main
+---
+# The site's `main`. No layer applies it either: the image trigger reads the
+# commit it holds, in cluster/build-system/image-trigger.sh, and builds the
+# site's image at it. Public, so it names no Secret.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: chug-gy
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: https://github.com/kasofsk/chug.gy.git
   ref:
     branch: main
 ---

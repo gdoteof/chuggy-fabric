@@ -124,6 +124,7 @@
       buildPlatform = import ./tests/build-platform.nix { inherit pkgs; };
       releasePipeline = import ./tests/release-pipeline.nix { inherit pkgs; };
       releaseTrigger = import ./tests/release-trigger.nix { inherit pkgs; };
+      imageTrigger = import ./tests/image-trigger.nix { inherit pkgs; };
       releasePublish = import ./tests/release-publish.nix { inherit pkgs; };
       releaseBuild = import ./tests/release-build.nix { inherit pkgs; };
       releaseReport = import ./tests/release-report.nix { inherit pkgs; };
@@ -395,6 +396,10 @@
         # The trigger's decision, every line of it, by the script its pod
         # mounts against an API server that is a file.
         release-trigger = releaseTrigger;
+
+        # The same of the image trigger, which builds the site's image at the
+        # commit its source holds.
+        image-trigger = imageTrigger;
 
         # And what a run publishes: the overlay over this repository's own two
         # release directories, what it may change and must, and the version
