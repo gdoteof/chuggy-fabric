@@ -1,0 +1,190 @@
+# chug.gy: chuggy's public site, from kasofsk/chug.gy, at `chug.gy` and
+# `www.chug.gy`. One static binary serves the pages embedded in it, keeps each
+# request for an invite as one JSON line on the claim below, and serves that
+# file back to the holder of the admin token. It opens no connection of its
+# own, so its policy admits Traefik and lets nothing out.
+#
+# ITS OWN LAYER, cluster/flux/chug-gy.yaml, which says why. Its image is built
+# by hand from cluster/build-system/chug-gy-image-run.yaml, and a new one is
+# admitted by a commit that writes the digest that run reports, as Track
+# Record's is.
+#
+# THE REQUESTS ARE THE ONE THING HERE WORTH KEEPING, and they are small. The
+# claim is `local-path` with no retained volume and no backup: a request is
+# read and answered as it arrives, and the file is the record of who asked.
+# To read it:
+#
+#   curl -H "Authorization: Bearer $(kubectl -n chug-gy get secret chug-gy-admin \
+#     -o jsonpath='{.data.token}' | base64 -d)" https://chug.gy/admin/requests
+#
+# THE ADMIN TOKEN IS A Secret CREATED OUT OF BAND, as Track Record's tokens
+# are, and never written in this repository. The mount below is optional and
+# the server reads the file on each request, so the pod runs without it and
+# the route answers 404 until it exists:
+#
+#   kubectl -n chug-gy create secret generic chug-gy-admin \
+#     --from-literal=token="$(openssl rand -hex 32)"
+#
+# The site is public only once the two hosts are also in
+# `chuggy.tunnel.hostnames` and each has a CNAME to the tunnel, as
+# cluster/chuggy/chuggy-ui.yaml's "the host, three ways" describes. chug.gy
+# is a second zone on the same Cloudflare account, so the apex and `www` are
+# what Universal SSL covers there, as a single label is on vteng.io.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: chug-gy
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: chug-gy-data
+  namespace: chug-gy
+spec:
+  storageClassName: local-path
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: { storage: 1Gi }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chug-gy
+  namespace: chug-gy
+  labels: { app: chug-gy }
+spec:
+  replicas: 1
+  # One file on a ReadWriteOnce claim: the old pod stops before the new one
+  # opens it.
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: chug-gy }
+  template:
+    metadata:
+      labels: { app: chug-gy }
+    spec:
+      # A local-path claim is a directory on the node that made it.
+      nodeSelector:
+        chuggy.dev/durable: "true"
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: web
+          image: registry.chuggy.internal/chug-gy/web@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: CHUG_SITE_LISTEN, value: ":8080" }
+            - { name: CHUG_SITE_DATA, value: /data }
+            - { name: CHUG_SITE_HOST, value: chug.gy }
+            - { name: CHUG_SITE_ADMIN_TOKEN_FILE, value: /var/run/chug-gy/admin/token }
+          ports:
+            - name: http
+              containerPort: 8080
+          # The one route that reads nothing: the probe names the pod's own
+          # address, which the canonical-host redirect leaves alone for it.
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: admin
+              mountPath: /var/run/chug-gy/admin
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: chug-gy-data
+        - name: admin
+          secret:
+            secretName: chug-gy-admin
+            optional: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chug-gy
+  namespace: chug-gy
+spec:
+  selector: { app: chug-gy }
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+# Traefik alone, and nowhere out: the server calls nothing. The kubelet's
+# probes need no element, for the reason
+# cluster/apps/chuggy-control-plane-network-policy.yaml gives over the API's.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chug-gy-admits-traefik
+  namespace: chug-gy
+spec:
+  podSelector:
+    matchLabels: { app: chug-gy }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - { protocol: TCP, port: 8080 }
+---
+# Both hosts, the whole site: the server itself redirects `www` to the apex
+# and holds back the routes it does not publish. No `tls:`, because TLS
+# terminates at Cloudflare and Traefik is reached over plain HTTP.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chug-gy
+  namespace: chug-gy
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: chug.gy
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: chug-gy
+                port: { name: http }
+    - host: www.chug.gy
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: chug-gy
+                port: { name: http }

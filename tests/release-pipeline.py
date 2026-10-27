@@ -130,7 +130,7 @@ BUILDER = "builder"
 PIPELINE = "chuggy-release"
 RUN_FILE = "release-run.yaml"
 # The TaskRuns of `build-image` a person creates, as files in the directory.
-BY_HAND = ("worker-image-run.yaml", "track-record-image-run.yaml")
+BY_HAND = ("worker-image-run.yaml", "track-record-image-run.yaml", "chug-gy-image-run.yaml")
 PINNED = re.compile(r"[a-z0-9./-]+:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}")
 REFERENCE = re.compile(r"\$\(([^)]+)\)")
 
