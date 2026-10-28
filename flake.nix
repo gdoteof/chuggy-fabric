@@ -228,6 +228,13 @@
         # probes take no token: the edge and Kratos, and no other source.
         access-plane = import ./tests/access-plane.nix { inherit pkgs; };
 
+        # The metrics plane's database, held as the access plane's is, and its
+        # issuer against the API's, which every owner label is cut from. And
+        # its scrape: one monitor Prometheus selects, a timeout above the
+        # plane's read timeout, and Prometheus alone admitted to its port,
+        # which serves every tenant's usage to whoever reaches it.
+        metrics-plane = import ./tests/metrics-plane.nix { inherit pkgs; };
+
         # The rendered cluster, which must carry no per-repository token at
         # all now that every pod mints its own.
         github-repository-transition = githubRepositoryTransition;

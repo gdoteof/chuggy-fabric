@@ -1,0 +1,182 @@
+# The metrics plane: what Prometheus scrapes for what every run cost and how
+# long it took, every ended attempt and session turn, and how many tickets
+# stand in each phase. kasofsk/chuggy's `src/roots/metricsPlane.ts` is the
+# process; it reads every series afresh from the database on each scrape and
+# keeps nothing between them.
+#
+# It has the pool plane's arrangement: the image, one replica rolled by the
+# default strategy, the URL assembled from the Secret's password, the label and
+# the egress arm that open PostgreSQL to the pod, the resources, the security
+# context, a readiness probe that is one query, and its policies in this file
+# beside it. chuggy-pool-plane.yaml and chuggy-access-plane.yaml argue those.
+# What is argued here is where this plane differs.
+#
+# THREE THINGS OUTSIDE THIS DIRECTORY COME FIRST. Two are the pool plane's:
+# `metrics-plane-password` in `chuggy-postgres-credentials`, without which the
+# pod does not start, and the login role kasofsk/chuggy's
+# `deploy/rig/postgres/postgres-roles.sql` creates, without which it starts and
+# is never ready. The third is the process itself: a release of a chuggy commit
+# that has no `src/roots/metricsPlane.ts` runs a pod that exits at start. Each
+# is reported by the `chuggy` layer, cluster/flux/chuggy.yaml, whose `wait`
+# does not see this Deployment ready.
+#
+# THE ISSUER IS A COPY OF THE API'S, AND NOTHING IS VERIFIED AGAINST IT. The
+# process takes no token. It reads the issuer only to cut it off the principals
+# the database stores, so an `owner` label is the bare subject of a person's
+# tokens, which is the login a member signs into Grafana with
+# (monitoring.yaml's `login_attribute_path`). A principal under any other issuer
+# is labelled with no owner, so a copy that drifted empties every owner rather
+# than refusing anyone. tests/metrics-plane.py holds it to chuggy-api.yaml's
+# `CHUG_API_OIDC_ISSUER`.
+#
+# NO INGRESS, AND NOTHING FOR TRAEFIK. Grafana reads Prometheus and not this
+# plane, so nothing outside the cluster has a reason to reach it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chuggy-metrics-plane
+  namespace: chuggy
+  labels: { app: chuggy-metrics-plane }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: chuggy-metrics-plane }
+  template:
+    metadata:
+      labels:
+        app: chuggy-metrics-plane
+        chuggy.dev/postgres-client: "true"
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: metrics-plane
+          image: registry.chuggy.internal/chuggy/api@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          imagePullPolicy: IfNotPresent
+          command: [node, --experimental-strip-types, src/roots/metricsPlane.ts]
+          env:
+            # This plane's connection under its two roles, the password first
+            # for the reason chuggy-access-plane.yaml gives.
+            - name: CHUG_METRICS_PLANE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chuggy-postgres-credentials
+                  key: metrics-plane-password
+            - name: CHUG_METRICS_PLANE_DATABASE_URL
+              value: postgres://chuggy_metrics_plane_login:$(CHUG_METRICS_PLANE_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy?options=-c%20role%3Dchuggy_metrics_plane
+            - name: CHUG_METRICS_PLANE_OIDC_ISSUER
+              value: https://auth.vteng.io
+            # How long one scrape's reads may take, all of its statements
+            # together. Set, and below the scrape timeout in
+            # cluster/apps/chuggy-metrics-plane-monitor.yaml, so a read that
+            # runs long is answered 503 here, with a line on stderr saying why,
+            # before Prometheus gives up on it and records only that it timed
+            # out. The bound's clock starts before the connection is taken, so
+            # the gap between the two is for what it does not cover: opening
+            # and closing the transaction, a cancelled statement's return, and
+            # the page written after the reads. tests/metrics-plane.py holds
+            # this below that timeout.
+            - name: CHUG_METRICS_PLANE_READ_TIMEOUT_MS
+              value: "10000"
+            - name: CHUG_METRICS_PLANE_HOST
+              value: 0.0.0.0
+            - name: CHUG_METRICS_PLANE_PORT
+              value: "3004"
+            # The series cap the process also reads is unset, which is the
+            # code's own default. A page past it is answered 503 as a slow read
+            # is.
+          ports:
+            - name: http
+              containerPort: 3004
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+            seccompProfile: { type: RuntimeDefault }
+          livenessProbe:
+            httpGet: { path: /health/live, port: http }
+          readinessProbe:
+            httpGet: { path: /health/ready, port: http }
+---
+# Labelled, unlike the other planes' Services, because a ServiceMonitor selects
+# a Service by its labels.
+apiVersion: v1
+kind: Service
+metadata:
+  name: chuggy-metrics-plane
+  namespace: chuggy
+  labels: { app: chuggy-metrics-plane }
+spec:
+  selector: { app: chuggy-metrics-plane }
+  ports:
+    - name: http
+      port: 3004
+      targetPort: http
+---
+# Prometheus alone. Every path here takes no token, `/metrics` answers whoever
+# reaches it with every tenant's usage and cost by owner, and each answer costs
+# the database a full aggregate of every run, attempt, turn and ticket. So this
+# policy is the whole of what keeps that from the pod network.
+#
+# Prometheus is named by its namespace and the label its pod carries there,
+# which is the operator's and not the chart's, so no render shows it: it was
+# read off the running pod. A pod made in `monitoring` under that label is
+# admitted with it. tests/metrics-plane.py holds the policy to this one source
+# on this port.
+#
+# The kubelet's probes need no element, for the reason
+# chuggy-control-plane-network-policy.yaml gives over the API's.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-metrics-plane-ingress
+  namespace: chuggy
+spec:
+  podSelector:
+    matchLabels: { app: chuggy-metrics-plane }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - { protocol: TCP, port: 3004 }
+---
+# The resolver and the database, and nothing else. It verifies no token, so it
+# asks no issuer for discovery or keys, and has none of the public arm the pool
+# and access planes carry for that. tests/metrics-plane.py holds the policy to
+# these arms and no other.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-metrics-plane-egress
+  namespace: chuggy
+spec:
+  podSelector:
+    matchLabels: { app: chuggy-metrics-plane }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - podSelector:
+            matchLabels: { app: postgres }
+      ports:
+        - { protocol: TCP, port: 5432 }
