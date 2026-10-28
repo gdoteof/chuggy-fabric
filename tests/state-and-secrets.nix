@@ -170,7 +170,9 @@ pkgs.testers.runNixOSTest {
         "scheduler-password",
         "finalizer-password",
         "worker-plane-password",
+        "pool-plane-password",
         "access-plane-password",
+        "metrics-plane-password",
         "configuration-importer-password",
     ]
     pgdir = "/var/lib/chuggy/secrets/chuggy-postgres-credentials"
