@@ -266,6 +266,14 @@ spec:
         # cgroup went over on memory Go was never counting.
         requests: { cpu: 50m, memory: 256Mi }
         limits: { memory: 1Gi }
+      # A `secretKeyRef` naming a key that is not there refuses to start the
+      # pod, so the Secret below is created before this file reaches the
+      # cluster.
+      envValueFrom:
+        GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+          secretKeyRef:
+            name: grafana-oauth
+            key: client-secret
       grafana.ini:
         server:
           # Without this, Grafana builds redirect and share links from the
@@ -275,6 +283,54 @@ spec:
           allow_sign_up: false
         auth.anonymous:
           enabled: false
+        # CHUGGY MEMBERS SIGN IN WITH THE SESSION THEY ALREADY HOLD. Hydra is
+        # the issuer, and id.vteng.io answers its login and consent, so someone
+        # signed into the console is one click from here. Every account this
+        # makes is a Viewer, and `skip_org_role_sync` leaves a role an
+        # administrator raises by hand where it was put rather than resetting it
+        # at the next sign-in.
+        #
+        # `login` IS THE KRATOS IDENTITY ID. That is the `sub` every chuggy
+        # token carries, and the `owner` label chuggy's series carry, so a
+        # dashboard narrows to the person viewing it with
+        # `owner="${__user.login}"`.
+        #
+        # GRAFANA REFUSES A SIGN-IN WITHOUT AN EMAIL. The consent app puts one in
+        # the ID token for the `email` scope only from the identity's first
+        # verifiable address, which is why ory/identity.default.schema.json
+        # names the email trait as one.
+        #
+        # NO REFRESH TOKEN. Grafana uses the token only to sign the person in,
+        # and with `use_refresh_token` it would end every session when Hydra's
+        # refresh lifespan does; without it the session is Grafana's own.
+        #
+        # The browser is sent to the public issuer; the code is redeemed and
+        # the user read over the pod network, as the selector mints its tokens.
+        #
+        # The client is registered on Hydra's admin port, and its secret is the
+        # one Secret this needs. `auth_style` is the `client_secret_basic` the
+        # client is registered with, since Hydra refuses the other method:
+        #
+        #   kubectl -n ory exec deploy/hydra -c hydra -- hydra create oauth2-client \
+        #     --endpoint http://127.0.0.1:4445 --id chuggy-grafana --name Grafana \
+        #     --grant-type authorization_code --response-type code \
+        #     --scope openid,email --skip-consent \
+        #     --redirect-uri https://grafana.vteng.io/login/generic_oauth
+        #   kubectl -n monitoring create secret generic grafana-oauth \
+        #     --from-literal=client-secret=<the client secret Hydra returned>
+        auth.generic_oauth:
+          enabled: true
+          name: chuggy
+          client_id: chuggy-grafana
+          scopes: openid email
+          auth_url: https://auth.vteng.io/oauth2/auth
+          token_url: http://hydra-public.ory.svc.cluster.local:4444/oauth2/token
+          api_url: http://hydra-public.ory.svc.cluster.local:4444/userinfo
+          auth_style: InHeader
+          login_attribute_path: sub
+          use_pkce: true
+          allow_sign_up: true
+          skip_org_role_sync: true
       ingress:
         enabled: true
         ingressClassName: traefik

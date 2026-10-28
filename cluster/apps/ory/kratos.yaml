@@ -239,6 +239,12 @@ selfservice:
         default_browser_return_url: https://id.vteng.io/login
     recovery:
       enabled: false
+    # THE ADDRESS IS STILL RECORDED, UNVERIFIED. The schema names the email
+    # trait as an address to verify by email, so Kratos keeps it among the
+    # identity's verifiable addresses even with this flow off, and nothing
+    # marks it verified. The consent app reads that address into the ID token
+    # for the `email` scope, with `email_verified` false; Grafana's sign-in in
+    # monitoring.yaml needs it, and nothing there finds an account by it.
     verification:
       enabled: false
 
