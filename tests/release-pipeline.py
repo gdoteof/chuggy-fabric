@@ -19,11 +19,14 @@ manifest for one names the `builder` ServiceAccount and a pod template that
 mounts no token, `builder` mounts none itself and is bound to no role, and no
 Task has a volume that is anything but a ConfigMap or an empty directory.
 
-BUT ONE, WHICH IS GIVEN THE BEARER IT REPORTS WITH. `report-actions` has one
-Secret volume and no other Task has any, so no step that runs a commit's code
-is in a pod with it. It is optional, because a pod that names a Secret that is
-not there is never started, and its step mounts it read-only and whole: a
-`subPath` is a copy the kubelet does not bring up to date.
+BUT TWO, EACH GIVEN THE ONE SECRET IT SPEAKS WITH. `report-actions` has the
+bearer it reports with, and no step that runs a commit's code is in a pod with
+it. `build-two-platform-image` has the certificate and key it speaks to the
+Mac's BuildKit daemon with, mounted by its `build` step alone, which
+two-platform-image.yaml argues. No other Task has a Secret volume. Each is
+optional, because a pod that names a Secret that is not there is never
+started, and is mounted read-only and whole: a `subPath` is a copy the kubelet
+does not bring up to date.
 
 THE REPORT CANNOT FAIL THE RUN, AND IS TOLD OF EVERY TASK. A `finally` task
 that fails, or runs past its bound, fails a run that has already published,
@@ -37,12 +40,13 @@ wrong outcome under a true name.
 
 ONLY THE TRIGGER IS GIVEN A ROUTE TO THE API SERVER. The build namespace's
 policies are held exactly: `build-egress` to what it was before the pipeline,
-because a rule widened for a task is a route for every task, and one rule
-beside it for the pods of `publish-release` alone. The trigger's namespace
-holds the trigger and nothing else, its two policies are held exactly, and so
-are the two Roles its ServiceAccount is bound to, which are bound to nobody
-else. A binding counts when it names the ServiceAccount, or the user or a
-group its token also is.
+because a rule widened for a task is a route for every task, one rule beside
+it for the pods of `publish-release` alone, and one for the pods of
+`build-two-platform-image` to the daemon its run names, at that address and
+port and nowhere else. The trigger's namespace holds the trigger and nothing
+else, its two policies are held exactly, and so are the two Roles its
+ServiceAccount is bound to, which are bound to nobody else. A binding counts
+when it names the ServiceAccount, or the user or a group its token also is.
 
 WHAT THE TRIGGER'S TOKEN CREATES IS HELD BY ADMISSION, AND THE POLICY IS HELD
 TO THE RUN. `create` on PipelineRuns is by itself any pod `chuggy-build`
@@ -80,6 +84,14 @@ release registry: deleting a release is how one is undone.
 A RUN STARTED BY FLUX IS A RUN STARTED AT EVERY RECONCILE, so neither run
 manifest is rendered. That the two release layers read what a run publishes is
 held by tests/flux-layers.py, beside the two sources.
+
+THE TWO-PLATFORM TASK BUILDS LINUX/AMD64 AS `build-image` BUILDS ONE IMAGE.
+Its `fetch` is `build-image`'s, and so is its `build` but for the daemon, the
+files it is spoken to with, the directory the halves are left in for `index`,
+and the Secret's mount; its parameters, results and volumes are
+`build-image`'s but for the daemon, which has no default, and the Secret. Its
+`index` step reads that directory and writes the result the `build` step
+would have. worker-image-run.yaml is the one run of it.
 
 EVERY IMAGE IS PINNED BY DIGEST, and every step names its `command`, without
 which Tekton asks the image's registry for the entrypoint.
@@ -143,7 +155,8 @@ TRIGGER = "release-trigger"
 BUILDER = "builder"
 PIPELINE = "chuggy-release"
 RUN_FILE = "release-run.yaml"
-# The TaskRuns of `build-image` a person creates, as files in the directory.
+# The TaskRuns a person creates, as files in the directory: the worker
+# image's, of the two-platform Task, and Track Record's, of `build-image`.
 BY_HAND = ("worker-image-run.yaml", "track-record-image-run.yaml")
 BUILD_TASK = "build-image"
 PINNED = re.compile(r"[a-z0-9./-]+:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}")
@@ -373,21 +386,42 @@ AS_BUILDKIT = {"runAsUser": 1000, "runAsGroup": 1000}
 AS_NOBODY = {"runAsUser": 65534, "runAsGroup": 65534}
 # What `id` prints in the image `report` runs.
 AS_CURL = {"runAsUser": 100, "runAsGroup": 101}
+# And in the image `index` runs.
+AS_REGCTL = {"runAsUser": 1000, "runAsGroup": 1000}
 REPORT_TASK = "report-actions"
+TWO_PLATFORM_TASK = "build-two-platform-image"
+# The one run of it, and the policy that lets its pods reach the daemon the
+# run names.
+TWO_PLATFORM_RUN = "worker-image-run.yaml"
+BUILDER_EGRESS = "arm64-builder-egress"
+BUILDER_ADDRESS = re.compile(r"tcp://(\d{1,3}(?:\.\d{1,3}){3}):(\d+)")
+# What the two-platform Task's `build` step has that `build-image`'s does not.
+TWO_PLATFORM_ENV = ("ARM64_BUILDER", "ARM64_BUILDER_TLS", "INDEX")
+# The Tasks given a Secret: the one each is given, and the steps that mount it.
+SECRETS = {
+    REPORT_TASK: {"secret": "chuggy-report-build", "steps": ["report"]},
+    TWO_PLATFORM_TASK: {"secret": "arm64-builder-client", "steps": ["build"]},
+}
 
+BUILD_STEP = {
+    "runAsNonRoot": True,
+    **AS_BUILDKIT,
+    "allowPrivilegeEscalation": True,
+    "capabilities": {"add": ["SETGID", "SETUID"], "drop": ["ALL"]},
+    "readOnlyRootFilesystem": True,
+    "seccompProfile": {"type": "Unconfined"},
+    "appArmorProfile": {"type": "Unconfined"},
+}
 # The steps of each Task, in order, and what each may do.
 STEPS = {
     "build-image": {
         "fetch": {**CONFINED, **AS_BUILDKIT},
-        "build": {
-            "runAsNonRoot": True,
-            **AS_BUILDKIT,
-            "allowPrivilegeEscalation": True,
-            "capabilities": {"add": ["SETGID", "SETUID"], "drop": ["ALL"]},
-            "readOnlyRootFilesystem": True,
-            "seccompProfile": {"type": "Unconfined"},
-            "appArmorProfile": {"type": "Unconfined"},
-        },
+        "build": BUILD_STEP,
+    },
+    TWO_PLATFORM_TASK: {
+        "fetch": {**CONFINED, **AS_BUILDKIT},
+        "build": BUILD_STEP,
+        "index": {**CONFINED, **AS_REGCTL},
     },
     "publish-release": {
         "fetch": {**CONFINED, **AS_BUILDKIT},
@@ -679,14 +713,20 @@ def tasks_are_sound(cluster, tasks):
         secrets = []
         for volume in spec.get("volumes", []):
             kinds = set(volume) - {"name"}
-            if kinds == {"secret"} and name == REPORT_TASK:
+            if kinds == {"secret"} and name in SECRETS:
                 secrets.append(volume["name"])
+                exactly(f"the Secret Task {name} is given", volume["secret"].get("secretName"), SECRETS[name]["secret"])
                 if volume["secret"].get("optional") is not True:
                     refuse(f"Task {name} names the Secret {volume['secret'].get('secretName')} and not as optional, and a pod is not started without one it requires")
             elif not kinds <= {"configMap", "emptyDir"}:
                 refuse(f"Task {name} has the volume {volume['name']} of {sorted(kinds)}, and a task pod is given nothing but scripts and scratch")
             volumes[volume["name"]] = volume
-        exactly(f"how many Secrets Task {name} is given", len(secrets), 1 if name == REPORT_TASK else 0)
+        exactly(f"how many Secrets Task {name} is given", len(secrets), 1 if name in SECRETS else 0)
+        exactly(
+            f"the steps of Task {name} that mount its Secret",
+            [step["name"] for step in spec["steps"] if any(mount["name"] in secrets for mount in step.get("volumeMounts", []))],
+            SECRETS[name]["steps"] if name in SECRETS else [],
+        )
         for step in spec["steps"]:
             subject = f"Task {name} step {step['name']}"
             if not PINNED.fullmatch(step["image"]):
@@ -715,6 +755,64 @@ def tasks_are_sound(cluster, tasks):
                 )
                 if not known:
                     refuse(f"{subject} reads $({reference}), which Task {name} does not declare")
+
+
+def step_of(task, name):
+    (step,) = [step for step in task["spec"]["steps"] if step["name"] == name]
+    return step
+
+
+def two_platforms_are_held(tasks, by_hand):
+    """The two-platform Task builds linux/amd64 as `build-image` does, and its
+    one run names a daemon by an address. Returns the policy that lets the
+    Task's pods reach that daemon and nothing else."""
+    one, two = tasks[BUILD_TASK], tasks[TWO_PLATFORM_TASK]
+    subject = f"Task {TWO_PLATFORM_TASK}"
+    exactly(f"{subject}'s fetch", step_of(two, "fetch"), step_of(one, "fetch"))
+    (secret,) = [volume["name"] for volume in two["spec"]["volumes"] if "secret" in volume]
+    build = step_of(two, "build")
+    environment = {entry["name"]: entry["value"] for entry in build["env"]}
+    (mount,) = [mount for mount in build["volumeMounts"] if mount["name"] == secret]
+    exactly(f"where {subject}'s build finds its daemon", environment.get("ARM64_BUILDER"), "$(params.arm64-builder)")
+    exactly(f"where {subject}'s build reads the files it speaks to its daemon with", environment.get("ARM64_BUILDER_TLS"), mount["mountPath"])
+    exactly(
+        f"{subject}'s build but for its daemon and its Secret",
+        {
+            **build,
+            "env": [entry for entry in build["env"] if entry["name"] not in TWO_PLATFORM_ENV],
+            "volumeMounts": [entry for entry in build["volumeMounts"] if entry is not mount],
+        },
+        step_of(one, "build"),
+    )
+    index = {entry["name"]: entry["value"] for entry in step_of(two, "index")["env"]}
+    for name in ("IMAGE", "COMMIT", "INDEX", "RESULT_DIGEST"):
+        exactly(f"the {name} {subject}'s index reads", index.get(name), environment.get(name))
+
+    def declared(task, field, skip=()):
+        return [{key: value for key, value in entry.items() if key != "description"} for entry in task["spec"][field] if entry["name"] not in skip]
+
+    exactly(f"{subject}'s parameters but its daemon", declared(two, "params", ("arm64-builder",)), declared(one, "params"))
+    (daemon,) = [entry for entry in two["spec"]["params"] if entry["name"] == "arm64-builder"]
+    if "default" in daemon:
+        refuse(f"{subject} has a daemon by default, {daemon['default']!r}, and the one its run names is the one its pods may reach")
+    exactly(f"{subject}'s results", declared(two, "results"), declared(one, "results"))
+    exactly(f"{subject}'s volumes but its Secret", declared(two, "volumes", (secret,)), declared(one, "volumes"))
+
+    runs = sorted(file for file, run in by_hand.items() if run["spec"]["taskRef"]["name"] == TWO_PLATFORM_TASK)
+    exactly(f"the runs of {subject}", runs, [TWO_PLATFORM_RUN])
+    address = BUILDER_ADDRESS.fullmatch(param_values(by_hand[TWO_PLATFORM_RUN])["arm64-builder"])
+    if address is None:
+        refuse(f"{TWO_PLATFORM_RUN} names its daemon as {param_values(by_hand[TWO_PLATFORM_RUN])['arm64-builder']}, not tcp://<address>:<port>")
+    return {
+        "podSelector": {"matchLabels": {"tekton.dev/task": TWO_PLATFORM_TASK}},
+        "policyTypes": ["Egress"],
+        "egress": [
+            {
+                "to": [{"ipBlock": {"cidr": f"{address.group(1)}/32"}}],
+                "ports": [{"protocol": "TCP", "port": int(address.group(2))}],
+            }
+        ],
+    }
 
 
 def passes_what_is_declared(subject, passed, task):
@@ -1048,6 +1146,7 @@ def main():
             refuse(f"{file} is of {run['spec']['taskRef']}, which is not a Task rendered in {BUILD_NAMESPACE}")
         passes_what_is_declared(file, {param["name"] for param in run["spec"]["params"]}, task)
         by_hand[file] = run
+    builder_egress = two_platforms_are_held(tasks, by_hand)
 
     # No token, and no role, for a task pod.
     builder = of(cluster, "ServiceAccount", BUILD_NAMESPACE).get(BUILDER)
@@ -1191,7 +1290,11 @@ def main():
             image_jobs[cronjob]["template"]["metadata"].get("labels"),
             TRIGGER_POLICIES[trigger["policy"]]["podSelector"]["matchLabels"],
         )
-    exactly(f"the NetworkPolicies of {BUILD_NAMESPACE}", policies(cluster, BUILD_NAMESPACE), BUILD_POLICIES)
+    exactly(
+        f"the NetworkPolicies of {BUILD_NAMESPACE}",
+        policies(cluster, BUILD_NAMESPACE),
+        {**BUILD_POLICIES, BUILDER_EGRESS: builder_egress},
+    )
     registries = {name: registry_is_held(cluster, name, expected) for name, expected in REGISTRIES.items()}
     exactly(
         f"what is in {REGISTRY_NAMESPACE}",

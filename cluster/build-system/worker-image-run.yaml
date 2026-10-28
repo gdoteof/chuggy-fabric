@@ -1,4 +1,5 @@
-# One build of chuggy's worker image, started by hand.
+# One build of chuggy's worker image, for linux/amd64 and linux/arm64, started
+# by hand.
 #
 # NOT APPLIED, and in no ConfigMap either: nothing in the cluster creates
 # this. An operator writes the commit in and creates it:
@@ -9,12 +10,18 @@
 # WHY BY HAND. No manifest under cluster/ runs the worker image, so no release
 # moves it: the image a run uses is named by digest in a Chuggy configuration,
 # and a new one is admitted by a fabric change that writes the digest this
-# TaskRun reports as its `digest` result.
+# TaskRun reports as its `digest` result. That digest is an index's, and
+# docker on each runner pulls the half of its platform.
 #
-# THE SAME TASK AND THE SAME PLACEMENT AS A RELEASE'S BUILDS. release-run.yaml
-# argues the pod template; a TaskRun carries it at the top of its spec.
-# `target` is the Dockerfile stage, and without it the build is of the last
-# one, which is the worker.
+# THE TWO-PLATFORM TASK, AND THE SAME PLACEMENT AS A RELEASE'S BUILDS.
+# two-platform-image.yaml says where each half is built, and `arm64-builder`
+# is the Mac's daemon as arm64-builder.sh publishes it. release-run.yaml argues
+# the pod template; a TaskRun carries it at the top of its spec. `target` is
+# the Dockerfile stage, and without it the build is of the last one, which is
+# the worker.
+#
+# THE TIMEOUT BOUNDS A HANG. The two halves run at once, and it is set well
+# above the longer of them, cold.
 apiVersion: tekton.dev/v1
 kind: TaskRun
 metadata:
@@ -22,7 +29,7 @@ metadata:
   namespace: chuggy-build
 spec:
   taskRef:
-    name: build-image
+    name: build-two-platform-image
   params:
     - name: url
       value: https://github.com/kasofsk/chuggy.git
@@ -32,7 +39,9 @@ spec:
       value: registry.chuggy-registry.svc.cluster.local:5000/chuggy/worker
     - name: dockerfile
       value: images/worker/Dockerfile
-  timeout: 1h
+    - name: arm64-builder
+      value: tcp://192.168.0.175:1234
+  timeout: 3h
   serviceAccountName: builder
   podTemplate:
     automountServiceAccountToken: false

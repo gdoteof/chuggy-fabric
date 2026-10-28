@@ -656,10 +656,11 @@ changing only the option creates a healthy registry over the wrong directory.
 
 ### Where a build runs
 
-`cluster/build-system/` installs pinned Tekton and the [release
-pipeline](#the-release-pipeline), and nothing else here builds an image. A run
-places its pods by the first of these node properties and tolerates the
-second:
+`cluster/build-system/` installs pinned Tekton, the [release
+pipeline](#the-release-pipeline) and `build-two-platform-image`, which builds
+the [worker image's two platforms](#the-worker-images-two-platforms), and
+nothing else here builds an image. A run places its pods by the first of these
+node properties and tolerates the second:
 
     chuggy.k3s.nodeLabels = [ "chuggy.dev/node-role=builder" ];
     chuggy.k3s.nodeTaints = [ "chuggy.dev/node-role=builder:NoSchedule" ];
@@ -897,15 +898,19 @@ until it is. That release is published while the source is failing, so it is
 read as the paragraph above describes.
 
 The scripts a pod runs are files beside the manifests — `fetch.sh`, `build.sh`,
-`publish.sh`, `report.sh` and `trigger.sh` — and each argues its own rules in
-its header. `tests/release-trigger.nix`, `tests/release-build.nix`,
+`index.sh`, `publish.sh`, `report.sh` and `trigger.sh` — and each argues its own
+rules in its header. `tests/release-trigger.nix`, `tests/release-build.nix`,
 `tests/release-publish.nix`, `tests/release-report.nix` and
 `tests/release-pipeline.nix` run those bytes and hold the manifests.
 
 A run's last task, `report`, tells chuggy how each of the other three ended:
 one report a task, to the action of that task's name, as the reporter whose
-bearer is the Secret `chuggy-report-build`. It is the one task pod given a
-Secret, and it runs nothing a commit wrote. A report is no part of a release.
+bearer is the Secret `chuggy-report-build`. Of the two task pods given a
+Secret it is the one that runs nothing a commit wrote. The other is
+`build-two-platform-image`'s, whose `build` step runs the commit's Dockerfile
+for the worker image's amd64 half, beside the client key it drives the Mac's
+daemon with for the [arm64 half](#the-worker-images-two-platforms). A report
+is no part of a release.
 A `report` that fails, or runs past its own bound, leaves its run succeeded,
 which `release-pipeline.yaml` argues, and what chuggy answered is a line a
 report in that pod's log, which the release dashboard shows on the run's page.
@@ -929,16 +934,18 @@ the [site's image trigger](#the-sites-image) beside the release trigger, under
 the `cronjob` label. Like every alert here it is
 [found by looking](#alerts-evaluate-and-go-nowhere).
 
-`worker-image-run.yaml` is a `TaskRun` of the same `build-image` Task that
-builds the worker image at a chuggy commit. Flux applies neither it nor
-`release-run.yaml`; an operator writes the commit into it and creates it:
+`worker-image-run.yaml` is a `TaskRun` that builds the worker image at a chuggy
+commit, for [two platforms](#the-worker-images-two-platforms). Flux applies
+neither it nor `release-run.yaml`; an operator writes the commit into it and
+creates it:
 
     sed 's/@chuggy-commit@/<full commit hash>/' cluster/build-system/worker-image-run.yaml |
       kubectl create --filename -
 
-`track-record-image-run.yaml` is another, of Track Record's server image at a
-kasofsk/track-record commit, created the same way with `@track-record-commit@`.
-Its `digest` result is what `cluster/track-record/track-record.yaml` names.
+`track-record-image-run.yaml` is a `TaskRun` of a release's `build-image` Task,
+of Track Record's server image at a kasofsk/track-record commit, created the
+same way with `@track-record-commit@`. Its `digest` result is what
+`cluster/track-record/track-record.yaml` names.
 `chug-gy-image-run.yaml` is of the same Task, for the site's image, and is not
 created by hand: the [site's image trigger](#the-sites-image) creates it.
 
@@ -970,6 +977,31 @@ under its own names: `cronjob chug-gy-image-trigger` in the commands under
 [Operating a release](#operating-a-release), and deleting the newest
 `chug-gy-image-*` TaskRun to build a commit again. The trigger keeps the ten
 newest runs of the image and deletes the finished ones before them.
+
+#### The worker image's two platforms
+
+A worker image's tag this Task writes is an index of a linux/amd64 and a
+linux/arm64 image, and each runner pulls its own. `build-two-platform-image`, in
+`two-platform-image.yaml`, builds the amd64 half in its pod as `build-image`
+builds an image, while the BuildKit daemon on the Mac mini builds the arm64
+half natively and sends it back; the pod pushes that half and the index. The
+Mac holds no registry credential. `arm64-builder.sh`'s header has the rest:
+what runs on the Mac, how, and the certificates the two speak with. What the
+client's key reaches, and who can read it, is in `two-platform-image.yaml`'s.
+
+Once, and at each rotation, an operator makes a set of certificates, installs
+the daemon's half on the Mac, starts the daemon there, and puts the client's
+half into the Secret `arm64-builder-client` in `chuggy-build`, as that header
+lists. No key is in this repository. `arm64-builder-egress` lets the Task's
+pods reach the address and port `worker-image-run.yaml` names, and no other.
+`tests/arm64-builder.nix` runs the script against that run.
+
+A run fails while the daemon is down. A `TaskRun` of `build-image` with the
+same parameters but `arm64-builder` builds the amd64 image alone, as the worker
+image was built before, and fixes that commit's tag at it for good: a
+commit's image is built once, so a run of this Task refuses a tag that is one
+image rather than build over it, as it refuses every worker tag written
+before this Task was.
 
 ## Ingress
 

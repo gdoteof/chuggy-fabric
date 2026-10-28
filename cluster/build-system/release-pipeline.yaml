@@ -29,14 +29,14 @@
 #
 # WHAT A STEP RUNS IS A FILE, NOT A STRING IN THIS ONE. kustomization.yaml
 # brings fetch.sh, build.sh, publish.sh and report.sh in as
-# `release-pipeline-scripts`, and each argues its own rules in its own header.
+# `release-pipeline-scripts`, with index.sh, which two-platform-image.yaml
+# runs, and each argues its own rules in its own header.
 # Every step names its `command`: without one Tekton asks the image's registry
 # for its entrypoint.
 ---
 # One image of one commit. General over the repository, the Dockerfile and
-# the image, because the worker image, Track Record's and the site's are built
-# by this Task as well, by hand, from worker-image-run.yaml,
-# track-record-image-run.yaml and chug-gy-image-run.yaml.
+# the image, because Track Record's image and the site's are built by this
+# Task as well, from track-record-image-run.yaml and chug-gy-image-run.yaml.
 #
 # THE `build` STEP CARRIES WHAT ROOTLESS BUILDKIT NEEDS: the two capabilities
 # RootlessKit maps ids with, no seccomp or AppArmor profile, the daemon's
@@ -280,7 +280,8 @@ spec:
 ---
 # What a run tells chuggy of the tasks that ended, one report an action.
 #
-# THE ONE TASK GIVEN A SECRET, AND IT RUNS NOTHING A COMMIT WROTE. The bearer
+# ONE OF TWO TASKS GIVEN A SECRET, AND THE ONE THAT RUNS NOTHING A COMMIT
+# WROTE; two-platform-image.yaml argues the other. The bearer
 # is `chuggy-report-build`, which modules/chuggy-secrets.nix makes and copies
 # into this namespace, and of which the API reads its own copy to know this
 # reporter. A volume is one pod's, and no other Task names this one, so a

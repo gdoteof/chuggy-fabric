@@ -17,6 +17,7 @@ pkgs.runCommand "chuggy-release-build" {
 } ''
   set -eu
   mkdir work
-  python3 ${./release-build.py} ${rendered} ${pkgs.busybox}/bin "$PWD/work"
+  python3 ${./release-build.py} ${rendered} ${pkgs.busybox}/bin "$PWD/work" \
+    ${../cluster/build-system/worker-image-run.yaml}
   touch "$out"
 ''

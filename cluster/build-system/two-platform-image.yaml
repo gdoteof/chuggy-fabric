@@ -1,0 +1,203 @@
+# One image of one commit for linux/amd64 and linux/arm64, as one index under
+# the commit's tag. Run by hand, from worker-image-run.yaml.
+#
+# THE AMD64 HALF IS BUILT AS `build-image` BUILDS ONE IMAGE, in this pod with
+# the registry's cache, and the arm64 half natively by the BuildKit daemon on
+# the Mac that `arm64-builder` names, which arm64-builder.sh runs. build.sh
+# runs the two at once; index.sh pushes what the Mac sent back and the index,
+# and takes a tag the registry already serves only as such an index.
+#
+# A TASK OF ITS OWN, so a release's builds are what they were. `build-image`
+# mounts no credential and runs no third image, and only a run of this Task
+# can reach the Mac or speak to its daemon.
+#
+# THE SECOND SECRET A TASK HERE IS GIVEN. `arm64-builder-client` is the
+# client's certificate and key, and the CA's certificate, made out of band as
+# arm64-builder.sh says. Only the `build` step mounts it, and that step runs a
+# commit's Dockerfile: the halves run at once, so the key cannot wait in a
+# step of its own. A rootless BuildKit without its process sandbox lets a RUN
+# read what the step can, so a RUN of the amd64 half can read the key, and can
+# send it out over the egress every build pod has. It is optional for
+# `report-actions`' reason, and build.sh refuses a run that names a builder
+# without it.
+#
+# WHAT THE KEY REACHES. It admits whoever holds it to the Mac's daemon, and a
+# RUN there leaves the Mac through Colima's NAT as the Mac's own address on
+# the LAN. No build in this cluster can: platform.yaml keeps the build pods'
+# egress off the private ranges. cluster/apps/vm-registry.yaml admits that
+# address alone, with no authentication, so what comes from it can overwrite
+# the VM registry. Whoever holds the key has the Mac's network identity, and
+# with it writes to that registry. The Mac's runner already gives its own job
+# containers that address; the key gives it to whoever holds the key.
+#
+# The daemon keeps one cache for every client, and buildkitd.toml restricts
+# none of it: a client may import a cache of its own making, and BuildKit
+# keeps what a build loads from one in the daemon's own cache, under the same
+# keys, for later builds that import nothing. So the arm64 half of every
+# later worker image is trusted as far as every holder of the key, as
+# release-pipeline.yaml says a release's images are trusted as far as every
+# build here, through `buildcache`. And the daemon is privileged: a RUN that
+# escapes its sandbox there is root in Colima's VM, beside the Mac runner's
+# job containers.
+#
+# REGCTL, FROM ITS IMAGE, ASSEMBLES THE INDEX. BuildKit pushes what one daemon
+# built, and the two halves were built by two. The image is regctl's Alpine
+# one, pinned by the digest of its index as every image here is, for the
+# shell a step runs its script with.
+#
+# THE TASK HAS THE PLACEMENT A RUN GIVES IT, as `build-image` does.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: build-two-platform-image
+  namespace: chuggy-build
+spec:
+  params:
+    - name: url
+      description: The repository the image is built from.
+      type: string
+    - name: commit
+      description: The full hash of the commit to build. It is also the index's tag.
+      type: string
+    - name: image
+      description: The registry and repository the halves and the index are pushed to, with no tag.
+      type: string
+    - name: dockerfile
+      description: The Dockerfile, as a path from the repository's root.
+      type: string
+    - name: context
+      description: The build context, as a path from the repository's root.
+      type: string
+      default: "."
+    - name: target
+      description: The Dockerfile stage to build. Empty builds the last.
+      type: string
+      default: ""
+    - name: arm64-builder
+      description: The BuildKit daemon that builds linux/arm64, as tcp://<address>:<port>.
+      type: string
+  results:
+    - name: digest
+      description: The digest the registry serves the index under at the commit's tag.
+      type: string
+  volumes:
+    - name: scripts
+      configMap:
+        name: release-pipeline-scripts
+    - name: tmp
+      emptyDir: {}
+    - name: buildkit-state
+      emptyDir: {}
+    - name: buildkit-runtime
+      emptyDir: {}
+    - name: arm64-builder
+      secret:
+        secretName: arm64-builder-client
+        defaultMode: 0444
+        optional: true
+  steps:
+    - name: fetch
+      image: moby/buildkit:v0.26.2-rootless@sha256:0ffa2fcf6b8757c47d569b3ef0f03f9d5eb3b9ff5ce68d858f994f89b749da0c
+      imagePullPolicy: IfNotPresent
+      command: [/bin/sh, /scripts/fetch.sh]
+      env:
+        - { name: URL, value: $(params.url) }
+        - { name: COMMIT, value: $(params.commit) }
+        - { name: DIRECTORY, value: /workspace/source }
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+        readOnlyRootFilesystem: true
+        seccompProfile: { type: RuntimeDefault }
+      computeResources:
+        requests: { cpu: 100m, memory: 128Mi }
+        limits: { memory: 1Gi }
+      volumeMounts:
+        - { name: scripts, mountPath: /scripts, readOnly: true }
+        - { name: tmp, mountPath: /tmp }
+    - name: build
+      image: moby/buildkit:v0.26.2-rootless@sha256:0ffa2fcf6b8757c47d569b3ef0f03f9d5eb3b9ff5ce68d858f994f89b749da0c
+      imagePullPolicy: IfNotPresent
+      command: [/bin/sh, /scripts/build.sh]
+      env:
+        - { name: XDG_RUNTIME_DIR, value: /home/user/.local/tmp }
+        - { name: BUILDKITD_FLAGS, value: --oci-worker-no-process-sandbox }
+        - { name: DOCKER_CONFIG, value: /tekton/home/.docker }
+        - { name: IMAGE, value: $(params.image) }
+        - { name: COMMIT, value: $(params.commit) }
+        - { name: SOURCE, value: /workspace/source }
+        - { name: CONTEXT, value: $(params.context) }
+        - { name: DOCKERFILE, value: $(params.dockerfile) }
+        - { name: TARGET, value: $(params.target) }
+        - { name: RESULT_DIGEST, value: $(results.digest.path) }
+        - { name: ARM64_BUILDER, value: $(params.arm64-builder) }
+        - { name: ARM64_BUILDER_TLS, value: /var/run/chuggy/arm64-builder }
+        - { name: INDEX, value: /workspace/index }
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        allowPrivilegeEscalation: true
+        capabilities:
+          add: [SETGID, SETUID]
+          drop: [ALL]
+        readOnlyRootFilesystem: true
+        seccompProfile: { type: Unconfined }
+        appArmorProfile: { type: Unconfined }
+      computeResources:
+        requests: { cpu: "1", memory: 2Gi, ephemeral-storage: 10Gi }
+        limits: { cpu: "4", memory: 8Gi, ephemeral-storage: 40Gi }
+      volumeMounts:
+        - { name: scripts, mountPath: /scripts, readOnly: true }
+        - { name: tmp, mountPath: /tmp }
+        - { name: buildkit-state, mountPath: /home/user/.local/share/buildkit }
+        - { name: buildkit-runtime, mountPath: /home/user/.local/tmp }
+        - { name: arm64-builder, mountPath: /var/run/chuggy/arm64-builder, readOnly: true }
+    - name: index
+      image: ghcr.io/regclient/regctl:v0.11.6-alpine@sha256:5fe7c6a6206e1d9d71af719674c9db03e74a4ae221a32089b691f5b55533d6ea
+      imagePullPolicy: IfNotPresent
+      command: [/bin/sh, /scripts/index.sh]
+      env:
+        - { name: HOME, value: /tmp }
+        - { name: IMAGE, value: $(params.image) }
+        - { name: COMMIT, value: $(params.commit) }
+        - { name: INDEX, value: /workspace/index }
+        - { name: RESULT_DIGEST, value: $(results.digest.path) }
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+        readOnlyRootFilesystem: true
+        seccompProfile: { type: RuntimeDefault }
+      computeResources:
+        requests: { cpu: 100m, memory: 128Mi }
+        limits: { memory: 1Gi }
+      volumeMounts:
+        - { name: scripts, mountPath: /scripts, readOnly: true }
+        - { name: tmp, mountPath: /tmp }
+---
+# The one place a pod of `build-two-platform-image` is let go that no other
+# task pod is: the Mac's BuildKit daemon, at the address and port
+# worker-image-run.yaml names it by. Selected by the Task's name, as
+# `release-publish-egress` is.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: arm64-builder-egress
+  namespace: chuggy-build
+spec:
+  podSelector:
+    matchLabels: { tekton.dev/task: build-two-platform-image }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock: { cidr: 192.168.0.175/32 }
+      ports:
+        - { protocol: TCP, port: 1234 }
