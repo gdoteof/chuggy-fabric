@@ -1,0 +1,34 @@
+# Prometheus's scrape of chuggy's metrics plane, which
+# cluster/chuggy/chuggy-metrics-plane.yaml runs.
+#
+# IN `apps`, AS release-dashboard.yaml'S MONITORS ARE, and so applied at its
+# merge while the Service it names arrives with a release. Until one has, it
+# selects nothing and Prometheus has no target for it, which is all that
+# follows. The `release` label is what this Prometheus selects a monitor by.
+#
+# ONCE A MINUTE. Each scrape costs the database a full aggregate of every run,
+# attempt, session turn and ticket, and what it reads changes only as those end
+# or a ticket moves, so a shorter interval buys reads and not information.
+#
+# THE TIMEOUT IS ABOVE THE PLANE'S READ TIMEOUT, so a slow read is answered 503
+# by the plane, which says why, before it is cut off here, which says nothing
+# but that it timed out. chuggy-metrics-plane.yaml says what the gap is for, and
+# tests/metrics-plane.py holds the two apart.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: chuggy-metrics-plane
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames: [chuggy]
+  selector:
+    matchLabels:
+      app: chuggy-metrics-plane
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s

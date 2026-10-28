@@ -1309,6 +1309,17 @@ gone when Loki's retention passes.
 A link from that page to its data breaks silently. `tests/release-dashboard.py`
 holds the ones its header lists, and what a query means is not among them.
 
+### Chuggy's usage is scraped
+
+`cluster/apps/chuggy-metrics-plane-monitor.yaml` has Prometheus scrape the
+metrics plane once a minute: what every run cost and how long it took, every
+ended attempt and session turn, and how many tickets stand in each phase, by
+tenant and project and, for all but tickets, by owner. The plane reads each
+series afresh from the database, so a total covers every row there is and a
+restart loses nothing. **Every member signed into Grafana can query all of
+it, every tenant's included**, as they can every other series. `owner` is the
+`sub` that member signs in with, so it narrows a dashboard and bounds nothing.
+
 ### Control-plane targets are switched off
 
 `kubeControllerManager`, `kubeScheduler`, `kubeEtcd`, and `kubeProxy` are all
@@ -1475,6 +1486,7 @@ One process per responsibility, all out of one image:
 | `chuggy-worker-plane` | `src/roots/workerPlane.ts` | `chuggy_worker_plane` | yes, 3001 |
 | `chuggy-pool-plane` | `src/roots/poolPlane.ts` | `chuggy_pool_plane` | yes, 3002 |
 | `chuggy-access-plane` | `src/roots/accessPlane.ts` | `chuggy_access_plane`, for invite links alone: roles are Keto's and people Kratos's, over their APIs | yes, 3003 |
+| `chuggy-metrics-plane` | `src/roots/metricsPlane.ts` | `chuggy_metrics_plane`, reading the columns its series are made of and writing nothing | yes, 3004 |
 
 Plus `chuggy-migrate-<commit>-registry`, a Job that dumps the database and then
 applies the schema, named by a release for the chuggy commit it applies it
@@ -1621,6 +1633,14 @@ not answering, though the pod stays Ready; an invitation asks `api.github.com`
 with no credential, out of an allowance GitHub counts against the public
 address everything here leaves by; and the account an invitation makes signs in
 with GitHub and no other way.
+
+**`chuggy-metrics-plane` admits Prometheus alone, and reaches the resolver and
+PostgreSQL alone.** No path it serves takes a token, and `/metrics` answers
+whoever reaches it with every tenant's usage at the cost of a full aggregate,
+so its ingress policy is all that keeps that from the pod network. It verifies
+no token, so it has no public arm. Both policies are in
+`cluster/chuggy/chuggy-metrics-plane.yaml`, and `tests/metrics-plane.py` holds
+them.
 
 **`chuggy-ui` is selected by none of the nine, in either direction**, and that
 is the state this PR leaves it in rather than a decision it argues. It is the

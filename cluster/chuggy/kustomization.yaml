@@ -21,6 +21,7 @@ resources:
   - chuggy-api.yaml
   - chuggy-configuration-importer.yaml
   - chuggy-finalizer.yaml
+  - chuggy-metrics-plane.yaml
   - chuggy-pool-plane.yaml
   - chuggy-scheduler.yaml
   - chuggy-selector.yaml
