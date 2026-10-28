@@ -152,10 +152,12 @@ selfservice:
     # flow row for each one started, and for a password a hash and a breach
     # lookup before the refusal is asked for.
     #
-    # What an identity does NOT grant is the reason that cost is bearable: it
-    # carries no authorization here. Access is a relation tuple in Keto, and
-    # registering writes none: a person who registered and was granted nothing
-    # holds a valid token and sees 404 on every resource no tuple grants them.
+    # What an identity does NOT grant in chuggy is the reason that cost is
+    # bearable: access is a relation tuple in Keto, and registering writes
+    # none: a person who registered and was granted nothing holds a valid token
+    # and sees 404 on every resource no tuple grants them. What it DOES grant
+    # is a Viewer's sign-in to Grafana, which reads every metric and log line
+    # on this rig (monitoring.yaml).
     #
     # Identities are also made through Kratos's admin API, which no Ingress
     # and no tunnel hostname reaches -- ory-network-policy.yaml is what bounds
@@ -239,6 +241,12 @@ selfservice:
         default_browser_return_url: https://id.vteng.io/login
     recovery:
       enabled: false
+    # THE ADDRESS IS STILL RECORDED, UNVERIFIED. The schema names the email
+    # trait as an address to verify by email, so Kratos keeps it among the
+    # identity's verifiable addresses even with this flow off, and nothing
+    # marks it verified. The consent app reads that address into the ID token
+    # for the `email` scope, with `email_verified` false; Grafana's sign-in in
+    # monitoring.yaml needs it, and turns off finding an account by it.
     verification:
       enabled: false
 

@@ -266,6 +266,13 @@ spec:
         # cgroup went over on memory Go was never counting.
         requests: { cpu: 50m, memory: 256Mi }
         limits: { memory: 1Gi }
+      # The README's Grafana section says how `grafana-oauth` is made, and
+      # what applying this before it exists costs.
+      envValueFrom:
+        GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+          secretKeyRef:
+            name: grafana-oauth
+            key: client-secret
       grafana.ini:
         server:
           # Without this, Grafana builds redirect and share links from the
@@ -275,6 +282,36 @@ spec:
           allow_sign_up: false
         auth.anonymous:
           enabled: false
+        # The address in a chuggy ID token is only the person's word, so no
+        # account is ever found by it.
+        auth:
+          oauth_allow_insecure_email_lookup: false
+        # EVERY CHUGGY MEMBER SIGNS IN HERE AS A VIEWER, AND A VIEWER QUERIES
+        # EVERY DATA SOURCE: all of Prometheus and every pod's logs in Loki,
+        # whatever tenant they belong to. `login` is the Kratos identity id, the
+        # `sub` of a person's token, so a dashboard can narrow itself to the
+        # viewer with `${__user.login}`; that is a view, not a boundary.
+        # `skip_org_role_sync` keeps a role raised by hand.
+        #
+        # Grafana refuses a sign-in without an email, and the consent app reads
+        # one only from a verifiable address, which is why
+        # ory/identity.default.schema.json names the email trait as one.
+        # `auth_style` is the `client_secret_basic` the client is registered
+        # with; Hydra refuses the other. The browser goes to the public issuer,
+        # and the code is redeemed over the pod network.
+        auth.generic_oauth:
+          enabled: true
+          name: chuggy
+          client_id: chuggy-grafana
+          scopes: openid email
+          auth_url: https://auth.vteng.io/oauth2/auth
+          token_url: http://hydra-public.ory.svc.cluster.local:4444/oauth2/token
+          api_url: http://hydra-public.ory.svc.cluster.local:4444/userinfo
+          auth_style: InHeader
+          login_attribute_path: sub
+          use_pkce: true
+          allow_sign_up: true
+          skip_org_role_sync: true
       ingress:
         enabled: true
         ingressClassName: traefik

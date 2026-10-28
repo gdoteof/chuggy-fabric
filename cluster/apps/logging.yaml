@@ -14,7 +14,8 @@
 #
 # There is no credential here and nothing new is exposed. Loki has no ingress:
 # Grafana reaches it in-cluster and the browser only ever talks to Grafana, so
-# the auth surface stays the one admin password `monitoring.yaml` describes.
+# whoever `monitoring.yaml` lets into Grafana reads every stream: the admin and
+# every chuggy member.
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository

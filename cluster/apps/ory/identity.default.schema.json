@@ -17,6 +17,9 @@
               "password": {
                 "identifier": true
               }
+            },
+            "verification": {
+              "via": "email"
             }
           }
         }
