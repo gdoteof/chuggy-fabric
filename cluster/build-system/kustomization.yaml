@@ -1,10 +1,12 @@
 # Tekton, the namespace builds run in, the release pipeline with its trigger,
-# and the trigger that builds the site's image.
+# the trigger that builds the site's image, and the Task that builds an image
+# for two platforms.
 #
 # A FILE THAT IS NOT IN `resources` IS NOT APPLIED. The manifests here left
 # out on purpose say so in their own headers: release-run.yaml and
 # chug-gy-image-run.yaml, which a trigger creates, and worker-image-run.yaml
-# and track-record-image-run.yaml, which a person does.
+# and track-record-image-run.yaml, which a person does. arm64-builder.sh is
+# a person's to run, and nothing here runs it.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -13,6 +15,7 @@ resources:
   - release-pipeline.yaml
   - release-trigger.yaml
   - image-trigger.yaml
+  - two-platform-image.yaml
 
 configMapGenerator:
   # What the pipeline's steps run. The name carries no hash because a Task is
@@ -24,6 +27,7 @@ configMapGenerator:
     files:
       - fetch.sh
       - build.sh
+      - index.sh
       - publish.sh
       - report.sh
     options:
