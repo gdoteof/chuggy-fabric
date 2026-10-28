@@ -1233,8 +1233,24 @@ cloudflared tunnel secret. It is a Secret created out of band:
 
 Without `admin.existingSecret` the chart falls back to the well-known default
 `prom-operator`, which on a publicly reachable Grafana is the same as no
-password at all. Anonymous access and sign-up are both off, so that credential
-is the whole of the auth surface.
+password at all. Anonymous access and sign-up are both off.
+
+**Every chuggy member also signs in, through Hydra, as a Viewer**, and a Viewer
+queries every data source: all of Prometheus and every pod's logs in Loki,
+whatever tenant they belong to. That sign-in needs a Hydra client and a second
+Secret holding its secret:
+
+    kubectl -n ory exec deploy/hydra -c hydra -- hydra create oauth2-client \
+      --endpoint http://127.0.0.1:4445 --id chuggy-grafana --name Grafana \
+      --grant-type authorization_code --response-type code \
+      --scope openid,email --skip-consent \
+      --redirect-uri https://grafana.vteng.io/login/generic_oauth
+    kubectl create secret generic grafana-oauth -n monitoring \
+      --from-literal=client-secret=<the client secret Hydra returned>
+
+Both exist before `monitoring.yaml` reaches the cluster. Without the Secret the
+Grafana pod cannot start, the release is not Ready, and `apps` holds everything
+behind it, chuggy's own releases included.
 
 #### That Secret is only read once, and the sidecars pay for it
 
@@ -1380,7 +1396,8 @@ once](#that-secret-is-only-read-once-and-the-sidecars-pay-for-it).
 
 Nothing new is exposed and there is no second credential. Loki has no ingress:
 Grafana proxies the queries in-cluster and the browser only ever talks to
-Grafana, so the admin password above stays the whole of the auth surface.
+Grafana, so whoever Grafana admits reads every stream: the admin and every
+chuggy member.
 
 Query it in Grafana under **Explore → Loki**. Each stream carries `namespace`,
 `pod`, `container`, and `app` — the last so a log query names a workload the
