@@ -371,6 +371,12 @@
         # rest track-record-dashboard.py's header lists.
         track-record-dashboard = import ./tests/track-record-dashboard.nix { inherit pkgs; };
 
+        # The usage dashboard: a query naming a series the metrics plane does
+        # not serve, or one the page's variables do not narrow, draws "No
+        # data" or more than it says, so each is held against a copy of the
+        # plane's families.
+        usage-dashboard = import ./tests/usage-dashboard.nix { inherit pkgs; };
+
         # The evaluator command a Chuggy ticket runs, and the only check that
         # reads .chug/tasks/ci.sh.
         chug-ci = chugCi;

@@ -70,6 +70,7 @@ resources:
   - sirdocalot-source.yaml
   - track-record-dashboard.yaml
   - track-record-monitor.yaml
+  - usage-dashboard.yaml
   - vm-registry.yaml
   - whoami.yaml
 
