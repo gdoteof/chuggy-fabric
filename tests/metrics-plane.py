@@ -26,6 +26,13 @@ the operator rejects, so nothing scrapes the plane. Its read timeout is written
 too, and below that timeout, so a slow read is answered 503 by the plane rather
 than cut off by Prometheus; chuggy-metrics-plane.yaml says why that matters.
 
+EACH SERIES OUTLIVES ITS POD, AND ONE POD SERVES AT A TIME. The endpoint drops
+`pod` and `instance` from every sample with `labeldrop` and nothing else, and
+no drop takes a label the plane or the monitor's own target labels name, so
+a release does not start every series again and no series loses what tells it
+apart. The plane is rolled by `Recreate`, so no two pods answer the same
+series at once. chuggy-metrics-plane.yaml says what each prevents.
+
 ITS PORT ADMITS PROMETHEUS, AND NO OTHER SOURCE. Every path the plane serves
 takes no token and `/metrics` costs the database a full aggregate, so every
 policy that isolates the pod for ingress is read, and what they admit together
@@ -100,6 +107,18 @@ RELEASE = ("release", "kube-prometheus-stack")
 METRICS = "/metrics"
 
 READY = "/health/ready"
+
+# What the endpoint drops from every sample: the target labels that name the
+# pod a scrape reached.
+DROPPED = ("pod", "instance")
+
+# What no drop may take: every label the plane serves, and the target labels
+# that stay the same from one pod to the next.
+KEPT = (
+    "__name__", "le", "tenant", "project", "owner", "runner", "workload", "stage", "phase",
+    "placement", "model", "type", "state", "session",
+    "job", "namespace", "service", "endpoint", "container",
+)
 
 CLUSTER_SUFFIX = ".svc.cluster.local"
 
@@ -673,6 +692,22 @@ def scraped(documents, service, published, plane_env):
     if endpoint.get("path", METRICS) != METRICS or endpoint.get("scheme", "http") != "http":
         refuse(f"{name} does not ask for {METRICS} over plain HTTP, which is what the plane serves")
 
+    dropped = set()
+    for rule in endpoint.get("metricRelabelings") or []:
+        if rule.get("action") != "labeldrop" or not isinstance(rule.get("regex"), str):
+            refuse(f"{name} relabels samples by {rule!r}, which this gate cannot read")
+        pattern = re.compile(rule["regex"])
+        taken = [label for label in KEPT if pattern.fullmatch(label)]
+        if taken:
+            refuse(f"{name} drops {', '.join(taken)} from every sample, which the plane's series are told apart by")
+        dropped |= {label for label in DROPPED if pattern.fullmatch(label)}
+    kept = [label for label in DROPPED if label not in dropped]
+    if kept:
+        refuse(
+            f"{name} keeps {', '.join(kept)} on every sample, so each pod the plane runs as "
+            "starts every series again, and what ended between two pods' scrapes is lost"
+        )
+
     interval = milliseconds(endpoint.get("interval"), f"{name}'s interval")
     timeout = milliseconds(endpoint.get("scrapeTimeout"), f"{name}'s scrape timeout")
     if timeout > interval:
@@ -708,6 +743,12 @@ def main():
         )
 
     plane = one(documents, "Deployment", PLANE[0], CONTROL)
+    strategy = (plane["spec"].get("strategy") or {}).get("type", "RollingUpdate")
+    if strategy != "Recreate":
+        refuse(
+            f"{PLANE[0]} is rolled by {strategy}, so two pods answer the same series during a "
+            "rollout, and a total read earlier but scraped later reads as a counter reset"
+        )
     labels = plane["spec"]["template"]["metadata"].get("labels") or {}
     database(documents, plane)
     service, published, port = served(documents, labels)

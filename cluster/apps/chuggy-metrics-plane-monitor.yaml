@@ -14,6 +14,13 @@
 # by the plane, which says why, before it is cut off here, which says nothing
 # but that it timed out. chuggy-metrics-plane.yaml says what the gap is for, and
 # tests/metrics-plane.py holds the two apart.
+#
+# EACH SERIES OUTLIVES THE POD THAT SERVED IT. Prometheus labels every sample
+# with the pod and the address it scraped, so each release of the plane would
+# start every series again, and `increase()` sees nothing of what ended between
+# the old pod's last scrape and the new one's first. Every value here is a total
+# read from rows, the same whichever pod read it, so both labels are dropped.
+# chuggy-metrics-plane.yaml rolls the pod by `Recreate` for the same reason.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -32,3 +39,6 @@ spec:
       path: /metrics
       interval: 60s
       scrapeTimeout: 30s
+      metricRelabelings:
+        - action: labeldrop
+          regex: pod|instance
