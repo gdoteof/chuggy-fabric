@@ -163,6 +163,7 @@ let
       "worker-plane-password" = "password";
       "pool-plane-password" = "password";
       "access-plane-password" = "password";
+      "metrics-plane-password" = "password";
       "configuration-importer-password" = "password";
     };
     # Not a password: the versioned keyset a client idempotency key is HMAC'd
