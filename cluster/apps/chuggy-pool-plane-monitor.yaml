@@ -1,0 +1,32 @@
+# Prometheus's scrape of the runners' reports the pool plane serves, on the
+# listener and the Service cluster/chuggy/chuggy-pool-plane.yaml gives them.
+#
+# IN `apps`, AS chuggy-metrics-plane-monitor.yaml IS, and for its reason: until
+# a release carries that Service, this selects nothing.
+#
+# EVERY 30 SECONDS, HALF THE PERIOD A RUNNER REPORTS AT. The plane serves a
+# runner's latest report until its next replaces it, or for three minutes where
+# none comes, so a scrape at half the period reads every report with room for
+# either clock to drift, where at the period itself it reads one or skips it as
+# they do. A runner silent for those three minutes leaves the page, and its
+# series end at the next scrape. The page is held in memory, so a shorter
+# interval costs the plane no read. tests/pool-plane-metrics.py holds the
+# interval below the period.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: chuggy-pool-plane
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames: [chuggy]
+  selector:
+    matchLabels:
+      app: chuggy-pool-plane-metrics
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s

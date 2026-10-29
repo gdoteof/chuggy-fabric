@@ -44,6 +44,7 @@ resources:
   - chuggy-control-plane-network-policy.yaml
   - chuggy-dumps.yaml
   - chuggy-metrics-plane-monitor.yaml
+  - chuggy-pool-plane-monitor.yaml
   - chuggy-rollout-reports.yaml
   - chuggy-storage.yaml
   - chuggy-work.yaml
