@@ -28,7 +28,7 @@
 # so it has a port, a Service and an ingress arm of its own, and no public route
 # names the Service. The two that reach this plane, the Ingress below and the
 # middleware cluster/apps/registry-public.yaml authorizes pulls through, name
-# the first. tests/pool-plane-metrics.py holds all of it.
+# chuggy-pool-plane. tests/pool-plane-metrics.py holds all of it.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
