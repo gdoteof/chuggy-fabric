@@ -67,6 +67,7 @@ resources:
   - release-trigger-alert.yaml
   - sirdocalot-namespace.yaml
   - sirdocalot-source.yaml
+  - track-record-monitor.yaml
   - vm-registry.yaml
   - whoami.yaml
 

@@ -1,0 +1,30 @@
+# Prometheus scrapes Track Record's metrics: its hits and misses, the time each
+# hit saved and each pass took, by namespace and command. kasofsk/track-record's
+# README lists the series.
+#
+# HERE AND NOT IN cluster/track-record/. A ServiceMonitor is a kind the
+# kube-prometheus-stack chart brings, and the `track-record` layer waits on no
+# layer: on a cluster coming up, the kind could be missing when that layer
+# applies, and the server would fail with it. `apps` installs the chart and
+# already holds monitors, so this one asks nothing of it that they do not. It
+# names a namespace that may not exist yet, which costs nothing.
+#
+# The `release` label is what this Prometheus selects monitors by, as
+# release-dashboard.yaml says. The scrape is admitted by
+# `track-record-admits-prometheus`, beside the server.
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: track-record
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames: [track-record]
+  selector:
+    matchLabels:
+      app: track-record
+  endpoints:
+    - port: metrics

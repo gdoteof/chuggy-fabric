@@ -1352,6 +1352,16 @@ restart loses nothing. **Every member signed into Grafana can query all of
 it, every tenant's included**, as they can every other series. `owner` is the
 `sub` that member signs in with, so it narrows a dashboard and bounds nothing.
 
+### Track Record is scraped
+
+`cluster/apps/track-record-monitor.yaml` has Prometheus scrape Track Record's
+own port for metrics: its hits and misses, the time each hit saved and each
+pass took to earn, by namespace and command, as kasofsk/track-record's README
+lists them. Unlike the plane's, these are counters the server keeps in memory,
+so a restart starts them again and `increase()` is what reads them. The
+Ingress does not route to the port, and `track-record-admits-prometheus`
+admits Prometheus alone to it.
+
 ### Control-plane targets are switched off
 
 `kubeControllerManager`, `kubeScheduler`, `kubeEtcd`, and `kubeProxy` are all
