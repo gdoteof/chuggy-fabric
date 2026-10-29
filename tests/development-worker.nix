@@ -40,13 +40,13 @@ pkgs.runCommand "chuggy-development-worker" {
   # Every grant this file writes starts with the in-cluster git credential and
   # the model credential. Nothing per repository sits between them -- a forge
   # credential is minted per act rather than granted as a slot. The three are
-  # the two attempt arms, which add the Track Record token, and the session
-  # policy, which does not: a session runs no gates.
+  # the two attempt arms, which add the Codex credential and the Track Record
+  # token, and the session policy, which adds neither: a session runs no gates.
   session_grants="$(grep -Fc '"credentials": ["chuggy-git-worker", "claude-code"]' "$scheduler" || true)"
-  attempt_grants="$(grep -Fc '"credentials": ["chuggy-git-worker", "claude-code", "track-record"]' "$scheduler" || true)"
+  attempt_grants="$(grep -Fc '"credentials": ["chuggy-git-worker", "claude-code", "codex-auth", "track-record"]' "$scheduler" || true)"
   grants="$(grep -Ec '^ +"credentials": \[' "$scheduler" || true)"
   if [ "$attempt_grants" != 2 ] || [ "$session_grants" != 1 ] || [ "$grants" != 3 ]; then
-    echo "development-worker: expected two grants of the in-cluster git credential, the model credential \"claude-code\" and \"track-record\", and one of the first two alone; found $attempt_grants and $session_grants of $grants" >&2
+    echo "development-worker: expected two grants of the in-cluster git credential, the model credentials \"claude-code\" and \"codex-auth\", and \"track-record\", and one of the first two alone; found $attempt_grants and $session_grants of $grants" >&2
     exit 1
   fi
   grep -F '"secretName": "claude-code"' "$scheduler" >/dev/null

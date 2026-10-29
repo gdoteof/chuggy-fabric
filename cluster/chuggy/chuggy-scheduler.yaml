@@ -928,6 +928,11 @@ spec:
             # this slot included; an empty list holds nothing. Work routed to
             # a project's pool runs with that pool's own credentials, and none
             # of these is mounted there.
+            #
+            # `codex-auth` IS IN BOTH AND MOUNTED NOWHERE HERE. It is the Codex
+            # agent's, and only a pool serves it, so an attempt this cluster
+            # would run holding it is denied -- including one whose
+            # configuration omits `credentials`.
             - name: CHUG_SCHEDULER_EXECUTION_POLICY
               value: |
                 {
@@ -936,7 +941,7 @@ spec:
                     "runtimeVersion": "claude-code-latest",
                     "grant": {
                       "tools": ["claude-code", "shell"],
-                      "credentials": ["chuggy-git-worker", "claude-code", "track-record"],
+                      "credentials": ["chuggy-git-worker", "claude-code", "codex-auth", "track-record"],
                       "network": true,
                       "filesystem": "WriteWorkspace",
                       "mayCompleteTask": false
@@ -948,7 +953,7 @@ spec:
                     "runtimeVersion": "claude-code-latest",
                     "grant": {
                       "tools": ["claude-code", "shell"],
-                      "credentials": ["chuggy-git-worker", "claude-code", "track-record"],
+                      "credentials": ["chuggy-git-worker", "claude-code", "codex-auth", "track-record"],
                       "network": true,
                       "filesystem": "WriteWorkspace",
                       "mayCompleteTask": false
