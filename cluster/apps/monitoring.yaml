@@ -221,6 +221,11 @@ spec:
     prometheus:
       prometheusSpec:
         retention: 15d
+        # A counter served with its created time starts from a zero at that
+        # time, so `increase()` counts a series' first value instead of
+        # dropping it. The time is read rather than stored as a `_created`
+        # series, and every target is asked for protobuf first.
+        enableFeatures: [created-timestamp-zero-ingestion]
         # local-path PVCs are directories on the node that created them, so this
         # pod is pinned here regardless. Saying so explicitly is the habit that
         # keeps stateful work off spot agents later.
