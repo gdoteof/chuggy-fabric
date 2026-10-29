@@ -21,15 +21,12 @@
 # and chat alike -- spend and tokens -- the two families are named in one
 # selector's `__name__` and summed together.
 #
-# A RANGE HOLDS WHAT A SERIES ROSE BY WHILE PROMETHEUS WATCHED IT. Each counter
-# is a total over every row the plane reads, and `increase` counts only the
-# rise between two scrapes of one series. What a series reports when it first
-# appears is in no range: all of its history the first time Prometheus scraped
-# the plane, and the first rows of every combination of labels that appears
-# after. So every panel built on `increase` leaves some out, and its
-# description says so, until the plane marks when each series began. Until
-# then no alert rule may reuse these queries: a new combination's first Lost
-# attempt, say, would never fire one.
+# A RANGE COUNTS A SERIES FROM ITS FIRST VALUE. Each counter is a total
+# over every row the plane reads, and `increase` counts the rise between two
+# samples of one series. The plane names when each series began, as its
+# OpenMetrics `_created`, and Prometheus writes a zero at that time
+# (cluster/apps/monitoring.yaml's created-timestamp-zero-ingestion), so a
+# series' first value counts in the range that holds its start.
 #
 # It is a plain ConfigMap for the reason release-dashboard.yaml's is: the
 # sidecar finds it by label and nothing mounts it. dashboards/usage.py writes
@@ -47,7 +44,7 @@ data:
     {
       "uid": "chuggy-usage",
       "title": "Chuggy usage",
-      "description": "What chuggy's ticket work and chat cost, how long they took and how they ended, from the metrics plane. Costs are estimates at list price. Until the plane marks when each series began, every total but tickets by phase reads low: the first value of each new combination of labels counts nowhere. Who narrows the page to the person signed in; it is a view, not a boundary.",
+      "description": "What chuggy's ticket work and chat cost, how long they took and how they ended, from the metrics plane. Costs are estimates at list price. Who narrows the page to the person signed in; it is a view, not a boundary.",
       "tags": [
         "chuggy"
       ],
@@ -163,7 +160,7 @@ data:
           "id": 2,
           "type": "stat",
           "title": "Spent",
-          "description": "What ticket work and chat cost over the selected time. An estimate, at list price. Reads low for now: a new series' first value is not counted.",
+          "description": "What ticket work and chat cost over the selected time. An estimate, at list price.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -226,7 +223,7 @@ data:
           "id": 3,
           "type": "stat",
           "title": "Tokens",
-          "description": "Tokens ticket work and chat spent over the selected time, of every kind. Reads low for now: a new series' first value is not counted.",
+          "description": "Tokens ticket work and chat spent over the selected time, of every kind.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -289,7 +286,7 @@ data:
           "id": 4,
           "type": "stat",
           "title": "Agent turns",
-          "description": "Turns the agents took on ticket work over the selected time. Reads low for now: a new series' first value is not counted.",
+          "description": "Turns the agents took on ticket work over the selected time.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -352,7 +349,7 @@ data:
           "id": 5,
           "type": "stat",
           "title": "Agent time",
-          "description": "How long the attempts of stages an agent runs were open, in work and in review, added up over the selected time. Reads low for now: a new series' first value is not counted.",
+          "description": "How long the attempts of stages an agent runs were open, in work and in review, added up over the selected time.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -414,7 +411,7 @@ data:
           "id": 6,
           "type": "stat",
           "title": "CI time",
-          "description": "How long the attempts of evaluation's stages that run commands were open, added up over the selected time. Reads low for now: a new series' first value is not counted.",
+          "description": "How long the attempts of evaluation's stages that run commands were open, added up over the selected time.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -476,7 +473,7 @@ data:
           "id": 7,
           "type": "stat",
           "title": "Lost attempts",
-          "description": "Attempts that ran and ended without a result over the selected time. Each counts against the retries its work is allowed. Reads low for now: a new series' first value is not counted.",
+          "description": "Attempts that ran and ended without a result over the selected time. Each counts against the retries its work is allowed.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -556,7 +553,7 @@ data:
           "id": 9,
           "type": "timeseries",
           "title": "Spent by project",
-          "description": "What ticket work and chat cost, by project. An estimate, at list price. Each bar is an hour or more, drawn once it has ended, and the legend totals the bars. Reads low for now: a new series' first value is not counted.",
+          "description": "What ticket work and chat cost, by project. An estimate, at list price. Each bar is an hour or more, drawn once it has ended, and the legend totals the bars.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -622,7 +619,7 @@ data:
           "id": 10,
           "type": "timeseries",
           "title": "Spent by model",
-          "description": "What ticket work and chat cost, by model. An estimate, at list price. Each bar is an hour or more, drawn once it has ended, and the legend totals the bars. Reads low for now: a new series' first value is not counted.",
+          "description": "What ticket work and chat cost, by model. An estimate, at list price. Each bar is an hour or more, drawn once it has ended, and the legend totals the bars.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -701,7 +698,7 @@ data:
           "id": 12,
           "type": "timeseries",
           "title": "Tokens by type",
-          "description": "Tokens ticket work spent, by kind of token. Chat's tokens carry no kind and are under Chat. Each bar is an hour or more, drawn once it has ended, and the legend totals the bars. Reads low for now: a new series' first value is not counted.",
+          "description": "Tokens ticket work spent, by kind of token. Chat's tokens carry no kind and are under Chat. Each bar is an hour or more, drawn once it has ended, and the legend totals the bars.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -767,7 +764,7 @@ data:
           "id": 13,
           "type": "timeseries",
           "title": "Agent turns by phase",
-          "description": "Turns the agents took, in work and in evaluation. Each bar is an hour or more, drawn once it has ended, and the legend totals the bars. Reads low for now: a new series' first value is not counted.",
+          "description": "Turns the agents took, in work and in evaluation. Each bar is an hour or more, drawn once it has ended, and the legend totals the bars.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -833,7 +830,7 @@ data:
           "id": 14,
           "type": "timeseries",
           "title": "Agent and CI time",
-          "description": "How long attempts were open: Agent is every stage an agent runs, in work and in review; CI is evaluation's stages that run commands. Each bar is an hour or more, drawn once it has ended, and the legend totals the bars. Reads low for now: a new series' first value is not counted.",
+          "description": "How long attempts were open: Agent is every stage an agent runs, in work and in review; CI is evaluation's stages that run commands. Each bar is an hour or more, drawn once it has ended, and the legend totals the bars.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -908,7 +905,7 @@ data:
           "id": 15,
           "type": "bargauge",
           "title": "How long one attempt takes",
-          "description": "The median and the 90th percentile of how long one attempt was open over the selected time: Agent for stages an agent runs, CI for evaluation's stages that run commands. Leaves some out for now: a new series' first value is not counted.",
+          "description": "The median and the 90th percentile of how long one attempt was open over the selected time: Agent for stages an agent runs, CI for evaluation's stages that run commands.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -1004,7 +1001,7 @@ data:
           "id": 16,
           "type": "timeseries",
           "title": "How attempts ended",
-          "description": "Attempts that ended, by how. Lost ran and ended without a result; Withdrawn was never run, or was held; Superseded was replaced by another. Each bar is an hour or more, drawn once it has ended, and the legend totals the bars. Reads low for now: a new series' first value is not counted.",
+          "description": "Attempts that ended, by how. Lost ran and ended without a result; Withdrawn was never run, or was held; Superseded was replaced by another. Each bar is an hour or more, drawn once it has ended, and the legend totals the bars.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -1131,7 +1128,7 @@ data:
           "id": 17,
           "type": "timeseries",
           "title": "Where work ran",
-          "description": "How long attempts were open, by where they were placed: in the cluster, on a pool's runner, or on a member's own. Each bar is an hour or more, drawn once it has ended, and the legend totals the bars. Reads low for now: a new series' first value is not counted.",
+          "description": "How long attempts were open, by where they were placed: in the cluster, on a pool's runner, or on a member's own. Each bar is an hour or more, drawn once it has ended, and the legend totals the bars.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -1209,7 +1206,7 @@ data:
           "id": 19,
           "type": "timeseries",
           "title": "How chat turns ended",
-          "description": "Chat turns that ended, by how. Each bar is an hour or more, drawn once it has ended, and the legend totals the bars. Reads low for now: a new series' first value is not counted.",
+          "description": "Chat turns that ended, by how. Each bar is an hour or more, drawn once it has ended, and the legend totals the bars.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -1321,7 +1318,7 @@ data:
           "id": 20,
           "type": "timeseries",
           "title": "Chat tokens by model",
-          "description": "Tokens chat turns spent, by model. Each bar is an hour or more, drawn once it has ended, and the legend totals the bars. Reads low for now: a new series' first value is not counted.",
+          "description": "Tokens chat turns spent, by model. Each bar is an hour or more, drawn once it has ended, and the legend totals the bars.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -1387,7 +1384,7 @@ data:
           "id": 21,
           "type": "stat",
           "title": "Chat turns",
-          "description": "Chat turns that ended over the selected time, however they ended. Reads low for now: a new series' first value is not counted.",
+          "description": "Chat turns that ended over the selected time, however they ended.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -1450,7 +1447,7 @@ data:
           "id": 22,
           "type": "stat",
           "title": "Chat spent",
-          "description": "What chat turns cost over the selected time. An estimate, at list price. Reads low for now: a new series' first value is not counted.",
+          "description": "What chat turns cost over the selected time. An estimate, at list price.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -1513,7 +1510,7 @@ data:
           "id": 23,
           "type": "stat",
           "title": "Chat tokens",
-          "description": "Tokens chat turns spent over the selected time. Reads low for now: a new series' first value is not counted.",
+          "description": "Tokens chat turns spent over the selected time.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -1576,7 +1573,7 @@ data:
           "id": 24,
           "type": "stat",
           "title": "Chat turn time",
-          "description": "How long chat turns took over the selected time: all of them added up, and the 90th percentile turn. Leaves some out for now: a new series' first value is not counted.",
+          "description": "How long chat turns took over the selected time: all of them added up, and the 90th percentile turn.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"

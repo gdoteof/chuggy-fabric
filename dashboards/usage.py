@@ -27,15 +27,12 @@ HEADER = """\
 # and chat alike -- spend and tokens -- the two families are named in one
 # selector's `__name__` and summed together.
 #
-# A RANGE HOLDS WHAT A SERIES ROSE BY WHILE PROMETHEUS WATCHED IT. Each counter
-# is a total over every row the plane reads, and `increase` counts only the
-# rise between two scrapes of one series. What a series reports when it first
-# appears is in no range: all of its history the first time Prometheus scraped
-# the plane, and the first rows of every combination of labels that appears
-# after. So every panel built on `increase` leaves some out, and its
-# description says so, until the plane marks when each series began. Until
-# then no alert rule may reuse these queries: a new combination's first Lost
-# attempt, say, would never fire one.
+# A RANGE COUNTS A SERIES FROM ITS FIRST VALUE. Each counter is a total
+# over every row the plane reads, and `increase` counts the rise between two
+# samples of one series. The plane names when each series began, as its
+# OpenMetrics `_created`, and Prometheus writes a zero at that time
+# (cluster/apps/monitoring.yaml's created-timestamp-zero-ingestion), so a
+# series' first value counts in the range that holds its start.
 #
 # It is a plain ConfigMap for the reason release-dashboard.yaml's is: the
 # sidecar finds it by label and nothing mounts it. dashboards/usage.py writes
@@ -50,28 +47,18 @@ COST = '__name__=~"chuggy_run_cost_usd_total|chuggy_session_turn_cost_usd_total"
 TOKENS = '__name__=~"chuggy_run_tokens_total|chuggy_session_turn_tokens_total"'
 
 BARS = " Each bar is an hour or more, drawn once it has ended, and the legend totals the bars."
-# Every panel but Tickets by phase is built on increase(), which cannot count a series' first value.
-UNCOUNTED = "a new series' first value is not counted."
-LOW = " Reads low for now: " + UNCOUNTED
-PART = " Leaves some out for now: " + UNCOUNTED
 
 board = Board()
+stat = board.stat
+bargauge = board.bargauge
 
 
 def row(title, y):
     board.row(title, y)
 
 
-def stat(title, description, targets, x, y, w, h, unit, decimals=None, thresholds=None, note=LOW):
-    board.stat(title, description + note, targets, x, y, w, h, unit, decimals, thresholds)
-
-
 def bars(title, description, targets, x, y, w, h, unit, decimals=None, overrides=()):
-    board.bars(title, description + BARS + LOW, targets, x, y, w, h, unit, "1h", decimals, overrides)
-
-
-def bargauge(title, description, targets, x, y, w, h, unit, overrides=(), note=LOW):
-    board.bargauge(title, description + note, targets, x, y, w, h, unit, overrides)
+    board.bars(title, description + BARS, targets, x, y, w, h, unit, "1h", decimals, overrides)
 
 
 RANGE = "[$__range]"
@@ -184,7 +171,7 @@ bargauge(
         quantile("C", "0.9", AGENT, "Agent, 90th percentile"),
         quantile("D", "0.9", CI, "CI, 90th percentile"),
     ],
-    12, 24, 12, 8, "s", note=PART,
+    12, 24, 12, 8, "s",
 )
 bars(
     "How attempts ended",
@@ -243,7 +230,7 @@ stat(
             instant=True,
         ),
     ],
-    18, 41, 6, 4, "s", note=PART,
+    18, 41, 6, 4, "s",
 )
 
 # Tickets.
@@ -252,7 +239,7 @@ bargauge(
     "Tickets by phase",
     "Every ticket, by the phase it stands in now. Who does not narrow it: a ticket's count carries no owner.",
     [target("A", f"sum by (phase) (chuggy_tickets{{{T}}})", "{{phase}}", instant=True)],
-    0, 54, 24, 7, "short", note="",
+    0, 54, 24, 7, "short",
     overrides=colours([
         ("Pending", "yellow"), ("Work", "blue"), ("Evaluation", "purple"), ("Finalization", "light-green"),
         ("Done", "green"), ("Escalated", "red"), ("Revoked", "text"),
@@ -264,7 +251,7 @@ SOURCE = '{__name__=~"chuggy_tickets|chuggy_session_turns_ended_total"'
 USAGE = dashboard(
     "chuggy-usage",
     "Chuggy usage",
-    "What chuggy's ticket work and chat cost, how long they took and how they ended, from the metrics plane. Costs are estimates at list price. Until the plane marks when each series began, every total but tickets by phase reads low: the first value of each new combination of labels counts nowhere. Who narrows the page to the person signed in; it is a view, not a boundary.",
+    "What chuggy's ticket work and chat cost, how long they took and how they ended, from the metrics plane. Costs are estimates at list price. Who narrows the page to the person signed in; it is a view, not a boundary.",
     "now-7d",
     "5m",
     [

@@ -1358,11 +1358,8 @@ The **Chuggy usage** dashboard (`/d/chuggy-usage`) is built on those: what ticke
 work and chat cost, their tokens and turns, how long agents and CI took and how
 attempts ended, where work ran, and tickets by phase. Tenant and Project narrow
 it, and Who chooses between everyone and `${__user.login}`, the signed-in
-member's own `owner`. A range counts what each series rose by while Prometheus
-watched it, so a series' first value is in no range: neither the history
-before the first scrape nor the first rows of each combination of labels that
-appears later. Until the plane marks when each series began, every panel but
-tickets by phase leaves those out, and no alert rule may reuse its queries.
+member's own `owner`. The plane names when each series began, and Prometheus
+writes a zero at that time, so a range counts a series' first value too.
 `tests/usage-dashboard.py` holds each query to the families the plane serves
 and to the variables that narrow it.
 
