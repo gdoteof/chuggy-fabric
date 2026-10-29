@@ -4,12 +4,12 @@
 # process; it reads every series afresh from the database on each scrape and
 # keeps nothing between them.
 #
-# It has the pool plane's arrangement: the image, one replica rolled by the
-# default strategy, the URL assembled from the Secret's password, the label and
-# the egress arm that open PostgreSQL to the pod, the resources, the security
-# context, a readiness probe that is one query, and its policies in this file
-# beside it. chuggy-pool-plane.yaml and chuggy-access-plane.yaml argue those.
-# What is argued here is where this plane differs.
+# It has the pool plane's arrangement: the image, one replica, the URL
+# assembled from the Secret's password, the label and the egress arm that open
+# PostgreSQL to the pod, the resources, the security context, a readiness probe
+# that is one query, and its policies in this file beside it.
+# chuggy-pool-plane.yaml and chuggy-access-plane.yaml argue those. What is
+# argued here is where this plane differs.
 #
 # THREE THINGS OUTSIDE THIS DIRECTORY COME FIRST. Two are the pool plane's:
 # `metrics-plane-password` in `chuggy-postgres-credentials`, without which the
@@ -29,6 +29,13 @@
 # than refusing anyone. tests/metrics-plane.py holds it to chuggy-api.yaml's
 # `CHUG_API_OIDC_ISSUER`.
 #
+# ONE POD AT A TIME. chuggy-metrics-plane-monitor.yaml drops the pod from every
+# series, so two pods answering at once would write the same series, and a
+# total read a moment earlier but scraped later reads as a counter reset, which
+# `increase()` counts as the whole total again. So the pod is rolled by
+# `Recreate`: a rollout misses a scrape instead, which loses nothing, as every
+# value is a total read from rows.
+#
 # NO INGRESS, AND NOTHING FOR TRAEFIK. Grafana reads Prometheus and not this
 # plane, so nothing outside the cluster has a reason to reach it.
 apiVersion: apps/v1
@@ -39,6 +46,8 @@ metadata:
   labels: { app: chuggy-metrics-plane }
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels: { app: chuggy-metrics-plane }
   template:
