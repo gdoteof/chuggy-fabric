@@ -66,6 +66,7 @@ resources:
   - release-dashboard.yaml
   - release-registry.yaml
   - release-trigger-alert.yaml
+  - runners-dashboard.yaml
   - sirdocalot-namespace.yaml
   - sirdocalot-source.yaml
   - track-record-dashboard.yaml

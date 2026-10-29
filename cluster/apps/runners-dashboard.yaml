@@ -1,0 +1,2467 @@
+# Each runner reporting to chuggy's pool plane, on one page: what it is,
+# whether its machine is healthy, what it is doing and how long its image
+# pulls and runs take, read from the `chuggy_runner_*` series the pool plane
+# serves of each runner whose report it holds.
+#
+# THE DASHBOARD'S UID IS AN ADDRESS. `/d/chuggy-runners` is the page, and a
+# link handed to someone is not this file's to change: renaming the uid breaks
+# every one already given out.
+#
+# WHO OPENS ON ME, AND IS A VIEW, NOT A BOUNDARY. Every selector matches
+# `owner=~"$owner"`, and Who opens on Me, `${__user.login}`, which
+# monitoring.yaml's `login_attribute_path` makes the subject the plane cuts a
+# personal runner's `owner` from. A project's pool carries no owner and a
+# personal runner no project, so Everyone with a Project is that project's
+# pools, and Everyone alone is every runner. Every member signed in can query
+# every series whatever this page shows.
+#
+# A RUNNER THAT STOPS REPORTING READS AS OFFLINE: Offline here is no report,
+# not no poll. The plane serves a runner's series only while it holds a report
+# younger than kasofsk/chuggy's `workerPoolReportAgeMsMax`, so a runner that
+# stops reporting leaves the scrape rather than reading zero. Each table keys
+# its rows on the last report seen in the selected time, so that runner keeps
+# its row, with what is measured now left blank. Live and Offline are that
+# report's age against the same bound, in the tables and the stats alike, and
+# the Jobs and Sessions stats count the Live runners' latest reports: the plane
+# keeps its reports in memory, so a runner it lost in a release reads Live
+# until its report is older than the bound, not Offline or idle until it
+# reports again.
+#
+# EVERY QUERY AGGREGATES BY THE RUNNER'S OWN LABELS, or by `host` where it
+# reads the machine every runner on it measures alike, so a label Prometheus
+# adds at the scrape draws no second line. Two machines reporting one host
+# name read as one. A counter is read only through `increase`: a runner's
+# counts start again when it does, and `increase` takes the fall for a
+# restart. What a runner counted before its first report is in no range.
+#
+# A POOL-PLANE RELEASE CAN DROP A REPORT PERIOD OF COUNTS. Its ServiceMonitor
+# keeps `pod` and `instance`, so a new pod's series are new series, and
+# `increase` counts nothing between the old pod's last scraped report and the
+# new pod's first: a report period's counts of each runner, two where the old
+# pod's last report went unscraped. The plane serves no `_created`, so
+# created timestamps do not recover them. The metrics plane's remedy,
+# `labeldrop` with a `Recreate` rollout, would cut every runner's polls at each
+# release of the one replica they all poll, so each total says it can fall
+# short instead.
+#
+# It is a plain ConfigMap for the reason release-dashboard.yaml's is: the
+# sidecar finds it by label and nothing mounts it. dashboards/runners.py writes
+# this file whole; tests/runners-dashboard.py holds it to that writer and to
+# what its own header lists.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chuggy-runners-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  chuggy-runners.json: |-
+    {
+      "uid": "chuggy-runners",
+      "title": "Chuggy runners",
+      "description": "Each runner reporting to chuggy: what it is, whether its machine is healthy, what it is doing and how long its pulls and runs take. A runner reports only where its own configuration turns reporting on. Offline is a runner seen in the selected time that has not reported in over 3 minutes. What a runner counted before its first report is in no total, and a pool-plane release can drop a report period of counts. Who opens on your own runners; Everyone widens it to every runner, and a Project to that project's pools. It is a view, not a boundary.",
+      "tags": [
+        "chuggy"
+      ],
+      "schemaVersion": 39,
+      "version": 1,
+      "editable": false,
+      "graphTooltip": 1,
+      "timezone": "browser",
+      "time": {
+        "from": "now-24h",
+        "to": "now"
+      },
+      "refresh": "1m",
+      "templating": {
+        "list": [
+          {
+            "name": "tenant",
+            "label": "Tenant",
+            "description": "The tenants of the runners seen.",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "query": "label_values(chuggy_runner_last_report_timestamp_seconds, tenant)",
+            "definition": "label_values(chuggy_runner_last_report_timestamp_seconds, tenant)",
+            "refresh": 2,
+            "sort": 1,
+            "multi": true,
+            "includeAll": true,
+            "allValue": ".*",
+            "current": {
+              "selected": true,
+              "text": [
+                "All"
+              ],
+              "value": [
+                "$__all"
+              ]
+            },
+            "options": []
+          },
+          {
+            "name": "project",
+            "label": "Project",
+            "description": "The projects whose pools were seen. A member's own runners are in none.",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "query": "label_values(chuggy_runner_last_report_timestamp_seconds{tenant=~\"$tenant\"}, project)",
+            "definition": "label_values(chuggy_runner_last_report_timestamp_seconds{tenant=~\"$tenant\"}, project)",
+            "refresh": 2,
+            "sort": 1,
+            "multi": true,
+            "includeAll": true,
+            "allValue": ".*",
+            "current": {
+              "selected": true,
+              "text": [
+                "All"
+              ],
+              "value": [
+                "$__all"
+              ]
+            },
+            "options": []
+          },
+          {
+            "name": "owner",
+            "label": "Who",
+            "description": "Your own runners, or every runner, every project's pools among them.",
+            "type": "custom",
+            "query": "Me : ${__user.login},Everyone : .*",
+            "multi": false,
+            "includeAll": false,
+            "current": {
+              "selected": true,
+              "text": "Me",
+              "value": "${__user.login}"
+            },
+            "options": [
+              {
+                "selected": true,
+                "text": "Me",
+                "value": "${__user.login}"
+              },
+              {
+                "selected": false,
+                "text": "Everyone",
+                "value": ".*"
+              }
+            ]
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "row",
+          "title": "At a glance",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Live",
+          "description": "Runners whose last report is at most 3 minutes old.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 1,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "count((time() - max by (tenant, project, pool, owner, personal_runner, host) (last_over_time(chuggy_runner_last_report_timestamp_seconds{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range]))) <= 180)",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "0",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Offline",
+          "description": "Runners seen in the selected time whose last report is over 3 minutes old.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 4,
+            "y": 1,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "count((time() - max by (tenant, project, pool, owner, personal_runner, host) (last_over_time(chuggy_runner_last_report_timestamp_seconds{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range]))) > 180)",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "0",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Jobs",
+          "description": "Jobs the Live runners run, as each last reported, and the most they take at once.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 8,
+            "y": 1,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(max by (tenant, project, pool, owner, personal_runner, host) (last_over_time(chuggy_runner_jobs_running{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range]) and (time() - last_over_time(chuggy_runner_last_report_timestamp_seconds{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])) <= 180))",
+              "legendFormat": "Running",
+              "instant": true,
+              "range": false
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(max by (tenant, project, pool, owner, personal_runner, host) (last_over_time(chuggy_runner_jobs_max{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range]) and (time() - last_over_time(chuggy_runner_last_report_timestamp_seconds{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])) <= 180))",
+              "legendFormat": "Most",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "0",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "Sessions",
+          "description": "Sessions the Live runners run, as each last reported, and the most they take at once.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 1,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(max by (tenant, project, pool, owner, personal_runner, host) (last_over_time(chuggy_runner_sessions_running{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range]) and (time() - last_over_time(chuggy_runner_last_report_timestamp_seconds{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])) <= 180))",
+              "legendFormat": "Running",
+              "instant": true,
+              "range": false
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(max by (tenant, project, pool, owner, personal_runner, host) (last_over_time(chuggy_runner_sessions_max{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range]) and (time() - last_over_time(chuggy_runner_last_report_timestamp_seconds{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])) <= 180))",
+              "legendFormat": "Most",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "0",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "Failed polls",
+          "description": "Polls that never reached the plane over the selected time. A pool-plane release can drop a report period of counts.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 16,
+            "y": 1,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(increase(chuggy_runner_polls_failed_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range]))",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "0",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 7,
+          "type": "stat",
+          "title": "Refusals",
+          "description": "Assignments the runners refused over the selected time. A pool-plane release can drop a report period of counts.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 20,
+            "y": 1,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(increase(chuggy_runner_refusals_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range]))",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "0",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 8,
+          "type": "table",
+          "title": "Runners",
+          "description": "Every runner seen in the selected time; Offline has not reported in over 3 minutes.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 5,
+            "w": 24,
+            "h": 12
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "time() - max by (tenant, project, pool, owner, personal_runner, host) (last_over_time(chuggy_runner_last_report_timestamp_seconds{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range]))",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (tenant, project, pool, owner, personal_runner, host) (last_over_time(chuggy_runner_last_report_timestamp_seconds{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])) * 1000",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (tenant, project, pool, owner, personal_runner, host) (last_over_time(chuggy_runner_last_poll_timestamp_seconds{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])) * 1000",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "D",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (tenant, project, pool, owner, personal_runner, host) (chuggy_runner_uptime_seconds{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"})",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "E",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (tenant, project, pool, owner, personal_runner, host, package, version) (chuggy_runner_info{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"})",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "merge",
+              "options": {}
+            },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "personal_runner": true,
+                  "Value #E": true
+                },
+                "indexByName": {
+                  "host": 0,
+                  "Value #A": 1,
+                  "Value #B": 2,
+                  "Value #C": 3,
+                  "Value #D": 4,
+                  "package": 5,
+                  "version": 6,
+                  "tenant": 7,
+                  "project": 8,
+                  "pool": 9,
+                  "owner": 10
+                },
+                "renameByName": {
+                  "host": "Machine",
+                  "Value #A": "Status",
+                  "Value #B": "Last report",
+                  "Value #C": "Last poll",
+                  "Value #D": "Uptime",
+                  "package": "Runner",
+                  "version": "Version",
+                  "tenant": "Tenant",
+                  "project": "Project",
+                  "pool": "Pool",
+                  "owner": "Member"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "minWidth": 50,
+                "cellOptions": {
+                  "type": "auto"
+                }
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Status"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "range",
+                        "options": {
+                          "to": 180,
+                          "result": {
+                            "text": "Live",
+                            "color": "green",
+                            "index": 0
+                          }
+                        }
+                      },
+                      {
+                        "type": "range",
+                        "options": {
+                          "from": 180,
+                          "result": {
+                            "text": "Offline",
+                            "color": "red",
+                            "index": 1
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Last report"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "dateTimeFromNow"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Last poll"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "dateTimeFromNow"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Uptime"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "dtdurations"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm",
+            "footer": {
+              "show": false
+            }
+          }
+        },
+        {
+          "id": 9,
+          "type": "row",
+          "title": "Health",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 17,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 10,
+          "type": "table",
+          "title": "Machines",
+          "description": "Each machine the runners seen run on, as the reports the plane holds now give it; Disk floor is its runners' highest.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 18,
+            "w": 24,
+            "h": 5
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "time() - max by (host) (last_over_time(chuggy_runner_last_report_timestamp_seconds{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range]))",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (host) (chuggy_runner_disk_free_bytes{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"})",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (host) (chuggy_runner_disk_floor_bytes{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"})",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "D",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (host) (chuggy_runner_machine_memory_available_bytes{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"})",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "E",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (host) (chuggy_runner_machine_memory_total_bytes{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"})",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "F",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (host) (chuggy_runner_machine_cpus{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"})",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "G",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (host) (chuggy_runner_machine_load1{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"})",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "merge",
+              "options": {}
+            },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "indexByName": {
+                  "host": 0,
+                  "Value #A": 1,
+                  "Value #B": 2,
+                  "Value #C": 3,
+                  "Value #D": 4,
+                  "Value #E": 5,
+                  "Value #F": 6,
+                  "Value #G": 7
+                },
+                "renameByName": {
+                  "host": "Machine",
+                  "Value #A": "Status",
+                  "Value #B": "Disk free",
+                  "Value #C": "Disk floor",
+                  "Value #D": "Memory available",
+                  "Value #E": "Memory total",
+                  "Value #F": "CPUs",
+                  "Value #G": "Load"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "minWidth": 50,
+                "cellOptions": {
+                  "type": "auto"
+                }
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Status"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "range",
+                        "options": {
+                          "to": 180,
+                          "result": {
+                            "text": "Live",
+                            "color": "green",
+                            "index": 0
+                          }
+                        }
+                      },
+                      {
+                        "type": "range",
+                        "options": {
+                          "from": 180,
+                          "result": {
+                            "text": "Offline",
+                            "color": "red",
+                            "index": 1
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Disk free"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "bytes"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Disk floor"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "bytes"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Memory available"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "bytes"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Memory total"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "bytes"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "CPUs"
+                },
+                "properties": [
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Load"
+                },
+                "properties": [
+                  {
+                    "id": "decimals",
+                    "value": 2
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm",
+            "footer": {
+              "show": false
+            }
+          }
+        },
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "Disk free",
+          "description": "Free disk on each machine, and the highest floor below which a runner on it takes no job.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 23,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (host) (chuggy_runner_disk_free_bytes{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"})",
+              "legendFormat": "{{host}}",
+              "range": true
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (host) (chuggy_runner_disk_floor_bytes{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"})",
+              "legendFormat": "{{host}} floor",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 0,
+                "showPoints": "never",
+                "spanNulls": false
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".* floor$"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        10,
+                        10
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 12,
+          "type": "timeseries",
+          "title": "Memory available",
+          "description": "Memory each machine has available, and all it has.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 23,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (host) (chuggy_runner_machine_memory_available_bytes{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"})",
+              "legendFormat": "{{host}}",
+              "range": true
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (host) (chuggy_runner_machine_memory_total_bytes{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"})",
+              "legendFormat": "{{host}} total",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 0,
+                "showPoints": "never",
+                "spanNulls": false
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".* total$"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        10,
+                        10
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 13,
+          "type": "timeseries",
+          "title": "Memory room",
+          "description": "The memory room and ceiling each runner's latest poll named.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 31,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (tenant, project, pool, owner, personal_runner, host) (chuggy_runner_memory_room_bytes{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", pool!=\"\"})",
+              "legendFormat": "{{tenant}}/{{project}} pool {{pool}}",
+              "range": true
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (tenant, project, pool, owner, personal_runner, host) (chuggy_runner_memory_room_bytes{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", pool=\"\"})",
+              "legendFormat": "{{tenant}}/{{owner}} on {{host}}",
+              "range": true
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (tenant, project, pool, owner, personal_runner, host) (chuggy_runner_memory_ceiling_bytes{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", pool!=\"\"})",
+              "legendFormat": "Ceiling {{tenant}}/{{project}} pool {{pool}}",
+              "range": true
+            },
+            {
+              "refId": "D",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (tenant, project, pool, owner, personal_runner, host) (chuggy_runner_memory_ceiling_bytes{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", pool=\"\"})",
+              "legendFormat": "Ceiling {{tenant}}/{{owner}} on {{host}}",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 0,
+                "showPoints": "never",
+                "spanNulls": false
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": "^Ceiling .*"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        10,
+                        10
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 14,
+          "type": "timeseries",
+          "title": "Load per CPU",
+          "description": "Each machine's one-minute load average over its CPUs.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 31,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (host) (chuggy_runner_machine_load1{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}) / max by (host) (chuggy_runner_machine_cpus{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"})",
+              "legendFormat": "{{host}}",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 0,
+                "showPoints": "never",
+                "spanNulls": false
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 15,
+          "type": "row",
+          "title": "Work",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 39,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 16,
+          "type": "timeseries",
+          "title": "Jobs running",
+          "description": "Jobs each runner runs, and the most it takes at once.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 40,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (tenant, project, pool, owner, personal_runner, host) (chuggy_runner_jobs_running{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", pool!=\"\"})",
+              "legendFormat": "{{tenant}}/{{project}} pool {{pool}}",
+              "range": true
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (tenant, project, pool, owner, personal_runner, host) (chuggy_runner_jobs_running{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", pool=\"\"})",
+              "legendFormat": "{{tenant}}/{{owner}} on {{host}}",
+              "range": true
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (tenant, project, pool, owner, personal_runner, host) (chuggy_runner_jobs_max{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", pool!=\"\"})",
+              "legendFormat": "Most {{tenant}}/{{project}} pool {{pool}}",
+              "range": true
+            },
+            {
+              "refId": "D",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (tenant, project, pool, owner, personal_runner, host) (chuggy_runner_jobs_max{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", pool=\"\"})",
+              "legendFormat": "Most {{tenant}}/{{owner}} on {{host}}",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 0,
+                "showPoints": "never",
+                "spanNulls": false
+              },
+              "decimals": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": "^Most .*"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        10,
+                        10
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 17,
+          "type": "timeseries",
+          "title": "Sessions running",
+          "description": "Sessions each runner runs, and the most it takes at once.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 40,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (tenant, project, pool, owner, personal_runner, host) (chuggy_runner_sessions_running{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", pool!=\"\"})",
+              "legendFormat": "{{tenant}}/{{project}} pool {{pool}}",
+              "range": true
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (tenant, project, pool, owner, personal_runner, host) (chuggy_runner_sessions_running{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", pool=\"\"})",
+              "legendFormat": "{{tenant}}/{{owner}} on {{host}}",
+              "range": true
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (tenant, project, pool, owner, personal_runner, host) (chuggy_runner_sessions_max{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", pool!=\"\"})",
+              "legendFormat": "Most {{tenant}}/{{project}} pool {{pool}}",
+              "range": true
+            },
+            {
+              "refId": "D",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max by (tenant, project, pool, owner, personal_runner, host) (chuggy_runner_sessions_max{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", pool=\"\"})",
+              "legendFormat": "Most {{tenant}}/{{owner}} on {{host}}",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 0,
+                "showPoints": "never",
+                "spanNulls": false
+              },
+              "decimals": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": "^Most .*"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        10,
+                        10
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 18,
+          "type": "timeseries",
+          "title": "Polls by runner",
+          "description": "Polls each runner made. A pool-plane release can drop a report period of counts.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "5m",
+          "maxDataPoints": 100,
+          "gridPos": {
+            "x": 0,
+            "y": 48,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (tenant, project, pool, owner, personal_runner, host) (increase(chuggy_runner_polls_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", pool!=\"\"}[$__interval]))",
+              "legendFormat": "{{tenant}}/{{project}} pool {{pool}}",
+              "range": true
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (tenant, project, pool, owner, personal_runner, host) (increase(chuggy_runner_polls_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", pool=\"\"}[$__interval]))",
+              "legendFormat": "{{tenant}}/{{owner}} on {{host}}",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 80,
+                "lineWidth": 1,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                }
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "sum"
+              ],
+              "sortBy": "Total",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 19,
+          "type": "timeseries",
+          "title": "Failed polls by runner",
+          "description": "Polls each runner made that never reached the plane. A pool-plane release can drop a report period of counts.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "5m",
+          "maxDataPoints": 100,
+          "gridPos": {
+            "x": 12,
+            "y": 48,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (tenant, project, pool, owner, personal_runner, host) (increase(chuggy_runner_polls_failed_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", pool!=\"\"}[$__interval]))",
+              "legendFormat": "{{tenant}}/{{project}} pool {{pool}}",
+              "range": true
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (tenant, project, pool, owner, personal_runner, host) (increase(chuggy_runner_polls_failed_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", pool=\"\"}[$__interval]))",
+              "legendFormat": "{{tenant}}/{{owner}} on {{host}}",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 80,
+                "lineWidth": 1,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                }
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "sum"
+              ],
+              "sortBy": "Total",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 20,
+          "type": "timeseries",
+          "title": "Settlements by outcome",
+          "description": "Assignments the runners settled, by outcome. A pool-plane release can drop a report period of counts.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "5m",
+          "maxDataPoints": 100,
+          "gridPos": {
+            "x": 0,
+            "y": 56,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (outcome) (increase(chuggy_runner_settlements_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__interval]))",
+              "legendFormat": "{{outcome}}",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 80,
+                "lineWidth": 1,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                }
+              },
+              "decimals": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Accepted"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "green"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Refused"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "red"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Unavailable"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "orange"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "sum"
+              ],
+              "sortBy": "Total",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 21,
+          "type": "timeseries",
+          "title": "Refusals by fault",
+          "description": "Assignments the runners refused, by the image fault named; Other named none. A pool-plane release can drop a report period of counts.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "5m",
+          "maxDataPoints": 100,
+          "gridPos": {
+            "x": 12,
+            "y": 56,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (fault) (increase(chuggy_runner_refusals_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__interval]))",
+              "legendFormat": "{{fault}}",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 80,
+                "lineWidth": 1,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                }
+              },
+              "decimals": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "NoFault"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "Other"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "sum"
+              ],
+              "sortBy": "Total",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 22,
+          "type": "timeseries",
+          "title": "Jobs ended",
+          "description": "Jobs the runners ran that ended, by how. A pool-plane release can drop a report period of counts.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "5m",
+          "maxDataPoints": 100,
+          "gridPos": {
+            "x": 0,
+            "y": 64,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (end) (increase(chuggy_runner_jobs_ended_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__interval]))",
+              "legendFormat": "{{end}}",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 80,
+                "lineWidth": 1,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                }
+              },
+              "decimals": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Succeeded"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "green"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Failed"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "red"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Deadline"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "orange"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "DiskLow"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "purple"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Stopped"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "text"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "PlacementFailed"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "dark-red"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "sum"
+              ],
+              "sortBy": "Total",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 23,
+          "type": "timeseries",
+          "title": "Sessions ended",
+          "description": "Sessions the runners ran that ended, by how. A pool-plane release can drop a report period of counts.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "5m",
+          "maxDataPoints": 100,
+          "gridPos": {
+            "x": 12,
+            "y": 64,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (end) (increase(chuggy_runner_sessions_ended_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__interval]))",
+              "legendFormat": "{{end}}",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 80,
+                "lineWidth": 1,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                }
+              },
+              "decimals": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Succeeded"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "green"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Failed"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "red"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "sum"
+              ],
+              "sortBy": "Total",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 24,
+          "type": "row",
+          "title": "Durations",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 72,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 25,
+          "type": "bargauge",
+          "title": "Image pulls",
+          "description": "The median and 90th percentile image pull over the selected time. A pool-plane release can drop a report period of counts.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 73,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_runner_image_pull_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])))",
+              "legendFormat": "Median",
+              "instant": true,
+              "range": false
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.9, sum by (le) (increase(chuggy_runner_image_pull_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])))",
+              "legendFormat": "90th percentile",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "noValue": "None",
+              "mappings": [
+                {
+                  "type": "special",
+                  "options": {
+                    "match": "nan",
+                    "result": {
+                      "text": "None",
+                      "index": 0
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "orientation": "horizontal",
+            "displayMode": "basic",
+            "valueMode": "color",
+            "showUnfilled": true,
+            "namePlacement": "left",
+            "sizing": "manual",
+            "minVizHeight": 16,
+            "maxVizHeight": 48
+          }
+        },
+        {
+          "id": 26,
+          "type": "bargauge",
+          "title": "Runs",
+          "description": "The median and 90th percentile job and session over the selected time. A pool-plane release can drop a report period of counts.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 73,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_runner_run_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", kind=\"Job\"}[$__range])))",
+              "legendFormat": "Job, median",
+              "instant": true,
+              "range": false
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.9, sum by (le) (increase(chuggy_runner_run_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", kind=\"Job\"}[$__range])))",
+              "legendFormat": "Job, 90th percentile",
+              "instant": true,
+              "range": false
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_runner_run_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", kind=\"Session\"}[$__range])))",
+              "legendFormat": "Session, median",
+              "instant": true,
+              "range": false
+            },
+            {
+              "refId": "D",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.9, sum by (le) (increase(chuggy_runner_run_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", kind=\"Session\"}[$__range])))",
+              "legendFormat": "Session, 90th percentile",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "noValue": "None",
+              "mappings": [
+                {
+                  "type": "special",
+                  "options": {
+                    "match": "nan",
+                    "result": {
+                      "text": "None",
+                      "index": 0
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "orientation": "horizontal",
+            "displayMode": "basic",
+            "valueMode": "color",
+            "showUnfilled": true,
+            "namePlacement": "left",
+            "sizing": "manual",
+            "minVizHeight": 16,
+            "maxVizHeight": 48
+          }
+        }
+      ]
+    }

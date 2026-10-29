@@ -32,8 +32,9 @@
 # attempt, say, would never fire one.
 #
 # It is a plain ConfigMap for the reason release-dashboard.yaml's is: the
-# sidecar finds it by label and nothing mounts it. tests/usage-dashboard.py
-# holds what its header lists.
+# sidecar finds it by label and nothing mounts it. dashboards/usage.py writes
+# this file whole; tests/usage-dashboard.py holds it to that writer and to
+# what its own header lists.
 apiVersion: v1
 kind: ConfigMap
 metadata:

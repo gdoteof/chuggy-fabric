@@ -51,6 +51,8 @@ only by their own directory.
                                     no other layer waits on
     cluster/chug-gy/                chuggy's public site at chug.gy, in a
                                     layer of its own the same way
+    dashboards/                     what writes the usage and runners
+                                    dashboards' manifests in cluster/apps/
 
     hosts/gtr/default.nix           geoff's Beelink GTR: hostname, radios, mesh, k3s, tunnel
     hosts/gtr/hardware-configuration.nix
@@ -1393,6 +1395,21 @@ owner, and by machine. The plane holds them in memory, so a restart empties the
 page until each runner reports again, and a runner silent for three minutes
 leaves it. Every member signed into Grafana can query them, as they can every
 other series.
+
+The **Chuggy runners** dashboard (`/d/chuggy-runners`) is built on those: what
+each runner is, whether its machine is healthy, what it is doing, and how long
+its image pulls and runs take. A runner reports only where its own
+configuration turns reporting on. Who opens on the signed-in member's own
+runners; Everyone widens it to every runner, and a Project to that project's
+pools. The plane stops serving a runner soon after its last report, so each of
+the page's tables keys its rows on the last report seen in the selected time,
+and a runner that stops reporting reads Offline instead of leaving the page. A
+pool-plane release can drop a report period of counts from its totals, which
+the manifest's header explains. `tests/runners-dashboard.py` holds it as the
+usage dashboard is held, to the families the pool plane serves.
+
+`dashboards/` writes the usage and runners dashboards' manifests whole, and
+each one's test refuses a manifest other than what its writer writes.
 
 ### Control-plane targets are switched off
 

@@ -377,6 +377,10 @@
         # plane's families.
         usage-dashboard = import ./tests/usage-dashboard.nix { inherit pkgs; };
 
+        # The runners dashboard: the same against the families the pool plane
+        # serves of a runner, and a table that keeps a runner that stops.
+        runners-dashboard = import ./tests/runners-dashboard.nix { inherit pkgs; };
+
         # The evaluator command a Chuggy ticket runs, and the only check that
         # reads .chug/tasks/ci.sh.
         chug-ci = chugCi;
