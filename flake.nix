@@ -236,6 +236,13 @@
         # which serves every tenant's usage to whoever reaches it.
         metrics-plane = import ./tests/metrics-plane.nix { inherit pkgs; };
 
+        # The pool plane's runners' reports, which name every runner by tenant,
+        # project and owner and take no token: their own listener and Service,
+        # which no public route to the plane names, Prometheus alone admitted
+        # to their port, and one monitor scraping it oftener than a runner
+        # reports.
+        pool-plane-metrics = import ./tests/pool-plane-metrics.nix { inherit pkgs; };
+
         # The rendered cluster, which must carry no per-repository token at
         # all now that every pod mints its own.
         github-repository-transition = githubRepositoryTransition;

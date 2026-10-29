@@ -1372,6 +1372,16 @@ total until Prometheus ingests created timestamps.
 `tests/track-record-dashboard.py` holds its queries to the series the server
 serves.
 
+### Runners' reports are scraped
+
+`cluster/apps/chuggy-pool-plane-monitor.yaml` has Prometheus scrape the pool
+plane's runners' reports every 30 seconds: each runner's latest report of its
+machine and its work, `chuggy_runner_*`, by tenant, by project and pool or by
+owner, and by machine. The plane holds them in memory, so a restart empties the
+page until each runner reports again, and a runner silent for three minutes
+leaves it. Every member signed into Grafana can query them, as they can every
+other series.
+
 ### Control-plane targets are switched off
 
 `kubeControllerManager`, `kubeScheduler`, `kubeEtcd`, and `kubeProxy` are all
@@ -1536,7 +1546,7 @@ One process per responsibility, all out of one image:
 | `chuggy-scheduler` | `src/roots/scheduler.ts` | `chuggy_scheduler` | no |
 | `chuggy-finalizer` | `src/roots/finalizer.ts` | `chuggy_finalizer` | no |
 | `chuggy-worker-plane` | `src/roots/workerPlane.ts` | `chuggy_worker_plane` | yes, 3001 |
-| `chuggy-pool-plane` | `src/roots/poolPlane.ts` | `chuggy_pool_plane` | yes, 3002 |
+| `chuggy-pool-plane` | `src/roots/poolPlane.ts` | `chuggy_pool_plane` | yes, 3002, and its runners' reports on 3005 |
 | `chuggy-access-plane` | `src/roots/accessPlane.ts` | `chuggy_access_plane`, for invite links alone: roles are Keto's and people Kratos's, over their APIs | yes, 3003 |
 | `chuggy-metrics-plane` | `src/roots/metricsPlane.ts` | `chuggy_metrics_plane`, reading the columns its series are made of and writing nothing | yes, 3004 |
 
@@ -1693,6 +1703,13 @@ so its ingress policy is all that keeps that from the pod network. It verifies
 no token, so it has no public arm. Both policies are in
 `cluster/chuggy/chuggy-metrics-plane.yaml`, and `tests/metrics-plane.py` holds
 them.
+
+**`chuggy-pool-plane` admits Traefik to its port and Prometheus alone to its
+runners' reports.** The reports take no token and name every runner by tenant,
+project and owner, so they have a port and a Service of their own, and neither
+public route to the plane, its Ingress or the registry front's middleware,
+names that Service. The policy is in `cluster/chuggy/chuggy-pool-plane.yaml`,
+and `tests/pool-plane-metrics.py` holds it and the routes.
 
 **`chuggy-ui` is selected by none of the nine, in either direction**, and that
 is the state this PR leaves it in rather than a decision it argues. It is the

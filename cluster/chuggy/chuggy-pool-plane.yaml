@@ -22,6 +22,13 @@
 # is the password of is created by kasofsk/chuggy's
 # `deploy/rig/postgres/postgres-roles.sql`, and until that has run the pod
 # starts and is never ready.
+#
+# ITS RUNNERS' REPORTS ARE A SECOND LISTENER, FOR PROMETHEUS ALONE. That page
+# takes no token and names every runner by its tenant, project, pool and owner,
+# so it has a port, a Service and an ingress arm of its own, and no public route
+# names the Service. The two that reach this plane, the Ingress below and the
+# middleware cluster/apps/registry-public.yaml authorizes pulls through, name
+# the first. tests/pool-plane-metrics.py holds all of it.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -86,9 +93,18 @@ spec:
               value: 0.0.0.0
             - name: CHUG_POOL_PLANE_PORT
               value: "3002"
+            # Where the runners' reports are served. The process opens that
+            # listener on the loopback unless told otherwise, where Prometheus
+            # cannot reach it.
+            - name: CHUG_POOL_PLANE_METRICS_HOST
+              value: 0.0.0.0
+            - name: CHUG_POOL_PLANE_METRICS_PORT
+              value: "3005"
           ports:
             - name: http
               containerPort: 3002
+            - name: metrics
+              containerPort: 3005
           resources:
             requests: { cpu: 100m, memory: 128Mi }
             limits: { memory: 512Mi }
@@ -114,9 +130,30 @@ spec:
       port: 3002
       targetPort: http
 ---
-# Traefik alone: a pool reaches this plane through the tunnel, and nothing on
-# the pod network has a reason to. The kubelet's probes need no element, for the
-# reason chuggy-control-plane-network-policy.yaml gives over the API's.
+# The runners' reports, on a Service apart from the one above. That one is what
+# both public routes name, so a port on it would be one route's port number
+# away from the internet. Labelled because a ServiceMonitor selects a Service
+# by its labels: cluster/apps/chuggy-pool-plane-monitor.yaml's.
+apiVersion: v1
+kind: Service
+metadata:
+  name: chuggy-pool-plane-metrics
+  namespace: chuggy
+  labels: { app: chuggy-pool-plane-metrics }
+spec:
+  selector: { app: chuggy-pool-plane }
+  ports:
+    - name: metrics
+      port: 3005
+      targetPort: metrics
+---
+# Traefik to the plane's port and Prometheus to its reports', each arm one
+# source on one port, so neither reaches the other's. A pool reaches this plane
+# through the tunnel, Prometheus is the reports' one reader, and nothing else
+# on the pod network has a reason to reach either. Prometheus is named as
+# chuggy-metrics-plane.yaml names it, which says where that label comes from.
+# The kubelet's probes need no element, for the reason
+# chuggy-control-plane-network-policy.yaml gives over the API's.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -136,6 +173,15 @@ spec:
               app.kubernetes.io/name: traefik
       ports:
         - { protocol: TCP, port: 3002 }
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - { protocol: TCP, port: 3005 }
 ---
 # chuggy-api-egress without GitHub or the ports that write: the resolver, the
 # database, Keto's read port for whether a pool still holds `execute`, and
