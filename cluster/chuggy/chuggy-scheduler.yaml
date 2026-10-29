@@ -930,9 +930,9 @@ spec:
             # of these is mounted there.
             #
             # `codex-auth` IS IN BOTH AND MOUNTED NOWHERE HERE. It is the Codex
-            # agent's, and only a pool serves it, so an attempt this cluster
-            # would run holding it is denied -- including one whose
-            # configuration omits `credentials`.
+            # agent's and only a pool serves it, so an attempt placed here
+            # holding it -- one whose configuration omits `credentials`
+            # included -- is denied, and its ticket escalates.
             - name: CHUG_SCHEDULER_EXECUTION_POLICY
               value: |
                 {

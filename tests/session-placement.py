@@ -52,12 +52,13 @@ literal either:
     after the ClusterIP is translated away, so an arm copied from the URL's own
     number is wrong for a Service that renames its port.
   * A checkout takes a reach, a credential and a repository map, and this file
-    already holds the reach. Every credential the session policy or either
-    attempt arm grants must be one the credential mounts carry, or the
-    placement is denied. The map is read only where the worker plane minted
-    nothing -- it mints for a forge, so what is left is this cluster's own git
-    service -- and that is the whole of what the map is for: one row, on this
-    cluster, whose credential every arm that places a pod grants. A forge row
+    already holds the reach. A grant is a ceiling for every route, and this
+    cluster need not mount all of it: a placement here holding a slot it does
+    not mount is denied, which escalates the ticket. The map is read only
+    where the worker plane minted nothing -- it mints for a forge, so what is
+    left is this cluster's own git service -- and that is the whole of what
+    the map is for: one row, on this cluster, whose credential every arm that
+    places a pod grants. A forge row
     would be a second answer to which repositories exist, kept by hand beside
     the mint; an empty map is a mounted credential no placement can resolve a
     reference with; and a map on one kind of pod alone leaves a session unable
@@ -588,20 +589,17 @@ def main():
         )
 
     # 7. A checkout is a reach, a credential and a map, and step 2 holds only
-    #    the reach. Every credential granted is one the mounts carry, since the
-    #    launcher denies a slot they do not. The map is what a pod resolves a
+    #    the reach. A grant need not be mounted here, since a route other than
+    #    this cluster may serve it. The map is what a pod resolves a
     #    reference through when the plane minted nothing for it, so it carries
     #    the one host the plane mints nothing for -- this cluster's own git
     #    service -- and every arm that places a pod grants that row's
     #    credential, or the git arm above permits a clone that cannot
     #    authenticate.
     #
-    #    Every arm that places a pod is held, because the slot is denied per
-    #    placement: the two attempt arms and the session's are three grants.
-    #    An attempt holds what its arm grants less what its configuration
-    #    leaves out, and one that omits `credentials` leaves out nothing, so
-    #    a slot an arm grants and nothing mounts denies every such attempt.
-    #    The policy's other keys, `projectRoutes`, grant nothing.
+    #    Every arm that places a pod is held: the two attempt arms and the
+    #    session's are three grants. The policy's other keys, `projectRoutes`,
+    #    grant nothing.
     policy = json_variable(scheduled, SESSION_POLICY_VARIABLE)
     granted = set(policy.get("grant", {}).get("credentials", []))
     mounts = json_variable(scheduled, CREDENTIAL_MOUNTS_VARIABLE)
@@ -614,13 +612,6 @@ def main():
         if name in execution
     }
     arms[SESSION_POLICY_VARIABLE] = granted
-    for owner, credentials in sorted(arms.items()):
-        ungrantable = credentials - set(mounts)
-        if ungrantable:
-            refuse(
-                f"{owner} grants {sorted(ungrantable)}, which "
-                f"{CREDENTIAL_MOUNTS_VARIABLE} does not mount, so a placement holding it is denied"
-            )
     sessions_map = environment_map(scheduled, SESSION_ENVIRONMENT_VARIABLE)
     workers_map = environment_map(scheduled, WORKER_ENVIRONMENT_VARIABLE)
     if (sessions_map is None) != (workers_map is None):

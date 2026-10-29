@@ -41,7 +41,7 @@ pkgs.runCommand "chuggy-development-worker" {
   # the model credential. Nothing per repository sits between them -- a forge
   # credential is minted per act rather than granted as a slot. The three are
   # the two attempt arms, which add the Codex credential and the Track Record
-  # token, and the session policy, which adds neither: a session runs no gates.
+  # token, and the session policy, which adds neither.
   session_grants="$(grep -Fc '"credentials": ["chuggy-git-worker", "claude-code"]' "$scheduler" || true)"
   attempt_grants="$(grep -Fc '"credentials": ["chuggy-git-worker", "claude-code", "codex-auth", "track-record"]' "$scheduler" || true)"
   grants="$(grep -Ec '^ +"credentials": \[' "$scheduler" || true)"
