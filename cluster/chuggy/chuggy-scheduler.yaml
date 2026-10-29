@@ -928,6 +928,11 @@ spec:
             # this slot included; an empty list holds nothing. Work routed to
             # a project's pool runs with that pool's own credentials, and none
             # of these is mounted there.
+            #
+            # `codex-auth` IS IN BOTH AND MOUNTED NOWHERE HERE. It is the Codex
+            # agent's and only a pool serves it, so an attempt placed here
+            # holding it -- one whose configuration omits `credentials`
+            # included -- is denied, and its ticket escalates.
             - name: CHUG_SCHEDULER_EXECUTION_POLICY
               value: |
                 {
@@ -936,7 +941,7 @@ spec:
                     "runtimeVersion": "claude-code-latest",
                     "grant": {
                       "tools": ["claude-code", "shell"],
-                      "credentials": ["chuggy-git-worker", "claude-code", "track-record"],
+                      "credentials": ["chuggy-git-worker", "claude-code", "codex-auth", "track-record"],
                       "network": true,
                       "filesystem": "WriteWorkspace",
                       "mayCompleteTask": false
@@ -948,7 +953,7 @@ spec:
                     "runtimeVersion": "claude-code-latest",
                     "grant": {
                       "tools": ["claude-code", "shell"],
-                      "credentials": ["chuggy-git-worker", "claude-code", "track-record"],
+                      "credentials": ["chuggy-git-worker", "claude-code", "codex-auth", "track-record"],
                       "network": true,
                       "filesystem": "WriteWorkspace",
                       "mayCompleteTask": false
@@ -1132,8 +1137,9 @@ spec:
             # this site run the same binary, and this is the only variable that
             # says so twice.
             #
-            # `credentials` is the execution policy's list less `track-record`,
-            # since a session runs no gates. `kubernetesSessionPodRequest`
+            # `credentials` is the execution policy's list less `codex-auth`,
+            # since no session runs Codex, and `track-record`, since a session
+            # runs no gates. `kubernetesSessionPodRequest`
             # denies a credential slot this list does not name, so it is the
             # list and not the mounts above that decides what a session can
             # authenticate as.
@@ -1206,8 +1212,9 @@ spec:
             # its turns and silently has no checkout of the one repository this
             # fabric holds a credential for.
             # `tests/session-placement.py` is what makes that loud rather than
-            # silent: it refuses a grant naming a credential the mounts above do
-            # not carry. `routes` dropped is silent too, and nothing refuses it:
+            # silent: it refuses a grant that omits the credential of the
+            # repository map's one row. `routes` dropped is silent too, and
+            # nothing refuses it:
             # a project created afterwards runs its threads here, where a tenant
             # without hosted runs cannot chat.
             #
