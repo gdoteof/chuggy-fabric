@@ -1137,8 +1137,9 @@ spec:
             # this site run the same binary, and this is the only variable that
             # says so twice.
             #
-            # `credentials` is the execution policy's list less `track-record`,
-            # since a session runs no gates. `kubernetesSessionPodRequest`
+            # `credentials` is the execution policy's list less `codex-auth`,
+            # since no session runs Codex, and `track-record`, since a session
+            # runs no gates. `kubernetesSessionPodRequest`
             # denies a credential slot this list does not name, so it is the
             # list and not the mounts above that decides what a session can
             # authenticate as.
@@ -1211,8 +1212,9 @@ spec:
             # its turns and silently has no checkout of the one repository this
             # fabric holds a credential for.
             # `tests/session-placement.py` is what makes that loud rather than
-            # silent: it refuses a grant naming a credential the mounts above do
-            # not carry. `routes` dropped is silent too, and nothing refuses it:
+            # silent: it refuses a grant that omits the credential of the
+            # repository map's one row. `routes` dropped is silent too, and
+            # nothing refuses it:
             # a project created afterwards runs its threads here, where a tenant
             # without hosted runs cannot chat.
             #

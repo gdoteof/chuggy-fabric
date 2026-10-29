@@ -53,8 +53,8 @@ literal either:
     number is wrong for a Service that renames its port.
   * A checkout takes a reach, a credential and a repository map, and this file
     already holds the reach. A grant is a ceiling for every route, and this
-    cluster need not mount all of it: a placement here holding a slot it does
-    not mount is denied, which escalates the ticket. The map is read only
+    cluster need not mount all of it: an attempt placed here holding a slot
+    it does not mount is denied, which escalates the ticket. The map is read only
     where the worker plane minted nothing -- it mints for a forge, so what is
     left is this cluster's own git service -- and that is the whole of what
     the map is for: one row, on this cluster, whose credential every arm that
