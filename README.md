@@ -1352,7 +1352,7 @@ restart loses nothing. **Every member signed into Grafana can query all of
 it, every tenant's included**, as they can every other series. `owner` is the
 `sub` that member signs in with, so it narrows a dashboard and bounds nothing.
 
-### Track Record is scraped
+### Track Record is scraped, and has a page
 
 `cluster/apps/track-record-monitor.yaml` has Prometheus scrape Track Record's
 own port for metrics: its hits and misses, the time each hit saved and each
@@ -1361,6 +1361,16 @@ lists them. Unlike the plane's, these are counters the server keeps in memory,
 so a restart starts them again and `increase()` is what reads them. The
 Ingress does not route to the port, and `track-record-admits-prometheus`
 admits Prometheus alone to it.
+
+The **Track Record** dashboard (`/d/track-record`) is built on those: the time
+hits saved and passes took to earn, the share saved and the hit rate over the
+range, each hour's time and lookups, a row a command, and the server's
+requests, latency, sweeps and memory. Namespace narrows everything counted by
+record. Time saved counts only hits on records made by track-record v0.2.0 or
+later, and each command's first hit and pass after a server start are in no
+total until Prometheus ingests created timestamps.
+`tests/track-record-dashboard.py` holds its queries to the series the server
+serves.
 
 ### Control-plane targets are switched off
 

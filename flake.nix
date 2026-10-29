@@ -359,6 +359,11 @@
         # declares.
         release-dashboard = import ./tests/release-dashboard.nix { inherit pkgs; };
 
+        # The Track Record dashboard: every query against the series the
+        # server serves, each narrowed by Namespace where it can be, and the
+        # rest track-record-dashboard.py's header lists.
+        track-record-dashboard = import ./tests/track-record-dashboard.nix { inherit pkgs; };
+
         # The evaluator command a Chuggy ticket runs, and the only check that
         # reads .chug/tasks/ci.sh.
         chug-ci = chugCi;
