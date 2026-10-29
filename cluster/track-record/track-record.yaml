@@ -26,6 +26,11 @@
 # The host is public only once it is also in `chuggy.tunnel.hostnames` and has
 # a CNAME to the tunnel, as cluster/chuggy/chuggy-ui.yaml's "the host, three
 # ways" describes.
+#
+# ITS METRICS ARE ON A PORT OF THEIR OWN, which only Prometheus reaches. They
+# name every namespace and command on record, which a token sees only for its
+# own namespace, so the Ingress does not route to them. The ServiceMonitor is
+# cluster/apps/track-record-monitor.yaml's, which says why it is not here.
 ---
 apiVersion: v1
 kind: Namespace
@@ -79,13 +84,15 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: track-record
-          image: registry.chuggy.internal/track-record/server@sha256:4efefe87dbc10e6778a7f108fd690076c2af6fe3eb49031e2ebab658e08504d4
+          image: registry.chuggy.internal/track-record/server@sha256:12fa409a0d97d9631caf97e425d9a1f0edbd75a94e8a4969ecbd781250e8d975
           imagePullPolicy: IfNotPresent
           command: [/usr/local/bin/track-record]
-          args: [serve, --listen, ":8080", --db, /data/track-record.db]
+          args: [serve, --listen, ":8080", --metrics-listen, ":9090", --db, /data/track-record.db]
           ports:
             - name: http
               containerPort: 8080
+            - name: metrics
+              containerPort: 9090
           # The one route that takes no token.
           readinessProbe:
             httpGet: { path: /healthz, port: http }
@@ -117,12 +124,17 @@ kind: Service
 metadata:
   name: track-record
   namespace: track-record
+  # What the ServiceMonitor selects it by.
+  labels: { app: track-record }
 spec:
   selector: { app: track-record }
   ports:
     - name: http
       port: 8080
       targetPort: http
+    - name: metrics
+      port: 9090
+      targetPort: metrics
 ---
 # Traefik alone, and nowhere out: the server calls nothing. The kubelet's
 # probes need no element, for the reason
@@ -146,6 +158,29 @@ spec:
               app.kubernetes.io/name: traefik
       ports:
         - { protocol: TCP, port: 8080 }
+---
+# Prometheus, on the metrics port alone. Ingress only: the policy above already
+# holds the pod to no egress, and a scrape is answered on the connection it
+# came in on.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: track-record-admits-prometheus
+  namespace: track-record
+spec:
+  podSelector:
+    matchLabels: { app: track-record }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - { protocol: TCP, port: 9090 }
 ---
 # The API under /v1 and the health route, and nothing else of the server.
 # Single-label and with no `tls:`, for the reasons chuggy-ui.yaml gives.
