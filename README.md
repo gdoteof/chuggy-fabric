@@ -1378,8 +1378,11 @@ hits saved and passes took to earn, the share saved and the hit rate over the
 range, each hour's time and lookups, a row a command, and the server's
 requests, latency, sweeps and memory. Namespace narrows everything counted by
 record. Time saved counts only hits on records made by track-record v0.2.0 or
-later, and each command's first hit and pass after a server start are in no
-total until Prometheus ingests created timestamps.
+later; each command's row also estimates it as its hits at its mean pass,
+which counts the hits that do not say. The server's counters carry when each
+series began, so a series' first value counts, but for a few minutes after a
+command's first hit or pass since a server start every total reads high:
+`increase` extrapolates a series only seconds old.
 `tests/track-record-dashboard.py` holds its queries to the series the server
 serves.
 

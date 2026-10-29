@@ -12,12 +12,21 @@
 # failing run is in no panel here, and CI time as a whole is chuggy's to
 # report.
 #
-# A RANGE HOLDS WHAT A SERIES ROSE BY WHILE PROMETHEUS WATCHED IT. The server
-# keeps its counters in memory, from zero at each start, and `increase` allows
-# for that. A series first appears holding its first count, though, which no
-# `increase` sees, so every total reads low by each command's first hit and
-# first pass after the server starts, until Prometheus ingests created
-# timestamps. The page's description says so.
+# TIME SAVED, ESTIMATED, IS EACH HIT AT ITS COMMAND'S MEAN PASS: a command's
+# hits over the range times its pass seconds over its passes. It counts a hit
+# on a record that never said how long its pass took, at what the command's
+# passes take now, so where it exceeds Time saved, hits reused such records.
+# A command with no pass in the range has no estimate.
+#
+# A RANGE COUNTS A SERIES FROM ITS FIRST VALUE. The server keeps its counters
+# in memory, from zero at each start, and `increase` allows for that. Its
+# client library names when each series began, and Prometheus writes a zero
+# at that time (cluster/apps/monitoring.yaml's
+# created-timestamp-zero-ingestion), so a series' first value counts.
+# `increase` extrapolates to the range's end from the samples it has, though,
+# so for a few minutes after a command's first hit or pass since a start its
+# series spans seconds and every total reads high. The page's description
+# says so.
 #
 # NAMESPACE NARROWS WHAT IS COUNTED BY RECORD, NOT THE SERVER. Every selector
 # of a series that carries `record_namespace` matches the variable; the
@@ -38,7 +47,7 @@ data:
     {
       "uid": "track-record",
       "title": "Track Record",
-      "description": "What Track Record's hits saved, what earning its passes cost, and how its server is doing. Time saved counts only hits on records made by track-record v0.2.0 or later, and failing runs are in no panel: the server hears only of passes. Until Prometheus ingests created timestamps, every total reads low by each command's first hit and first pass after the server starts.",
+      "description": "What Track Record's hits saved, what earning its passes cost, and how its server is doing. Time saved counts only hits on records made by track-record v0.2.0 or later, and failing runs are in no panel: the server hears only of passes. For a few minutes after a command's first hit or pass since the server started, every total reads high: Prometheus extrapolates a series only seconds old.",
       "tags": [
         "track-record"
       ],
@@ -650,7 +659,7 @@ data:
           "id": 11,
           "type": "table",
           "title": "Commands",
-          "description": "Each command by its --name, over the range: the time its hits saved and its passes took, how often each happened, and how long a pass took on average. A miss names no command, so misses are not here.",
+          "description": "Each command by its --name, over the range: the time its hits saved and its passes took, how often each happened, and how long a pass took on average. Time saved (est.) is its hits at its mean pass, so it counts hits on records that never said how long their pass took; where it exceeds Time saved, hits reused such records. A command with no pass in the range has no estimate. A miss names no command, so misses are not here.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -721,6 +730,18 @@ data:
               "instant": true,
               "range": false,
               "format": "table"
+            },
+            {
+              "refId": "F",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (record_namespace, name) (increase(track_record_hits_total{record_namespace=~\"$namespace\"}[$__range])) * sum by (record_namespace, name) (increase(track_record_pass_seconds_total{record_namespace=~\"$namespace\"}[$__range])) / sum by (record_namespace, name) (increase(track_record_passes_total{record_namespace=~\"$namespace\"}[$__range]))",
+              "legendFormat": "__auto",
+              "instant": true,
+              "range": false,
+              "format": "table"
             }
           ],
           "transformations": [
@@ -738,15 +759,17 @@ data:
                   "name": 0,
                   "record_namespace": 1,
                   "Value #A": 2,
-                  "Value #B": 3,
-                  "Value #C": 4,
-                  "Value #D": 5,
-                  "Value #E": 6
+                  "Value #F": 3,
+                  "Value #B": 4,
+                  "Value #C": 5,
+                  "Value #D": 6,
+                  "Value #E": 7
                 },
                 "renameByName": {
                   "name": "Command",
                   "record_namespace": "Namespace",
                   "Value #A": "Time saved",
+                  "Value #F": "Time saved (est.)",
                   "Value #B": "Hits",
                   "Value #C": "Time earning passes",
                   "Value #D": "Passes",
@@ -777,6 +800,22 @@ data:
                 "matcher": {
                   "id": "byName",
                   "options": "Time saved"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "s"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 1
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Time saved (est.)"
                 },
                 "properties": [
                   {
