@@ -58,6 +58,21 @@ spec:
               value: "4728465"
             - name: CHUG_WORKER_PLANE_FORGE_APP_KEY_FILE
               value: /var/run/chuggy/forge-app/private-key
+            # A job on a personal runner mounts none of the scheduler's
+            # credentials, so this plane serves it each one held here, and only
+            # to the project its entry names; kasofsk/chuggy's
+            # `deploy/rig/images/README.md` says which attempts are answered.
+            - name: CHUG_WORKER_PLANE_HELD_CREDENTIALS
+              value: |
+                [
+                  {
+                    "credential": "track-record",
+                    "tenant": "vteng",
+                    "project": "chuggy",
+                    "variable": "TRACK_RECORD_TOKEN_FILE",
+                    "file": "/var/run/chuggy/held/track-record/token"
+                  }
+                ]
           ports:
             - name: http
               containerPort: 3001
@@ -66,6 +81,9 @@ spec:
               mountPath: /var/lib/chuggy/artifacts
             - name: forge-app
               mountPath: /var/run/chuggy/forge-app
+              readOnly: true
+            - name: held-track-record
+              mountPath: /var/run/chuggy/held/track-record
               readOnly: true
           resources:
             requests: { cpu: 100m, memory: 128Mi }
@@ -127,6 +145,16 @@ spec:
             items:
               - key: private-key
                 path: private-key
+        # The Track Record token the roster above holds, made as
+        # cluster/track-record/track-record.yaml says: 0444 and the key
+        # named, as above.
+        - name: held-track-record
+          secret:
+            secretName: track-record-chuggy-runners
+            defaultMode: 0444
+            items:
+              - key: token
+                path: token
 ---
 apiVersion: v1
 kind: Service
