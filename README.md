@@ -1826,7 +1826,9 @@ they are resumed.
    `chuggy-selector.yaml`, `chuggy-finalizer-credentials` in
    `chuggy-finalizer.yaml`, `chuggy-github-app-portal` and
    `chuggy-github-app-portal-client` in `chuggy-api.yaml`, and
-   `chuggy-github-app-worker` in `chuggy-worker-plane.yaml`. The two Apps' keys
+   `chuggy-github-app-worker` in `chuggy-worker-plane.yaml`, and, once Track
+   Record answers, `track-record-chuggy-runners` in
+   `cluster/track-record/track-record.yaml`. The two Apps' keys
    are the host's own key files, copied: `keySecret` beside each App's
    `privateKeyFile` on the host is the name, and `tests/forge-app-key.py`
    holds the manifests to it. A pod whose Secret is missing is never built,

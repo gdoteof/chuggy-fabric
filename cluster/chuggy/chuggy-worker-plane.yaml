@@ -145,7 +145,8 @@ spec:
             items:
               - key: private-key
                 path: private-key
-        # The Track Record token the roster above holds: 0444 and the key
+        # The Track Record token the roster above holds, made as
+        # cluster/track-record/track-record.yaml says: 0444 and the key
         # named, as above.
         - name: held-track-record
           secret:
