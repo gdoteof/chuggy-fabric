@@ -20,6 +20,16 @@
 #     kubectl -n chuggy-work create secret generic track-record-chuggy \
 #       --from-file=token=/dev/stdin
 #
+# Personal runners' jobs get theirs from the worker plane, which holds its own
+# token in its own namespace (cluster/chuggy/chuggy-worker-plane.yaml), so
+# revoking it disowns only what runners recorded:
+#
+#   kubectl -n track-record exec deploy/track-record -- \
+#     /usr/local/bin/track-record token create --db /data/track-record.db \
+#       --namespace chuggy --scope write --label chuggy-runners |
+#     kubectl -n chuggy create secret generic track-record-chuggy-runners \
+#       --from-file=token=/dev/stdin
+#
 # `token list --db /data/track-record.db` says what is live, and `token revoke
 # --db /data/track-record.db <id>` ends one. Neither prints a token.
 #
