@@ -260,6 +260,12 @@
         # written in two places, and a report answered 404 when they differ.
         action-reporters = actionReporters;
 
+        # A roster the worker plane reads and the Secret each file it names is
+        # projected from: a file nothing projects is a plane that does not
+        # start, and a file projected from another Secret is that Secret
+        # served to a project's runners.
+        held-credentials = import ./tests/held-credentials.nix { inherit pkgs; };
+
         # D30 and D14 in a form a check can hold: an enabled host that has not
         # said what a task may cost, or who may reach its API, is refused rather
         # than built against a guess.
