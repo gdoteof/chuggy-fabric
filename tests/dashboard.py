@@ -33,7 +33,10 @@ names its dashboard and the families its plane serves, and calls
   whatever counts it, so it is read only through `increase` or `rate`, which
   take a fall for a restart. Either of a gauge means nothing, and
   `last_over_time` reads a gauge alone. A bucket series any aggregation on its
-  way into histogram_quantile sums without `le` leaves it nothing to read.
+  way into histogram_quantile sums without `le` leaves it nothing to read, and
+  one it reads matching `le` is missing buckets. Outside histogram_quantile a
+  bucket series is read as one bucket, `le` matched to its bound: each bucket
+  holds every one below it, so a sum of two counts the lower twice.
 - A stat, a bar gauge or a table shows one value for the selected time and a
   time series one for each step, so the first three read instant queries and
   any window over `[$__range]`, and the last a range query and any window over
@@ -338,8 +341,13 @@ class Check:
                 refuse(f"{where} reads {name}, a counter, other than through increase or rate")
             if name.endswith("_bucket"):
                 quantile = [at for at, step in enumerate(selector.enclosing) if step == ("function", "histogram_quantile")]
+                bounds = [operator for label, operator, _ in selector.matchers if label == "le"]
+                if not quantile and bounds != ["="]:
+                    refuse(f"{where} reads {name} outside histogram_quantile other than as one bucket, by le=")
+                if quantile and bounds:
+                    refuse(f"{where} matches le on {name} into histogram_quantile, which reads every bucket")
                 between = [inner for kind, inner in selector.enclosing[quantile[-1] + 1:] if kind == "aggregation"] if quantile else []
-                if not between or any("le" not in aggregation["by"] for aggregation in between):
+                if quantile and (not between or any("le" not in aggregation["by"] for aggregation in between)):
                     refuse(f"{where} sums {name} other than by le into histogram_quantile")
             elif "histogram_quantile" in functions:
                 refuse(f"{where} reads histogram_quantile of {name}, which is not a bucket series")
