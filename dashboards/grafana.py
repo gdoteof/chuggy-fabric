@@ -77,8 +77,8 @@ def who(description, choices, chosen):
     }
 
 
-def dashboard(uid, title, description, time_from, refresh, variables, panels):
-    return {
+def dashboard(uid, title, description, time_from, refresh, variables, panels, links=()):
+    found = {
         "uid": uid,
         "title": title,
         "description": description,
@@ -92,6 +92,25 @@ def dashboard(uid, title, description, time_from, refresh, variables, panels):
         "refresh": refresh,
         "templating": {"list": variables},
         "panels": panels,
+    }
+    if links:
+        found["links"] = list(links)
+    return found
+
+
+def link(title, url, tooltip):
+    """A link in the page's header to an address outside Grafana, opened in a new tab."""
+    return {
+        "title": title,
+        "type": "link",
+        "url": url,
+        "tooltip": tooltip,
+        "icon": "external link",
+        "targetBlank": True,
+        "asDropdown": False,
+        "includeVars": False,
+        "keepTime": False,
+        "tags": [],
     }
 
 
@@ -110,6 +129,11 @@ def manifest(header, name, key, board):
     ]
     lines += ["    " + line for line in json.dumps(board, indent=2).split("\n")]
     return "\n".join(lines) + "\n"
+
+
+def nothing(none):
+    """What a panel reads where a query has no value, or one Prometheus gives as NaN."""
+    return {"noValue": none, "mappings": [{"type": "special", "options": {"match": "nan", "result": {"text": none, "index": 0}}}]}
 
 
 def grid(x, y, w, h):
@@ -136,7 +160,8 @@ class Board:
             "panels": [],
         })
 
-    def stat(self, title, description, targets, x, y, w, h, unit, decimals=None, thresholds=None):
+    def stat(self, title, description, targets, x, y, w, h, unit, decimals=None, thresholds=None, none=None):
+        """A value for each query, which reads 0 where it has none, or `none` where given."""
         defaults = {
             "unit": unit,
             "noValue": "0",
@@ -148,6 +173,8 @@ class Board:
         }
         if decimals is not None:
             defaults["decimals"] = decimals
+        if none is not None:
+            defaults |= nothing(none)
         self.add({
             "type": "stat",
             "title": title,
@@ -210,8 +237,10 @@ class Board:
         }
         self.add(panel)
 
-    def lines(self, title, description, targets, x, y, w, h, unit, decimals=None, overrides=()):
-        """A line for each series of a gauge, the legend giving each one's latest value."""
+    def lines(self, title, description, targets, x, y, w, h, unit, decimals=None, overrides=(), interval=None, most=None):
+        """A line for each series, the legend giving each one's latest value; `interval`,
+        where given, is the least step, and a point is drawn where steps are few; `most`,
+        where given, is the top of the axis."""
         defaults = {
             "unit": unit,
             "min": 0,
@@ -220,17 +249,23 @@ class Board:
                 "drawStyle": "line",
                 "lineWidth": 1,
                 "fillOpacity": 0,
-                "showPoints": "never",
+                "showPoints": "never" if interval is None else "auto",
                 "spanNulls": False,
             },
         }
         if decimals is not None:
             defaults["decimals"] = decimals
-        self.add({
+        if most is not None:
+            defaults["max"] = most
+        panel = {
             "type": "timeseries",
             "title": title,
             "description": description,
             "datasource": DS,
+        }
+        if interval is not None:
+            panel["interval"] = interval
+        self.add(panel | {
             "gridPos": grid(x, y, w, h),
             "targets": targets,
             "fieldConfig": {"defaults": defaults, "overrides": list(overrides)},
@@ -245,18 +280,21 @@ class Board:
             },
         })
 
-    def bargauge(self, title, description, targets, x, y, w, h, unit, overrides=(), none=None, tallest=None):
+    def bargauge(self, title, description, targets, x, y, w, h, unit, overrides=(), none=None, tallest=None, named=False):
         """A bar for each series; `none`, where given, is what a series of no value reads,
-        and `tallest` the most pixels a bar is drawn, which keeps a few bars' names their size."""
+        `tallest` the most pixels a bar is drawn, which keeps a few bars' names their size,
+        and `named` keeps a bar's name when it is the only one, which Grafana otherwise
+        leaves to the panel's title."""
         defaults = {
             "unit": unit,
             "min": 0,
             "color": {"mode": "palette-classic"},
             "thresholds": {"mode": "absolute", "steps": [{"color": "text", "value": None}]},
         }
+        if named:
+            defaults["displayName"] = "${__series.name}"
         if none is not None:
-            defaults["noValue"] = none
-            defaults["mappings"] = [{"type": "special", "options": {"match": "nan", "result": {"text": none, "index": 0}}}]
+            defaults |= nothing(none)
         self.add({
             "type": "bargauge",
             "title": title,

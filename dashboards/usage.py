@@ -17,8 +17,7 @@ HEADER = """\
 # `${__user.login}`, which Grafana fills with the signed-in person's login;
 # monitoring.yaml's `login_attribute_path` makes that login the subject the
 # plane cuts its `owner` label from. Every member signed in can query every
-# series whatever this page shows. A ticket's count carries no owner, so
-# Tickets by phase is not narrowed by Who, and its description says so.
+# series whatever this page shows.
 #
 # EVERY QUERY SUMS, AND ONLY BY ITS FAMILY'S OWN LABELS. A family's series
 # differ by every label it carries -- stage, workload, placement and the rest
@@ -40,9 +39,8 @@ HEADER = """\
 # what its own header lists.
 """
 
-# Every family carrying an owner is narrowed by all three; chuggy_tickets by two.
+# Every family carries an owner, and is narrowed by all three.
 S = 'tenant=~"$tenant", project=~"$project", owner=~"$owner"'
-T = 'tenant=~"$tenant", project=~"$project"'
 COST = '__name__=~"chuggy_run_cost_usd_total|chuggy_session_turn_cost_usd_total"'
 TOKENS = '__name__=~"chuggy_run_tokens_total|chuggy_session_turn_tokens_total"'
 
@@ -237,9 +235,9 @@ stat(
 row("Tickets", 53)
 bargauge(
     "Tickets by phase",
-    "Every ticket, by the phase it stands in now. Who does not narrow it: a ticket's count carries no owner.",
-    [target("A", f"sum by (phase) (chuggy_tickets{{{T}}})", "{{phase}}", instant=True)],
-    0, 54, 24, 7, "short",
+    "Every ticket, by the phase it stands in now.",
+    [target("A", f"sum by (phase) (chuggy_tickets{{{S}}})", "{{phase}}", instant=True)],
+    0, 54, 24, 7, "short", named=True,
     overrides=colours([
         ("Pending", "yellow"), ("Work", "blue"), ("Evaluation", "purple"), ("Finalization", "light-green"),
         ("Done", "green"), ("Escalated", "red"), ("Revoked", "text"),

@@ -11,8 +11,7 @@
 # `${__user.login}`, which Grafana fills with the signed-in person's login;
 # monitoring.yaml's `login_attribute_path` makes that login the subject the
 # plane cuts its `owner` label from. Every member signed in can query every
-# series whatever this page shows. A ticket's count carries no owner, so
-# Tickets by phase is not narrowed by Who, and its description says so.
+# series whatever this page shows.
 #
 # EVERY QUERY SUMS, AND ONLY BY ITS FAMILY'S OWN LABELS. A family's series
 # differ by every label it carries -- stage, workload, placement and the rest
@@ -1660,7 +1659,7 @@ data:
           "id": 26,
           "type": "bargauge",
           "title": "Tickets by phase",
-          "description": "Every ticket, by the phase it stands in now. Who does not narrow it: a ticket's count carries no owner.",
+          "description": "Every ticket, by the phase it stands in now.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -1678,7 +1677,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum by (phase) (chuggy_tickets{tenant=~\"$tenant\", project=~\"$project\"})",
+              "expr": "sum by (phase) (chuggy_tickets{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"})",
               "legendFormat": "{{phase}}",
               "instant": true,
               "range": false
@@ -1699,7 +1698,8 @@ data:
                     "value": null
                   }
                 ]
-              }
+              },
+              "displayName": "${__series.name}"
             },
             "overrides": [
               {

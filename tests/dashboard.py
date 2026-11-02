@@ -33,7 +33,12 @@ names its dashboard and the families its plane serves, and calls
   whatever counts it, so it is read only through `increase` or `rate`, which
   take a fall for a restart. Either of a gauge means nothing, and
   `last_over_time` reads a gauge alone. A bucket series any aggregation on its
-  way into histogram_quantile sums without `le` leaves it nothing to read.
+  way into histogram_quantile sums without `le` leaves it nothing to read, and
+  one it reads matching `le` is missing buckets. Outside histogram_quantile a
+  page reads only a bucket its check names, by `le=` at the bound as
+  Prometheus stores it, and one in a query: a bound written otherwise reads
+  nothing, and each bucket holds every one below it, so a sum of two counts
+  the lower twice.
 - A stat, a bar gauge or a table shows one value for the selected time and a
   time series one for each step, so the first three read instant queries and
   any window over `[$__range]`, and the last a range query and any window over
@@ -269,13 +274,15 @@ def shown(labels):
 
 
 class Check:
-    """One dashboard's check: its ConfigMap and uid, and its plane's families,
-    each name its type and the labels its series carry."""
+    """One dashboard's check: its ConfigMap and uid, its plane's families, each
+    name its type and the labels its series carry, and the buckets its page
+    reads outside histogram_quantile, each a series and a bound."""
 
-    def __init__(self, configmap, uid, families):
+    def __init__(self, configmap, uid, families, buckets=()):
         self.configmap = configmap
         self.uid = uid
         self.families = families
+        self.buckets = set(buckets)
 
     def series_of(self, name):
         """The family a series name is of, its type, and the labels the series carries."""
@@ -338,8 +345,13 @@ class Check:
                 refuse(f"{where} reads {name}, a counter, other than through increase or rate")
             if name.endswith("_bucket"):
                 quantile = [at for at, step in enumerate(selector.enclosing) if step == ("function", "histogram_quantile")]
+                bounds = [(operator, value) for label, operator, value in selector.matchers if label == "le"]
+                if not quantile and (len(bounds) != 1 or bounds[0][0] != "=" or (name, bounds[0][1]) not in self.buckets):
+                    refuse(f"{where} reads {name} outside histogram_quantile other than at a bucket its check names, by le=")
+                if quantile and bounds:
+                    refuse(f"{where} matches le on {name} into histogram_quantile, which reads every bucket")
                 between = [inner for kind, inner in selector.enclosing[quantile[-1] + 1:] if kind == "aggregation"] if quantile else []
-                if not between or any("le" not in aggregation["by"] for aggregation in between):
+                if quantile and (not between or any("le" not in aggregation["by"] for aggregation in between)):
                     refuse(f"{where} sums {name} other than by le into histogram_quantile")
             elif "histogram_quantile" in functions:
                 refuse(f"{where} reads histogram_quantile of {name}, which is not a bucket series")
@@ -393,8 +405,18 @@ class Check:
                     refuse(f"{where} is not read as a table, so its rows are steps rather than series")
                 queries.append((where, target["expr"]))
                 labels_of = lambda selector, where=where: self.resolved(selector, where)[1]
-                for selector in parsed(target["expr"], where, labels_of).selectors:
+                selectors = parsed(target["expr"], where, labels_of).selectors
+                for selector in selectors:
                     self.panel_selector(selector, where, window)
+                outside = [
+                    name
+                    for selector in selectors
+                    if ("function", "histogram_quantile") not in selector.enclosing
+                    for name in names_of(selector, where)
+                    if name.endswith("_bucket")
+                ]
+                if len(outside) > 1:
+                    refuse(f"{where} reads {len(outside)} buckets outside histogram_quantile, where a query reads one")
             merged = any(step.get("id") == "merge" for step in panel.get("transformations") or [])
             if panel.get("type") == "table" and len(panel.get("targets") or []) > 1 and not merged:
                 refuse(f"table {panel.get('title')!r} does not merge its queries' frames, so it shows one of them")

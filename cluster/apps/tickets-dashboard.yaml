@@ -1,0 +1,2346 @@
+# How chuggy's tickets are going, on one page: how many were released, landed
+# and revoked, how often a result sent one back and from where, how long one
+# took to land, how long one stood escalated and what one cost, read from the
+# series chuggy-metrics-plane-monitor.yaml has Prometheus scrape.
+#
+# THE DASHBOARD'S UID IS AN ADDRESS. `/d/chuggy-tickets` is the page, and a
+# link handed to someone is not this file's to change: renaming the uid breaks
+# every one already given out.
+#
+# NO TICKET IS A LABEL. The plane counts tickets and never names one, so the
+# page shows how many and how long, and its header links to the console, where
+# each ticket is.
+#
+# WHO IS A VIEW, NOT A BOUNDARY. Every selector matches `owner=~"$owner"`, a
+# ticket's owner being the member who first wrote its draft, the same subject
+# a run's `owner` names. Everyone is `.*`, and Me is `${__user.login}`, which
+# Grafana fills with the signed-in person's login; monitoring.yaml's
+# `login_attribute_path` makes that login the subject the plane cuts its
+# `owner` label from. Every member signed in can query every series whatever
+# this page shows.
+#
+# EVERY QUERY SUMS, AND ONLY BY ITS FAMILY'S OWN LABELS, so a release
+# replacing the plane's pod draws no new line, and each ratio divides two sums
+# grouped alike, as an alert rule would read them.
+#
+# A STAGE READS AS ITS CONFIGURATION NAMES IT. A configuration that names no
+# stage leaves the plane its number, so one stage can read as a number on
+# older tickets and a name on newer ones, and the descriptions say so.
+#
+# A RANGE COUNTS A SERIES FROM ITS FIRST VALUE, as on the usage page: the
+# plane names when each series began, as its OpenMetrics `_created`, and
+# Prometheus writes a zero at that time (cluster/apps/monitoring.yaml's
+# created-timestamp-zero-ingestion).
+#
+# It is a plain ConfigMap for the reason release-dashboard.yaml's is: the
+# sidecar finds it by label and nothing mounts it. dashboards/tickets.py writes
+# this file whole; tests/tickets-dashboard.py holds it to that writer and to
+# what its own header lists.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chuggy-tickets-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  chuggy-tickets.json: |-
+    {
+      "uid": "chuggy-tickets",
+      "title": "Chuggy tickets",
+      "description": "How chuggy's tickets are going: released, landed and revoked, how often a result sent one back and from where, how long one took, how long one stood escalated and what one cost, from the metrics plane. Costs are estimates at list price. Who narrows the page to the tickets the signed-in person created; it is a view, not a boundary.",
+      "tags": [
+        "chuggy"
+      ],
+      "schemaVersion": 39,
+      "version": 1,
+      "editable": false,
+      "graphTooltip": 1,
+      "timezone": "browser",
+      "time": {
+        "from": "now-7d",
+        "to": "now"
+      },
+      "refresh": "5m",
+      "templating": {
+        "list": [
+          {
+            "name": "tenant",
+            "label": "Tenant",
+            "description": "The tenants whose tickets the plane has counted.",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "query": "label_values(chuggy_tickets, tenant)",
+            "definition": "label_values(chuggy_tickets, tenant)",
+            "refresh": 2,
+            "sort": 1,
+            "multi": true,
+            "includeAll": true,
+            "allValue": ".*",
+            "current": {
+              "selected": true,
+              "text": [
+                "All"
+              ],
+              "value": [
+                "$__all"
+              ]
+            },
+            "options": []
+          },
+          {
+            "name": "project",
+            "label": "Project",
+            "description": "The selected tenants' projects.",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "query": "label_values(chuggy_tickets{tenant=~\"$tenant\"}, project)",
+            "definition": "label_values(chuggy_tickets{tenant=~\"$tenant\"}, project)",
+            "refresh": 2,
+            "sort": 1,
+            "multi": true,
+            "includeAll": true,
+            "allValue": ".*",
+            "current": {
+              "selected": true,
+              "text": [
+                "All"
+              ],
+              "value": [
+                "$__all"
+              ]
+            },
+            "options": []
+          },
+          {
+            "name": "owner",
+            "label": "Who",
+            "description": "Everyone's tickets, or only those the signed-in person created.",
+            "type": "custom",
+            "query": "Everyone : .*,Me : ${__user.login}",
+            "multi": false,
+            "includeAll": false,
+            "current": {
+              "selected": true,
+              "text": "Everyone",
+              "value": ".*"
+            },
+            "options": [
+              {
+                "selected": true,
+                "text": "Everyone",
+                "value": ".*"
+              },
+              {
+                "selected": false,
+                "text": "Me",
+                "value": "${__user.login}"
+              }
+            ]
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "row",
+          "title": "At a glance",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Released",
+          "description": "Tickets released over the selected time.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 1,
+            "w": 6,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=\"TicketCreated\"}[$__range]))",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "0",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Landed",
+          "description": "Tickets landed over the selected time.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 6,
+            "y": 1,
+            "w": 6,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=\"TicketFinalizationSucceeded\"}[$__range]))",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "0",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Revoked",
+          "description": "Tickets revoked over the selected time, before or after their work began.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 1,
+            "w": 6,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=\"TicketRevoked\"}[$__range]))",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "0",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "Open now",
+          "description": "Tickets neither landed nor revoked, now: waiting, in work, in evaluation, landing or escalated.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 18,
+            "y": 1,
+            "w": 6,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(chuggy_tickets{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", phase!~\"Done|Revoked\"})",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "0",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "Escalated now",
+          "description": "Tickets standing escalated now, each waiting to be resumed or revoked.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 5,
+            "w": 6,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(chuggy_tickets{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", phase=\"Escalated\"})",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "0",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 7,
+          "type": "stat",
+          "title": "Escalations",
+          "description": "Times a ticket was escalated over the selected time, whatever escalated it.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 6,
+            "y": 5,
+            "w": 6,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=~\"TicketWorkProcessFailed|TicketWorkExecutionUnavailable|TicketEvaluationFailureEscalated|TicketEvaluationBlocked|TicketFinalizationUnavailable\"}[$__range]))",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "0",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 8,
+          "type": "stat",
+          "title": "First-pass rate",
+          "description": "Of the tickets landed over the selected time, the share no result sent back to work.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 5,
+            "w": 6,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(increase(chuggy_ticket_reworks_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", le=\"0.0\"}[$__range])) / (sum(increase(chuggy_ticket_reworks_count{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])) > 0)",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "noValue": "None landed",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 0,
+              "mappings": [
+                {
+                  "type": "special",
+                  "options": {
+                    "match": "nan",
+                    "result": {
+                      "text": "None landed",
+                      "index": 0
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 9,
+          "type": "stat",
+          "title": "Reworks per landed ticket",
+          "description": "How many times a ticket landed over the selected time was sent back to work, on average: by a stage, by landing, or resumed to work after failing evaluation past its retries.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 18,
+            "y": 5,
+            "w": 6,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(increase(chuggy_ticket_reworks_sum{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])) / (sum(increase(chuggy_ticket_reworks_count{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])) > 0)",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "None landed",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 1,
+              "mappings": [
+                {
+                  "type": "special",
+                  "options": {
+                    "match": "nan",
+                    "result": {
+                      "text": "None landed",
+                      "index": 0
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 10,
+          "type": "stat",
+          "title": "Median lead time",
+          "description": "Half the tickets landed over the selected time took longer than this from release to landing. Approximate: interpolated within coarse buckets.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 9,
+            "w": 6,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_lead_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])))",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "noValue": "None landed",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "mappings": [
+                {
+                  "type": "special",
+                  "options": {
+                    "match": "nan",
+                    "result": {
+                      "text": "None landed",
+                      "index": 0
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 11,
+          "type": "stat",
+          "title": "Mean wait before dispatch",
+          "description": "How long a ticket landed over the selected time waited from its release to its first dispatch, on average.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 6,
+            "y": 9,
+            "w": 6,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "(sum(increase(chuggy_ticket_lead_time_seconds_sum{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])) - sum(increase(chuggy_ticket_run_time_seconds_sum{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range]))) / (sum(increase(chuggy_ticket_lead_time_seconds_count{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])) > 0)",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "noValue": "None landed",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "mappings": [
+                {
+                  "type": "special",
+                  "options": {
+                    "match": "nan",
+                    "result": {
+                      "text": "None landed",
+                      "index": 0
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 12,
+          "type": "stat",
+          "title": "Median landed ticket cost",
+          "description": "Half the tickets landed over the selected time cost more than this in runs. A ticket's cost is counted a little after it ends. Approximate: interpolated within coarse buckets. An estimate, at list price.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 9,
+            "w": 6,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_cost_usd_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", end=\"Done\"}[$__range])))",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "currencyUSD",
+              "noValue": "None landed",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 2,
+              "mappings": [
+                {
+                  "type": "special",
+                  "options": {
+                    "match": "nan",
+                    "result": {
+                      "text": "None landed",
+                      "index": 0
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 13,
+          "type": "stat",
+          "title": "Spent per landed ticket",
+          "description": "What the tickets that ended over the selected time cost, landed and revoked alike, over the tickets landed in it: reworks and revoked tickets are in it, work still open is not. A ticket's cost is counted a little after it ends. An estimate, at list price.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 18,
+            "y": 9,
+            "w": 6,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(increase(chuggy_ticket_cost_usd_sum{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])) / (sum(increase(chuggy_ticket_cost_usd_count{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", end=\"Done\"}[$__range])) > 0)",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "currencyUSD",
+              "noValue": "None landed",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 2,
+              "mappings": [
+                {
+                  "type": "special",
+                  "options": {
+                    "match": "nan",
+                    "result": {
+                      "text": "None landed",
+                      "index": 0
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 14,
+          "type": "row",
+          "title": "Flow",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 13,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 15,
+          "type": "timeseries",
+          "title": "Released per day",
+          "description": "Tickets released each day. Each bar is a day, drawn once it has ended, and the legend totals the bars.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "1d",
+          "gridPos": {
+            "x": 0,
+            "y": 14,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=\"TicketCreated\"}[$__interval]))",
+              "legendFormat": "Released",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 80,
+                "lineWidth": 1,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                }
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "sum"
+              ],
+              "sortBy": "Total",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 16,
+          "type": "timeseries",
+          "title": "Landed and revoked per day",
+          "description": "Tickets that ended each day, by how. Each bar is a day, drawn once it has ended, and the legend totals the bars.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "1d",
+          "gridPos": {
+            "x": 12,
+            "y": 14,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=\"TicketFinalizationSucceeded\"}[$__interval]))",
+              "legendFormat": "Landed",
+              "range": true
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=\"TicketRevoked\"}[$__interval]))",
+              "legendFormat": "Revoked",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 80,
+                "lineWidth": 1,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                }
+              },
+              "decimals": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Landed"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "green"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Revoked"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "text"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "sum"
+              ],
+              "sortBy": "Total",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 17,
+          "type": "timeseries",
+          "title": "Open tickets by phase",
+          "description": "Tickets standing in each open phase: the work in progress. The legend gives each phase's count now.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 22,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (phase) (chuggy_tickets{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", phase!~\"Done|Revoked\"})",
+              "legendFormat": "{{phase}}",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 0,
+                "showPoints": "never",
+                "spanNulls": false
+              },
+              "decimals": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Pending"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "yellow"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Work"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "blue"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Evaluation"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "purple"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Finalization"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "light-green"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Escalated"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "red"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 18,
+          "type": "bargauge",
+          "title": "Escalated now, by kind",
+          "description": "Tickets standing escalated now, by what escalated them.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 22,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (escalation) (chuggy_tickets{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", phase=\"Escalated\"})",
+              "legendFormat": "{{escalation}}",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "displayName": "${__series.name}",
+              "noValue": "None",
+              "mappings": [
+                {
+                  "type": "special",
+                  "options": {
+                    "match": "nan",
+                    "result": {
+                      "text": "None",
+                      "index": 0
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "orientation": "horizontal",
+            "displayMode": "basic",
+            "valueMode": "color",
+            "showUnfilled": true,
+            "namePlacement": "left",
+            "sizing": "manual",
+            "minVizHeight": 16,
+            "maxVizHeight": 32
+          }
+        },
+        {
+          "id": 19,
+          "type": "row",
+          "title": "Quality",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 30,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 20,
+          "type": "timeseries",
+          "title": "Sent back, by where",
+          "description": "Times a result sent a ticket back to work each day: by the evaluation stage that sent it, or by landing. A stage reads as its configuration names it, or as its number where the configuration names none. Each bar is a day, drawn once it has ended, and the legend totals the bars.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "1d",
+          "gridPos": {
+            "x": 0,
+            "y": 31,
+            "w": 24,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (stage) (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=\"TicketEvaluationReworkStarted\"}[$__interval]))",
+              "legendFormat": "{{stage}}",
+              "range": true
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=\"TicketFinalizationNeedsWork\"}[$__interval]))",
+              "legendFormat": "Landing",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 80,
+                "lineWidth": 1,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                }
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "sum"
+              ],
+              "sortBy": "Total",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 21,
+          "type": "timeseries",
+          "title": "First-pass rate per day",
+          "description": "Of the tickets landed each day, the share no result sent back to work. Each point is a day, drawn once it has ended.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "1d",
+          "gridPos": {
+            "x": 0,
+            "y": 39,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(increase(chuggy_ticket_reworks_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", le=\"0.0\"}[$__interval])) / (sum(increase(chuggy_ticket_reworks_count{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__interval])) > 0)",
+              "legendFormat": "First-pass rate",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 0,
+                "showPoints": "auto",
+                "spanNulls": false
+              },
+              "decimals": 0,
+              "max": 1
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 22,
+          "type": "timeseries",
+          "title": "Reworks per landed ticket per day",
+          "description": "How many times a ticket landed each day was sent back to work, on average. Each point is a day, drawn once it has ended.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "1d",
+          "gridPos": {
+            "x": 12,
+            "y": 39,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(increase(chuggy_ticket_reworks_sum{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__interval])) / (sum(increase(chuggy_ticket_reworks_count{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__interval])) > 0)",
+              "legendFormat": "Reworks per landed ticket",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 0,
+                "showPoints": "auto",
+                "spanNulls": false
+              },
+              "decimals": 1
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 23,
+          "type": "row",
+          "title": "Time",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 47,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 24,
+          "type": "bargauge",
+          "title": "Lead time and run time",
+          "description": "How long the tickets landed over the selected time took: lead time from release to landing, run time from first dispatch to landing, the median and the 90th percentile of each. Approximate: interpolated within coarse buckets.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 48,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_lead_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])))",
+              "legendFormat": "Lead time, median",
+              "instant": true,
+              "range": false
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.9, sum by (le) (increase(chuggy_ticket_lead_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])))",
+              "legendFormat": "Lead time, 90th percentile",
+              "instant": true,
+              "range": false
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_run_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])))",
+              "legendFormat": "Run time, median",
+              "instant": true,
+              "range": false
+            },
+            {
+              "refId": "D",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.9, sum by (le) (increase(chuggy_ticket_run_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])))",
+              "legendFormat": "Run time, 90th percentile",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "noValue": "None landed",
+              "mappings": [
+                {
+                  "type": "special",
+                  "options": {
+                    "match": "nan",
+                    "result": {
+                      "text": "None landed",
+                      "index": 0
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "orientation": "horizontal",
+            "displayMode": "basic",
+            "valueMode": "color",
+            "showUnfilled": true,
+            "namePlacement": "left",
+            "sizing": "manual",
+            "minVizHeight": 16,
+            "maxVizHeight": 32
+          }
+        },
+        {
+          "id": 25,
+          "type": "timeseries",
+          "title": "Lead time and run time per day",
+          "description": "How long the tickets landed each day took, the median and the 90th percentile of each. Approximate: interpolated within coarse buckets. Each point is a day, drawn once it has ended.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "1d",
+          "gridPos": {
+            "x": 12,
+            "y": 48,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_lead_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__interval])))",
+              "legendFormat": "Lead time, median",
+              "range": true
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.9, sum by (le) (increase(chuggy_ticket_lead_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__interval])))",
+              "legendFormat": "Lead time, 90th percentile",
+              "range": true
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_run_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__interval])))",
+              "legendFormat": "Run time, median",
+              "range": true
+            },
+            {
+              "refId": "D",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.9, sum by (le) (increase(chuggy_ticket_run_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__interval])))",
+              "legendFormat": "Run time, 90th percentile",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 0,
+                "showPoints": "auto",
+                "spanNulls": false
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 26,
+          "type": "row",
+          "title": "Escalations",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 56,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 27,
+          "type": "timeseries",
+          "title": "Escalations per day, by kind",
+          "description": "Times a ticket was escalated each day, by the event that escalated it. Each bar is a day, drawn once it has ended, and the legend totals the bars.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "1d",
+          "gridPos": {
+            "x": 0,
+            "y": 57,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (event) (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=~\"TicketWorkProcessFailed|TicketWorkExecutionUnavailable|TicketEvaluationFailureEscalated|TicketEvaluationBlocked|TicketFinalizationUnavailable\"}[$__interval]))",
+              "legendFormat": "{{event}}",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 80,
+                "lineWidth": 1,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                }
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "sum"
+              ],
+              "sortBy": "Total",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 28,
+          "type": "table",
+          "title": "How long escalations held",
+          "description": "Escalations that ended over the selected time, by the event that escalated the ticket and by who ended it: Member is a person, ExecutionScheduler an automatic resume. Each held from its escalation to the ticket's next entry. Approximate: interpolated within coarse buckets.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 57,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (event, by) (increase(chuggy_ticket_escalation_duration_seconds_count{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])) > 0",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le, event, by) (increase(chuggy_ticket_escalation_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range]))) >= 0",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.9, sum by (le, event, by) (increase(chuggy_ticket_escalation_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range]))) >= 0",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "merge",
+              "options": {}
+            },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "indexByName": {
+                  "event": 0,
+                  "by": 1,
+                  "Value #A": 2,
+                  "Value #B": 3,
+                  "Value #C": 4
+                },
+                "renameByName": {
+                  "event": "Escalated by",
+                  "by": "Ended by",
+                  "Value #A": "Ended",
+                  "Value #B": "Median",
+                  "Value #C": "90th percentile"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "minWidth": 50,
+                "cellOptions": {
+                  "type": "auto"
+                }
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Ended"
+                },
+                "properties": [
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Median"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "s"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "90th percentile"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "s"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm",
+            "footer": {
+              "show": false
+            }
+          }
+        },
+        {
+          "id": 29,
+          "type": "row",
+          "title": "Cost",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 65,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 30,
+          "type": "stat",
+          "title": "Cost of a landed ticket",
+          "description": "What the runs of a ticket landed over the selected time cost: the median and the 90th percentile. A ticket's cost is counted a little after it ends. Approximate: interpolated within coarse buckets. An estimate, at list price.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 66,
+            "w": 12,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_cost_usd_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", end=\"Done\"}[$__range])))",
+              "legendFormat": "Median",
+              "instant": true,
+              "range": false
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.9, sum by (le) (increase(chuggy_ticket_cost_usd_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", end=\"Done\"}[$__range])))",
+              "legendFormat": "90th percentile",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "currencyUSD",
+              "noValue": "None landed",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 2,
+              "mappings": [
+                {
+                  "type": "special",
+                  "options": {
+                    "match": "nan",
+                    "result": {
+                      "text": "None landed",
+                      "index": 0
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 31,
+          "type": "stat",
+          "title": "Spent on revoked tickets",
+          "description": "What the runs of the tickets revoked over the selected time cost. A ticket's cost is counted a little after it ends. An estimate, at list price.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 70,
+            "w": 6,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(increase(chuggy_ticket_cost_usd_sum{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", end=\"Revoked\"}[$__range]))",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "currencyUSD",
+              "noValue": "0",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 2
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 32,
+          "type": "stat",
+          "title": "Spent on ticket work",
+          "description": "What all ticket work cost over the selected time, in work and in evaluation. An estimate, at list price.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 6,
+            "y": 70,
+            "w": 6,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(increase(chuggy_run_cost_usd_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range]))",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "currencyUSD",
+              "noValue": "0",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 2
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 33,
+          "type": "timeseries",
+          "title": "Cost per landed ticket per day",
+          "description": "Each day: what the tickets that ended that day cost, landed and revoked alike, over the tickets landed that day, and the median cost of a ticket landed that day. A ticket's cost is counted a little after it ends. An estimate, at list price. Each point is a day, drawn once it has ended.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "1d",
+          "gridPos": {
+            "x": 12,
+            "y": 66,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(increase(chuggy_ticket_cost_usd_sum{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__interval])) / (sum(increase(chuggy_ticket_cost_usd_count{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", end=\"Done\"}[$__interval])) > 0)",
+              "legendFormat": "Ended tickets, per landed ticket",
+              "range": true
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_cost_usd_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", end=\"Done\"}[$__interval])))",
+              "legendFormat": "A landed ticket, median",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "currencyUSD",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 0,
+                "showPoints": "auto",
+                "spanNulls": false
+              },
+              "decimals": 2
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        }
+      ],
+      "links": [
+        {
+          "title": "Tickets in the console",
+          "type": "link",
+          "url": "https://chuggy.vteng.io/",
+          "tooltip": "Each ticket, in chuggy's console, which opens on the project last open there.",
+          "icon": "external link",
+          "targetBlank": true,
+          "asDropdown": false,
+          "includeVars": false,
+          "keepTime": false,
+          "tags": []
+        }
+      ]
+    }
