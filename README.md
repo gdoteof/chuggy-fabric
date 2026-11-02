@@ -51,8 +51,9 @@ only by their own directory.
                                     no other layer waits on
     cluster/chug-gy/                chuggy's public site at chug.gy, in a
                                     layer of its own the same way
-    dashboards/                     what writes the usage and runners
-                                    dashboards' manifests in cluster/apps/
+    dashboards/                     what writes the usage, tickets and
+                                    runners dashboards' manifests in
+                                    cluster/apps/
 
     hosts/gtr/default.nix           geoff's Beelink GTR: hostname, radios, mesh, k3s, tunnel
     hosts/gtr/hardware-configuration.nix
@@ -1347,12 +1348,13 @@ holds the ones its header lists, and what a query means is not among them.
 
 `cluster/apps/chuggy-metrics-plane-monitor.yaml` has Prometheus scrape the
 metrics plane once a minute: what every run cost and how long it took, every
-ended attempt and session turn, and how many tickets stand in each phase, by
-tenant and project and, for all but tickets, by owner. The plane reads each
-series afresh from the database, so a total covers every row there is and a
-restart loses nothing. **Every member signed into Grafana can query all of
-it, every tenant's included**, as they can every other series. `owner` is the
-`sub` that member signs in with, so it narrows a dashboard and bounds nothing.
+ended attempt and session turn, every ticket's journal entries, lead and run
+times, reworks, cost and escalations, and how many tickets stand in each
+phase, by tenant, project and owner. The plane reads each series afresh from
+the database, so a total covers every row there is and a restart loses
+nothing. **Every member signed into Grafana can query all of it, every
+tenant's included**, as they can every other series. `owner` is the `sub`
+that member signs in with, so it narrows a dashboard and bounds nothing.
 
 The **Chuggy usage** dashboard (`/d/chuggy-usage`) is built on those: what ticket
 work and chat cost, their tokens and turns, how long agents and CI took and how
@@ -1362,6 +1364,16 @@ member's own `owner`. The plane names when each series began, and Prometheus
 writes a zero at that time, so a range counts a series' first value too.
 `tests/usage-dashboard.py` holds each query to the families the plane serves
 and to the variables that narrow it.
+
+The **Chuggy tickets** dashboard (`/d/chuggy-tickets`) is built on the same
+series: tickets released, landed and revoked, those open by phase and those
+escalated, the first-pass rate and reworks, where a result sent a ticket back
+from and each stage's pass rate, lead and run time, how long escalations held
+apart by whether a member or the scheduler ended them, and what a landed
+ticket cost. A ticket's owner is the member who first wrote its draft, so Who
+narrows it as it narrows the usage page. The plane names no ticket, so the
+page counts them and links to the console for each one.
+`tests/tickets-dashboard.py` holds it as the usage dashboard is held.
 
 ### Track Record is scraped, and has a page
 
@@ -1408,8 +1420,9 @@ pool-plane release can drop a report period of counts from its totals, which
 the manifest's header explains. `tests/runners-dashboard.py` holds it as the
 usage dashboard is held, to the families the pool plane serves.
 
-`dashboards/` writes the usage and runners dashboards' manifests whole, and
-each one's test refuses a manifest other than what its writer writes.
+`dashboards/` writes the usage, tickets and runners dashboards' manifests
+whole, and each one's test refuses a manifest other than what its writer
+writes.
 
 ### Control-plane targets are switched off
 

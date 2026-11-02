@@ -387,6 +387,10 @@
         # serves of a runner, and a table that keeps a runner that stops.
         runners-dashboard = import ./tests/runners-dashboard.nix { inherit pkgs; };
 
+        # The tickets dashboard: the same as the usage dashboard, against the
+        # metrics plane's ticket families.
+        tickets-dashboard = import ./tests/tickets-dashboard.nix { inherit pkgs; };
+
         # The evaluator command a Chuggy ticket runs, and the only check that
         # reads .chug/tasks/ci.sh.
         chug-ci = chugCi;

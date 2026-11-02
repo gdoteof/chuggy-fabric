@@ -69,6 +69,7 @@ resources:
   - runners-dashboard.yaml
   - sirdocalot-namespace.yaml
   - sirdocalot-source.yaml
+  - tickets-dashboard.yaml
   - track-record-dashboard.yaml
   - track-record-monitor.yaml
   - usage-dashboard.yaml

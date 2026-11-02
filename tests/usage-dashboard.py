@@ -5,8 +5,8 @@ every dashboard to, over the families the metrics plane serves.
 
 - The families and each one's labels are copied below from kasofsk/chuggy's
   `src/interpreter/metricsPlane.ts`.
-- `owner` on chuggy_tickets, which carries none, is every ticket under
-  Everyone and none under Me.
+- `owner` on chuggy_tickets is the member who first wrote the ticket's draft,
+  the subject a run's `owner` names, so Who narrows tickets as it does work.
 - A grouping by a label a family carries is bounded by the plane, which labels
   nothing by ticket, execution, attempt or session: its `session` is the kind
   of session.
@@ -35,7 +35,7 @@ FAMILIES = {
     "chuggy_session_turn_tokens_total": ("counter", SESSION | {"model"}),
     "chuggy_session_turn_cost_usd_total": ("counter", SESSION | {"model"}),
     "chuggy_session_turn_duration_seconds": ("histogram", SESSION),
-    "chuggy_tickets": ("gauge", {"tenant", "project", "phase"}),
+    "chuggy_tickets": ("gauge", {"tenant", "project", "owner", "phase", "escalation"}),
 }
 
 
