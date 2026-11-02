@@ -919,7 +919,7 @@ data:
           "id": 13,
           "type": "stat",
           "title": "Spent per landed ticket",
-          "description": "What all ticket work cost over the selected time, over the tickets landed in it: reworks, revoked tickets and work still open are all in it. An estimate, at list price.",
+          "description": "What the tickets that ended over the selected time cost, landed and revoked alike, over the tickets landed in it: reworks and revoked tickets are in it, work still open is not. A ticket's cost is counted a little after it ends. An estimate, at list price.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -937,7 +937,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(increase(chuggy_run_cost_usd_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])) / (sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=\"TicketFinalizationSucceeded\"}[$__range])) > 0)",
+              "expr": "sum(increase(chuggy_ticket_cost_usd_sum{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])) / (sum(increase(chuggy_ticket_cost_usd_count{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", end=\"Done\"}[$__range])) > 0)",
               "instant": true,
               "range": false
             }
@@ -2341,7 +2341,7 @@ data:
           "id": 34,
           "type": "timeseries",
           "title": "Cost per landed ticket per day",
-          "description": "Each day: what all ticket work cost over the tickets landed that day, and the median cost of a ticket landed that day. A ticket's cost is counted a little after it ends. An estimate, at list price. Each point is a day, drawn once it has ended.",
+          "description": "Each day: what the tickets that ended that day cost, landed and revoked alike, over the tickets landed that day, and the median cost of a ticket landed that day. A ticket's cost is counted a little after it ends. An estimate, at list price. Each point is a day, drawn once it has ended.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -2360,8 +2360,8 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(increase(chuggy_run_cost_usd_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__interval])) / (sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=\"TicketFinalizationSucceeded\"}[$__interval])) > 0)",
-              "legendFormat": "All ticket work, per landed ticket",
+              "expr": "sum(increase(chuggy_ticket_cost_usd_sum{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__interval])) / (sum(increase(chuggy_ticket_cost_usd_count{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", end=\"Done\"}[$__interval])) > 0)",
+              "legendFormat": "Ended tickets, per landed ticket",
               "range": true
             },
             {

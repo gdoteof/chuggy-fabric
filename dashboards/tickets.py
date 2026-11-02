@@ -105,7 +105,8 @@ def reworks(window):
 
 
 def spent_per_landed(window):
-    return f"{summed('chuggy_run_cost_usd_total', window)} / {some(events(LANDED, window))}"
+    ended = summed(f"{COST}_sum", window)
+    return f"{ended} / {some(summed(f'{COST}_count', window, DONE))}"
 
 
 LEAD = "chuggy_ticket_lead_time_seconds"
@@ -204,8 +205,8 @@ board.stat(
 )
 board.stat(
     "Spent per landed ticket",
-    "What all ticket work cost over the selected time, over the tickets landed in it: reworks, revoked tickets and work still open are all in it."
-    + ESTIMATE,
+    "What the tickets that ended over the selected time cost, landed and revoked alike, over the tickets landed in it: reworks and revoked tickets are in it, work still open is not."
+    + SETTLED + ESTIMATE,
     [target("A", spent_per_landed(RANGE), instant=True)],
     18, 9, 6, 4, "currencyUSD", decimals=2, none=NONE_LANDED,
 )
@@ -318,7 +319,7 @@ board.table(
     ],
 )
 
-# Cost: what a landed ticket cost, and what all ticket work cost per ticket landed.
+# Cost: what a landed ticket cost, and what the tickets that ended cost per ticket landed.
 board.row("Cost", 65)
 board.stat(
     "Cost of a landed ticket",
@@ -344,10 +345,10 @@ board.stat(
 )
 board.lines(
     "Cost per landed ticket per day",
-    "Each day: what all ticket work cost over the tickets landed that day, and the median cost of a ticket landed that day."
+    "Each day: what the tickets that ended that day cost, landed and revoked alike, over the tickets landed that day, and the median cost of a ticket landed that day."
     + SETTLED + ESTIMATE + DAILY,
     [
-        target("A", spent_per_landed(STEP), "All ticket work, per landed ticket"),
+        target("A", spent_per_landed(STEP), "Ended tickets, per landed ticket"),
         target("B", quantile("0.5", COST, STEP, DONE), "A landed ticket, median"),
     ],
     12, 66, 12, 8, "currencyUSD", decimals=2, interval=DAY,
