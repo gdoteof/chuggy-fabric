@@ -280,19 +280,17 @@ class Board:
             },
         })
 
-    def bargauge(self, title, description, targets, x, y, w, h, unit, overrides=(), none=None, tallest=None, most=None, named=False):
+    def bargauge(self, title, description, targets, x, y, w, h, unit, overrides=(), none=None, tallest=None, named=False):
         """A bar for each series; `none`, where given, is what a series of no value reads,
         `tallest` the most pixels a bar is drawn, which keeps a few bars' names their size,
-        `most`, where given, the value a full bar is, and `named` keeps a bar's name when it
-        is the only one, which Grafana otherwise leaves to the panel's title."""
+        and `named` keeps a bar's name when it is the only one, which Grafana otherwise
+        leaves to the panel's title."""
         defaults = {
             "unit": unit,
             "min": 0,
             "color": {"mode": "palette-classic"},
             "thresholds": {"mode": "absolute", "steps": [{"color": "text", "value": None}]},
         }
-        if most is not None:
-            defaults["max"] = most
         if named:
             defaults["displayName"] = "${__series.name}"
         if none is not None:
