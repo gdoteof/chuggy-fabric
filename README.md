@@ -1368,11 +1368,11 @@ and to the variables that narrow it.
 The **Chuggy tickets** dashboard (`/d/chuggy-tickets`) is built on the same
 series: tickets released, landed and revoked, those open by phase and those
 escalated, the first-pass rate and reworks, where a result sent a ticket back
-from and each stage's pass rate, lead and run time, how long escalations held
-apart by whether a member or the scheduler ended them, and what a landed
-ticket cost. A ticket's owner is the member who first wrote its draft, so Who
-narrows it as it narrows the usage page. The plane names no ticket, so the
-page counts them and links to the console for each one.
+from, lead and run time, how long escalations held apart by whether a member
+or the scheduler ended them, and what a landed ticket cost. A ticket's owner
+is the member who first wrote its draft, so Who narrows it as it narrows the
+usage page. The plane names no ticket, so the page counts them and links to
+the console for each one.
 `tests/tickets-dashboard.py` holds it as the usage dashboard is held.
 
 ### Track Record is scraped, and has a page

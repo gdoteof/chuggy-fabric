@@ -53,9 +53,6 @@ DAY = "1d"
 RELEASED = 'event="TicketCreated"'
 LANDED = 'event="TicketFinalizationSucceeded"'
 REVOKED = 'event="TicketRevoked"'
-# A stage's results: passed, then sent back or failed past its retries.
-PASSED = 'event=~"TicketEvaluationProgressed|TicketEvaluationPassed"'
-JUDGED = 'event=~"TicketEvaluationProgressed|TicketEvaluationPassed|TicketEvaluationReworkStarted|TicketEvaluationFailureEscalated"'
 # The events that leave a ticket escalated, as kasofsk/chuggy's metricsPlaneEscalatingEvents lists them.
 ESCALATING = (
     'event=~"TicketWorkProcessFailed|TicketWorkExecutionUnavailable|TicketEvaluationFailureEscalated'
@@ -252,14 +249,7 @@ board.bars(
         target("A", events('event="TicketEvaluationReworkStarted"', STEP, "stage"), "{{stage}}"),
         target("B", events('event="TicketFinalizationNeedsWork"', STEP), "Landing"),
     ],
-    0, 31, 12, 8, "short", DAY, decimals=0,
-)
-board.bargauge(
-    "Pass rate by stage",
-    "Of each stage's results over the selected time, the share that passed it. Sent back and failed past its retries count against it; blocked counts neither way."
-    + STAGES,
-    [target("A", f"{events(PASSED, RANGE, 'stage')} / {some(events(JUDGED, RANGE, 'stage'))}", "{{stage}}", instant=True)],
-    12, 31, 12, 8, "percentunit", none="No results", tallest=32, most=1, named=True,
+    0, 31, 24, 8, "short", DAY, decimals=0,
 )
 board.lines(
     "First-pass rate per day",

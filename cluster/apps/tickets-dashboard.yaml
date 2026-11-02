@@ -1417,7 +1417,7 @@ data:
           "gridPos": {
             "x": 0,
             "y": 31,
-            "w": 12,
+            "w": 24,
             "h": 8
           },
           "targets": [
@@ -1482,86 +1482,6 @@ data:
         },
         {
           "id": 21,
-          "type": "bargauge",
-          "title": "Pass rate by stage",
-          "description": "Of each stage's results over the selected time, the share that passed it. Sent back and failed past its retries count against it; blocked counts neither way. A stage reads as its configuration names it, or as its number where the configuration names none.",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "gridPos": {
-            "x": 12,
-            "y": 31,
-            "w": 12,
-            "h": 8
-          },
-          "targets": [
-            {
-              "refId": "A",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "expr": "sum by (stage) (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=~\"TicketEvaluationProgressed|TicketEvaluationPassed\"}[$__range])) / (sum by (stage) (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=~\"TicketEvaluationProgressed|TicketEvaluationPassed|TicketEvaluationReworkStarted|TicketEvaluationFailureEscalated\"}[$__range])) > 0)",
-              "legendFormat": "{{stage}}",
-              "instant": true,
-              "range": false
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "percentunit",
-              "min": 0,
-              "color": {
-                "mode": "palette-classic"
-              },
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "text",
-                    "value": null
-                  }
-                ]
-              },
-              "max": 1,
-              "displayName": "${__series.name}",
-              "noValue": "No results",
-              "mappings": [
-                {
-                  "type": "special",
-                  "options": {
-                    "match": "nan",
-                    "result": {
-                      "text": "No results",
-                      "index": 0
-                    }
-                  }
-                }
-              ]
-            },
-            "overrides": []
-          },
-          "options": {
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": "",
-              "values": false
-            },
-            "orientation": "horizontal",
-            "displayMode": "basic",
-            "valueMode": "color",
-            "showUnfilled": true,
-            "namePlacement": "left",
-            "sizing": "manual",
-            "minVizHeight": 16,
-            "maxVizHeight": 32
-          }
-        },
-        {
-          "id": 22,
           "type": "timeseries",
           "title": "First-pass rate per day",
           "description": "Of the tickets landed each day, the share no result sent back to work. Each point is a day, drawn once it has ended.",
@@ -1623,7 +1543,7 @@ data:
           }
         },
         {
-          "id": 23,
+          "id": 22,
           "type": "timeseries",
           "title": "Reworks per landed ticket per day",
           "description": "How many times a ticket landed each day was sent back to work, on average. Each point is a day, drawn once it has ended.",
@@ -1684,7 +1604,7 @@ data:
           }
         },
         {
-          "id": 24,
+          "id": 23,
           "type": "row",
           "title": "Time",
           "collapsed": false,
@@ -1697,7 +1617,7 @@ data:
           "panels": []
         },
         {
-          "id": 25,
+          "id": 24,
           "type": "bargauge",
           "title": "Lead time and run time",
           "description": "How long the tickets landed over the selected time took: lead time from release to landing, run time from first dispatch to landing, the median and the 90th percentile of each. Approximate: interpolated within coarse buckets.",
@@ -1808,7 +1728,7 @@ data:
           }
         },
         {
-          "id": 26,
+          "id": 25,
           "type": "timeseries",
           "title": "Lead time and run time per day",
           "description": "How long the tickets landed each day took, the median and the 90th percentile of each. Approximate: interpolated within coarse buckets. Each point is a day, drawn once it has ended.",
@@ -1898,7 +1818,7 @@ data:
           }
         },
         {
-          "id": 27,
+          "id": 26,
           "type": "row",
           "title": "Escalations",
           "collapsed": false,
@@ -1911,7 +1831,7 @@ data:
           "panels": []
         },
         {
-          "id": 28,
+          "id": 27,
           "type": "timeseries",
           "title": "Escalations per day, by kind",
           "description": "Times a ticket was escalated each day, by the event that escalated it. Each bar is a day, drawn once it has ended, and the legend totals the bars.",
@@ -1977,7 +1897,7 @@ data:
           }
         },
         {
-          "id": 29,
+          "id": 28,
           "type": "table",
           "title": "How long escalations held",
           "description": "Escalations that ended over the selected time, by the event that escalated the ticket and by who ended it: Member is a person, ExecutionScheduler an automatic resume. Each held from its escalation to the ticket's next entry. Approximate: interpolated within coarse buckets.",
@@ -2112,7 +2032,7 @@ data:
           }
         },
         {
-          "id": 30,
+          "id": 29,
           "type": "row",
           "title": "Cost",
           "collapsed": false,
@@ -2125,7 +2045,7 @@ data:
           "panels": []
         },
         {
-          "id": 31,
+          "id": 30,
           "type": "stat",
           "title": "Cost of a landed ticket",
           "description": "What the runs of a ticket landed over the selected time cost: the median and the 90th percentile. A ticket's cost is counted a little after it ends. Approximate: interpolated within coarse buckets. An estimate, at list price.",
@@ -2212,7 +2132,7 @@ data:
           }
         },
         {
-          "id": 32,
+          "id": 31,
           "type": "stat",
           "title": "Spent on revoked tickets",
           "description": "What the runs of the tickets revoked over the selected time cost. A ticket's cost is counted a little after it ends. An estimate, at list price.",
@@ -2275,7 +2195,7 @@ data:
           }
         },
         {
-          "id": 33,
+          "id": 32,
           "type": "stat",
           "title": "Spent on ticket work",
           "description": "What all ticket work cost over the selected time, in work and in evaluation. An estimate, at list price.",
@@ -2338,7 +2258,7 @@ data:
           }
         },
         {
-          "id": 34,
+          "id": 33,
           "type": "timeseries",
           "title": "Cost per landed ticket per day",
           "description": "Each day: what the tickets that ended that day cost, landed and revoked alike, over the tickets landed that day, and the median cost of a ticket landed that day. A ticket's cost is counted a little after it ends. An estimate, at list price. Each point is a day, drawn once it has ended.",
