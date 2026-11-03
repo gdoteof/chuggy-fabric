@@ -309,7 +309,7 @@ spec:
             # read-only and starts as the contract's job command. Named by
             # digest; the scheduler refuses to start without it.
             - name: CHUG_SCHEDULER_WORKER_RUNTIME
-              value: "registry.chuggy.internal/chuggy/worker-runtime@sha256:13c91aeb4808e4ac2d412e5a1d5c15f3a714332d44a515438e655affdf7d6c74"
+              value: "registry.chuggy.internal/chuggy/worker-runtime@sha256:d5c6394a49e38048523ba51cb3c8c576034e55367a4066a95144d96a51edadaa"
             # `CHUG_WORKER_REPOSITORIES` IS ONE ROW, AND IT IS THE ONE
             # REPOSITORY THIS FABRIC STILL MOUNTS A CREDENTIAL FOR. A pod asks
             # the plane to mint for the reference it was given; the plane mints
@@ -889,6 +889,14 @@ spec:
                     "operatingSystem": "Linux",
                     "architecture": "Amd64",
                     "capabilities": ["Agent:Claude", "Agent:Codex"]
+                  },
+                  {
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:82302c4c01c1ddf7bc591d0809f2dc65cfce98ef5f84f9de5869bdc2e82ee505",
+                    "name": "chuggy-worker",
+                    "version": "0.65",
+                    "operatingSystem": "Linux",
+                    "architecture": "Amd64",
+                    "capabilities": ["Agent:Claude", "Agent:Codex"]
                   }
                 ]
             # The memory limit is what chuggy's own `ci.sh` needs: Node sizes
@@ -1190,7 +1198,7 @@ spec:
             - name: CHUG_SCHEDULER_SESSION_POLICY
               value: |
                 {
-                  "image": "registry.chuggy.internal/chuggy/worker@sha256:0d432c43f51470a608b0e121165f5805429611df56632939d1d19f99a437161d",
+                  "image": "registry.chuggy.internal/chuggy/worker@sha256:82302c4c01c1ddf7bc591d0809f2dc65cfce98ef5f84f9de5869bdc2e82ee505",
                   "profile": "chuggy-development",
                   "runtimeVersion": "claude-code-latest",
                   "grant": {
