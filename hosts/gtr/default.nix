@@ -205,8 +205,8 @@
     branch = "main";
   };
 
-  # The two Apps' keys, which are files on this box. It mints no token from
-  # either, so the delivery this option also enables is left off.
+  # The two Apps' keys, which are files on this box, and the one token it mints
+  # from them.
   #
   # Both keys are also copied by hand into Secrets, so rotating or revoking
   # either is two places and not one: the portal key into
@@ -218,7 +218,20 @@
   # `cluster/chuggy/chuggy-api.yaml` holds the first command and
   # `cluster/chuggy/chuggy-worker-plane.yaml` the second, and every manifest
   # that mounts a key says what that pod may mint.
+  #
+  # THE ONE TOKEN IS THE CONTRACT PUBLISH'S, and it is minted here and not by
+  # the pod, unlike every other credential. The pod that needs it is a build
+  # pod, whose namespace admits a privileged pod and where a key that mints for
+  # every repository the portal App is installed on would be the wrong thing
+  # to mount. This is the portal App, as a token for kasofsk/chuggy alone with
+  # `contents: write`, good for an hour and replaced every half of one; the
+  # Task of cluster/build-system/contract-publish.yaml mounts it in the step
+  # that runs none of the commit's code, and its header argues the rest.
+  # `installationId` is the number in the address of the App's installation
+  # settings page on the account that owns the repository.
+  # tests/contract-publish-token.py holds this entry to the Task that mounts it.
   chuggy.githubAppTokens = {
+    enable = true;
     apps = {
       portal = {
         appId = "4708055";
@@ -230,6 +243,15 @@
         privateKeyFile = "/var/lib/chuggy/secrets/github-app/chuggy-worker.pem";
         keySecret = "chuggy-github-app-worker";
       };
+    };
+    tokens.contract-publish = {
+      appId = config.chuggy.githubAppTokens.apps.portal.appId;
+      installationId = "156333284";
+      repository = "chuggy";
+      permission = "write";
+      privateKeyFile = config.chuggy.githubAppTokens.apps.portal.privateKeyFile;
+      secretName = "chuggy-contract-publish-token";
+      namespaces = [ "chuggy-build" ];
     };
   };
 }

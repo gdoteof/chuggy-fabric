@@ -1,0 +1,55 @@
+# One publish of chuggy's worker contract, and the only manifest for one.
+#
+# NOT APPLIED. It is not in kustomization.yaml's `resources`: Flux applying a
+# run would start one at every reconcile. The generator there puts this file in
+# the image trigger's ConfigMap beside image-trigger.sh, and the CronJob
+# `contract-publish-trigger` writes the two values into it and creates it each
+# time GitRepository `chuggy` holds a commit the newest run did not publish. A
+# person who starts one does it through that script, by
+# `kubectl create job --from=cronjob/contract-publish-trigger` in
+# `chuggy-release-trigger`. So a run has one shape whoever started it.
+#
+# EACH `@name@` IS A VALUE THE TRIGGER READ off the Flux source: the address it
+# fetches and the commit it holds. `repository` is where the contract is
+# released, and it is also what the next comparison reads a run as being of:
+# the trigger's `SUBJECT_PARAM`. Admission holds it to the one repository and
+# holds the source's address to it.
+#
+# A RUN FOR EVERY COMMIT, AND MOST ARE NOTHING. A commit that leaves the
+# contract's release as the remote already has it gets a run whose first two
+# steps finish and whose third does not call GitHub. contract-prepare.sh says
+# why that is the usual case and not a failure.
+#
+# THE SAME PLACEMENT AS A RELEASE'S BUILDS. release-run.yaml argues the pod
+# template; a TaskRun carries it at the top of its spec. `taskRef.kind` and the
+# timeout are written as Tekton's webhook would write them, because admission
+# compares what that wrote.
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: contract-publish-
+  namespace: chuggy-build
+spec:
+  taskRef:
+    name: publish-worker-contract
+    kind: Task
+  params:
+    - name: url
+      value: "@source-url@"
+    - name: commit
+      value: "@source-commit@"
+    - name: repository
+      value: kasofsk/chuggy
+  timeout: 30m0s
+  serviceAccountName: builder
+  podTemplate:
+    automountServiceAccountToken: false
+    nodeSelector:
+      chuggy.dev/node-role: builder
+      kubernetes.io/os: linux
+      kubernetes.io/arch: amd64
+    tolerations:
+      - key: chuggy.dev/node-role
+        operator: Equal
+        value: builder
+        effect: NoSchedule

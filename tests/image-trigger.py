@@ -11,6 +11,13 @@ things: it answers only the calls the script makes, only where a Role bound
 to the pod's ServiceAccount grants them, and it evaluates the script's own
 `jsonpath` over whole objects. release-trigger.py's header argues each.
 
+ONE SUITE FOR EVERY CRONJOB THAT RUNS THIS SCRIPT. The command line may name
+another CronJob of the namespace, and the suite then runs as that one's pod is
+given it: its Task, its source, and the parameter its `SUBJECT_PARAM` says a
+run is of, which is `image` for the site's trigger and `repository` for the
+contract publish trigger. The cases below read "image" as that parameter's
+value.
+
 A STARTED RUN IS READ BACK. The first case starts a run, finishes it as Tekton
 would, and runs the script again over what it created: the `commit` parameter
 a run is written with is what the next comparison reads, or a commit that was
@@ -56,6 +63,9 @@ from pathlib import Path
 
 import yaml
 
+# The CronJob under test: the site's image trigger unless the command line
+# names another, which is how the contract publish trigger is run through the
+# same cases.
 CRONJOB = "chug-gy-image-trigger"
 SOURCES = "gitrepositories.source.toolkit.fluxcd.io"
 RUNS = "taskruns.tekton.dev"
@@ -256,9 +266,9 @@ def one(documents, kind, name, namespace=None):
 class Pod:
     """What the rendered CronJob gives its one container."""
 
-    def __init__(self, rendered):
+    def __init__(self, rendered, name):
         documents = objects(rendered)
-        cronjob = one(documents, "CronJob", CRONJOB)
+        cronjob = one(documents, "CronJob", name)
         self.namespace = cronjob["metadata"]["namespace"]
         pod = cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"]
         if len(pod["containers"]) != 1 or pod.get("initContainers"):
@@ -292,6 +302,9 @@ class Pod:
         self.runs = self.env["RUNS_NAMESPACE"]
         self.task = self.env["TASK"]
         self.image = self.env["IMAGE"]
+        # The parameter a run is of the image by: `image`, unless the CronJob
+        # says its runs are of something else.
+        self.subject = self.env.get("SUBJECT_PARAM", "image")
         manifest = self.env["RUN_MANIFEST"]
         if manifest not in self.files:
             refuse(f"{manifest} is not a file of a ConfigMap the trigger mounts")
@@ -347,8 +360,8 @@ def source(name, url, commit=COMMIT, revision=None):
 
 
 class Suite:
-    def __init__(self, rendered, busybox, work):
-        self.pod = Pod(rendered)
+    def __init__(self, rendered, busybox, work, cronjob=CRONJOB):
+        self.pod = Pod(rendered, cronjob)
         self.busybox = Path(busybox)
         self.work = Path(work)
         self.now = int(time.time())
@@ -373,9 +386,8 @@ class Suite:
             found["spec"]["params"] = [
                 {"name": "url", "value": SOURCE_URL},
                 {"name": "commit", "value": commit},
-                {"name": "image", "value": image or self.pod.image},
-                {"name": "dockerfile", "value": "Dockerfile"},
-            ]
+                {"name": self.pod.subject, "value": image or self.pod.image},
+            ] + ([{"name": "dockerfile", "value": "Dockerfile"}] if self.pod.subject == "image" else [])
         if state != "new":
             status = {"running": "Unknown", "succeeded": "True", "failed": "False"}[state]
             when = created if decided is None else decided
@@ -501,7 +513,7 @@ class Suite:
             "url": SOURCE_URL,
             "commit": commit,
         }
-        if params != expected or expected["image"] != self.pod.image:
+        if params != expected or expected[self.pod.subject] != self.pod.image:
             report(name, f"the run's parameters are {params}, not {expected} with the image the trigger reads by")
         for field in ("labels", "annotations"):
             if metadata.get(field):
@@ -528,8 +540,8 @@ class Suite:
 
 
 def main():
-    if len(sys.argv) != 4:
-        refuse("usage: image-trigger.py RENDERED_BUILD_SYSTEM BUSYBOX_BIN WORK")
+    if len(sys.argv) not in (4, 5):
+        refuse("usage: image-trigger.py RENDERED_BUILD_SYSTEM BUSYBOX_BIN WORK [CRONJOB]")
     suite = Suite(*sys.argv[1:])
     pod, run = suite.pod, suite.run
     inside, past = pod.delay - 20, pod.delay + 20

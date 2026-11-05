@@ -2,7 +2,8 @@
 # Whether a build of one image is started now, and the builds that are kept.
 #
 # A CronJob of the image runs this each minute: `chug-gy-image-trigger` for
-# the site's. It compares what one Flux source holds with the newest build of
+# the site's, and `contract-publish-trigger` for a TaskRun that is not a build
+# of an image. It compares what one Flux source holds with the newest build of
 # the image and creates at most one TaskRun, from the run manifest beside it.
 # It is trigger.sh over one source and one Task instead of two sources and a
 # Pipeline, and each rule below that trigger.sh also has is argued there.
@@ -23,6 +24,11 @@
 # has reconciled it, and a release run's own TaskRuns are of the same Task for
 # other images. A TaskRun of another Task, or of this Task for another image,
 # is neither unfinished nor newest nor deleted here.
+#
+# SUBJECT_PARAM NAMES THE PARAMETER THAT SAYS WHAT A RUN IS OF, `image` unless
+# it is set, and IMAGE is then the value that parameter holds. A Task that
+# publishes to a repository has no image: its runs are of the repository their
+# `repository` parameter names.
 #
 # WHAT A RUN WAS STARTED FOR IS ITS `commit` PARAMETER, which is what the Task
 # builds and tags by. Nothing more is written on the run.
@@ -65,6 +71,10 @@ refuse() {
 case $RETRY_DELAY_SECONDS$KEEP_RUNS in
   *[!0-9]*) refuse "RETRY_DELAY_SECONDS and KEEP_RUNS are counts" ;;
 esac
+SUBJECT_PARAM=${SUBJECT_PARAM:-image}
+case $SUBJECT_PARAM in
+  *[!a-z]* | "") refuse "SUBJECT_PARAM '$SUBJECT_PARAM' is not a parameter name this writes into a query" ;;
+esac
 [ "$KEEP_RUNS" -ge 1 ] || refuse "KEEP_RUNS of $KEEP_RUNS would delete the run the next comparison reads"
 
 # The URL the source fetches and the revision of the artifact it holds, the
@@ -101,7 +111,7 @@ EOF
 # neither while it runs), when that was decided, and the commit it was given.
 list_runs() {
   kubectl --namespace "$RUNS_NAMESPACE" get taskruns.tekton.dev \
-    --output 'jsonpath={range .items[*]}{.metadata.creationTimestamp}{"|"}{.metadata.name}{"|"}{.spec.taskRef.name}{"|"}{.spec.params[?(@.name=="image")].value}{"|"}{.status.conditions[?(@.type=="Succeeded")].status}{"|"}{.status.conditions[?(@.type=="Succeeded")].lastTransitionTime}{"|"}{.spec.params[?(@.name=="commit")].value}{"\n"}{end}'
+    --output 'jsonpath={range .items[*]}{.metadata.creationTimestamp}{"|"}{.metadata.name}{"|"}{.spec.taskRef.name}{"|"}{.spec.params[?(@.name=="'"$SUBJECT_PARAM"'")].value}{"|"}{.status.conditions[?(@.type=="Succeeded")].status}{"|"}{.status.conditions[?(@.type=="Succeeded")].lastTransitionTime}{"|"}{.spec.params[?(@.name=="commit")].value}{"\n"}{end}'
 }
 
 # The runs of the image among those lines, oldest first.

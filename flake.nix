@@ -140,6 +140,11 @@
         inherit pkgs;
         apps = self.nixosConfigurations.gtr.config.chuggy.githubAppTokens.apps;
       };
+      contractRelease = import ./tests/contract-release.nix { inherit pkgs; };
+      contractPublishToken = import ./tests/contract-publish-token.nix {
+        inherit pkgs;
+        host = self.nixosConfigurations.gtr;
+      };
       actionReporters = import ./tests/action-reporters.nix {
         inherit pkgs;
         host = self.nixosConfigurations.gtr;
@@ -253,6 +258,14 @@
         # copy of the host's, and a key file nothing projects is an error at the
         # first mint rather than at start-up.
         forge-app-key = forgeAppKey;
+
+        # And the one token the host mints, against the Task that mounts it: the
+        # name, the namespace, the repository and the App.
+        contract-publish-token = contractPublishToken;
+
+        # The release step of the Task that publishes the contract, call by
+        # call, against a GitHub that is a server of the test's own.
+        contract-release = contractRelease;
 
         # A roster the API reads, a file each reporter is verified by, the
         # Secret the host makes for it, the release run that presents one and
