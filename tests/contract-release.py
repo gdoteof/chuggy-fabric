@@ -17,6 +17,11 @@ directory and with GitHub, call by call:
   same tag is deleted first, and a draft for another tag is left alone;
 - a tag already released, as a published release, is success and creates
   nothing;
+- a link in the directory, for the tag, the title, the pack or its tarball, is
+  a failure, and the token it points at is in nothing the step prints;
+- the listing is read to its last page, for a published release and a stale
+  draft; the asset is sent as `application/x-gtar`, as `gh release create`
+  sends a `.tgz`;
 - a directory that is not exactly a worker contract tag and one regular
   tarball is a failure before any call that writes: a tag that is not of the
   one pattern, no title, a title that is not a package name and the tag's
@@ -85,8 +90,9 @@ class Github:
                 )
                 state = outer.state
                 base = f"/repos/{REPOSITORY}"
-                if self.command == "GET" and self.path == f"{base}/releases?per_page=100":
-                    self.answer(200, state.get("releases", []))
+                if self.command == "GET" and self.path.startswith(f"{base}/releases?per_page=100&page="):
+                    page = int(self.path.rsplit("=", 1)[1])
+                    self.answer(200, state.get("releases", [])[(page - 1) * 100 : page * 100])
                 elif self.command == "DELETE" and self.path.startswith(f"{base}/releases/"):
                     self.answer(204)
                 elif self.command == "POST" and self.path == f"{base}/releases":
@@ -105,7 +111,7 @@ class Github:
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
 
-def run(node, script, github, name, tag=TAG, title=None, files=(TARBALL,), commit=COMMIT, token=TOKEN, link=False, **state):
+def run(node, script, github, name, tag=TAG, title=None, files=(TARBALL,), commit=COMMIT, token=TOKEN, link=False, links=(), **state):
     github.calls.clear()
     github.state = {"upload_url": f"{github.address}/repos/{REPOSITORY}/releases/77/assets{{?name,label}}", **state}
     with tempfile.TemporaryDirectory() as directory:
@@ -123,6 +129,20 @@ def run(node, script, github, name, tag=TAG, title=None, files=(TARBALL,), commi
         token_file = Path(directory) / "token"
         if token is not None:
             token_file.write_text(token + "\n")
+        elsewhere = Path(directory) / "elsewhere"
+        elsewhere.mkdir()
+        (elsewhere / TARBALL).write_bytes(b"tarball bytes")
+        for name in links:
+            if name == "pack":
+                (out / "pack" / TARBALL).unlink()
+                (out / "pack").rmdir()
+                (out / "pack").symlink_to(elsewhere)
+            elif name == "entry":
+                (out / "pack" / TARBALL).unlink()
+                (out / "pack" / TARBALL).symlink_to(token_file)
+            else:
+                (out / name).unlink()
+                (out / name).symlink_to(token_file)
         environment = {
             "PATH": os.environ["PATH"],
             "REPOSITORY": REPOSITORY,
@@ -189,10 +209,17 @@ def main():
             report("released", f"the draft is {draft}, not {wanted}")
         if github.calls[3]["path"] != f"{base}/releases/77/assets?name={TARBALL}" or github.calls[3]["body"] != b"tarball bytes":
             report("released", f"the asset is sent as {github.calls[3]['path']}")
-        if github.calls[3]["type"] != "application/gzip":
+        if github.calls[3]["type"] != "application/x-gtar":
             report("released", f"the asset is sent as {github.calls[3]['type']}")
         if json.loads(github.calls[4]["body"]) != {"draft": False}:
             report("released", f"the release is published with {github.calls[4]['body']}")
+
+    filler = [{"id": 1000 + n, "tag_name": f"worker-contract-v0.0.{n}", "draft": False} for n in range(100)]
+    done = run(node, script, github, "released-on-page-two", releases=[*filler, {"id": 9, "tag_name": TAG, "draft": False}])
+    expect("released-on-page-two", done, github, False, [*listing, *listing], says="already released")
+    done = run(node, script, github, "stale-draft-on-page-two", releases=[*filler, stale])
+    if ("DELETE", f"{base}/releases/5") not in shape(github):
+        report("stale-draft-on-page-two", f"called {shape(github)}")
 
     done = run(node, script, github, "already-released", releases=[{"id": 9, "tag_name": TAG, "draft": False}])
     expect("already-released", done, github, False, [*listing], says="already released")
@@ -209,6 +236,10 @@ def main():
         "no-file": {"files": ()},
         "not-a-tarball": {"files": ("notes.txt",)},
         "a-link": {"link": True},
+        "tag-is-a-link": {"links": ("tag",)},
+        "title-is-a-link": {"links": ("title",)},
+        "pack-is-a-link": {"links": ("pack",)},
+        "entry-is-a-link-to-the-token": {"links": ("entry",)},
         "short-commit": {"commit": "abc123"},
         "no-token": {"token": None},
         "empty-token": {"token": ""},
@@ -219,6 +250,8 @@ def main():
             report(name, f"exited 0: {done.stdout.strip()}")
         if written:
             report(name, f"wrote {written} before it refused")
+        if TOKEN in done.stdout + done.stderr:
+            report(name, "the token value is in what it printed")
 
     done = run(node, script, github, "upload-address-elsewhere", upload_url="https://elsewhere.invalid/assets{?name}")
     expect(

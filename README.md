@@ -1007,6 +1007,9 @@ tried again after ten minutes; delete the newest `contract-publish-*` TaskRun
 to try sooner.
 
 The token is the only credential, and its step runs none of the commit's code.
+That step reads the commit's handoff as regular files only, refuses a link and
+never puts what a file held in a message, so code that wrote the handoff cannot
+make it print the token.
 The host mints it from the portal App's key, for kasofsk/chuggy alone and for
 an hour, into `chuggy-contract-publish-token` in `chuggy-build`. What holds it
 to this Task's pods is RBAC: nobody else can create a pod or a TaskRun in that
@@ -1025,8 +1028,12 @@ CronJobs.
 What it does not promise. If `main` moves past two release bumps within one
 trigger interval, or within the retry delay after a failed run, the first
 release is never run and never made; `just publish-worker-contract` makes it.
-Two overlapping runs can delete each other's draft, and the one that lost
-fails and is retried. A published release whose tag was deleted is neither
+The trigger starts no run while one is unfinished, so two runs overlap only
+when someone makes a Job from the CronJob by hand; they can delete each
+other's draft, and the one that lost fails and is retried. The declaration
+`workerContractRelease` is read from a single line of one fixed form, so a
+formatter that wraps it makes every run fail until it is kept on one line again;
+nothing in chuggy changes for that. A published release whose tag was deleted is neither
 repaired nor reported.
 
 #### The worker image's two platforms

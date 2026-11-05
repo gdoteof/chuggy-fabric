@@ -4,8 +4,12 @@
 // token. It runs this file and nothing the commit wrote: the commit's code ran
 // in the step before and is not read here as anything but a file.
 //
-// WHAT THE PREPARE STEP LEFT IS CHECKED, NOT TRUSTED. The tag must be the one
-// pattern a worker contract is released under, the commit is the run's own
+// WHAT THE PREPARE STEP LEFT IS CHECKED, NOT TRUSTED. The commit's code wrote
+// the handoff directory, so a name in it may be a link to a file this
+// container can read and that one cannot, such as the token. Every entry is
+// lstat'd and must be a regular file, or the pack a real directory, before it
+// is read, and no message here carries what a file held. The tag must be the
+// one pattern a worker contract is released under, the commit is the run's own
 // parameter and not a file, and the tarball is the one regular file the pack
 // directory holds. The title is the package's name and the release, as the
 // publish script writes it, and arrives in the file `title`; it is checked to be
@@ -37,32 +41,39 @@ function say(message) {
   process.stdout.write(`release: ${message}\n`);
 }
 
-let tag;
-try {
-  tag = readFileSync(join(OUT, "tag"), "utf8").trim();
-} catch (error) {
-  if (error.code !== "ENOENT") throw error;
+// A handoff entry's text, or undefined where there is none. Never a link.
+function handoff(name) {
+  const path = join(OUT, name);
+  let stat;
+  try {
+    stat = lstatSync(path);
+  } catch (error) {
+    if (error.code === "ENOENT") return undefined;
+    throw error;
+  }
+  if (!stat.isFile()) throw new Error(`the handoff's ${name} is not a regular file`);
+  return readFileSync(path, "utf8").trim();
+}
+
+const tag = handoff("tag");
+if (tag === undefined) {
   say("the prepare step left no tag: nothing to release");
   process.exit(0);
 }
-if (!/^worker-contract-v\d+\.\d+\.\d+$/u.test(tag)) throw new Error(`'${tag}' is not a worker contract tag`);
-let title;
-try {
-  title = readFileSync(join(OUT, "title"), "utf8").trim();
-} catch (error) {
-  if (error.code !== "ENOENT") throw error;
-  throw new Error("the prepare step left a tag and no title");
-}
+if (!/^worker-contract-v\d+\.\d+\.\d+$/u.test(tag)) throw new Error("the handoff's tag is not a worker contract tag");
+const title = handoff("title");
+if (title === undefined) throw new Error("the prepare step left a tag and no title");
 const release = tag.slice("worker-contract-v".length);
 if (!new RegExp(`^@?[A-Za-z0-9._/-]+ ${release.replaceAll(".", "\\.")}$`, "u").test(title)) {
-  throw new Error(`'${title}' is not a package name and ${release}`);
+  throw new Error("the handoff's title is not a package name and the tag's release");
 }
 if (!/^[0-9a-f]{40}$/u.test(COMMIT)) throw new Error(`'${COMMIT}' is not a full commit hash`);
 if (!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/u.test(REPOSITORY)) throw new Error(`'${REPOSITORY}' is not a repository`);
 
+if (!lstatSync(join(OUT, "pack")).isDirectory()) throw new Error("the handoff's pack is not a directory");
 const packed = readdirSync(join(OUT, "pack"));
 if (packed.length !== 1 || !/^[A-Za-z0-9._-]+\.tgz$/u.test(packed[0])) {
-  throw new Error(`the pack directory holds ${JSON.stringify(packed)}, and one tarball is the release`);
+  throw new Error(`the pack directory holds ${packed.length} entries, and one tarball is the release`);
 }
 const asset = join(OUT, "pack", packed[0]);
 if (!lstatSync(asset).isFile()) throw new Error(`${asset} is not a regular file`);
@@ -90,7 +101,14 @@ async function call(url, init, expected) {
   return response.status === 204 ? undefined : response.json();
 }
 
-const releases = await call(`${api}/releases?per_page=100`, { method: "GET" }, [200]);
+// Every page, to a bound: a release of this tag may be on any of them.
+const releases = [];
+for (let page = 1; ; page += 1) {
+  if (page > 20) throw new Error("more than 2000 releases: the listing is not read to its end");
+  const listed = await call(`${api}/releases?per_page=100&page=${page}`, { method: "GET" }, [200]);
+  releases.push(...listed);
+  if (listed.length < 100) break;
+}
 if (releases.some((release) => release.tag_name === tag && !release.draft)) {
   say(`${tag} is already released: nothing to release`);
   process.exit(0);
@@ -119,7 +137,7 @@ const uploads = `${UPLOADS}/repos/${REPOSITORY}/releases/${draft.id}/assets`;
 if (!draft.upload_url.startsWith(`${uploads}{`)) throw new Error(`the draft's upload address '${draft.upload_url}' is not ${uploads}`);
 await call(
   `${uploads}?name=${encodeURIComponent(packed[0])}`,
-  { method: "POST", headers: { "Content-Type": "application/gzip" }, body },
+  { method: "POST", headers: { "Content-Type": "application/x-gtar" }, body },
   [201],
 );
 await call(

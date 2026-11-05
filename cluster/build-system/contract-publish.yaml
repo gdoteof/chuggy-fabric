@@ -12,7 +12,8 @@
 # what the commit says: its `npm ci` and its publish script. Neither has a
 # credential, and nothing the token can do is in reach of either except through
 # the file they leave behind. `release` has the token and runs contract-release.mjs
-# from this repository, which reads what they left as data it checks. `prepare`
+# from this repository, which reads what they left as data it checks, and
+# refuses a link where a file should be. `prepare`
 # is what checks that the tag is the declared release and that the dry run said
 # it would release that tag at this commit. `release` checks only the pattern
 # of the tag, that the title is a package name and that release, the run's own
@@ -29,7 +30,10 @@
 # has it runs none of the commit's code, and why the steps are in one pod and
 # not two: a pod's containers are isolated from one another by the kernel,
 # which is what stands between the `prepare` step and the Secret's mount. A
-# container escape from it reaches the token. The alternative, a Pipeline with
+# container escape from it reaches the token. Tekton's /tekton/* emptyDirs are
+# shared by the steps and writable by both, so nothing `release` reads comes
+# from there: its handoff is a volume of this Task, whose entries it takes only
+# as regular files, never through a link, and never repeats in a message. The alternative, a Pipeline with
 # a workspace between two pods, needs a volume this namespace does not
 # provision, and is the change to make if that is not enough.
 #
@@ -46,8 +50,9 @@
 # has it. If `main` moves past two release bumps within one trigger interval,
 # or one retry delay after a failed run, the first of them is never run and
 # its release is not made: a person makes it with `just publish-worker-contract`.
-# Two runs that overlap, as a retry beside a run still going, can delete each
-# other's draft; the one that lost fails, and its retry makes the release. A
+# The trigger starts no run while one is unfinished, so two runs overlap only
+# when a person makes a Job from the CronJob by hand; they can delete each
+# other's draft, and the one that lost fails and is retried. A
 # published release whose tag was later deleted is not repaired and not
 # reported: the remote has no tag, so `prepare` goes on, and `release` finds the
 # release published and does nothing.
