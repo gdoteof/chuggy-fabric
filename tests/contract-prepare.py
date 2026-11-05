@@ -10,6 +10,9 @@ whether the next step has a release to make. So what is held is that decision:
 - the release is read from its one declaration; a declaration that is absent,
   not a version, or written twice is a failure and writes nothing;
 - a tag the remote holds is success, writes nothing and installs nothing;
+- a remote that cannot be asked about the tag, in the step and in the gh,
+  is a failure that writes nothing and echoes nothing it said, and not an
+  absent tag;
 - a tree not at the run's commit is a failure before `npm ci`;
 - `npm ci` runs without lifecycle scripts, and the script runs with --dry-run
   and a gh of ours first on the PATH;
@@ -46,7 +49,7 @@ printf '%s' "$FAKE_PRINTED"
 FAKE_GIT = """#!/bin/sh
 echo "git $*" >> "$LOG"
 case $1 in
-  ls-remote) printf '%s' "$FAKE_REMOTE" ;;
+  ls-remote) if [ -n "$FAKE_LS_FAIL" ]; then echo "fatal: secret-looking remote output" >&2; exit 128; fi; printf '%s' "$FAKE_REMOTE" ;;
   rev-parse) echo "$FAKE_HEAD" ;;
 esac
 """
@@ -75,7 +78,7 @@ def printed(out, tarball="chuggy-worker-contract-1.2.3.tgz", tag=TAG, commit=COM
     return first + f"would release and tag {tag} at {commit}\n"
 
 
-def prepare(node, scripts, name, declaration=DECLARATION, remote="", head=COMMIT, manifest=None, say=None, tarball="chuggy-worker-contract-1.2.3.tgz"):
+def prepare(node, scripts, name, declaration=DECLARATION, remote="", fail_remote=False, head=COMMIT, manifest=None, say=None, tarball="chuggy-worker-contract-1.2.3.tgz"):
     with tempfile.TemporaryDirectory() as root:
         directory = Path(root)
         bin, node = tools(directory, node)
@@ -97,6 +100,7 @@ def prepare(node, scripts, name, declaration=DECLARATION, remote="", head=COMMIT
             "COMMIT": COMMIT,
             "SCRIPTS": str(scripts),
             "FAKE_REMOTE": remote,
+            "FAKE_LS_FAIL": "1" if fail_remote else "",
             "FAKE_HEAD": head,
             "FAKE_PRINTED": say,
             "FAKE_TARBALL": str(out / "pack" / tarball) if tarball else "",
@@ -110,7 +114,7 @@ def prepare(node, scripts, name, declaration=DECLARATION, remote="", head=COMMIT
     return done, log, written, title, tag, installed
 
 
-def gh(node, scripts, name, arguments, remote=""):
+def gh(node, scripts, name, arguments, remote="", fail_remote=False):
     with tempfile.TemporaryDirectory() as root:
         directory = Path(root)
         bin, node = tools(directory, node)
@@ -119,6 +123,7 @@ def gh(node, scripts, name, arguments, remote=""):
             "LOG": str(directory / "log"),
             "REPOSITORY": "owner/repo",
             "FAKE_REMOTE": remote,
+            "FAKE_LS_FAIL": "1" if fail_remote else "",
         }
         done = subprocess.run(["/bin/sh", str(scripts / "contract-gh.sh"), *arguments], env=environment, text=True, capture_output=True)
         log = (directory / "log").read_text().splitlines() if (directory / "log").exists() else []
@@ -155,6 +160,16 @@ def main():
     done, log, written, title, tag, installed = prepare(node, scripts, "tag-held", remote=f"{COMMIT}\trefs/tags/{TAG}\n")
     if done.returncode != 0 or written or installed or any(line.startswith(("npm", "node")) for line in log):
         report("tag-held", f"exited {done.returncode}, wrote {written}, installed {installed}, ran {log}")
+
+    log = refused(node, scripts, "remote-cannot-be-asked", fail_remote=True)
+    if any(line.startswith(("npm", "node")) for line in log):
+        report("remote-cannot-be-asked", f"ran {log}")
+    done, *_ = prepare(node, scripts, "remote-output-echoed", fail_remote=True)
+    if "secret-looking" in done.stdout + done.stderr:
+        report("remote-output-echoed", "the remote's own output was printed")
+    done, log = gh(node, scripts, "gh-remote-cannot-be-asked", ["release", "view", TAG], fail_remote=True)
+    if done.returncode != 2 or "secret-looking" in done.stderr:
+        report("gh-remote-cannot-be-asked", f"exited {done.returncode}: {done.stderr.strip()}")
 
     for name, declaration in {
         "no-declaration": "",

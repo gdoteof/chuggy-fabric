@@ -8,6 +8,9 @@
 # there. A tag it holds is a release, whether or not a release object is, and
 # the step has already stopped on one before it runs the script.
 #
+# A REMOTE THAT CANNOT BE ASKED IS EXIT 2, not an absent release: the script
+# accepts 0 and 1 and fails on anything else.
+#
 # ANYTHING ELSE IS REFUSED, so a call the script grows is a failure and not an
 # answer this made up.
 set -eu
@@ -19,7 +22,11 @@ if [ "$#" -ne 3 ] || [ "$1" != release ] || [ "$2" != view ]; then
   exit 2
 fi
 
-if [ -n "$(git ls-remote --tags "https://github.com/$REPOSITORY.git" "refs/tags/$3")" ]; then
+if ! held=$(git ls-remote --tags "https://github.com/$REPOSITORY.git" "refs/tags/$3" 2>/dev/null); then
+  echo "gh: could not ask the remote whether it holds $3" >&2
+  exit 2
+fi
+if [ -n "$held" ]; then
   exit 0
 fi
 echo "release not found" >&2

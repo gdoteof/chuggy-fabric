@@ -1206,6 +1206,13 @@ def cronjob_is_held(cluster, name, account):
     return job, environment
 
 
+SAFE_SOURCE = [
+    {"name": "GIT_CONFIG_COUNT", "value": "1"},
+    {"name": "GIT_CONFIG_KEY_0", "value": "safe.directory"},
+    {"name": "GIT_CONFIG_VALUE_0", "value": "/source"},
+]
+
+
 def contract_is_held(task):
     """The contract Task's last step alone has the token, and runs nothing a
     commit wrote. The steps before it run what the commit says, and have no
@@ -1222,6 +1229,16 @@ def contract_is_held(task):
             refuse(f"Task {CONTRACT_TASK}'s release step mounts the hand-off directory the commit's code writes, and not read-only")
     if not release["command"][1].startswith("/scripts/"):
         refuse(f"Task {CONTRACT_TASK}'s release step runs {release['command'][1]}, which is not a file of the ConfigMap")
+    # /source is a volume the kubelet made, owned by root, and the steps run as
+    # another user: the two that run git on it say it is safe, by environment
+    # and not by a file, and the step with the token runs no git and says nothing.
+    for step in task["spec"]["steps"]:
+        given = [entry for entry in step.get("env", []) if entry["name"].startswith("GIT_CONFIG")]
+        exactly(
+            f"the git configuration of Task {CONTRACT_TASK}'s step {step['name']}",
+            given,
+            SAFE_SOURCE if step["name"] in ("fetch", "prepare") else [],
+        )
     exactly(
         f"Task {CONTRACT_TASK}'s steps that mount the hand-off directory",
         [step["name"] for step in task["spec"]["steps"] if any(mount["name"] == "handoff" for mount in step.get("volumeMounts", []))],
