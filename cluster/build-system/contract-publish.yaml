@@ -1,0 +1,549 @@
+# The worker contract, released on GitHub at every commit of chuggy's `main`
+# that moves it: the Task that does it, the trigger that starts it, and what
+# holds each to that.
+#
+# WHY IT IS HERE. A ticket that changes the worker contract lands as a pull
+# request merge, and nothing then released it: a person ran
+# `just publish-worker-contract`, and a ticket that depends on the release
+# waited for them. The release is a function of one commit of a public
+# repository, which is what a run of this cluster's builders is.
+#
+# THREE STEPS, AND THE TOKEN IS IN THE LAST ALONE. `fetch` and `prepare` run
+# what the commit says: its `npm ci` and its publish script. Neither has a
+# credential, and nothing the token can do is in reach of either except through
+# the file they leave behind. `release` has the token and runs contract-release.mjs
+# from this repository, which reads what they left as data it checks, and
+# refuses a link where a file should be. `prepare`
+# is what checks that the tag is the declared release and that the dry run said
+# it would release that tag at this commit. `release` checks only the pattern
+# of the tag, that the title is a package name and that release, the run's own
+# commit and one tarball: it trusts the tag `prepare` wrote. The credential is the
+# portal App's, as a token for kasofsk/chuggy alone with `contents: write`,
+# which modules/github-app-token.nix mints on the host and puts in
+# `chuggy-contract-publish-token` in this namespace. It is the portal App's
+# because the release is made as the control plane; the Worker App, which
+# agent-executed pods mint from, is not the one a commit's code is run beside.
+#
+# WHAT THE TOKEN IS AND IS NOT. An installation token is good for an hour and
+# for one repository, but the portal App is the integration kasofsk/chuggy's
+# ruleset lets update `main`, so this token could. That is why the step that
+# has it runs none of the commit's code, and why the steps are in one pod and
+# not two: a pod's containers are isolated from one another by the kernel,
+# which is what stands between the `prepare` step and the Secret's mount. A
+# container escape from it reaches the token. Tekton's /tekton/* emptyDirs are
+# shared by the steps and writable by both, so nothing `release` reads comes
+# from there: its handoff is a volume of this Task, whose entries it takes only
+# as regular files, never through a link, and never repeats in a message. The alternative, a Pipeline with
+# a workspace between two pods, needs a volume this namespace does not
+# provision, and is the change to make if that is not enough.
+#
+# RBAC IS WHAT HOLDS THE SECRET TO THIS TASK, and nothing else here does. The
+# only principals that can create a pod or a TaskRun in this namespace are
+# the ones the cluster's RBAC grants it to, and the triggers' policies below
+# hold what theirs create. The policy `contract-publish-token-has-one-reader`
+# is a guard against a typo, such as a manifest of this repository that
+# mounts the Secret by mistake. It keys on the `tekton.dev/task` label, which
+# whoever creates a pod writes, so it stops no one who means to.
+#
+# WHAT THIS DOES NOT PROMISE. A release is made at a commit the trigger runs,
+# and the trigger runs the commit of `main` that Flux holds, once the source
+# has it. If `main` moves past two release bumps within one trigger interval,
+# or one retry delay after a failed run, the first of them is never run and
+# its release is not made: a person makes it with `just publish-worker-contract`.
+# The trigger starts no run while one is unfinished, so two runs overlap only
+# when a person makes a Job from the CronJob by hand; they can delete each
+# other's draft, and the one that lost fails and is retried. A
+# published release whose tag was later deleted is not repaired and not
+# reported: the remote has no tag, so `prepare` goes on, and `release` finds the
+# release published and does nothing.
+#
+# THE SECRET IS OPTIONAL, because a pod that names a Secret that is not there
+# is never started, and every commit's run would then be a run that cannot
+# start. Without it `release` fails when there is something to release, with
+# the path it could not read, and does nothing otherwise.
+#
+# THE SCRIPTS ARE release-pipeline-scripts', which kustomization.yaml brings
+# in with fetch.sh. Each step names its image by digest: Node 24.22.0, the
+# release chuggy's worker image runs its core on, as the full image for the two
+# steps that need git and a toolchain, and as the slim one for the step that
+# needs neither. `npm` writes its cache under /tmp, with the rest of what the
+# root filesystem would otherwise refuse.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: publish-worker-contract
+  namespace: chuggy-build
+spec:
+  params:
+    - name: url
+      description: The repository the contract is released from, as GitRepository `chuggy` fetches it.
+      type: string
+    - name: commit
+      description: The full hash of the commit to release. It is the commit the release's tag is made at.
+      type: string
+    - name: repository
+      description: The owner and name of the repository the release is made on.
+      type: string
+  volumes:
+    - name: scripts
+      configMap:
+        name: release-pipeline-scripts
+    - name: tmp
+      emptyDir: {}
+    - name: source
+      emptyDir: {}
+    - name: handoff
+      emptyDir: {}
+    - name: publisher
+      secret:
+        secretName: chuggy-contract-publish-token
+        defaultMode: 0444
+        items:
+          - { key: token, path: token }
+        optional: true
+  steps:
+    - name: fetch
+      image: node:24.22.0-trixie@sha256:03795b45b3153ccaf7459e36c09d4e7ad6bdc08c5c2c2df1fce7e9f465c9103f
+      imagePullPolicy: IfNotPresent
+      command: [/bin/sh, /scripts/fetch.sh]
+      env:
+        - { name: URL, value: $(params.url) }
+        - { name: COMMIT, value: $(params.commit) }
+        - { name: DIRECTORY, value: /source }
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+        readOnlyRootFilesystem: true
+        seccompProfile: { type: RuntimeDefault }
+      computeResources:
+        requests: { cpu: 100m, memory: 128Mi }
+        limits: { memory: 1Gi }
+      volumeMounts:
+        - { name: scripts, mountPath: /scripts, readOnly: true }
+        - { name: tmp, mountPath: /tmp }
+        - { name: source, mountPath: /source }
+    - name: prepare
+      image: node:24.22.0-trixie@sha256:03795b45b3153ccaf7459e36c09d4e7ad6bdc08c5c2c2df1fce7e9f465c9103f
+      imagePullPolicy: IfNotPresent
+      command: [/bin/sh, /scripts/contract-prepare.sh]
+      env:
+        - { name: SOURCE, value: /source }
+        - { name: OUT, value: /handoff }
+        - { name: COMMIT, value: $(params.commit) }
+        - { name: REPOSITORY, value: $(params.repository) }
+        - { name: GH, value: /tmp/gh }
+        - { name: HOME, value: /tmp/home }
+        - { name: npm_config_cache, value: /tmp/npm }
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+        readOnlyRootFilesystem: true
+        seccompProfile: { type: RuntimeDefault }
+      computeResources:
+        requests: { cpu: 250m, memory: 512Mi }
+        limits: { memory: 2Gi }
+      volumeMounts:
+        - { name: scripts, mountPath: /scripts, readOnly: true }
+        - { name: tmp, mountPath: /tmp }
+        - { name: source, mountPath: /source }
+        - { name: handoff, mountPath: /handoff }
+    - name: release
+      image: node:24.22.0-trixie-slim@sha256:7f486cabe892bff8fef04c0f7da8dba84a560be3e4e2740b7a86afc57ebec315
+      imagePullPolicy: IfNotPresent
+      command: [node, /scripts/contract-release.mjs]
+      env:
+        - { name: OUT, value: /handoff }
+        - { name: COMMIT, value: $(params.commit) }
+        - { name: REPOSITORY, value: $(params.repository) }
+        - { name: TOKEN, value: /var/run/chuggy/publisher/token }
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+        readOnlyRootFilesystem: true
+        seccompProfile: { type: RuntimeDefault }
+      computeResources:
+        requests: { cpu: 50m, memory: 64Mi }
+        limits: { memory: 256Mi }
+      volumeMounts:
+        - { name: scripts, mountPath: /scripts, readOnly: true }
+        - { name: handoff, mountPath: /handoff, readOnly: true }
+        - { name: publisher, mountPath: /var/run/chuggy/publisher, readOnly: true }
+---
+# A GUARD AGAINST A TYPO, NOT THE HOLD; the header says what is. The Secret
+# being in the namespace makes it one any pod there could mount, and
+# `chuggy-build` admits a privileged one. This refuses a pod that reaches it,
+# by a volume, a projection, an environment value or `envFrom`, unless the pod
+# carries the label Tekton gives a pod of the Task above. The label is
+# whatever the creator of the pod writes, so this stops a mistake and not an
+# intent.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: contract-publish-token-has-one-reader
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchLabels: { kubernetes.io/metadata.name: chuggy-build }
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  variables:
+    - name: containers
+      expression: >-
+        object.spec.containers
+        + (has(object.spec.initContainers) ? object.spec.initContainers : [])
+    - name: reaches
+      expression: >-
+        (has(object.spec.volumes) ? object.spec.volumes : []).exists(volume,
+          (has(volume.secret) && volume.secret.secretName == "chuggy-contract-publish-token")
+          || (has(volume.projected) && volume.projected.sources.exists(source,
+            has(source.secret) && source.secret.name == "chuggy-contract-publish-token")))
+        || variables.containers.exists(container,
+          (has(container.env) && container.env.exists(entry,
+            has(entry.valueFrom) && has(entry.valueFrom.secretKeyRef)
+            && entry.valueFrom.secretKeyRef.name == "chuggy-contract-publish-token"))
+          || (has(container.envFrom) && container.envFrom.exists(source,
+            has(source.secretRef) && source.secretRef.name == "chuggy-contract-publish-token")))
+  validations:
+    - expression: >-
+        !variables.reaches
+        || (has(object.metadata.labels) && "tekton.dev/task" in object.metadata.labels
+        && object.metadata.labels["tekton.dev/task"] == "publish-worker-contract")
+      message: >-
+        the contract publish token is mounted by pods labelled as the Task
+        publish-worker-contract and by no other pod
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: contract-publish-token-has-one-reader
+spec:
+  policyName: contract-publish-token-has-one-reader
+  validationActions: [Deny]
+---
+# THE TRIGGER: each minute, whether a publish of the contract is started.
+#
+# image-trigger.yaml's shape and its script: the same comparison of a source
+# with the newest run, over a run of another Task, with `repository` as the
+# parameter a run is of. A ServiceAccount of its own, so that what each token
+# can do is said once.
+#
+# WHAT ITS TOKEN CAN DO IS THREE VERBS AND ONE READ. `get` on the one source it
+# compares, by name, in `flux-system`; `list`, `create` and `delete` on
+# TaskRuns in `chuggy-build`. It cannot read a run's pods or logs, a Secret
+# anywhere, or any other source. In particular it cannot read the Secret the
+# Task's last step mounts.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: contract-publish-trigger
+  namespace: chuggy-release-trigger
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: contract-publish-trigger-reads-sources
+  namespace: flux-system
+rules:
+  - apiGroups: [source.toolkit.fluxcd.io]
+    resources: [gitrepositories]
+    resourceNames: [chuggy]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: contract-publish-trigger-reads-sources
+  namespace: flux-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: contract-publish-trigger-reads-sources
+subjects:
+  - kind: ServiceAccount
+    name: contract-publish-trigger
+    namespace: chuggy-release-trigger
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: contract-publish-trigger-runs
+  namespace: chuggy-build
+rules:
+  - apiGroups: [tekton.dev]
+    resources: [taskruns]
+    verbs: [list, create, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: contract-publish-trigger-runs
+  namespace: chuggy-build
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: contract-publish-trigger-runs
+subjects:
+  - kind: ServiceAccount
+    name: contract-publish-trigger
+    namespace: chuggy-release-trigger
+---
+# THE RUN, LESS WHAT THE TRIGGER WRITES INTO IT. `spec` below is
+# contract-publish-run.yaml's without its parameters, as CEL, in the form the
+# API server will store it after Tekton's webhook has rewritten it, as
+# image-trigger.yaml argues of its own. tests/release-pipeline.py writes the
+# same from that file and refuses a difference.
+#
+# THE REPOSITORY IS ONE VALUE, and `url` and `commit` are the source's below.
+# A run for another repository is a release made on it by a token that is
+# scoped to kasofsk/chuggy, which GitHub would refuse, and by then it has
+# been a pod of the namespace.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: contract-publish-creates-a-publish-run
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [tekton.dev]
+        apiVersions: ["*"]
+        operations: [CREATE]
+        resources: [taskruns]
+  matchConditions:
+    - name: created-by-the-contract-publish-trigger
+      expression: request.userInfo.username == "system:serviceaccount:chuggy-release-trigger:contract-publish-trigger"
+  variables:
+    - name: spec
+      expression: |-
+        {
+          "taskRef": dyn({"name": "publish-worker-contract", "kind": "Task"}),
+          "timeout": dyn("30m0s"),
+          "serviceAccountName": dyn("builder"),
+          "podTemplate": dyn({
+            "automountServiceAccountToken": dyn(false),
+            "nodeSelector": dyn({
+              "chuggy.dev/node-role": "builder",
+              "kubernetes.io/os": "linux",
+              "kubernetes.io/arch": "amd64"
+            }),
+            "tolerations": dyn([
+              {"key": "chuggy.dev/node-role", "operator": "Equal", "value": "builder", "effect": "NoSchedule"}
+            ])
+          })
+        }
+    - name: params
+      expression: >-
+        has(object.spec.params) ? object.spec.params : []
+  validations:
+    - expression: object.apiVersion == "tekton.dev/v1"
+      message: >-
+        a run the contract publish trigger creates is a tekton.dev/v1 TaskRun,
+        and in another version what is held here goes by other names
+    - expression: "!has(object.metadata.labels)"
+      message: >-
+        a run the contract publish trigger creates carries no label, and a
+        run's labels are its pod's labels
+    - expression: "!has(object.metadata.annotations)"
+      message: >-
+        a run the contract publish trigger creates carries no annotation, and
+        a run's annotations are its pod's annotations
+    - expression: object.spec.all(field, field == "params" || field in variables.spec)
+      message: >-
+        a run the contract publish trigger creates sets nothing
+        contract-publish-run.yaml does not, and a task, a step's overrides or a
+        pod template of its own is a pod of its writer's choosing
+    - expression: variables.spec.all(field, field in object.spec && object.spec[field] == variables.spec[field])
+      message: >-
+        a run the contract publish trigger creates is of contract-publish-run.yaml's
+        Task, within its time, and its pod runs where and as what that file says
+    - expression: variables.params.map(param, param.name) == ["url", "commit", "repository"]
+      message: >-
+        a run the contract publish trigger creates passes the parameters
+        contract-publish-run.yaml passes, each once
+    - expression: >-
+        variables.params.exists(param, param.name == "repository" && type(param.value) == string
+        && param.value == "kasofsk/chuggy")
+      message: a run the contract publish trigger creates releases on kasofsk/chuggy
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: contract-publish-creates-a-publish-run
+spec:
+  policyName: contract-publish-creates-a-publish-run
+  validationActions: [Deny]
+---
+# WHAT A RUN IS FOR IS WHAT THE SOURCE HOLDS, as image-trigger.yaml's policy of
+# the same shape argues: `url` is the address the source fetches, and `commit`
+# the commit of the artifact it holds. The address is also held to the
+# repository the run names, so the tag is made on the repository that was
+# fetched. The binding says `Allow` for a source that is not there, for the
+# reason image-trigger.yaml gives: a TaskRun is every build's, and the
+# trigger creates none then because it reads the source first.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: contract-publish-publishes-what-a-source-holds
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: GitRepository
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [tekton.dev]
+        apiVersions: ["*"]
+        operations: [CREATE]
+        resources: [taskruns]
+  matchConditions:
+    - name: created-by-the-contract-publish-trigger
+      expression: request.userInfo.username == "system:serviceaccount:chuggy-release-trigger:contract-publish-trigger"
+  validations:
+    - expression: >-
+        has(params.status.artifact) && has(object.spec.params)
+        && object.spec.params.exists(param, param.name == "url" && param.value == params.spec.url)
+        && object.spec.params.exists(param, param.name == "commit" && type(param.value) == string
+        && params.status.artifact.revision.endsWith("@sha1:" + param.value))
+        && object.spec.params.exists(param, param.name == "repository" && type(param.value) == string
+        && params.spec.url == "https://github.com/" + param.value + ".git")
+      messageExpression: >-
+        "a run the contract publish trigger creates is for the address and the commit GitRepository "
+        + params.metadata.name + " holds, on the repository that address is"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: contract-publish-publishes-what-chuggy-holds
+spec:
+  policyName: contract-publish-publishes-what-a-source-holds
+  validationActions: [Deny]
+  paramRef:
+    name: chuggy
+    namespace: flux-system
+    parameterNotFoundAction: Allow
+---
+# WHERE THE TRIGGER'S POD MAY GO: the cluster's DNS and the API server's port,
+# as release-trigger.yaml's `release-trigger-egress` argues, selected by this
+# trigger's label.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: contract-publish-trigger-egress
+  namespace: chuggy-release-trigger
+spec:
+  podSelector:
+    matchLabels: { app: contract-publish-trigger }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.42.0.0/16
+              - 10.43.0.0/16
+      ports:
+        - { protocol: TCP, port: 6443 }
+---
+# Each minute, whether GitRepository `chuggy` holds a commit the newest publish
+# did not run for. Its timing is the release trigger's, for the reasons
+# release-trigger.yaml gives of each value, and tests/release-pipeline.py holds
+# the three to one timing.
+#
+# A FAILED RUN IS RETRIED AFTER TEN MINUTES, for as long as the source holds the
+# commit it failed on: a release that failed for a reason a person has to see
+# is not made faster by a run a minute, and the run is one `npm ci`.
+#
+# NOT SUSPENDED, and nothing is deployed by it: it releases a package other
+# repositories install by URL. The field is the layer's, as the image
+# trigger's is.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: contract-publish-trigger
+  namespace: chuggy-release-trigger
+  labels: { app: contract-publish-trigger }
+spec:
+  schedule: "* * * * *"
+  suspend: false
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 30
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 45
+      ttlSecondsAfterFinished: 600
+      template:
+        metadata:
+          labels: { app: contract-publish-trigger }
+        spec:
+          serviceAccountName: contract-publish-trigger
+          automountServiceAccountToken: true
+          restartPolicy: Never
+          terminationGracePeriodSeconds: 5
+          nodeSelector:
+            kubernetes.io/os: linux
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: trigger
+              image: ghcr.io/fluxcd/flux-cli:v2.6.4@sha256:d6734ea180b0f5135e6a343482da1a669c526ef85525da53a6415c6a9f359861
+              imagePullPolicy: IfNotPresent
+              command: [/bin/sh, /trigger/image-trigger.sh]
+              env:
+                # kubectl keeps a discovery cache under it.
+                - { name: HOME, value: /tmp }
+                - { name: SOURCES_NAMESPACE, value: flux-system }
+                - { name: SOURCE, value: chuggy }
+                - { name: RUNS_NAMESPACE, value: chuggy-build }
+                - { name: TASK, value: publish-worker-contract }
+                - { name: SUBJECT_PARAM, value: repository }
+                - { name: IMAGE, value: kasofsk/chuggy }
+                - { name: RUN_MANIFEST, value: /trigger/contract-publish-run.yaml }
+                - { name: RETRY_DELAY_SECONDS, value: "600" }
+                - { name: KEEP_RUNS, value: "10" }
+              resources:
+                requests: { cpu: 25m, memory: 64Mi }
+                limits: { memory: 256Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - { name: trigger, mountPath: /trigger, readOnly: true }
+                - { name: tmp, mountPath: /tmp }
+          volumes:
+            - name: trigger
+              configMap:
+                name: image-trigger
+            - name: tmp
+              emptyDir: {}

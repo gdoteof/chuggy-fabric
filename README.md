@@ -432,15 +432,18 @@ whole map in one place.
 ### GitHub App credentials
 
 `chuggy.githubAppTokens` mints repository-scoped installation tokens into
-managed Kubernetes Secrets, one for each entry of `tokens` a host declares. No
-host here declares one or enables the delivery: gtr states the two Apps and
-where their keys are, which `tests/forge-app-key.py` reads, and the keys remain
-root-only host state outside this repository and the Nix store.
+managed Kubernetes Secrets, one for each entry of `tokens` a host declares.
+gtr states the two Apps and where their keys are, which `tests/forge-app-key.py`
+reads, and declares one token: `contract-publish`, the portal App's, for
+kasofsk/chuggy with `contents: write`, into `chuggy-build`, for [the worker
+contract's release](#the-worker-contracts-release). The keys remain root-only
+host state outside this repository and the Nix store.
 
-No pod is handed a repository's credential on a forge: the api, the ticket
-service, the finalizer and the importer each mount a GitHub App's private key
-and mint for the act they are performing, and a work pod's is minted for it by
-the worker plane. The exception is this cluster's own git service, which no App
+No pod is handed a repository's credential on a forge but the one step of the
+contract publish: the api, the ticket service, the finalizer and the importer
+each mount a GitHub App's private key and mint for the act they are performing,
+and a work pod's is minted for it by the worker plane. The other exception is
+this cluster's own git service, which no App
 covers — `chuggy-git-worker` is mounted into work and session pods and named in
 the one row of the scheduler's repositories map, and `chuggy-finalizer-credentials`
 is the finalizer's for `rig.git`. Both are made by hand. On a host that does
@@ -980,6 +983,58 @@ under its own names: `cronjob chug-gy-image-trigger` in the commands under
 [Operating a release](#operating-a-release), and deleting the newest
 `chug-gy-image-*` TaskRun to build a commit again. The trigger keeps the ten
 newest runs of the image and deletes the finished ones before them.
+
+#### The worker contract's release
+
+A ticket that changes chuggy's worker contract lands as a merge, and the
+contract is released on GitHub as `worker-contract-v<release>` with the
+tarball as its asset: what other repositories install it from, and what a
+ticket depending on the change waits for. `just publish-worker-contract` in
+chuggy makes that release by hand; this makes it for every commit of chuggy's
+`main`.
+
+`cluster/build-system/contract-publish.yaml` holds the Task and its trigger.
+The CronJob `contract-publish-trigger` is `image-trigger.sh` over GitRepository
+`chuggy` and the Task `publish-worker-contract`, with runs told apart by their
+`repository` parameter. A run fetches the commit and reads the release
+`src/contract/workerContract.ts` declares. If the remote already has the tag it
+stops there, which is the usual case and a success. Otherwise it runs
+chuggy's own `scripts/publish-worker-contract.ts --dry-run`, which refuses
+what the script refuses and packs the tarball, and a last step releases it:
+`contract-release.mjs` makes a draft at the run's commit, uploads the asset
+and publishes, so a release never exists without its asset. A failed run is
+tried again after ten minutes; delete the newest `contract-publish-*` TaskRun
+to try sooner.
+
+The token is the only credential, and its step runs none of the commit's code.
+That step reads the commit's handoff as regular files only, refuses a link and
+never puts what a file held in a message, so code that wrote the handoff cannot
+make it print the token.
+The host mints it from the portal App's key, for kasofsk/chuggy alone and for
+an hour, into `chuggy-contract-publish-token` in `chuggy-build`. What holds it
+to this Task's pods is RBAC: nobody else can create a pod or a TaskRun in that
+namespace. An admission policy refuses a pod that mounts it without the Task's
+label, and that is a guard against a typo, since the label is the creator's to
+write. The portal App is the
+integration the repository's ruleset lets update `main`, so that token could;
+`contract-publish.yaml` argues what keeps it from the `npm ci` and the publish
+script, and what it does not. `tests/contract-release.nix` runs the last step
+against a GitHub that is a file's server, `tests/contract-publish-token.nix`
+holds the host's token to the Task that mounts it, `tests/contract-prepare.nix`
+runs the step before it and the `gh` it gives the publish script, and the
+trigger's decisions are `tests/image-trigger.nix`'s, which runs them for both
+CronJobs.
+
+What it does not promise. If `main` moves past two release bumps within one
+trigger interval, or within the retry delay after a failed run, the first
+release is never run and never made; `just publish-worker-contract` makes it.
+The trigger starts no run while one is unfinished, so two runs overlap only
+when someone makes a Job from the CronJob by hand; they can delete each
+other's draft, and the one that lost fails and is retried. The declaration
+`workerContractRelease` is read from a single line of one fixed form, so a
+formatter that wraps it makes every run fail until it is kept on one line again;
+nothing in chuggy changes for that. A published release whose tag was deleted is neither
+repaired nor reported.
 
 #### The worker image's two platforms
 
