@@ -68,6 +68,13 @@
 # steps that need git and a toolchain, and as the slim one for the step that
 # needs neither. `npm` writes its cache under /tmp, with the rest of what the
 # root filesystem would otherwise refuse.
+#
+# /SOURCE IS A VOLUME THE KUBELET MADE, owned by root, and the steps run as
+# uid 1000, so git refuses it as of someone else's. `fetch` and `prepare`, the
+# two steps that run git on it, say by `GIT_CONFIG_*` in their environment that
+# it is safe: that is git's command-line configuration, one of the places
+# `safe.directory` is read from, and it writes no file and loosens no
+# ownership. `release` runs no git and is given none.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -110,6 +117,9 @@ spec:
         - { name: URL, value: $(params.url) }
         - { name: COMMIT, value: $(params.commit) }
         - { name: DIRECTORY, value: /source }
+        - { name: GIT_CONFIG_COUNT, value: "1" }
+        - { name: GIT_CONFIG_KEY_0, value: safe.directory }
+        - { name: GIT_CONFIG_VALUE_0, value: /source }
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -138,6 +148,9 @@ spec:
         - { name: GH, value: /tmp/gh }
         - { name: HOME, value: /tmp/home }
         - { name: npm_config_cache, value: /tmp/npm }
+        - { name: GIT_CONFIG_COUNT, value: "1" }
+        - { name: GIT_CONFIG_KEY_0, value: safe.directory }
+        - { name: GIT_CONFIG_VALUE_0, value: /source }
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
