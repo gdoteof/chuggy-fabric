@@ -61,7 +61,10 @@ printf '%s\n' "$name" | grep -Eqx '@?[A-Za-z0-9._/-]+' \
   || refuse "src/contract/package.json names no package this can title a release with"
 
 
-if [ -n "$(git ls-remote --tags "https://github.com/$REPOSITORY.git" "refs/tags/$tag")" ]; then
+# Only a clean, empty answer is "absent": a failed ls-remote says nothing about the tag.
+held=$(git ls-remote --tags "https://github.com/$REPOSITORY.git" "refs/tags/$tag" 2>/dev/null) \
+  || refuse "could not ask $REPOSITORY whether it holds $tag"
+if [ -n "$held" ]; then
   echo "prepare: $REPOSITORY holds $tag: nothing to publish at $COMMIT"
   exit 0
 fi
