@@ -537,6 +537,12 @@ DURATION = re.compile(r"(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?")
 RUN_POLICY = "release-trigger-creates-the-release-run"
 SOURCE_POLICY = "release-trigger-runs-what-a-source-holds"
 IMAGE_RUN_POLICY = "image-trigger-creates-an-image-run"
+# Tekton's defaulting webhook writes this label on every TaskRun before a
+# policy sees it, so a run is admitted with it and with no other label.
+DEFAULTED_LABEL_ONLY = (
+    '!has(object.metadata.labels) || object.metadata.labels'
+    ' == {"app.kubernetes.io/managed-by": "tekton-pipelines"}'
+)
 IMAGE_SOURCE_POLICY = "image-trigger-builds-what-a-source-holds"
 
 
@@ -1023,7 +1029,7 @@ def admission_is_held(cluster, release_run, image_runs, contract_run, sources_na
             },
             "validations": [
                 'object.apiVersion == "tekton.dev/v1"',
-                "!has(object.metadata.labels)",
+                DEFAULTED_LABEL_ONLY,
                 "!has(object.metadata.annotations)",
                 'object.spec.all(field, field == "params" || field in variables.spec)',
                 "variables.spec.all(field, field in object.spec && object.spec[field] == variables.spec[field])",
@@ -1044,7 +1050,7 @@ def admission_is_held(cluster, release_run, image_runs, contract_run, sources_na
             },
             "validations": [
                 'object.apiVersion == "tekton.dev/v1"',
-                "!has(object.metadata.labels)",
+                DEFAULTED_LABEL_ONLY,
                 "!has(object.metadata.annotations)",
                 'object.spec.all(field, field == "params" || field in variables.spec)',
                 "variables.spec.all(field, field in object.spec && object.spec[field] == variables.spec[field])",

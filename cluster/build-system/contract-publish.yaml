@@ -309,6 +309,13 @@ subjects:
 # image-trigger.yaml argues of its own. tests/release-pipeline.py writes the
 # same from that file and refuses a difference.
 #
+# THE ONE LABEL A RUN MAY CARRY is `app.kubernetes.io/managed-by: tekton-pipelines`,
+# which the same webhook writes on every TaskRun before a policy sees it, so a
+# policy that wanted none refused every run. A run's labels are its pod's
+# labels, and nothing else is allowed: a writer still cannot set
+# `tekton.dev/task` or any other. Annotations are not defaulted at admission,
+# and a run carries none.
+#
 # THE REPOSITORY IS ONE VALUE, and `url` and `commit` are the source's below.
 # A run for another repository is a release made on it by a token that is
 # scoped to kasofsk/chuggy, which GitHub would refuse, and by then it has
@@ -355,10 +362,13 @@ spec:
       message: >-
         a run the contract publish trigger creates is a tekton.dev/v1 TaskRun,
         and in another version what is held here goes by other names
-    - expression: "!has(object.metadata.labels)"
+    - expression: >-
+        !has(object.metadata.labels) || object.metadata.labels
+        == {"app.kubernetes.io/managed-by": "tekton-pipelines"}
       message: >-
-        a run the contract publish trigger creates carries no label, and a
-        run's labels are its pod's labels
+        a run the contract publish trigger creates carries no label but the one
+        Tekton's defaulting writes on every run, and a run's labels are its
+        pod's labels
     - expression: "!has(object.metadata.annotations)"
       message: >-
         a run the contract publish trigger creates carries no annotation, and
