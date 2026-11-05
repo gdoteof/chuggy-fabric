@@ -17,7 +17,9 @@
 # is any pod that namespace admits. The two policies below admit from this
 # ServiceAccount a run whose `spec` is chug-gy-image-run.yaml's, for an image
 # and a Dockerfile that file names, at the address and the commit the source
-# holds, with no label and no annotation. So what the token can start is the
+# holds, with no label but the one Tekton's defaulting writes on every run
+# (`app.kubernetes.io/managed-by`, before this policy sees the run) and no
+# annotation. So what the token can start is the
 # run the trigger would start.
 #
 # image-trigger.sh, in the ConfigMap kustomization.yaml generates beside
@@ -140,10 +142,13 @@ spec:
       message: >-
         a run the image trigger creates is a tekton.dev/v1 TaskRun, and in
         another version what is held here goes by other names
-    - expression: "!has(object.metadata.labels)"
+    - expression: >-
+        !has(object.metadata.labels) || object.metadata.labels
+        == {"app.kubernetes.io/managed-by": "tekton-pipelines"}
       message: >-
-        a run the image trigger creates carries no label, and a run's labels
-        are its pod's labels
+        a run the image trigger creates carries no label but the one
+        Tekton's defaulting writes on every run, and a run's labels are its
+        pod's labels
     - expression: "!has(object.metadata.annotations)"
       message: >-
         a run the image trigger creates carries no annotation, and a run's
