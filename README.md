@@ -1008,14 +1008,26 @@ to try sooner.
 
 The token is the only credential, and its step runs none of the commit's code.
 The host mints it from the portal App's key, for kasofsk/chuggy alone and for
-an hour, into `chuggy-contract-publish-token` in `chuggy-build`, which only the
-pods of this Task may mount, held by admission. The portal App is the
+an hour, into `chuggy-contract-publish-token` in `chuggy-build`. What holds it
+to this Task's pods is RBAC: nobody else can create a pod or a TaskRun in that
+namespace. An admission policy refuses a pod that mounts it without the Task's
+label, and that is a guard against a typo, since the label is the creator's to
+write. The portal App is the
 integration the repository's ruleset lets update `main`, so that token could;
 `contract-publish.yaml` argues what keeps it from the `npm ci` and the publish
 script, and what it does not. `tests/contract-release.nix` runs the last step
 against a GitHub that is a file's server, `tests/contract-publish-token.nix`
-holds the host's token to the Task that mounts it, and the trigger's decisions
-are `tests/image-trigger.nix`'s, which runs them for both CronJobs.
+holds the host's token to the Task that mounts it, `tests/contract-prepare.nix`
+runs the step before it and the `gh` it gives the publish script, and the
+trigger's decisions are `tests/image-trigger.nix`'s, which runs them for both
+CronJobs.
+
+What it does not promise. If `main` moves past two release bumps within one
+trigger interval, or within the retry delay after a failed run, the first
+release is never run and never made; `just publish-worker-contract` makes it.
+Two overlapping runs can delete each other's draft, and the one that lost
+fails and is retried. A published release whose tag was deleted is neither
+repaired nor reported.
 
 #### The worker image's two platforms
 

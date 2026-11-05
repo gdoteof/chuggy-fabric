@@ -12,8 +12,11 @@
 # what the commit says: its `npm ci` and its publish script. Neither has a
 # credential, and nothing the token can do is in reach of either except through
 # the file they leave behind. `release` has the token and runs contract-release.mjs
-# from this repository, which reads that file as data it checks: a tag of the
-# one pattern, the run's own commit, one tarball. The credential is the
+# from this repository, which reads what they left as data it checks. `prepare`
+# is what checks that the tag is the declared release and that the dry run said
+# it would release that tag at this commit. `release` checks only the pattern
+# of the tag, that the title is a package name and that release, the run's own
+# commit and one tarball. The credential is the
 # portal App's, as a token for kasofsk/chuggy alone with `contents: write`,
 # which modules/github-app-token.nix mints on the host and puts in
 # `chuggy-contract-publish-token` in this namespace. It is the portal App's
@@ -23,13 +26,31 @@
 # WHAT THE TOKEN IS AND IS NOT. An installation token is good for an hour and
 # for one repository, but the portal App is the integration kasofsk/chuggy's
 # ruleset lets update `main`, so this token could. That is why the step that
-# has it runs none of the commit's code, why its Secret is held below to the
-# pods of this Task, and why the steps are in one pod and not two: a pod's
-# containers are isolated from one another by the kernel, which is what stands
-# between the `prepare` step and the Secret's mount. A container escape from it
-# reaches the token. The alternative, a Pipeline with a workspace between two
-# pods, needs a volume this namespace does not provision, and is the change to
-# make if that is not enough.
+# has it runs none of the commit's code, and why the steps are in one pod and
+# not two: a pod's containers are isolated from one another by the kernel,
+# which is what stands between the `prepare` step and the Secret's mount. A
+# container escape from it reaches the token. The alternative, a Pipeline with
+# a workspace between two pods, needs a volume this namespace does not
+# provision, and is the change to make if that is not enough.
+#
+# RBAC IS WHAT HOLDS THE SECRET TO THIS TASK, and nothing else here does. The
+# only principals that can create a pod or a TaskRun in this namespace are
+# the ones the cluster's RBAC grants it to, and the triggers' policies below
+# hold what theirs create. The policy `contract-publish-token-has-one-reader`
+# is a guard against a typo, such as a manifest of this repository that
+# mounts the Secret by mistake. It keys on the `tekton.dev/task` label, which
+# whoever creates a pod writes, so it stops no one who means to.
+#
+# WHAT THIS DOES NOT PROMISE. A release is made at a commit the trigger runs,
+# and the trigger runs the commit of `main` that Flux holds, once the source
+# has it. If `main` moves past two release bumps within one trigger interval,
+# or one retry delay after a failed run, the first of them is never run and
+# its release is not made: a person makes it with `just publish-worker-contract`.
+# Two runs that overlap, as a retry beside a run still going, can delete each
+# other's draft; the one that lost fails, and its retry makes the release. A
+# published release whose tag was later deleted is not repaired and not
+# reported: the remote has no tag, so `prepare` goes on, and `release` finds the
+# release published and does nothing.
 #
 # THE SECRET IS OPTIONAL, because a pod that names a Secret that is not there
 # is never started, and every commit's run would then be a run that cannot
@@ -155,15 +176,13 @@ spec:
         - { name: handoff, mountPath: /handoff, readOnly: true }
         - { name: publisher, mountPath: /var/run/chuggy/publisher, readOnly: true }
 ---
-# WHICH PODS MAY CARRY THE TOKEN. Anything that can create a pod in this
-# namespace can write any volume into it, and `chuggy-build` admits a
-# privileged one, so the Secret being in the namespace is a Secret any pod
-# there could mount. This refuses a pod that reaches it, by a volume, a
-# projection, an environment value or `envFrom`, unless it is a pod of the
-# Task above. Tekton labels a pod with its Task from the run's `taskRef`, and
-# a run that carried a Task of its own would carry no such label: the
-# triggers' policies refuse any run that has one, and this is what holds the
-# Secret if one of them is wrong.
+# A GUARD AGAINST A TYPO, NOT THE HOLD; the header says what is. The Secret
+# being in the namespace makes it one any pod there could mount, and
+# `chuggy-build` admits a privileged one. This refuses a pod that reaches it,
+# by a volume, a projection, an environment value or `envFrom`, unless the pod
+# carries the label Tekton gives a pod of the Task above. The label is
+# whatever the creator of the pod writes, so this stops a mistake and not an
+# intent.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -201,7 +220,7 @@ spec:
         || (has(object.metadata.labels) && "tekton.dev/task" in object.metadata.labels
         && object.metadata.labels["tekton.dev/task"] == "publish-worker-contract")
       message: >-
-        the contract publish token is mounted by the pods of the Task
+        the contract publish token is mounted by pods labelled as the Task
         publish-worker-contract and by no other pod
 ---
 apiVersion: admissionregistration.k8s.io/v1

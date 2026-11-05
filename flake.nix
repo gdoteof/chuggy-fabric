@@ -141,6 +141,7 @@
         apps = self.nixosConfigurations.gtr.config.chuggy.githubAppTokens.apps;
       };
       contractRelease = import ./tests/contract-release.nix { inherit pkgs; };
+      contractPrepare = import ./tests/contract-prepare.nix { inherit pkgs; };
       contractPublishToken = import ./tests/contract-publish-token.nix {
         inherit pkgs;
         host = self.nixosConfigurations.gtr;
@@ -266,6 +267,11 @@
         # The release step of the Task that publishes the contract, call by
         # call, against a GitHub that is a server of the test's own.
         contract-release = contractRelease;
+
+        # Its prepare step and the gh that step gives the publish script: the
+        # declaration read, the tag skipped, the script's output held to the
+        # one release the run is for.
+        contract-prepare = contractPrepare;
 
         # A roster the API reads, a file each reporter is verified by, the
         # Secret the host makes for it, the release run that presents one and

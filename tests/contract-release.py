@@ -12,13 +12,15 @@ directory and with GitHub, call by call:
   call at all, not even a read;
 - a release is a draft first, then its asset, then published, in that order
   and with the token on every call; the draft is made at the run's commit, and
-  named for the tag the directory holds; a draft an earlier run left for the
+  titled with the `title` the directory holds, and noted with the commit and
+  the tarball's hash; a draft an earlier run left for the
   same tag is deleted first, and a draft for another tag is left alone;
 - a tag already released, as a published release, is success and creates
   nothing;
 - a directory that is not exactly a worker contract tag and one regular
   tarball is a failure before any call that writes: a tag that is not of the
-  one pattern, two files, a link, a name with a path in it;
+  one pattern, no title, a title that is not a package name and the tag's
+  release, two files, a link, a name with a path in it;
 - a commit that is not a full hash, no token and an empty token are failures
   before any call;
 - an upload address that is not GitHub's uploads address for the draft is a
@@ -39,6 +41,7 @@ from pathlib import Path
 COMMIT = "a" * 40
 REPOSITORY = "owner/repo"
 TAG = "worker-contract-v1.2.3"
+TITLE = "@chuggy/worker-contract 1.2.3"
 TARBALL = "chuggy-worker-contract-1.2.3.tgz"
 TOKEN = "installation-token-for-this-test"
 FAILURES = []
@@ -102,7 +105,7 @@ class Github:
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
 
-def run(node, script, github, name, tag=TAG, files=(TARBALL,), commit=COMMIT, token=TOKEN, link=False, **state):
+def run(node, script, github, name, tag=TAG, title=None, files=(TARBALL,), commit=COMMIT, token=TOKEN, link=False, **state):
     github.calls.clear()
     github.state = {"upload_url": f"{github.address}/repos/{REPOSITORY}/releases/77/assets{{?name,label}}", **state}
     with tempfile.TemporaryDirectory() as directory:
@@ -110,6 +113,8 @@ def run(node, script, github, name, tag=TAG, files=(TARBALL,), commit=COMMIT, to
         (out / "pack").mkdir(parents=True)
         if tag is not None:
             (out / "tag").write_text(tag + "\n")
+        if tag is not None and title != "":
+            (out / "title").write_text((TITLE if title is None else title) + "\n")
         for file in files:
             if link:
                 (out / "pack" / file).symlink_to("/etc/passwd")
@@ -179,7 +184,7 @@ def main():
     if len(github.calls) == 5:
         draft = json.loads(github.calls[2]["body"])
         sha = hashlib.sha256(b"tarball bytes").hexdigest()
-        wanted = {"tag_name": TAG, "target_commitish": COMMIT, "name": TAG, "body": f"Packed at {COMMIT} (sha256 {sha}).", "draft": True}
+        wanted = {"tag_name": TAG, "target_commitish": COMMIT, "name": TITLE, "body": f"Packed at {COMMIT} (sha256 {sha}).", "draft": True}
         if draft != wanted:
             report("released", f"the draft is {draft}, not {wanted}")
         if github.calls[3]["path"] != f"{base}/releases/77/assets?name={TARBALL}" or github.calls[3]["body"] != b"tarball bytes":
@@ -196,6 +201,10 @@ def main():
         "tag-is-not-a-contract-tag": {"tag": "v1.2.3"},
         "tag-has-a-path": {"tag": f"../{TAG}"},
         "tag-has-two-lines": {"tag": f"{TAG}\nx"},
+        "no-title": {"title": ""},
+        "title-of-another-release": {"title": "@chuggy/worker-contract 1.2.4"},
+        "title-has-two-lines": {"title": f"{TITLE}\nx"},
+        "title-is-not-a-name": {"title": "evil; rm 1.2.3"},
         "two-files": {"files": (TARBALL, "second.tgz")},
         "no-file": {"files": ()},
         "not-a-tarball": {"files": ("notes.txt",)},

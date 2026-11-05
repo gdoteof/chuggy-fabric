@@ -7,7 +7,9 @@
 // WHAT THE PREPARE STEP LEFT IS CHECKED, NOT TRUSTED. The tag must be the one
 // pattern a worker contract is released under, the commit is the run's own
 // parameter and not a file, and the tarball is the one regular file the pack
-// directory holds. The title and the notes are written here.
+// directory holds. The title is the package's name and the release, as the
+// publish script writes it, and arrives in the file `title`; it is checked to be
+// that and nothing else, and this builds none of it. The notes are written here.
 //
 // A DRAFT FIRST, SO NO RELEASE IS PUBLISHED WITHOUT ITS ASSET. A consumer
 // installs the asset by its URL, and a published release with no asset is a
@@ -44,6 +46,17 @@ try {
   process.exit(0);
 }
 if (!/^worker-contract-v\d+\.\d+\.\d+$/u.test(tag)) throw new Error(`'${tag}' is not a worker contract tag`);
+let title;
+try {
+  title = readFileSync(join(OUT, "title"), "utf8").trim();
+} catch (error) {
+  if (error.code !== "ENOENT") throw error;
+  throw new Error("the prepare step left a tag and no title");
+}
+const release = tag.slice("worker-contract-v".length);
+if (!new RegExp(`^@?[A-Za-z0-9._/-]+ ${release.replaceAll(".", "\\.")}$`, "u").test(title)) {
+  throw new Error(`'${title}' is not a package name and ${release}`);
+}
 if (!/^[0-9a-f]{40}$/u.test(COMMIT)) throw new Error(`'${COMMIT}' is not a full commit hash`);
 if (!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/u.test(REPOSITORY)) throw new Error(`'${REPOSITORY}' is not a repository`);
 
@@ -95,7 +108,7 @@ const draft = await call(
     body: JSON.stringify({
       tag_name: tag,
       target_commitish: COMMIT,
-      name: tag,
+      name: title,
       body: `Packed at ${COMMIT} (sha256 ${sha256}).`,
       draft: true,
     }),

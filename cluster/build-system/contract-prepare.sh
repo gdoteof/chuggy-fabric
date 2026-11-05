@@ -4,7 +4,7 @@
 # The second step of `publish-worker-contract`: it runs what the commit says,
 # and so it holds no credential. `npm ci` and the publish script are the
 # commit's own code. What it hands the next step is a tarball, in a directory
-# that step reads, and the tag the tarball is released under, written last.
+# that step reads, the title it is released under, and the tag, written last.
 #
 # NOTHING TO DO IS SUCCESS. A commit that does not move the contract's release
 # names a tag the remote already holds, and so does a commit the trigger
@@ -17,6 +17,11 @@
 # The pattern is the one line workerContract.ts writes it on, and a file that
 # does not match it, or matches twice, is a failure and not a skipped release.
 #
+# THE TITLE IS THE SCRIPT'S, and so is the package name in it: the workspace
+# manifest's, read at the commit, then a space and the release. The script
+# releases under that title and the release step must match it, so this reads
+# it from the same file and hands it over; the release step builds nothing.
+#
 # EVERY OTHER REFUSAL OF THE SCRIPT IS A FAILURE. It refuses a history that
 # does not name this release as the wire the tree holds, and a pack whose files
 # are not the ones the history records; a run that passed over either would be
@@ -25,6 +30,9 @@
 # NO LIFECYCLE SCRIPTS. The script packs with typescript and zod and runs no
 # dependency's install step, so none is run in a pod whose next step holds the
 # token.
+#
+# SCRIPTS is where the Task mounts these scripts and is not set there;
+# tests/contract-prepare.py sets it.
 set -eu
 
 refuse() {
@@ -41,6 +49,11 @@ case $declared in
 "*) refuse "workerContract.ts does not declare workerContractRelease once, as a version" ;;
 esac
 tag="worker-contract-v$declared"
+name=$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).name)' \
+  "$SOURCE/src/contract/package.json")
+case $name in
+  "" | *[!A-Za-z0-9._/@-]*) refuse "src/contract/package.json names no package this can title a release with" ;;
+esac
 
 if [ -n "$(git ls-remote --tags "https://github.com/$REPOSITORY.git" "refs/tags/$tag")" ]; then
   echo "prepare: $REPOSITORY holds $tag: nothing to publish at $COMMIT"
@@ -48,7 +61,7 @@ if [ -n "$(git ls-remote --tags "https://github.com/$REPOSITORY.git" "refs/tags/
 fi
 
 mkdir -p "$GH"
-cp /scripts/contract-gh.sh "$GH/gh"
+cp "${SCRIPTS:-/scripts}/contract-gh.sh" "$GH/gh"
 chmod 0755 "$GH/gh"
 
 cd "$SOURCE"
@@ -67,5 +80,6 @@ esac
 printf '%s\n' "$printed" | grep -qx "would release and tag $tag at $COMMIT" \
   || refuse "the script would not release $tag at $COMMIT"
 
+printf '%s %s\n' "$name" "$declared" > "$OUT/title"
 printf '%s\n' "$tag" > "$OUT/tag"
 echo "prepare: $tag is packed as $tarball"
