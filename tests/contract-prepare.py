@@ -40,7 +40,7 @@ FAKE_NODE = """#!/bin/sh
 if [ "$1" = -e ]; then exec "$REAL_NODE" "$@"; fi
 echo "node $*" >> "$LOG"
 mkdir -p "$OUT/pack"
-if [ -n "$FAKE_TARBALL" ]; then : > "$FAKE_TARBALL"; fi
+if [ -n "$FAKE_TARBALL" ]; then mkdir -p "$(dirname "$FAKE_TARBALL")"; : > "$FAKE_TARBALL"; fi
 printf '%s' "$FAKE_PRINTED"
 """
 FAKE_GIT = """#!/bin/sh
@@ -89,6 +89,7 @@ def prepare(node, scripts, name, declaration=DECLARATION, remote="", head=COMMIT
             "PATH": f"{bin}:{os.environ['PATH']}",
             "REAL_NODE": node,
             "LOG": str(directory / "log"),
+            "HOME": str(directory / "home"),
             "SOURCE": str(source),
             "OUT": str(out),
             "GH": str(gh),
@@ -169,11 +170,17 @@ def main():
     if any(line.startswith(("npm", "node")) for line in log):
         report("head-elsewhere", f"ran {log}")
     refused(node, scripts, "no-package-name", manifest="{}")
+    for name, package in {"at-in-the-middle": "a@b", "two-ats": "@@a", "at-alone": "@", "slash-only-scope-gap": "@a b"}.items():
+        refused(node, scripts, name, manifest=f'{{"name": "{package}"}}')
+    done, log, written, title, tag, _ = prepare(node, scripts, "scoped-name", manifest='{"name": "plain.pkg_1/x-y"}')
+    if title != f"plain.pkg_1/x-y {RELEASE}\n":
+        report("scoped-name", f"titled {title!r}")
     refused(node, scripts, "package-name-with-space", manifest='{"name": "a b"}')
 
     for name, say in {
         "tarball-elsewhere": lambda out: f"Packed {SHA}  /tmp/x.tgz\nwould release and tag {TAG} at {COMMIT}\n",
         "tarball-a-file-elsewhere": lambda out: f"Packed {SHA}  /bin/sh\nwould release and tag {TAG} at {COMMIT}\n",
+        "tarball-in-a-subdirectory": lambda out: f"Packed {SHA}  {out}/pack/sub/x.tgz\nwould release and tag {TAG} at {COMMIT}\n",
         "tarball-not-tgz": lambda out: f"Packed {SHA}  {out}/pack/x.zip\nwould release and tag {TAG} at {COMMIT}\n",
         "short-sha": lambda out: f"Packed abc  {out}/pack/x.tgz\nwould release and tag {TAG} at {COMMIT}\n",
         "no-packed-line": lambda out: printed(out, packed=False),
@@ -182,7 +189,7 @@ def main():
         "handshake-with-trailing-text": lambda out: printed(out).rstrip("\n") + " and more\n",
         "released-for-real": lambda out: f"Packed {SHA}  {out}/pack/chuggy-worker-contract-1.2.3.tgz\nreleased and tagged {TAG} at {COMMIT}\n",
     }.items():
-        refused(node, scripts, name, say=say)
+        refused(node, scripts, name, say=say, tarball="sub/x.tgz" if name == "tarball-in-a-subdirectory" else "chuggy-worker-contract-1.2.3.tgz")
     refused(node, scripts, "tarball-not-made", tarball="")
 
     for name, arguments, remote, code, says in (

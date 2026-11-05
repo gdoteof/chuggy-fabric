@@ -17,7 +17,7 @@
 # is what checks that the tag is the declared release and that the dry run said
 # it would release that tag at this commit. `release` checks only the pattern
 # of the tag, that the title is a package name and that release, the run's own
-# commit and one tarball. The credential is the
+# commit and one tarball: it trusts the tag `prepare` wrote. The credential is the
 # portal App's, as a token for kasofsk/chuggy alone with `contents: write`,
 # which modules/github-app-token.nix mints on the host and puts in
 # `chuggy-contract-publish-token` in this namespace. It is the portal App's

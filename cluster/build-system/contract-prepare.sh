@@ -17,6 +17,11 @@
 # The pattern is the one line workerContract.ts writes it on, and a file that
 # does not match it, or matches twice, is a failure and not a skipped release.
 #
+# THE RELEASE STEP TRUSTS THE TAG THIS WRITES: it checks the tag's pattern and
+# that the title is a name and that release, and not that the tag is the
+# declared one or that the dry run said so. This is where those are checked,
+# and the name and tarball rules here are the ones that step applies.
+#
 # THE TITLE IS THE SCRIPT'S, and so is the package name in it: the workspace
 # manifest's, read at the commit, then a space and the release. The script
 # releases under that title and the release step must match it, so this reads
@@ -40,7 +45,8 @@ refuse() {
   exit 1
 }
 
-: "${SOURCE:?}" "${OUT:?}" "${REPOSITORY:?}" "${GH:?}" "${COMMIT:?}"
+: "${SOURCE:?}" "${OUT:?}" "${REPOSITORY:?}" "${GH:?}" "${COMMIT:?}" "${HOME:?}"
+mkdir -p "$HOME"
 
 declared=$(sed -n 's/^export const workerContractRelease = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)";$/\1/p' \
   "$SOURCE/src/contract/workerContract.ts")
@@ -51,9 +57,9 @@ esac
 tag="worker-contract-v$declared"
 name=$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).name)' \
   "$SOURCE/src/contract/package.json")
-case $name in
-  "" | *[!A-Za-z0-9._/@-]*) refuse "src/contract/package.json names no package this can title a release with" ;;
-esac
+printf '%s\n' "$name" | grep -Eqx '@?[A-Za-z0-9._/-]+' \
+  || refuse "src/contract/package.json names no package this can title a release with"
+
 
 if [ -n "$(git ls-remote --tags "https://github.com/$REPOSITORY.git" "refs/tags/$tag")" ]; then
   echo "prepare: $REPOSITORY holds $tag: nothing to publish at $COMMIT"
@@ -73,9 +79,12 @@ printf '%s\n' "$printed"
 
 tarball=$(printf '%s\n' "$printed" | sed -n 's/^Packed [0-9a-f]\{64\}  \(.*\)$/\1/p')
 case $tarball in
-  "$OUT/pack/"*.tgz) ;;
+  "$OUT/pack/"*) ;;
   *) refuse "the script printed no tarball under $OUT/pack" ;;
 esac
+printf '%s\n' "${tarball#"$OUT/pack/"}" | grep -Eqx '[A-Za-z0-9._-]+\.tgz' \
+  || refuse "the script printed a tarball that is not a .tgz directly in $OUT/pack"
+
 [ -f "$tarball" ] || refuse "$tarball is not a file"
 printf '%s\n' "$printed" | grep -qx "would release and tag $tag at $COMMIT" \
   || refuse "the script would not release $tag at $COMMIT"

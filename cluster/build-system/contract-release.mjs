@@ -7,7 +7,8 @@
 // WHAT THE PREPARE STEP LEFT IS CHECKED, NOT TRUSTED. The commit's code wrote
 // the handoff directory, so a name in it may be a link to a file this
 // container can read and that one cannot, such as the token. Every entry is
-// lstat'd and must be a regular file, or the pack a real directory, before it
+// opened without following a link and must be a regular file within a size
+// bound, or the pack a real directory of at most one tarball, before it
 // is read, and no message here carries what a file held. The tag must be the
 // one pattern a worker contract is released under, the commit is the run's own
 // parameter and not a file, and the tarball is the one regular file the pack
@@ -25,7 +26,7 @@
 // NOT `gh`: its release command would be the same three calls, and this
 // step's image would then be one more that has to carry it.
 import { createHash } from "node:crypto";
-import { lstatSync, readFileSync, readdirSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, opendirSync, openSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const { REPOSITORY, COMMIT, OUT, TOKEN } = process.env;
@@ -41,18 +42,38 @@ function say(message) {
   process.stdout.write(`release: ${message}\n`);
 }
 
-// A handoff entry's text, or undefined where there is none. Never a link.
-function handoff(name) {
-  const path = join(OUT, name);
-  let stat;
+// Each read is of the object that was checked: the entry is opened without
+// following a link, never blocking on a pipe, and the checks and the read are of
+// that descriptor. Nothing here depends on the step that wrote the handoff
+// having stopped. A bound from the descriptor comes before any read.
+const NOFOLLOW = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
+const TEXT_BYTES = 256;
+const TARBALL_BYTES = 64 * 1024 * 1024;
+
+// The descriptor of a regular file of at most `limit` bytes, or undefined where
+// there is no such entry.
+function openFile(path, limit, what) {
+  let fd;
   try {
-    stat = lstatSync(path);
+    fd = openSync(path, NOFOLLOW);
   } catch (error) {
     if (error.code === "ENOENT") return undefined;
-    throw error;
+    throw new Error(`the handoff's ${what} cannot be opened (${error.code})`);
   }
-  if (!stat.isFile()) throw new Error(`the handoff's ${name} is not a regular file`);
-  return readFileSync(path, "utf8").trim();
+  const stat = fstatSync(fd);
+  if (!stat.isFile()) throw new Error(`the handoff's ${what} is not a regular file`);
+  if (stat.size > limit) throw new Error(`the handoff's ${what} is larger than ${limit} bytes`);
+  return fd;
+}
+
+function handoff(name) {
+  const fd = openFile(join(OUT, name), TEXT_BYTES, name);
+  if (fd === undefined) return undefined;
+  try {
+    return readFileSync(fd, "utf8").trim();
+  } finally {
+    closeSync(fd);
+  }
 }
 
 const tag = handoff("tag");
@@ -70,14 +91,47 @@ if (!new RegExp(`^@?[A-Za-z0-9._/-]+ ${release.replaceAll(".", "\\.")}$`, "u").t
 if (!/^[0-9a-f]{40}$/u.test(COMMIT)) throw new Error(`'${COMMIT}' is not a full commit hash`);
 if (!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/u.test(REPOSITORY)) throw new Error(`'${REPOSITORY}' is not a repository`);
 
-if (!lstatSync(join(OUT, "pack")).isDirectory()) throw new Error("the handoff's pack is not a directory");
-const packed = readdirSync(join(OUT, "pack"));
-if (packed.length !== 1 || !/^[A-Za-z0-9._-]+\.tgz$/u.test(packed[0])) {
-  throw new Error(`the pack directory holds ${packed.length} entries, and one tarball is the release`);
+const pack = join(OUT, "pack");
+let packed;
+{
+  let fd;
+  try {
+    fd = openSync(pack, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+  } catch (error) {
+    throw new Error(`the handoff's pack cannot be opened as a directory (${error.code})`);
+  }
+  try {
+    const opened = fstatSync(fd);
+    const named = lstatSync(pack);
+    if (!opened.isDirectory() || named.dev !== opened.dev || named.ino !== opened.ino) {
+      throw new Error("the handoff's pack is not the directory that was opened");
+    }
+    // Two entries are more than a release holds: the listing stops there.
+    const directory = opendirSync(pack);
+    packed = [];
+    try {
+      for (let entry = directory.readSync(); entry !== null && packed.length < 2; entry = directory.readSync()) {
+        packed.push(entry.name);
+      }
+    } finally {
+      directory.closeSync();
+    }
+  } finally {
+    closeSync(fd);
+  }
 }
-const asset = join(OUT, "pack", packed[0]);
-if (!lstatSync(asset).isFile()) throw new Error(`${asset} is not a regular file`);
-const body = readFileSync(asset);
+if (packed.length !== 1 || !/^[A-Za-z0-9._-]+\.tgz$/u.test(packed[0])) {
+  throw new Error(`the pack directory holds ${packed.length === 1 ? "one entry that is not a tarball" : "other than one entry"}, and one tarball is the release`);
+}
+const assetName = packed[0];
+const assetFd = openFile(join(pack, assetName), TARBALL_BYTES, "tarball");
+if (assetFd === undefined) throw new Error("the handoff's tarball is gone");
+let body;
+try {
+  body = readFileSync(assetFd);
+} finally {
+  closeSync(assetFd);
+}
 const sha256 = createHash("sha256").update(body).digest("hex");
 
 const token = readFileSync(TOKEN, "utf8").trim();
@@ -87,6 +141,7 @@ const api = `${API}/repos/${REPOSITORY}`;
 async function call(url, init, expected) {
   const response = await fetch(url, {
     ...init,
+    redirect: "error",
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/vnd.github+json",
@@ -136,7 +191,7 @@ const draft = await call(
 const uploads = `${UPLOADS}/repos/${REPOSITORY}/releases/${draft.id}/assets`;
 if (!draft.upload_url.startsWith(`${uploads}{`)) throw new Error(`the draft's upload address '${draft.upload_url}' is not ${uploads}`);
 await call(
-  `${uploads}?name=${encodeURIComponent(packed[0])}`,
+  `${uploads}?name=${encodeURIComponent(assetName)}`,
   { method: "POST", headers: { "Content-Type": "application/x-gtar" }, body },
   [201],
 );

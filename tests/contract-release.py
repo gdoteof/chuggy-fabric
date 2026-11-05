@@ -17,8 +17,9 @@ directory and with GitHub, call by call:
   same tag is deleted first, and a draft for another tag is left alone;
 - a tag already released, as a published release, is success and creates
   nothing;
-- a link in the directory, for the tag, the title, the pack or its tarball, is
-  a failure, and the token it points at is in nothing the step prints;
+- a link in the directory, for the tag, the title, the pack or its tarball, a
+  pipe or directory for the tag or title, and a size past the bound for the
+  tag, title or tarball or too many entries in the pack, is a failure, and the token it points at is in nothing the step prints;
 - the listing is read to its last page, for a published release and a stale
   draft; the asset is sent as `application/x-gtar`, as `gh release create`
   sends a `.tgz`;
@@ -90,7 +91,12 @@ class Github:
                 )
                 state = outer.state
                 base = f"/repos/{REPOSITORY}"
-                if self.command == "GET" and self.path.startswith(f"{base}/releases?per_page=100&page="):
+                if state.get("redirect") and self.command == "GET" and self.path.startswith(f"{base}/releases"):
+                    self.send_response(302)
+                    self.send_header("Location", "/followed")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                elif self.command == "GET" and self.path.startswith(f"{base}/releases?per_page=100&page="):
                     page = int(self.path.rsplit("=", 1)[1])
                     self.answer(200, state.get("releases", [])[(page - 1) * 100 : page * 100])
                 elif self.command == "DELETE" and self.path.startswith(f"{base}/releases/"):
@@ -111,7 +117,7 @@ class Github:
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
 
-def run(node, script, github, name, tag=TAG, title=None, files=(TARBALL,), commit=COMMIT, token=TOKEN, link=False, links=(), **state):
+def run(node, script, github, name, tag=TAG, title=None, files=(TARBALL,), commit=COMMIT, token=TOKEN, link=False, links=(), make=None, **state):
     github.calls.clear()
     github.state = {"upload_url": f"{github.address}/repos/{REPOSITORY}/releases/77/assets{{?name,label}}", **state}
     with tempfile.TemporaryDirectory() as directory:
@@ -139,10 +145,17 @@ def run(node, script, github, name, tag=TAG, title=None, files=(TARBALL,), commi
                 (out / "pack").symlink_to(elsewhere)
             elif name == "entry":
                 (out / "pack" / TARBALL).unlink()
+                (out / "pack" / TARBALL).symlink_to(elsewhere / TARBALL)
+            elif name == "token-entry":
+                (out / "pack" / TARBALL).unlink()
                 (out / "pack" / TARBALL).symlink_to(token_file)
             else:
+                # To a file that would pass every check but the link.
+                (elsewhere / name).write_text((tag if name == "tag" else TITLE) + "\n")
                 (out / name).unlink()
-                (out / name).symlink_to(token_file)
+                (out / name).symlink_to(elsewhere / name)
+        if make is not None:
+            make(out)
         environment = {
             "PATH": os.environ["PATH"],
             "REPOSITORY": REPOSITORY,
@@ -152,7 +165,11 @@ def run(node, script, github, name, tag=TAG, title=None, files=(TARBALL,), commi
             "GITHUB_API": github.address,
             "GITHUB_UPLOADS": github.address,
         }
-        done = subprocess.run([node, script], env=environment, text=True, capture_output=True)
+        try:
+            done = subprocess.run([node, script], env=environment, text=True, capture_output=True, timeout=20)
+        except subprocess.TimeoutExpired:
+            report(name, "hung")
+            done = subprocess.CompletedProcess([], 124, "", "")
     return done
 
 
@@ -239,7 +256,15 @@ def main():
         "tag-is-a-link": {"links": ("tag",)},
         "title-is-a-link": {"links": ("title",)},
         "pack-is-a-link": {"links": ("pack",)},
-        "entry-is-a-link-to-the-token": {"links": ("entry",)},
+        "entry-is-a-link": {"links": ("entry",)},
+        "entry-is-a-link-to-the-token": {"links": ("token-entry",)},
+        "tag-is-a-pipe": {"make": lambda out: (out / "tag").unlink() or os.mkfifo(out / "tag")},
+        "title-is-a-pipe": {"make": lambda out: (out / "title").unlink() or os.mkfifo(out / "title")},
+        "tag-is-a-directory": {"make": lambda out: (out / "tag").unlink() or (out / "tag").mkdir()},
+        "tag-is-oversized": {"make": lambda out: (out / "tag").write_text(TAG + "\n" + "x" * 400)},
+        "title-is-oversized": {"make": lambda out: (out / "title").write_text(TITLE + "\n" + "x" * 400)},
+        "tarball-is-oversized": {"make": lambda out: (out / "pack" / TARBALL).write_bytes(b"") or os.truncate(out / "pack" / TARBALL, 65 * 1024 * 1024)},
+        "pack-is-oversized": {"make": lambda out: [(out / "pack" / f"{n}.tgz").write_bytes(b"x") for n in range(300)]},
         "short-commit": {"commit": "abc123"},
         "no-token": {"token": None},
         "empty-token": {"token": ""},
@@ -262,6 +287,9 @@ def main():
         [*listing, ("POST", f"{base}/releases")],
         says="upload address",
     )
+    done = run(node, script, github, "redirected", redirect=True)
+    if done.returncode == 0 or any(call["path"] == "/followed" for call in github.calls):
+        report("redirected", f"exited {done.returncode} and called {shape(github)}")
     done = run(node, script, github, "upload-refused", upload_status=422)
     expect(
         "upload-refused",
