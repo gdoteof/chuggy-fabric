@@ -309,7 +309,7 @@ spec:
             # read-only and starts as the contract's job command. Named by
             # digest; the scheduler refuses to start without it.
             - name: CHUG_SCHEDULER_WORKER_RUNTIME
-              value: "registry.chuggy.internal/chuggy/worker-runtime@sha256:@RUNTIME_DIGEST@"
+              value: "registry.chuggy.internal/chuggy/worker-runtime@sha256:4fc776c153f2fa791a3424b407332195bcefd2e932ecf91a2a1210736cc1163d"
             # `CHUG_WORKER_REPOSITORIES` IS ONE ROW, AND IT IS THE ONE
             # REPOSITORY THIS FABRIC STILL MOUNTS A CREDENTIAL FOR. A pod asks
             # the plane to mint for the reference it was given; the plane mints
