@@ -907,7 +907,7 @@ spec:
                     "capabilities": ["Agent:Claude", "Agent:Codex"]
                   },
                   {
-                    "image": "registry.chuggy.internal/chuggy/worker@sha256:@WORKER_DIGEST@",
+                    "image": "registry.chuggy.internal/chuggy/worker@sha256:275d9e7c9f46f708b27d54b0921c35357ec89521f585b638a639aee2031b7bf2",
                     "name": "chuggy-worker",
                     "version": "0.67",
                     "operatingSystem": "Linux",
@@ -1214,7 +1214,7 @@ spec:
             - name: CHUG_SCHEDULER_SESSION_POLICY
               value: |
                 {
-                  "image": "registry.chuggy.internal/chuggy/worker@sha256:@WORKER_DIGEST@",
+                  "image": "registry.chuggy.internal/chuggy/worker@sha256:275d9e7c9f46f708b27d54b0921c35357ec89521f585b638a639aee2031b7bf2",
                   "profile": "chuggy-development",
                   "runtimeVersion": "claude-code-latest",
                   "grant": {
