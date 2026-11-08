@@ -33,6 +33,20 @@
 # WHAT A RUN WAS STARTED FOR IS ITS `commit` PARAMETER, which is what the Task
 # builds and tags by. Nothing more is written on the run.
 #
+# INPUTS_ANNOTATION CHANGES WHAT IS COMPARED, FOR AN IMAGE THAT IS BUILT FROM
+# PART OF A REPOSITORY. A Flux source's revision moves with every commit of the
+# branch, and a source whose `spec.ignore` leaves only an image's inputs still
+# reports the commit, but its artifact `digest` is the archive of those inputs
+# alone, and source-controller writes the archive reproducibly. So when
+# INPUTS_ANNOTATION names an annotation, a run is started for the digest the
+# source holds and not for its commit: the run is written with the digest in
+# that annotation, the newest run's annotation is what is compared, and a
+# commit that left the inputs as they were starts nothing. The `commit`
+# parameter is still the commit the source holds when the run is started, which
+# is what the Task builds, and a run retried after a failure builds the commit
+# the source holds then. A run with no such annotation is a run for no inputs
+# at all, and the next minute starts another.
+#
 # BUILT IS WHAT THE NEWEST RUN SAYS, AND THE REGISTRY IS NOT ASKED. A run that
 # succeeded for the commit the source holds is the end of it. A registry that
 # has lost the image is filled by nothing this does until the source holds
@@ -75,13 +89,17 @@ SUBJECT_PARAM=${SUBJECT_PARAM:-image}
 case $SUBJECT_PARAM in
   *[!a-z]* | "") refuse "SUBJECT_PARAM '$SUBJECT_PARAM' is not a parameter name this writes into a query" ;;
 esac
+INPUTS_ANNOTATION=${INPUTS_ANNOTATION:-}
+case $INPUTS_ANNOTATION in
+  *[!A-Za-z0-9./-]*) refuse "INPUTS_ANNOTATION '$INPUTS_ANNOTATION' is not an annotation name this writes into a query" ;;
+esac
 [ "$KEEP_RUNS" -ge 1 ] || refuse "KEEP_RUNS of $KEEP_RUNS would delete the run the next comparison reads"
 
-# The URL the source fetches and the revision of the artifact it holds, the
-# second empty until it holds one.
+# The URL the source fetches, and the revision and the digest of the artifact
+# it holds, the last two empty until it holds one.
 source_of() {
   kubectl --namespace "$SOURCES_NAMESPACE" get gitrepositories.source.toolkit.fluxcd.io "$1" \
-    --output 'jsonpath={.spec.url}{"|"}{.status.artifact.revision}{"\n"}'
+    --output 'jsonpath={.spec.url}{"|"}{.status.artifact.revision}{"|"}{.status.artifact.digest}{"\n"}'
 }
 
 # The commit of a revision Flux writes as `<branch>@sha1:<commit>`.
@@ -102,16 +120,21 @@ commit_of() {
 # line fails without failing the line, and a read that failed would then be a
 # source with no artifact.
 held=$(source_of "$SOURCE")
-IFS='|' read -r url revision <<EOF
+IFS='|' read -r url revision digest <<EOF
 $held
 EOF
 
 # Every TaskRun in the namespace, a line each: when it was created, its name,
 # its Task, the image it was given, whether it succeeded (`True`, `False`, or
-# neither while it runs), when that was decided, and the commit it was given.
+# neither while it runs), when that was decided, the commit it was given, and
+# the inputs annotation, empty where there is none to read.
 list_runs() {
+  inputs_path=
+  if [ -n "$INPUTS_ANNOTATION" ]; then
+    inputs_path='{.metadata.annotations.'$(printf '%s' "$INPUTS_ANNOTATION" | sed 's/\./\\./g')'}'
+  fi
   kubectl --namespace "$RUNS_NAMESPACE" get taskruns.tekton.dev \
-    --output 'jsonpath={range .items[*]}{.metadata.creationTimestamp}{"|"}{.metadata.name}{"|"}{.spec.taskRef.name}{"|"}{.spec.params[?(@.name=="'"$SUBJECT_PARAM"'")].value}{"|"}{.status.conditions[?(@.type=="Succeeded")].status}{"|"}{.status.conditions[?(@.type=="Succeeded")].lastTransitionTime}{"|"}{.spec.params[?(@.name=="commit")].value}{"\n"}{end}'
+    --output 'jsonpath={range .items[*]}{.metadata.creationTimestamp}{"|"}{.metadata.name}{"|"}{.spec.taskRef.name}{"|"}{.spec.params[?(@.name=="'"$SUBJECT_PARAM"'")].value}{"|"}{.status.conditions[?(@.type=="Succeeded")].status}{"|"}{.status.conditions[?(@.type=="Succeeded")].lastTransitionTime}{"|"}{.spec.params[?(@.name=="commit")].value}{"|"}'"$inputs_path"'{"\n"}{end}'
 }
 
 # The runs of the image among those lines, oldest first.
@@ -134,6 +157,7 @@ start() {
   created=$(sed \
     -e "s|@source-url@|$url|g" \
     -e "s|@source-commit@|$commit|g" \
+    -e "s|@source-inputs@|$digest|g" \
     "$RUN_MANIFEST" | kubectl create --filename - --output name)
   created=${created##*/}
   say "started $created"
@@ -152,23 +176,39 @@ if [ -z "$revision" ]; then
   say "$SOURCE holds no artifact yet: nothing is started"
 else
   commit=$(commit_of "$revision")
+  # What the newest run is compared with: the commit the source holds, or the
+  # digest of its inputs where INPUTS_ANNOTATION says that is what a run is for.
+  held=$commit
+  if [ -n "$INPUTS_ANNOTATION" ]; then
+    case $digest in
+      sha256:*) ;;
+      *) refuse "digest '$digest' is not a sha256" ;;
+    esac
+    case ${digest#sha256:} in
+      *[!0-9a-f]*) refuse "digest '$digest' is not a sha256" ;;
+    esac
+    [ "${#digest}" -eq 71 ] || refuse "digest '$digest' is not a full sha256"
+    held=$digest
+  fi
   unfinished=$(unfinished_of "$runs")
-  IFS='|' read -r _ newest _ _ succeeded decided for_commit <<EOF
+  IFS='|' read -r _ newest _ _ succeeded decided for_commit for_inputs <<EOF
 $(printf '%s\n' "$runs" | tail -n 1)
 EOF
+  for_what=$for_commit
+  [ -z "$INPUTS_ANNOTATION" ] || for_what=$for_inputs
   if [ -n "$unfinished" ]; then
     say "$(echo $unfinished) has not finished: nothing is started"
-  elif [ "$for_commit" != "$commit" ]; then
-    say "$SOURCE holds $commit, and the newest run of $IMAGE ${newest:-(there is none)} was started for '$for_commit'"
+  elif [ "$for_what" != "$held" ]; then
+    say "$SOURCE holds $held, and the newest run of $IMAGE ${newest:-(there is none)} was started for '$for_what'"
     start
   elif [ "$succeeded" = True ]; then
-    say "$newest built $IMAGE at $commit: nothing is started"
+    say "$newest built $IMAGE at $held: nothing is started"
   else
     retry_after=$(date -u -d "@$(($(date +%s) - RETRY_DELAY_SECONDS))" +%Y-%m-%dT%H:%M:%SZ)
     if awk -v decided="$decided" -v after="$retry_after" 'BEGIN { exit !(decided "" > after "") }'; then
-      say "$newest failed on $commit at $decided, inside the retry delay: nothing is started"
+      say "$newest failed on $held at $decided, inside the retry delay: nothing is started"
     else
-      say "$newest failed on $commit at $decided: retrying"
+      say "$newest failed on $held at $decided: retrying"
       start
     fi
   fi

@@ -18,6 +18,15 @@ run is of, which is `image` for the site's trigger and `repository` for the
 contract publish trigger. The cases below read "image" as that parameter's
 value.
 
+A CRONJOB WITH `INPUTS_ANNOTATION` COMPARES THE SOURCE'S DIGEST, NOT ITS
+COMMIT. The worker image triggers are the cases below with "the commit" read
+as "the digest of the inputs": a run is for the digest its annotation says, and
+`commit` in a case names which of two digests the run carries. The cases only
+they have are at the end of `main`: a source that moved to a commit with the
+digest it had starts nothing, a digest that moved at the same commit starts a
+run, a run carrying no annotation is for no inputs, and a failed run is
+retried at the commit the source holds then.
+
 A STARTED RUN IS READ BACK. The first case starts a run, finishes it as Tekton
 would, and runs the script again over what it created: the `commit` parameter
 a run is written with is what the next comparison reads, or a commit that was
@@ -72,6 +81,10 @@ RUNS = "taskruns.tekton.dev"
 
 COMMIT = "a" * 40
 OTHER_COMMIT = "b" * 40
+# What the source's artifact holds the inputs as, at COMMIT and at the commit
+# before it, for a trigger that compares those.
+DIGEST = "sha256:" + "f" * 64
+OTHER_DIGEST = "sha256:" + "e" * 64
 SOURCE_URL = "https://site.example.invalid/site.git"
 OTHER_IMAGE = "registry.example.invalid:5000/another/image"
 
@@ -305,6 +318,8 @@ class Pod:
         # The parameter a run is of the image by: `image`, unless the CronJob
         # says its runs are of something else.
         self.subject = self.env.get("SUBJECT_PARAM", "image")
+        # The annotation a run is for its inputs by, where the CronJob says so.
+        self.inputs = self.env.get("INPUTS_ANNOTATION")
         manifest = self.env["RUN_MANIFEST"]
         if manifest not in self.files:
             refuse(f"{manifest} is not a file of a ConfigMap the trigger mounts")
@@ -340,7 +355,7 @@ class Pod:
                 )
 
 
-def source(name, url, commit=COMMIT, revision=None):
+def source(name, url, commit=COMMIT, revision=None, digest=DIGEST):
     found = {
         "apiVersion": "source.toolkit.fluxcd.io/v1",
         "kind": "GitRepository",
@@ -351,7 +366,7 @@ def source(name, url, commit=COMMIT, revision=None):
         found["status"] = {
             "artifact": {
                 "revision": revision or f"main@sha1:{commit}",
-                "digest": "sha256:" + "f" * 64,
+                "digest": digest,
                 "url": f"http://source-controller.flux-system.svc.cluster.local./gitrepository/flux-system/{name}/{commit}.tar.gz",
             },
             "conditions": [{"type": "Ready", "status": "True", "lastTransitionTime": stamp(0)}],
@@ -366,10 +381,16 @@ class Suite:
         self.work = Path(work)
         self.now = int(time.time())
 
-    def run(self, name, created, state, commit=COMMIT, decided=None, task=None, image=None, params=True):
+    def run(
+        self, name, created, state, commit=COMMIT, decided=None, task=None, image=None, params=True,
+        inputs=None, built_at=None,
+    ):
         """A run as the API server holds it. `created` and `decided` are
         seconds before now; `state` is new, running, succeeded or failed.
-        `params=False` is a run of a Task that takes none."""
+        `params=False` is a run of a Task that takes none. Where the CronJob
+        compares inputs, the run is for those of COMMIT (DIGEST) or of
+        another, unless `inputs` says: its `commit` parameter is `built_at`
+        or the commit it is named for."""
         task = task or self.pod.task
         found = {
             "apiVersion": "tekton.dev/v1",
@@ -385,9 +406,12 @@ class Suite:
         if params:
             found["spec"]["params"] = [
                 {"name": "url", "value": SOURCE_URL},
-                {"name": "commit", "value": commit},
+                {"name": "commit", "value": built_at or commit},
                 {"name": self.pod.subject, "value": image or self.pod.image},
             ] + ([{"name": "dockerfile", "value": "Dockerfile"}] if self.pod.subject == "image" else [])
+        if self.pod.inputs and inputs != "none":
+            held = inputs or (DIGEST if commit == COMMIT else OTHER_DIGEST)
+            found["metadata"]["annotations"] = {self.pod.inputs: held}
         if state != "new":
             status = {"running": "Unknown", "succeeded": "True", "failed": "False"}[state]
             when = created if decided is None else decided
@@ -492,13 +516,13 @@ class Suite:
     def nothing(self, name, says="nothing is started", **arguments):
         return self.expect(self.case(name, **arguments), says=says)
 
-    def starts(self, name, says=None, commit=COMMIT, **arguments):
+    def starts(self, name, says=None, commit=COMMIT, digest=DIGEST, **arguments):
         result = self.expect(self.case(name, **arguments), started=1, says=says)
         if len(result["started"]) == 1:
-            self.as_the_source_says(name, result["started"][0], commit)
+            self.as_the_source_says(name, result["started"][0], commit, digest)
         return result
 
-    def as_the_source_says(self, name, started, commit):
+    def as_the_source_says(self, name, started, commit, digest):
         text = json.dumps(started)
         if "@" in text.replace("main@sha1", ""):
             report(name, f"the run was created with a placeholder left in it: {text}")
@@ -515,9 +539,11 @@ class Suite:
         }
         if params != expected or expected[self.pod.subject] != self.pod.image:
             report(name, f"the run's parameters are {params}, not {expected} with the image the trigger reads by")
-        for field in ("labels", "annotations"):
-            if metadata.get(field):
-                report(name, f"the run carries {field} {metadata[field]}, and the file writes none")
+        if metadata.get("labels"):
+            report(name, f"the run carries labels {metadata['labels']}, and the file writes none")
+        wanted = {self.pod.inputs: digest} if self.pod.inputs else None
+        if (metadata.get("annotations") or None) != wanted:
+            report(name, f"the run carries annotations {metadata.get('annotations')}, not {wanted}")
 
     def again(self, name, earlier, finish=None, decided=0, **expected):
         """Run the script over what an earlier case left, having finished the
@@ -537,6 +563,58 @@ class Suite:
                     }
         result = self.case(name, state=state)
         return self.expect(result, **expected)
+
+
+def inputs_cases(suite):
+    """The cases only a trigger that compares inputs has."""
+    pod, run = suite.pod, suite.run
+    inside, past = pod.delay - 20, pod.delay + 20
+    moved = source(pod.source, SOURCE_URL, commit=OTHER_COMMIT)
+    suite.nothing(
+        "commit-moved-and-inputs-did-not",
+        runs=[run("r1", 600, "succeeded", built_at=COMMIT)],
+        held=moved,
+        says=f"r1 built {pod.image} at {DIGEST}",
+    )
+    suite.starts(
+        "inputs-moved-at-the-same-commit",
+        runs=[run("r1", 600, "succeeded", inputs=OTHER_DIGEST, built_at=COMMIT)],
+    )
+    suite.starts(
+        "newest-run-has-no-annotation",
+        runs=[run("r1", 600, "succeeded", inputs="none")],
+        says="was started for ''",
+    )
+    suite.nothing(
+        "failed-lately-at-an-older-commit",
+        runs=[run("r1", 3600, "failed", decided=inside, built_at=OTHER_COMMIT)],
+        held=moved,
+        says="inside the retry delay",
+    )
+    suite.starts(
+        "failed-long-ago-is-retried-at-the-commit-held",
+        runs=[run("r1", 3600, "failed", decided=past, built_at=COMMIT)],
+        held=moved,
+        commit=OTHER_COMMIT,
+        says="retrying",
+    )
+    for case, digest in (
+        ("digest-is-no-sha256", "md5:" + "f" * 32),
+        ("digest-is-short", "sha256:" + "f" * 63),
+        ("digest-is-long", "sha256:" + "f" * 65),
+        ("digest-is-no-hex", "sha256:" + "g" * 64),
+        ("digest-is-absent", ""),
+    ):
+        suite.expect(
+            suite.case(case, held=source(pod.source, SOURCE_URL, digest=digest)),
+            fails=True,
+            says="is not a",
+        )
+    suite.nothing(
+        "digest-is-not-read-without-an-artifact",
+        held=source(pod.source, SOURCE_URL, commit=None),
+        says="holds no artifact yet",
+    )
 
 
 def main():
@@ -720,6 +798,9 @@ def main():
         deleted=["old00", "old01", "old02"],
         says="holds no artifact yet",
     )
+
+    if pod.inputs:
+        inputs_cases(suite)
 
     if FAILURES:
         raise SystemExit(f"image-trigger: {len(FAILURES)} failed: {', '.join(FAILURES)}")

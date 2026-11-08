@@ -1,0 +1,52 @@
+# One build of chuggy's worker runtime, for linux/amd64 and linux/arm64, and
+# the only manifest for one.
+#
+# NOT APPLIED, and the other half of worker-image-run.yaml, whose header
+# argues everything this file shares with it: the trigger that creates it, the
+# placeholders, the Task and the placement. What differs is the Dockerfile's
+# `runtime` stage as `target`, and the image it is pushed to.
+#
+# WHY THE RUNTIME IS BUILT WHENEVER THE WORKER IS. The runtime is the tree a
+# job's container mounts at /opt/chuggy and the worker image is built on it,
+# and it carries the shipped core (lib/chuggy), so it changes whenever
+# images/worker/core.json does. Whether one build changed it is not known
+# before the registry has the digest, and a build is by commit, so both are
+# built and CHUG_SCHEDULER_WORKER_RUNTIME is written with the digest this run
+# reports, as the offered worker image is with the other's.
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: worker-runtime-image-
+  namespace: chuggy-build
+  annotations:
+    fabric.chuggy.dev/worker-inputs: "@source-inputs@"
+spec:
+  taskRef:
+    name: build-two-platform-image
+    kind: Task
+  params:
+    - name: url
+      value: "@source-url@"
+    - name: commit
+      value: "@source-commit@"
+    - name: image
+      value: registry.chuggy-registry.svc.cluster.local:5000/chuggy/worker-runtime
+    - name: dockerfile
+      value: images/worker/Dockerfile
+    - name: target
+      value: runtime
+    - name: arm64-builder
+      value: tcp://192.168.0.175:1234
+  timeout: 3h0m0s
+  serviceAccountName: builder
+  podTemplate:
+    automountServiceAccountToken: false
+    nodeSelector:
+      chuggy.dev/node-role: builder
+      kubernetes.io/os: linux
+      kubernetes.io/arch: amd64
+    tolerations:
+      - key: chuggy.dev/node-role
+        operator: Equal
+        value: builder
+        effect: NoSchedule
