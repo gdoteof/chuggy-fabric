@@ -126,6 +126,7 @@
       releaseTrigger = import ./tests/release-trigger.nix { inherit pkgs; };
       imageTrigger = import ./tests/image-trigger.nix { inherit pkgs; };
       releasePublish = import ./tests/release-publish.nix { inherit pkgs; };
+      admitWorker = import ./tests/admit-worker.nix { inherit pkgs; };
       releaseBuild = import ./tests/release-build.nix { inherit pkgs; };
       arm64Builder = import ./tests/arm64-builder.nix { inherit pkgs; };
       releaseReport = import ./tests/release-report.nix { inherit pkgs; };
@@ -457,13 +458,18 @@
         release-trigger = releaseTrigger;
 
         # The same of the image trigger, which builds the site's image at the
-        # commit its source holds.
+        # commit its source holds, and of the worker image triggers, which
+        # build at the digest of the inputs theirs holds.
         image-trigger = imageTrigger;
 
         # And what a run publishes: the overlay over this repository's own two
         # release directories, what it may change and must, and the version
         # it may be pushed under.
         release-publish = releasePublish;
+
+        # The change that admits a worker release, written from the digests
+        # its two builds report, and what the rewritten tree is held to.
+        admit-worker = admitWorker;
 
         # And the two steps before it: one commit fetched by its hash, and
         # whether its image is the registry's or is built, against a
