@@ -1,7 +1,8 @@
 # Tekton, the namespace builds run in, the release pipeline with its trigger,
 # the trigger that builds the site's image, the triggers that build the worker
-# image and its runtime, the Task and trigger that release the worker contract,
-# and the Task that builds an image for two platforms.
+# image and its runtime, the job that admits a worker built, the Task and
+# trigger that release the worker contract, and the Task that builds an image
+# for two platforms.
 #
 # A FILE THAT IS NOT IN `resources` IS NOT APPLIED. The manifests here left
 # out on purpose say so in their own headers: release-run.yaml,
@@ -18,6 +19,7 @@ resources:
   - release-trigger.yaml
   - image-trigger.yaml
   - worker-image-trigger.yaml
+  - worker-admit.yaml
   - contract-publish.yaml
   - two-platform-image.yaml
 
@@ -55,3 +57,10 @@ configMapGenerator:
       - contract-publish-run.yaml
       - worker-image-run.yaml
       - worker-runtime-image-run.yaml
+  # What the worker admission runs, one script a step. Hashed the same way.
+  - name: worker-admit
+    namespace: chuggy-admit
+    files:
+      - worker-admit-read.sh
+      - worker-admit-prepare.sh
+      - worker-admit-publish.sh

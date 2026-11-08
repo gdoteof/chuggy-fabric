@@ -127,6 +127,7 @@
       imageTrigger = import ./tests/image-trigger.nix { inherit pkgs; };
       releasePublish = import ./tests/release-publish.nix { inherit pkgs; };
       admitWorker = import ./tests/admit-worker.nix { inherit pkgs; };
+      workerAdmit = import ./tests/worker-admit.nix { inherit pkgs; };
       releaseBuild = import ./tests/release-build.nix { inherit pkgs; };
       arm64Builder = import ./tests/arm64-builder.nix { inherit pkgs; };
       releaseReport = import ./tests/release-report.nix { inherit pkgs; };
@@ -470,6 +471,7 @@
         # The change that admits a worker release, written from the digests
         # its two builds report, and what the rewritten tree is held to.
         admit-worker = admitWorker;
+        worker-admit = workerAdmit;
 
         # And the two steps before it: one commit fetched by its hash, and
         # whether its image is the registry's or is built, against a

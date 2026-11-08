@@ -1000,8 +1000,15 @@ the script and `tests/image-trigger.nix` runs it for both.
 A build is not an admission. The runs report a `digest` result each, and
 `cluster/build-system/admit-worker.sh` turns the two into the change to
 `cluster/chuggy/chuggy-scheduler.yaml` that offers the worker, points the
-session policy at it and moves the runtime. Nothing runs it yet; its header says
-what is missing. To read the digests of the runs for one inputs digest:
+session policy at it and moves the runtime. The CronJob `worker-admit` in
+`chuggy-admit` (`cluster/build-system/worker-admit.yaml`) runs it unattended
+on the newest pair, holds the result to `tests/session-placement.py`, and
+opens and merges the pull request as a GitHub App of its own; the header says
+what the owner creates for that (the App, a bypass entry in "pull request" mode
+only, and the Secret `chuggy-admit-token`), and until they exist a run with
+something to admit fails in its last step and changes nothing.
+`tests/worker-admit.nix` runs its three scripts. To read the digests of the
+runs for one inputs digest by hand:
 
     kubectl -n chuggy-build get taskruns --sort-by=.metadata.creationTimestamp \
       -o custom-columns='NAME:.metadata.name,COMMIT:.spec.params[?(@.name=="commit")].value,DONE:.status.conditions[0].status,DIGEST:.status.results[?(@.name=="digest")].value' \

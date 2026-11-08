@@ -1,0 +1,349 @@
+# The worker admission: every five minutes, whether a worker release that has
+# been built is offered, and if not, the pull request that offers it, merged.
+#
+# WHAT IT AUTOMATES is the second manual step of a worker release. The first,
+# worker-image-trigger.yaml, builds the worker and the runtime for each digest
+# of the worker's inputs. This reads the two runs' `digest` results, writes
+# what the manual admissions wrote with admit-worker.sh into a fresh checkout of
+# this repository's `main`, and merges it as a pull request. cluster/chuggy
+# reaches the cluster from a published release, so merging is the whole of an
+# admission, as the manual commits were.
+#
+# DECIDED: IT OPENS AND MERGES ITS OWN PULL REQUEST, WITH NO REVIEW, AND CAN
+# NEVER PUSH `main`. The token is a GitHub App's, installed on this repository
+# alone, whose entry in the `main` ruleset is a bypass actor in "pull request"
+# mode only: it merges through a pull request and is refused a push. No other
+# App's token is used: the portal App is allowed to update `main`, and the
+# worker App's is minted for pods that run agents.
+#
+# WHAT THE OWNER MUST CREATE; none of it is in this tree, and a value never is.
+# - A GitHub App for this alone, installed on gdoteof/chuggy-fabric, with
+#   `contents: write` and `pull_requests: write`, and a bypass entry in the
+#   `Finalizer owns main` ruleset in "pull request" mode.
+# - Its key on the host, and an entry under `chuggy.githubAppTokens` for it,
+#   delivering the Secret `chuggy-admit-token`, key `token`, into the namespace
+#   `chuggy-admit` and no other. modules/github-app-token.nix asks GitHub for
+#   `contents` alone, so it needs a `pull_requests` permission added before the
+#   token can open a pull request.
+# Until then the Secret is not there, the mount is optional, and a run that has
+# something to admit fails in its last step saying so, and does nothing else.
+#
+# THE POD IS THREE STEPS, AND THE TOKEN IS IN THE LAST ALONE.
+# - `read` has a token for the API server, as a projected volume mounted in this
+#   step only, and reads TaskRuns (worker-admit-read.sh). The pod mounts none
+#   otherwise.
+# - `prepare` has neither: it checks out `main`, runs its admit-worker.sh and
+#   tests/session-placement.py over the result (worker-admit-prepare.sh). It
+#   runs the checkout's own scripts, which are reviewed code, and a failure
+#   fails the pod before the last step starts, so a change the placement checks
+#   refuse is never published.
+# - `publish` has the GitHub token and runs nothing a checkout wrote: it reads
+#   files and speaks to the API with curl (worker-admit-publish.sh). Its idempotence, and
+#   what it does when `main` has moved, are argued there.
+# The three share one pod because a workspace between pods needs a volume this
+# cluster does not provision.
+#
+# ONE AT A TIME, AND BOUNDED. `Forbid`, a pair chosen from the newest inputs
+# only, a branch named for the worker digest so the same pair is the same
+# branch, an open pull request for it resumed and a closed or merged one left
+# alone. The CronJob keeps one finished Job and three failed.
+#
+# HELD BY RBAC. `worker-admit` reads TaskRuns in `chuggy-build` and nothing
+# else: it cannot create or delete one, read a pod, log or Secret, or touch
+# anything in its own namespace. The trigger's token has no read of results, and
+# keeps none. A pair is as trusted as who can create a TaskRun in `chuggy-build`,
+# which worker-image-trigger.yaml's policies bind the triggers' creations to and
+# this does not re-check: a TaskRun of a person's carrying the annotation and a
+# digest of their choosing would be admitted.
+#
+# HELD BY ADMISSION: the one policy below, as contract-publish.yaml's guard
+# for its own token, and with the same limit: it keys on a label the pod's
+# creator writes, so it stops a manifest that mounts the Secret by mistake and
+# no one who means to. What holds the Secret to this pod is that nobody but the
+# CronJob controller can create a pod in this namespace.
+#
+# NOT HANDLED. No alert fires when it stops succeeding: cluster/apps's
+# TriggerNotSucceeding reads the trigger namespace only. A pair admitted by a
+# person first is not admitted again, and a rejected pull request is not made
+# again until its branch is deleted. Nothing checks that the registry holds the
+# digests. A build whose inputs moved again before it was admitted is never
+# admitted; the newer one is.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: chuggy-admit
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: worker-admit
+  namespace: chuggy-admit
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: worker-admit-reads-runs
+  namespace: chuggy-build
+rules:
+  - apiGroups: [tekton.dev]
+    resources: [taskruns]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: worker-admit-reads-runs
+  namespace: chuggy-build
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: worker-admit-reads-runs
+subjects:
+  - kind: ServiceAccount
+    name: worker-admit
+    namespace: chuggy-admit
+---
+# A GUARD AGAINST A TYPO, NOT THE HOLD; the header says what is. It refuses a
+# pod in this namespace that reaches `chuggy-admit-token` unless it carries the
+# label the CronJob's pods do, as contract-publish.yaml's policy does for its
+# Secret.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: worker-admit-token-has-one-reader
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchLabels: { kubernetes.io/metadata.name: chuggy-admit }
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  variables:
+    - name: containers
+      expression: >-
+        object.spec.containers
+        + (has(object.spec.initContainers) ? object.spec.initContainers : [])
+    - name: reaches
+      expression: >-
+        (has(object.spec.volumes) ? object.spec.volumes : []).exists(volume,
+          (has(volume.secret) && volume.secret.secretName == "chuggy-admit-token")
+          || (has(volume.projected) && volume.projected.sources.exists(source,
+            has(source.secret) && source.secret.name == "chuggy-admit-token")))
+        || variables.containers.exists(container,
+          (has(container.env) && container.env.exists(entry,
+            has(entry.valueFrom) && has(entry.valueFrom.secretKeyRef)
+            && entry.valueFrom.secretKeyRef.name == "chuggy-admit-token"))
+          || (has(container.envFrom) && container.envFrom.exists(source,
+            has(source.secretRef) && source.secretRef.name == "chuggy-admit-token")))
+  validations:
+    - expression: >-
+        !variables.reaches
+        || (has(object.metadata.labels) && "app" in object.metadata.labels
+        && object.metadata.labels["app"] == "worker-admit")
+      message: >-
+        the worker admission token is mounted by pods labelled app=worker-admit
+        and by no other pod
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: worker-admit-token-has-one-reader
+spec:
+  policyName: worker-admit-token-has-one-reader
+  validationActions: [Deny]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: worker-admit-default-deny
+  namespace: chuggy-admit
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# WHERE THE POD MAY GO: the cluster's DNS; the API server's port, at every
+# address outside the pod and service ranges, as release-trigger.yaml's
+# `release-trigger-egress` argues; and public HTTPS, which is github.com for the
+# checkout and api.github.com for the pull request. A policy names addresses
+# and not hosts, so this is every public address on 443, as platform.yaml's
+# `build-egress` admits for builds. The registry is not reached: the digests
+# are read off the runs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: worker-admit-egress
+  namespace: chuggy-admit
+spec:
+  podSelector:
+    matchLabels: { app: worker-admit }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.42.0.0/16
+              - 10.43.0.0/16
+      ports:
+        - { protocol: TCP, port: 6443 }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16]
+      ports:
+        - { protocol: TCP, port: 443 }
+---
+# NOT SUSPENDED: it does nothing until a pair is built, and fails, saying so,
+# until the Secret is there. The field is the layer's, as the triggers' are.
+#
+# THE IMAGE has git, curl, jq, kubectl and a python3 with PyYAML, which the
+# three steps between them need, and is pinned by the digest of its index.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: worker-admit
+  namespace: chuggy-admit
+  labels: { app: worker-admit }
+spec:
+  schedule: "*/5 * * * *"
+  suspend: false
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 600
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels: { app: worker-admit }
+        spec:
+          serviceAccountName: worker-admit
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          terminationGracePeriodSeconds: 5
+          nodeSelector:
+            kubernetes.io/os: linux
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile: { type: RuntimeDefault }
+          initContainers:
+            - name: read
+              image: alpine/k8s:1.33.1@sha256:7f8133af0dd210cb5b168f889c5bc77dd65ecc935f3e3cb72d1b98ff96bfed40
+              imagePullPolicy: IfNotPresent
+              command: [/bin/sh, /scripts/worker-admit-read.sh]
+              env:
+                - { name: HOME, value: /tmp }
+                - { name: RUNS_NAMESPACE, value: chuggy-build }
+                - { name: TASK, value: build-two-platform-image }
+                - { name: WORKER_IMAGE, value: registry.chuggy-registry.svc.cluster.local:5000/chuggy/worker }
+                - { name: RUNTIME_IMAGE, value: registry.chuggy-registry.svc.cluster.local:5000/chuggy/worker-runtime }
+                - { name: ANNOTATION, value: fabric.chuggy.dev/worker-inputs }
+                - { name: OUT, value: /work/pair }
+              resources:
+                requests: { cpu: 25m, memory: 64Mi }
+                limits: { memory: 256Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - { name: scripts, mountPath: /scripts, readOnly: true }
+                - { name: tmp, mountPath: /tmp }
+                - { name: work, mountPath: /work }
+                - { name: kube-api, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true }
+            - name: prepare
+              image: alpine/k8s:1.33.1@sha256:7f8133af0dd210cb5b168f889c5bc77dd65ecc935f3e3cb72d1b98ff96bfed40
+              imagePullPolicy: IfNotPresent
+              command: [/bin/sh, /scripts/worker-admit-prepare.sh]
+              env:
+                - { name: HOME, value: /tmp }
+                - { name: PYTHONDONTWRITEBYTECODE, value: "1" }
+                - { name: IN, value: /work/pair }
+                - { name: OUT, value: /work/handoff }
+                - { name: FABRIC_URL, value: "https://github.com/gdoteof/chuggy-fabric.git" }
+                - { name: BRANCH, value: main }
+                - { name: CHECKOUT, value: /work/checkout }
+                - { name: SCHEDULER, value: cluster/chuggy/chuggy-scheduler.yaml }
+              resources:
+                requests: { cpu: 100m, memory: 128Mi }
+                limits: { memory: 1Gi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - { name: scripts, mountPath: /scripts, readOnly: true }
+                - { name: tmp, mountPath: /tmp }
+                - { name: work, mountPath: /work }
+          containers:
+            - name: publish
+              image: alpine/k8s:1.33.1@sha256:7f8133af0dd210cb5b168f889c5bc77dd65ecc935f3e3cb72d1b98ff96bfed40
+              imagePullPolicy: IfNotPresent
+              command: [/bin/sh, /scripts/worker-admit-publish.sh]
+              env:
+                - { name: HOME, value: /tmp }
+                - { name: IN, value: /work/handoff }
+                - { name: REPOSITORY, value: gdoteof/chuggy-fabric }
+                - { name: API, value: "https://api.github.com" }
+                - { name: TOKEN, value: /var/run/chuggy/admit/token }
+              resources:
+                requests: { cpu: 25m, memory: 64Mi }
+                limits: { memory: 256Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - { name: scripts, mountPath: /scripts, readOnly: true }
+                - { name: tmp, mountPath: /tmp }
+                - { name: work, mountPath: /work, readOnly: true }
+                - { name: admit, mountPath: /var/run/chuggy/admit, readOnly: true }
+          volumes:
+            - name: scripts
+              configMap:
+                name: worker-admit
+            - name: tmp
+              emptyDir: {}
+            - name: work
+              emptyDir: {}
+            - name: kube-api
+              projected:
+                sources:
+                  - serviceAccountToken: { path: token, expirationSeconds: 600 }
+                  - configMap:
+                      name: kube-root-ca.crt
+                      items: [{ key: ca.crt, path: ca.crt }]
+                  - downwardAPI:
+                      items: [{ path: namespace, fieldRef: { fieldPath: metadata.namespace } }]
+            - name: admit
+              secret:
+                secretName: chuggy-admit-token
+                defaultMode: 0444
+                items:
+                  - { key: token, path: token }
+                optional: true

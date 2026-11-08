@@ -36,26 +36,13 @@
 # nothing written if the session policy and the runtime already name the
 # digests given, so that a run of this that already landed is not repeated.
 #
-# NOTHING RUNS THIS YET, AND WHAT WOULD NEEDS A CREDENTIAL THIS TREE DOES NOT
-# HAVE. The step after the two builds is a person reading the `digest` results
-# of the newest runs of worker-image-run.yaml and worker-runtime-image-run.yaml
-# that carry the same fabric.chuggy.dev/worker-inputs, running this on a branch
-# and opening the pull request. To do that unattended a Job would read those
-# results (`get` on TaskRuns in chuggy-build, which worker-image-trigger cannot:
-# its token is for creating them), run this from a checkout of this repository's
-# `main`, push the branch and open the pull request. Pushing a branch and
-# opening a pull request needs a token with `contents: write` and
-# `pull_requests: write` on gdoteof/chuggy-fabric alone. It must not be the
-# portal App's, which the repository's ruleset lets update `main`; the ruleset
-# is what refuses any other App's token that, and the pull request is what a
-# person merges. That is a GitHub App of its own, installed on this repository
-# alone, minted for an hour by modules/github-app-token.nix on the host into a
-# Secret in a namespace of its own, mounted by that Job and no other pod, as
-# `chuggy-contract-publish-token` is for its Task; no value is in this tree.
-# None of those exists, so nothing here creates a pull request.
+# WHO RUNS IT: the CronJob of worker-admit.yaml, from a fresh checkout of
+# `main`, on the newest pair worker-admit-read.sh finds; or a person, by hand,
+# on a branch. The pull request is opened and merged by a GitHub App of its own,
+# which worker-admit.yaml's header says the owner creates.
 #
-# NOT HANDLED: that the digests are those of the two runs of one inputs digest,
-# or that a registry holds them. Whoever runs this reads them off the runs, and
+# NOT HANDLED: that a registry holds the digests, or that they are those of the
+# two runs of one inputs digest: worker-admit-read.sh chooses the pair, and
 # nothing here can tell a digest from the right run from one from another.
 set -eu
 
