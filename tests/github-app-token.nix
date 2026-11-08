@@ -15,6 +15,11 @@ let
       fi
       attempts="$((attempts + 1))"
       printf '%s\n' "$attempts" > ${githubStore}/attempts
+      for argument in "$@"; do
+        case "$argument" in
+          @*) cp "''${argument#@}" ${githubStore}/request-"$attempts".json ;;
+        esac
+      done
       if [ -e ${githubStore}/fail-next ]; then
         rm ${githubStore}/fail-next
         echo "transient GitHub failure" >&2
@@ -108,6 +113,16 @@ pkgs.testers.runNixOSTest {
         secretName = "chuggy-example-write-token";
         namespaces = [ "chuggy" "chuggy-work" ];
       };
+      tokens.pull-requests = {
+        appId = "4728465";
+        installationId = "156786211";
+        repository = "chuggy";
+        permission = "write";
+        extraPermissions.pull_requests = "write";
+        privateKeyFile = "${testKey}";
+        secretName = "chuggy-example-pr-token";
+        namespaces = [ "chuggy" ];
+      };
       tokens.read = {
         appId = "4708055";
         installationId = "156333284";
@@ -198,11 +213,20 @@ pkgs.testers.runNixOSTest {
         assert decoded_token("chuggy-work") == "token-5"
         assert machine.succeed("cat ${githubStore}/attempts").strip() == "5"
 
+    with subtest("the request asks for contents alone, and for more only where declared"):
+        # The write token's first mint above was attempt 1.
+        first = json.loads(machine.succeed("cat ${githubStore}/request-1.json"))
+        assert first == {"repositories": ["chuggy"], "permissions": {"contents": "write"}}
+        machine.succeed("systemctl start chuggy-github-app-token-pull-requests-refresh.service")
+        last = machine.succeed("ls ${githubStore} | grep request- | sort -V | tail -1").strip()
+        extra = json.loads(machine.succeed("cat ${githubStore}/" + last))
+        assert extra == {"repositories": ["chuggy"], "permissions": {"contents": "write", "pull_requests": "write"}}
+
     with subtest("git credentials use Kubernetes basic-auth keys"):
         machine.succeed("systemctl start " + build_reader_service)
         value = json.loads(machine.succeed("cat ${clusterStore}/chuggy-build/chuggy-build-source-read.json"))
         assert value["type"] == "kubernetes.io/basic-auth"
         assert machine.succeed("printf %s '" + value["data"]["username"] + "' | base64 -d").strip() == "x-access-token"
-        assert machine.succeed("printf %s '" + value["data"]["password"] + "' | base64 -d").strip() == "token-6"
+        assert machine.succeed("printf %s '" + value["data"]["password"] + "' | base64 -d").strip() == "token-7"
   '';
 }

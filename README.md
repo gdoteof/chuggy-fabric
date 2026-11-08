@@ -1004,9 +1004,10 @@ session policy at it and moves the runtime. The CronJob `worker-admit` in
 `chuggy-admit` (`cluster/build-system/worker-admit.yaml`) runs it unattended
 on the newest pair, holds the result to `tests/session-placement.py`, and
 opens and merges the pull request as a GitHub App of its own; the header says
-what the owner creates for that (the App, a bypass entry in "pull request" mode
-only, and the Secret `chuggy-admit-token`), and until they exist a run with
-something to admit fails in its last step and changes nothing.
+its token is minted on the host (`tokens.worker-admit` in
+`hosts/gtr/default.nix`, held to the CronJob by `tests/worker-admit-token.nix`)
+into Secret `chuggy-admit-token` in `chuggy-admit`; until the key is placed a
+run with something to admit fails in its last step and changes nothing.
 `tests/worker-admit.nix` runs its three scripts. To read the digests of the
 runs for one inputs digest by hand:
 

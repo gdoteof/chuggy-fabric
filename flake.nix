@@ -148,6 +148,10 @@
         inherit pkgs;
         host = self.nixosConfigurations.gtr;
       };
+      workerAdmitToken = import ./tests/worker-admit-token.nix {
+        inherit pkgs;
+        host = self.nixosConfigurations.gtr;
+      };
       actionReporters = import ./tests/action-reporters.nix {
         inherit pkgs;
         host = self.nixosConfigurations.gtr;
@@ -265,6 +269,7 @@
         # And the one token the host mints, against the Task that mounts it: the
         # name, the namespace, the repository and the App.
         contract-publish-token = contractPublishToken;
+        worker-admit-token = workerAdmitToken;
 
         # The release step of the Task that publishes the contract, call by
         # call, against a GitHub that is a server of the test's own.

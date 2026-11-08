@@ -16,17 +16,16 @@
 # App's token is used: the portal App is allowed to update `main`, and the
 # worker App's is minted for pods that run agents.
 #
-# WHAT THE OWNER MUST CREATE; none of it is in this tree, and a value never is.
-# - A GitHub App for this alone, installed on gdoteof/chuggy-fabric, with
-#   `contents: write` and `pull_requests: write`, and a bypass entry in the
-#   `Finalizer owns main` ruleset in "pull request" mode.
-# - Its key on the host, and an entry under `chuggy.githubAppTokens` for it,
-#   delivering the Secret `chuggy-admit-token`, key `token`, into the namespace
-#   `chuggy-admit` and no other. modules/github-app-token.nix asks GitHub for
-#   `contents` alone, so it needs a `pull_requests` permission added before the
-#   token can open a pull request.
-# Until then the Secret is not there, the mount is optional, and a run that has
-# something to admit fails in its last step saying so, and does nothing else.
+# WHAT THE HOST DECLARES, AND THE OWNER PLACES. The App (id 5671149) is
+# installed on gdoteof/chuggy-fabric alone, with `contents: write` and
+# `pull_requests: write` and a bypass entry in the `Finalizer owns main` ruleset
+# in "pull request" mode. hosts/gtr/default.nix mints its token, for that
+# repository and those two permissions, into Secret `chuggy-admit-token`, key
+# `token`, in `chuggy-admit` and no other namespace; tests/worker-admit-token.py
+# holds that entry to the CronJob below. The owner places the key at the path
+# the host names. Until the Secret is there the mount is optional, and a run
+# that has something to admit fails in its last step saying so, and does
+# nothing else.
 #
 # THE POD IS THREE STEPS, AND THE TOKEN IS IN THE LAST ALONE.
 # - `read` has a token for the API server, as a projected volume mounted in this

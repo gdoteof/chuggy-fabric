@@ -205,8 +205,8 @@
     branch = "main";
   };
 
-  # The two Apps' keys, which are files on this box, and the one token it mints
-  # from them.
+  # The Apps' keys, which are files on this box, and the tokens it mints from
+  # them.
   #
   # Both keys are also copied by hand into Secrets, so rotating or revoking
   # either is two places and not one: the portal key into
@@ -243,6 +243,14 @@
         privateKeyFile = "/var/lib/chuggy/secrets/github-app/chuggy-worker.pem";
         keySecret = "chuggy-github-app-worker";
       };
+      # The App the worker admission opens and merges its pull request as. No
+      # pod mints from this key: the token below is minted here, and nothing
+      # copies the key into a Secret.
+      admit = {
+        appId = "5671149";
+        privateKeyFile = "/var/lib/chuggy/secrets/github-app/chuggy-admit.pem";
+        keySecret = "chuggy-github-app-admit";
+      };
     };
     tokens.contract-publish = {
       appId = config.chuggy.githubAppTokens.apps.portal.appId;
@@ -252,6 +260,21 @@
       privateKeyFile = config.chuggy.githubAppTokens.apps.portal.privateKeyFile;
       secretName = "chuggy-contract-publish-token";
       namespaces = [ "chuggy-build" ];
+    };
+    # The worker admission's token (cluster/build-system/worker-admit.yaml): the
+    # admit App, for gdoteof/chuggy-fabric alone, which may write contents and
+    # pull requests. The ruleset lets that App merge through a pull request and
+    # never push `main`. tests/worker-admit-token.py holds this entry to the
+    # CronJob that mounts it.
+    tokens.worker-admit = {
+      appId = config.chuggy.githubAppTokens.apps.admit.appId;
+      installationId = "179948481";
+      repository = "chuggy-fabric";
+      permission = "write";
+      extraPermissions.pull_requests = "write";
+      privateKeyFile = config.chuggy.githubAppTokens.apps.admit.privateKeyFile;
+      secretName = "chuggy-admit-token";
+      namespaces = [ "chuggy-admit" ];
     };
   };
 }
