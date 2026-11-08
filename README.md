@@ -940,13 +940,11 @@ the [site's image trigger](#the-sites-image) beside the release trigger, under
 the `cronjob` label. Like every alert here it is
 [found by looking](#alerts-evaluate-and-go-nowhere).
 
-`worker-image-run.yaml` is a `TaskRun` that builds the worker image at a chuggy
-commit, for [two platforms](#the-worker-images-two-platforms). Flux applies
-neither it nor `release-run.yaml`; an operator writes the commit into it and
-creates it:
-
-    sed 's/@chuggy-commit@/<full commit hash>/' cluster/build-system/worker-image-run.yaml |
-      kubectl create --filename -
+`worker-image-run.yaml` and `worker-runtime-image-run.yaml` are the `TaskRun`s
+that build a worker release's two images at a chuggy commit, for [two
+platforms](#the-worker-images-two-platforms). Flux applies neither them nor
+`release-run.yaml`, and nobody creates them by hand: the [worker image
+triggers](#the-worker-images) do.
 
 `track-record-image-run.yaml` is a `TaskRun` of a release's `build-image` Task,
 of Track Record's server image at a kasofsk/track-record commit, created the
@@ -983,6 +981,44 @@ under its own names: `cronjob chug-gy-image-trigger` in the commands under
 [Operating a release](#operating-a-release), and deleting the newest
 `chug-gy-image-*` TaskRun to build a commit again. The trigger keeps the ten
 newest runs of the image and deletes the finished ones before them.
+
+#### The worker images
+
+A worker release is two images built from one chuggy commit by the two-platform
+Task: `chuggy/worker`, and `chuggy/worker-runtime`, whose digest is
+`CHUG_SCHEDULER_WORKER_RUNTIME` and which carries the shipped core, so it
+changes when `images/worker/core.json` does. They are built when the worker's
+inputs change and not at every commit: GitRepository `chuggy-worker` in
+`cluster/flux/sources.yaml` is `chuggy` with an `ignore` that leaves what
+`images/worker/Dockerfile` reads from the build context, and the CronJobs
+`worker-image-trigger` and `worker-runtime-image-trigger`
+(`cluster/build-system/worker-image-trigger.yaml`) compare that source's artifact
+digest with the one written on each image's newest run. The reasoning, and
+what admission holds a run to, is in that file's header; `image-trigger.sh` is
+the script and `tests/image-trigger.nix` runs it for both.
+
+A build is not an admission. The runs report a `digest` result each, and
+`cluster/build-system/admit-worker.sh` turns the two into the change to
+`cluster/chuggy/chuggy-scheduler.yaml` that offers the worker, points the
+session policy at it and moves the runtime. The CronJob `worker-admit` in
+`chuggy-admit` (`cluster/build-system/worker-admit.yaml`) runs it unattended
+on the newest pair, holds the result to `tests/session-placement.py`, and
+opens and merges the pull request as a GitHub App of its own; the header says
+its token is minted on the host (`tokens.worker-admit` in
+`hosts/gtr/default.nix`, held to the CronJob by `tests/worker-admit-token.nix`)
+into Secret `chuggy-admit-token` in `chuggy-admit`; until the key is placed a
+run with something to admit fails in its last step and changes nothing.
+`tests/worker-admit.nix` runs its three scripts. To read the digests of the
+runs for one inputs digest by hand:
+
+    kubectl -n chuggy-build get taskruns --sort-by=.metadata.creationTimestamp \
+      -o custom-columns='NAME:.metadata.name,COMMIT:.spec.params[?(@.name=="commit")].value,DONE:.status.conditions[0].status,DIGEST:.status.results[?(@.name=="digest")].value' \
+      | grep worker-
+
+A build is stopped, run by hand and retried as the site's is: delete the newest
+`worker-image-*` and `worker-runtime-image-*` TaskRuns to build the same inputs
+again, and `kubectl create job --from=cronjob/worker-image-trigger` in
+`chuggy-release-trigger` to ask now.
 
 #### The worker contract's release
 

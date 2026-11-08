@@ -396,8 +396,10 @@ class Suite:
         self.index = Step(documents, TWO_PLATFORM_TASK, "index")
         if self.two.script != self.build.script:
             refuse(f"{self.two.name} runs another build.sh than {self.build.name}")
-        # The run as an operator creates it, with the commit written in.
-        manifest = yaml.safe_load(Path(run).read_text().replace("@chuggy-commit@", COMMIT))
+        # The run as its trigger creates it, with the commit written in.
+        manifest = yaml.safe_load(
+            Path(run).read_text().replace("@source-commit@", COMMIT).replace("@source-url@", "https://chuggy.example.invalid/chuggy.git").replace("@source-inputs@", "sha256:" + "f" * 64)
+        )
         if manifest["spec"]["taskRef"]["name"] != TWO_PLATFORM_TASK:
             refuse(f"{run} is not a run of {TWO_PLATFORM_TASK}")
         self.two_passed = {

@@ -1,0 +1,458 @@
+# The worker image triggers: each minute, whether a build of chuggy's worker
+# image, and of its runtime, is started.
+#
+# WHEN: WHEN THE WORKER'S INPUTS MOVE, NOT WHEN `main` DOES. A build is two
+# platforms, a Mac's daemon and the whole tree's gates, and most commits to
+# kasofsk/chuggy change nothing the image is built from. GitRepository
+# `chuggy-worker` (cluster/flux/sources.yaml) is `chuggy` with an `ignore`
+# that leaves what images/worker/Dockerfile reads from the context. Its
+# `revision` still moves with every commit; its artifact `digest` is the
+# archive of those files alone, written the same for the same bytes, and moves
+# only when one of them does. The triggers compare that digest with the one
+# written on the newest run of each image (image-trigger.sh, under
+# INPUTS_ANNOTATION), so a commit elsewhere starts nothing and a change to
+# images/worker/ starts both builds, at the commit the source then holds.
+# The existing triggers compare commits, which is right for an image the whole
+# repository builds; this is why they cannot be used as they are.
+#
+# NOT HELD: A CHANGE THAT MOVES THE IMAGE WITHOUT MOVING A FILE LISTED. The
+# base images are pinned by digest, but the Claude Code, Codex and practices the
+# `worker` stage installs are fetched when it is built, so two builds of the
+# same inputs differ. They are built again when the inputs move, or when a
+# person deletes the newest run.
+#
+# TWO CRONJOBS, ONE SOURCE, ONE SERVICEACCOUNT. `worker-image-trigger` builds
+# `chuggy/worker` and `worker-runtime-image-trigger` builds
+# `chuggy/worker-runtime` from the same Dockerfile; image-trigger.sh decides
+# each by that image's own runs, so each has at most one unfinished build, and
+# the two run at once against the one arm64 daemon. They read the source in
+# separate minutes' Jobs, and a push between the reads gives each its own
+# commit: the pair a release is made of is the two runs carrying the same
+# inputs digest, and not the same commit.
+#
+# THE RELEASE TRIGGER'S NAMESPACE, BECAUSE THE SAME ARGUMENT PLACES IT THERE:
+# release-trigger.yaml says why a thing that reads the API server is not in
+# `chuggy-build`. A ServiceAccount of its own, so that what each token can do
+# is said once.
+#
+# WHAT ITS TOKEN CAN DO IS THREE VERBS AND ONE READ. `get` on the one source it
+# compares, by name, in `flux-system`; `list`, `create` and `delete` on
+# TaskRuns in `chuggy-build`. It cannot read a run's pods, logs or results, a
+# Secret anywhere, or any other source. Reading the digests a build reports is
+# a right it does not have and the admission of a worker image would need;
+# admit-worker.sh says what is missing there.
+#
+# WHAT `create` CREATES IS HELD BY ADMISSION, as the image trigger's is, and
+# more: the Task these runs are of is handed a client certificate for the Mac's
+# daemon, and `arm64-builder` names where it is sent. The two policies below
+# admit from this ServiceAccount a run whose `spec` is worker-image-run.yaml's,
+# of the Dockerfile that file names, for the image and the target of either run
+# file and no other pairing, to the daemon that file names, at the address and
+# the commit the source holds and with the one annotation, the digest the
+# source holds. tests/release-pipeline.py writes the same from the two files
+# and refuses a difference, so no file moves alone.
+#
+# IT READS A RUN AS THE API SERVER WILL STORE IT, as image-trigger.yaml
+# argues: `taskRef.kind` and the timeout are written as stored.
+#
+# NOT SUSPENDED: nothing is deployed by a build. cluster/chuggy/chuggy-scheduler.yaml
+# names the images by digest, and a change writing the digests two runs
+# report is what admits a worker. The field is the layer's, as the image
+# trigger's is.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: worker-image-trigger
+  namespace: chuggy-release-trigger
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: worker-image-trigger-reads-sources
+  namespace: flux-system
+rules:
+  - apiGroups: [source.toolkit.fluxcd.io]
+    resources: [gitrepositories]
+    resourceNames: [chuggy-worker]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: worker-image-trigger-reads-sources
+  namespace: flux-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: worker-image-trigger-reads-sources
+subjects:
+  - kind: ServiceAccount
+    name: worker-image-trigger
+    namespace: chuggy-release-trigger
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: worker-image-trigger-runs
+  namespace: chuggy-build
+rules:
+  - apiGroups: [tekton.dev]
+    resources: [taskruns]
+    verbs: [list, create, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: worker-image-trigger-runs
+  namespace: chuggy-build
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: worker-image-trigger-runs
+subjects:
+  - kind: ServiceAccount
+    name: worker-image-trigger
+    namespace: chuggy-release-trigger
+---
+# THE RUN, LESS WHAT THE TRIGGER WRITES INTO IT. `spec` below is
+# worker-image-run.yaml's without its parameters, as CEL; the runtime's is the
+# same and the policy holds one. `images` is each image the two files build,
+# with the target each builds it at, and a run names an image and its target
+# together or is refused: the worker at the last stage, the runtime at
+# `runtime`. The Dockerfile and the daemon are one value each.
+#
+# NO LABEL BUT THE DEFAULTED ONE, AND ONE ANNOTATION. A run's labels are its
+# pod's labels, as image-trigger.yaml argues. The annotation is the digest the
+# comparison reads, and the policy below holds it to the source's.
+#
+# ONLY `tekton.dev/v1`, and NOTHING BUT THE TRIGGER'S ServiceAccount IS HELD BY
+# THIS POLICY, for the reasons release-trigger.yaml gives of its own.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: worker-image-trigger-creates-a-worker-run
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [tekton.dev]
+        apiVersions: ["*"]
+        operations: [CREATE]
+        resources: [taskruns]
+  matchConditions:
+    - name: created-by-the-worker-image-trigger
+      expression: request.userInfo.username == "system:serviceaccount:chuggy-release-trigger:worker-image-trigger"
+  variables:
+    - name: spec
+      expression: |-
+        {
+          "taskRef": dyn({"name": "build-two-platform-image", "kind": "Task"}),
+          "timeout": dyn("3h0m0s"),
+          "serviceAccountName": dyn("builder"),
+          "podTemplate": dyn({
+            "automountServiceAccountToken": dyn(false),
+            "nodeSelector": dyn({
+              "chuggy.dev/node-role": "builder",
+              "kubernetes.io/os": "linux",
+              "kubernetes.io/arch": "amd64"
+            }),
+            "tolerations": dyn([
+              {"key": "chuggy.dev/node-role", "operator": "Equal", "value": "builder", "effect": "NoSchedule"}
+            ])
+          })
+        }
+    - name: images
+      expression: |-
+        {
+          "registry.chuggy-registry.svc.cluster.local:5000/chuggy/worker": "",
+          "registry.chuggy-registry.svc.cluster.local:5000/chuggy/worker-runtime": "runtime"
+        }
+    - name: params
+      expression: >-
+        has(object.spec.params) ? object.spec.params : []
+  validations:
+    - expression: object.apiVersion == "tekton.dev/v1"
+      message: >-
+        a run the worker image trigger creates is a tekton.dev/v1 TaskRun, and
+        in another version what is held here goes by other names
+    - expression: >-
+        !has(object.metadata.labels) || object.metadata.labels
+        == {"app.kubernetes.io/managed-by": "tekton-pipelines"}
+      message: >-
+        a run the worker image trigger creates carries no label but the one
+        Tekton's defaulting writes on every run, and a run's labels are its
+        pod's labels
+    - expression: >-
+        !has(object.metadata.annotations) || object.metadata.annotations.all(name, name in
+        ["fabric.chuggy.dev/worker-inputs"])
+      message: >-
+        a run the worker image trigger creates carries no annotation but the
+        digest of the inputs it was started for, and a run's annotations are
+        its pod's annotations
+    - expression: object.spec.all(field, field == "params" || field in variables.spec)
+      message: >-
+        a run the worker image trigger creates sets nothing
+        worker-image-run.yaml does not, and a task, a step's overrides or a
+        pod template of its own is a pod of its writer's choosing
+    - expression: variables.spec.all(field, field in object.spec && object.spec[field] == variables.spec[field])
+      message: >-
+        a run the worker image trigger creates is of worker-image-run.yaml's
+        Task, within its time, and its pod runs where and as what that file says
+    - expression: variables.params.map(param, param.name) == ["url", "commit", "image", "dockerfile", "target", "arm64-builder"]
+      message: >-
+        a run the worker image trigger creates passes the parameters
+        worker-image-run.yaml passes, each once
+    - expression: >-
+        variables.params.exists(param, param.name == "image" && type(param.value) == string && param.value in variables.images)
+        && variables.params.exists(param, param.name == "target" && type(param.value) == string
+        && variables.params.exists(image, image.name == "image" && variables.images[string(image.value)] == param.value))
+      message: >-
+        a run the worker image trigger creates builds an image the worker run
+        files name, at the stage they build it at
+    - expression: >-
+        variables.params.exists(param, param.name == "dockerfile" && type(param.value) == string
+        && param.value == "images/worker/Dockerfile")
+      message: a run the worker image trigger creates builds from the Dockerfile the worker run files name
+    - expression: >-
+        variables.params.exists(param, param.name == "arm64-builder" && type(param.value) == string
+        && param.value == "tcp://192.168.0.175:1234")
+      message: >-
+        a run the worker image trigger creates builds on the daemon the worker
+        run files name, and the client key is sent to no other
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: worker-image-trigger-creates-a-worker-run
+spec:
+  policyName: worker-image-trigger-creates-a-worker-run
+  validationActions: [Deny]
+---
+# WHAT A RUN IS FOR IS WHAT THE SOURCE HOLDS, as image-trigger.yaml's policy
+# of the same shape argues, and one thing more: the annotation is the digest
+# of the artifact it holds, so a run cannot claim inputs the source does not
+# hold. A source that moved between the trigger's read and its create is
+# refused here, and the next minute reads again. The binding says `Allow` for
+# a source that is not there, for the reason image-trigger.yaml gives: a
+# TaskRun is every build's, and the trigger creates none then because it
+# reads the source first.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: worker-image-trigger-builds-what-a-source-holds
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: GitRepository
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [tekton.dev]
+        apiVersions: ["*"]
+        operations: [CREATE]
+        resources: [taskruns]
+  matchConditions:
+    - name: created-by-the-worker-image-trigger
+      expression: request.userInfo.username == "system:serviceaccount:chuggy-release-trigger:worker-image-trigger"
+  variables:
+    - name: named
+      expression: >-
+        {"chuggy-worker": {"address": "url", "commit": "commit"}}[params.metadata.name]
+  validations:
+    - expression: >-
+        has(params.status.artifact) && has(object.spec.params)
+        && object.spec.params.exists(param, param.name == variables.named.address && param.value == params.spec.url)
+        && object.spec.params.exists(param, param.name == variables.named.commit && type(param.value) == string
+        && params.status.artifact.revision.endsWith("@sha1:" + param.value))
+        && has(object.metadata.annotations)
+        && object.metadata.annotations["fabric.chuggy.dev/worker-inputs"] == params.status.artifact.digest
+      messageExpression: >-
+        "a run the worker image trigger creates is for the address, the commit and the inputs GitRepository "
+        + params.metadata.name + " holds"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: worker-image-trigger-builds-what-chuggy-worker-holds
+spec:
+  policyName: worker-image-trigger-builds-what-a-source-holds
+  validationActions: [Deny]
+  paramRef:
+    name: chuggy-worker
+    namespace: flux-system
+    parameterNotFoundAction: Allow
+---
+# WHERE THE TRIGGERS' PODS MAY GO: the cluster's DNS and the API server's port,
+# as release-trigger.yaml's `release-trigger-egress` argues. Both CronJobs carry
+# the one label this selects.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: worker-image-trigger-egress
+  namespace: chuggy-release-trigger
+spec:
+  podSelector:
+    matchLabels: { app: worker-image-trigger }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.42.0.0/16
+              - 10.43.0.0/16
+      ports:
+        - { protocol: TCP, port: 6443 }
+---
+# THE WORKER'S IMAGE. Each minute, whether GitRepository `chuggy-worker` holds
+# inputs the newest build of `chuggy/worker` was not started for. The timing
+# is the image trigger's, and tests/release-pipeline.py holds the triggers to
+# one timing. The retry delay is the image trigger's: a failed build is the
+# whole tree's gates and two platforms, and a delay shorter than it is a
+# build a few minutes after the last.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: worker-image-trigger
+  namespace: chuggy-release-trigger
+  labels: { app: worker-image-trigger }
+spec:
+  schedule: "* * * * *"
+  suspend: false
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 30
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 45
+      ttlSecondsAfterFinished: 600
+      template:
+        metadata:
+          labels: { app: worker-image-trigger }
+        spec:
+          serviceAccountName: worker-image-trigger
+          automountServiceAccountToken: true
+          restartPolicy: Never
+          terminationGracePeriodSeconds: 5
+          nodeSelector:
+            kubernetes.io/os: linux
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: trigger
+              image: ghcr.io/fluxcd/flux-cli:v2.6.4@sha256:d6734ea180b0f5135e6a343482da1a669c526ef85525da53a6415c6a9f359861
+              imagePullPolicy: IfNotPresent
+              command: [/bin/sh, /trigger/image-trigger.sh]
+              env:
+                # kubectl keeps a discovery cache under it.
+                - { name: HOME, value: /tmp }
+                - { name: SOURCES_NAMESPACE, value: flux-system }
+                - { name: SOURCE, value: chuggy-worker }
+                - { name: RUNS_NAMESPACE, value: chuggy-build }
+                - { name: TASK, value: build-two-platform-image }
+                - { name: IMAGE, value: registry.chuggy-registry.svc.cluster.local:5000/chuggy/worker }
+                - { name: INPUTS_ANNOTATION, value: fabric.chuggy.dev/worker-inputs }
+                - { name: RUN_MANIFEST, value: /trigger/worker-image-run.yaml }
+                - { name: RETRY_DELAY_SECONDS, value: "300" }
+                - { name: KEEP_RUNS, value: "10" }
+              resources:
+                requests: { cpu: 25m, memory: 64Mi }
+                limits: { memory: 256Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - { name: trigger, mountPath: /trigger, readOnly: true }
+                - { name: tmp, mountPath: /tmp }
+          volumes:
+            - name: trigger
+              configMap:
+                name: image-trigger
+            - name: tmp
+              emptyDir: {}
+---
+# THE RUNTIME'S IMAGE: the worker trigger's, over the runtime's runs. Its own
+# CronJob and not a second run of the first, because a run is of one image
+# and the comparison is by image.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: worker-runtime-image-trigger
+  namespace: chuggy-release-trigger
+  labels: { app: worker-image-trigger }
+spec:
+  schedule: "* * * * *"
+  suspend: false
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 30
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 45
+      ttlSecondsAfterFinished: 600
+      template:
+        metadata:
+          labels: { app: worker-image-trigger }
+        spec:
+          serviceAccountName: worker-image-trigger
+          automountServiceAccountToken: true
+          restartPolicy: Never
+          terminationGracePeriodSeconds: 5
+          nodeSelector:
+            kubernetes.io/os: linux
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: trigger
+              image: ghcr.io/fluxcd/flux-cli:v2.6.4@sha256:d6734ea180b0f5135e6a343482da1a669c526ef85525da53a6415c6a9f359861
+              imagePullPolicy: IfNotPresent
+              command: [/bin/sh, /trigger/image-trigger.sh]
+              env:
+                # kubectl keeps a discovery cache under it.
+                - { name: HOME, value: /tmp }
+                - { name: SOURCES_NAMESPACE, value: flux-system }
+                - { name: SOURCE, value: chuggy-worker }
+                - { name: RUNS_NAMESPACE, value: chuggy-build }
+                - { name: TASK, value: build-two-platform-image }
+                - { name: IMAGE, value: registry.chuggy-registry.svc.cluster.local:5000/chuggy/worker-runtime }
+                - { name: INPUTS_ANNOTATION, value: fabric.chuggy.dev/worker-inputs }
+                - { name: RUN_MANIFEST, value: /trigger/worker-runtime-image-run.yaml }
+                - { name: RETRY_DELAY_SECONDS, value: "300" }
+                - { name: KEEP_RUNS, value: "10" }
+              resources:
+                requests: { cpu: 25m, memory: 64Mi }
+                limits: { memory: 256Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - { name: trigger, mountPath: /trigger, readOnly: true }
+                - { name: tmp, mountPath: /tmp }
+          volumes:
+            - name: trigger
+              configMap:
+                name: image-trigger
+            - name: tmp
+              emptyDir: {}

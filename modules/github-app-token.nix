@@ -23,6 +23,12 @@ let
       installationId = lib.mkOption { type = lib.types.str; };
       repository = lib.mkOption { type = lib.types.str; };
       permission = lib.mkOption { type = lib.types.enum [ "read" "write" ]; };
+      # Permissions asked for beside `contents`, by GitHub's name for each. Empty,
+      # the request is `contents` alone, as it was before this option.
+      extraPermissions = lib.mkOption {
+        type = lib.types.attrsOf (lib.types.enum [ "read" "write" ]);
+        default = { };
+      };
       privateKeyFile = lib.mkOption { type = lib.types.str; };
       secretName = lib.mkOption { type = lib.types.str; };
       namespaces = lib.mkOption { type = lib.types.listOf lib.types.str; };
@@ -61,7 +67,8 @@ let
 
       jq -n --arg repository ${lib.escapeShellArg token.repository} \
         --arg permission ${lib.escapeShellArg token.permission} \
-        '{repositories:[$repository],permissions:{contents:$permission}}' > "$run/request.json"
+        --argjson extra ${lib.escapeShellArg (builtins.toJSON token.extraPermissions)} \
+        '{repositories:[$repository],permissions:({contents:$permission} + $extra)}' > "$run/request.json"
       curl --fail-with-body --silent --show-error \
         --request POST \
         --config "$run/curl.conf" \

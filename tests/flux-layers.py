@@ -24,6 +24,9 @@ reads the render.
 A SOURCE'S SPEC IS HELD THE SAME WAY, for what would still render: `chuggy` on
 another branch has the trigger release commits that are not `main`'s, and
 `chug-gy` on another has the image trigger build the site at them;
+`chuggy-worker` with an `ignore` that leaves more than the worker image reads
+has a worker built for changes it does not read, and one that leaves less
+builds none for a file it does;
 `chuggy-release` without `insecure` never reads a registry that is plain HTTP,
 and with a `tag` or a `digest` beside its range holds the cluster at one
 release without saying so.
@@ -98,6 +101,14 @@ SOURCES = {
         "interval": "1m",
         "url": "https://github.com/kasofsk/chuggy.git",
         "ref": {"branch": "main"},
+    },
+    # What the worker image is built from and nothing else: its digest moves
+    # with those files, and a worker image is built when it does.
+    ("source.toolkit.fluxcd.io/v1", "GitRepository", "chuggy-worker"): {
+        "interval": "1m",
+        "url": "https://github.com/kasofsk/chuggy.git",
+        "ref": {"branch": "main"},
+        "ignore": "/*\n!/images\n/images/*\n!/images/worker\n!/package-lock.json\n!/.claude\n/.claude/*\n!/.claude/settings.json\n",
     },
     ("source.toolkit.fluxcd.io/v1", "GitRepository", "chug-gy"): {
         "interval": "1m",

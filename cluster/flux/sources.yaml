@@ -1,5 +1,6 @@
 # The sources that are declared by a commit, beside the layers: the two of a
-# release, and the one the site's image is built from.
+# release, the one the site's image is built from, and the one the worker
+# image is.
 #
 # HERE AND NOT IN A LAYER, because the root that applies this directory waits
 # on nothing: a source with no artifact yet holds nothing else up. In a layer
@@ -21,6 +22,52 @@ spec:
   url: https://github.com/kasofsk/chuggy.git
   ref:
     branch: main
+---
+# chuggy's `main`, less everything the worker image is not built from. No layer
+# applies it: the worker image triggers read it, in
+# cluster/build-system/worker-image-trigger.yaml, and build the worker and the
+# runtime at the commit it holds when its digest has moved.
+#
+# THE DIGEST IS WHAT THEY COMPARE, NOT THE REVISION. `revision` is the commit
+# and moves with every push to `main`; `digest` is the archive's, and the
+# archive holds only what `ignore` leaves, written the same for the same bytes
+# (source-controller zeroes the times and owners it records). So the digest
+# moves when a byte of the worker's inputs does and not otherwise, which is
+# when a worker is built.
+#
+# THE INPUTS ARE THE FILES images/worker/Dockerfile READS FROM THE CONTEXT:
+# the directory images/worker/ (the Dockerfile, core.json which pins the core
+# the runtime ships, core.sh), package-lock.json (the Playwright version the
+# `worker` stage installs) and .claude/settings.json (the roster of practices
+# the `worker` stage installs). The final stage also runs the whole tree's
+# gates and keeps only their verdict, so a change elsewhere can turn that
+# verdict red and does not change the image: a build that fails there is
+# retried until the tree is green or the inputs move. A file the Dockerfile
+# starts reading that is not listed here is a change this source does not see,
+# and tests cannot see it: it lives in kasofsk/chuggy.
+#
+# `ignore` IS GITIGNORE SYNTAX, and what it excludes is excluded from the
+# archive. Everything is excluded, then the three are put back. The repository
+# is public, so it names no Secret.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: chuggy-worker
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: https://github.com/kasofsk/chuggy.git
+  ref:
+    branch: main
+  ignore: |
+    /*
+    !/images
+    /images/*
+    !/images/worker
+    !/package-lock.json
+    !/.claude
+    /.claude/*
+    !/.claude/settings.json
 ---
 # The site's `main`. No layer applies it either: the image trigger reads the
 # commit it holds, in cluster/build-system/image-trigger.sh, and builds the
