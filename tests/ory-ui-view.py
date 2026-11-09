@@ -17,6 +17,11 @@ permission as anything else it would tick nothing and hide nothing, and a
 person would meet that image's card. Under one that drew something new beside
 the tick boxes it could hide that as well.
 
+`cluster/apps/ory/ui/logout.hbs` presses the Yes the image draws on its sign-out card, by
+its id, after ending the identity's session. Under an image that drew it otherwise nothing
+would be pressed and a person would meet that image's card, whose Yes ends only Hydra's
+session.
+
 So each view names the digest it was read against, and the Deployment is held
 to it. A refusal is not a defect in either file: it says the page has to be
 looked at under the new image before the view names it.
@@ -89,6 +94,19 @@ VIEWS = {
             "Allow and read the token answer for every permission that was asked, and open the "
             "page in a browser that runs no script to see everything that image draws and this "
             "card hides."
+        ),
+    ),
+    "logout.hbs": View(
+        path="/usr/src/app/views/logout.hbs",
+        elsewhere=(
+            "At another path it does not draw the sign-out page, which is then the image's own "
+            "unless something else is mounted over that: a question whose Yes ends Hydra's "
+            "session and leaves the identity's, so the next sign-in offers no choice of method."
+        ),
+        look=(
+            "The view presses the card's Yes by the id that image draws it with, so drive a "
+            "sign-out from the console under the new image first and sign in again to see the "
+            "login page."
         ),
     ),
 }

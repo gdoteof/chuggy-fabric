@@ -134,6 +134,10 @@ spec:
               subPath: consent.hbs
               readOnly: true
             - name: views
+              mountPath: /usr/src/app/views/logout.hbs
+              subPath: logout.hbs
+              readOnly: true
+            - name: views
               mountPath: /usr/src/app/views/layouts/welcome.hbs
               subPath: welcome.hbs
               readOnly: true
