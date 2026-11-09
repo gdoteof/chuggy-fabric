@@ -141,3 +141,4 @@ configMapGenerator:
       - login.hbs=ory/ui/login.hbs
       - consent.hbs=ory/ui/consent.hbs
       - welcome.hbs=ory/ui/welcome.hbs
+      - logout.hbs=ory/ui/logout.hbs

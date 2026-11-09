@@ -1,0 +1,48 @@
+<div id="logout">
+  {{{card}}}
+  <script>
+    (async () => {
+      try {
+        const made = await fetch("/self-service/logout/browser", {
+          credentials: "same-origin",
+          headers: { Accept: "application/json" },
+        });
+        if (made.ok)
+          await fetch((await made.json()).logout_url, {
+            credentials: "same-origin",
+            redirect: "manual",
+          });
+      } catch {}
+      document.querySelector("#logout #accept")?.click();
+    })();
+  </script>
+</div>
+{{! The image's own logout.hbs, changed in what the question does. Hydra asks
+    this page to confirm a sign-out and ends only its own session when the
+    answer is Yes. The identity's session at this host is Kratos's, lasts as
+    long as its lifespan, and answers the next sign-in's login challenge with
+    no login page, so a person who signed out could not choose another method
+    or account until it ran out. The script ends that session first and then
+    presses the card's Yes, which is the answer to Hydra. A person who meets
+    this page asked to be signed out, so the card's question is not put to
+    them.
+
+    THE SAME ORIGIN, because `/self-service` is routed to Kratos on this host
+    and the session cookie is this host's. The logout flow is made with the
+    cookie and answered as JSON, and the link it names is followed without
+    taking its redirect: the cookie is cleared by the answer, and where the
+    redirect leads is not needed.
+
+    A FAILURE IS NOT A STOP. With no Kratos session the flow is refused, and
+    the sign-out Hydra was asked for still has to be answered, so Yes is
+    pressed either way. Under a content security policy that forbids inline
+    script, or a browser that runs none, the card is the image's own and its
+    Yes ends Hydra's session alone.
+
+    READ AGAINST THE IMAGE
+    sha256:46a7bac1ad0c67c692b37d0380613fd4618fd751afac2c5314aa8d3ae77ef1f0
+    because the script presses the button by the id the image draws Yes
+    with. Under an image that drew it otherwise the click finds nothing and
+    the page waits for a person, still the image's own card. So
+    tests/ory-ui-view.py holds ory-ui.yaml to that image and to the path it
+    reads the view from. }}
