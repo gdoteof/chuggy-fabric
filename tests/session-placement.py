@@ -137,6 +137,9 @@ API_THREAD_SLOT_VARIABLE = "CHUG_API_THREAD_CREDENTIAL_SLOT"
 SELECTOR_CONFIGURATION_VARIABLE = "CHUG_SELECTOR_CONFIG"
 LEAD_CONFIGURATION_KEY = "lead"
 LEAD_CREDENTIAL_SLOT_FIELD = "credentialSlot"
+SUBSIDIZED_LEAD_CONFIGURATION_KEY = "subsidizedLead"
+SUBSIDIZED_LEAD_UNMEASURED_FIELD = "unmeasuredTurnMicros"
+MICROS_PER_DOLLAR = 1_000_000
 
 # Where a session pod may go, as (protocol, port). A session takes its turns and
 # writes its transcript over the worker plane, reaches the API as an ordinary
@@ -799,29 +802,75 @@ def main():
     #     turn is queued, and nothing ever runs it. Both are read out of the
     #     render, and the selector's out of its JSON document, because a slot
     #     inside a configuration blob is invisible to every `grep` beside it.
+    #
+    #     A slot a session speaks through is a Claude credential, and a mount
+    #     that says no `claudeCredential` reaches every session rather than the
+    #     ones placed on it: a subsidized lead's pod, on chuggy's own key, would
+    #     be handed the subscription too. So each slot named here says one.
+    #     And a subsidized lead's turn that never settled is charged
+    #     `unmeasuredTurnMicros`, which is held under its mount's `budgetUsd`:
+    #     a charge above what one pod can spend overcharges every failure.
     served = container(one(documents, "Deployment", "chuggy-api", CONTROL), "api")
     selecting = container(one(documents, "Deployment", "chuggy-selector", CONTROL), "selector")
     document = variable(selecting, SELECTOR_CONFIGURATION_VARIABLE)
     if document is None:
         refuse(f"the selector names no {SELECTOR_CONFIGURATION_VARIABLE}")
     try:
-        lead = json.loads(document).get(LEAD_CONFIGURATION_KEY) or {}
+        selector = json.loads(document)
     except json.JSONDecodeError as error:
         refuse(f"{SELECTOR_CONFIGURATION_VARIABLE} is not JSON: {error}")
-    for opened, source, slot in (
+    lead = selector.get(LEAD_CONFIGURATION_KEY) or {}
+    subsidized = selector.get(SUBSIDIZED_LEAD_CONFIGURATION_KEY)
+    openers = [
         ("a member's thread", API_THREAD_SLOT_VARIABLE, variable(served, API_THREAD_SLOT_VARIABLE)),
         (
             "a lead it opens",
             f"{SELECTOR_CONFIGURATION_VARIABLE}.{LEAD_CONFIGURATION_KEY}.{LEAD_CREDENTIAL_SLOT_FIELD}",
             lead.get(LEAD_CREDENTIAL_SLOT_FIELD),
         ),
-    ):
+    ]
+    if subsidized is not None:
+        openers.append(
+            (
+                "a subsidized lead it opens",
+                f"{SELECTOR_CONFIGURATION_VARIABLE}.{SUBSIDIZED_LEAD_CONFIGURATION_KEY}.{LEAD_CREDENTIAL_SLOT_FIELD}",
+                subsidized.get(LEAD_CREDENTIAL_SLOT_FIELD),
+            )
+        )
+    for opened, source, slot in openers:
         if not isinstance(slot, str) or not slot:
             refuse(f"{source} is not a credential slot, so nothing names what {opened} speaks through")
         if slot not in granted:
             refuse(
                 f"{source} names credential slot {slot!r} for {opened}, which "
                 f"{SESSION_POLICY_VARIABLE} does not grant, so every pod for one is denied"
+            )
+        if not (mounts.get(slot) or {}).get("claudeCredential"):
+            refuse(
+                f"{CREDENTIAL_MOUNTS_VARIABLE} mounts {slot!r}, which {source} names for "
+                f"{opened}, with no claudeCredential, so it reaches every session and not "
+                "only the ones placed on it"
+            )
+    if subsidized is not None:
+        slot = subsidized.get(LEAD_CREDENTIAL_SLOT_FIELD)
+        budget = ((mounts.get(slot) or {}).get("sessionBounds") or {}).get("budgetUsd")
+        charged = subsidized.get(SUBSIDIZED_LEAD_UNMEASURED_FIELD)
+        if not isinstance(budget, (int, float)):
+            refuse(
+                f"{CREDENTIAL_MOUNTS_VARIABLE} mounts {slot!r} with no sessionBounds.budgetUsd, "
+                "so nothing bounds what one subsidized lead's pod spends"
+            )
+        if not isinstance(charged, int):
+            refuse(
+                f"{SELECTOR_CONFIGURATION_VARIABLE}.{SUBSIDIZED_LEAD_CONFIGURATION_KEY}."
+                f"{SUBSIDIZED_LEAD_UNMEASURED_FIELD} is {charged!r}, not a whole number of micros"
+            )
+        if charged > round(budget * MICROS_PER_DOLLAR):
+            refuse(
+                f"{SELECTOR_CONFIGURATION_VARIABLE}.{SUBSIDIZED_LEAD_CONFIGURATION_KEY}."
+                f"{SUBSIDIZED_LEAD_UNMEASURED_FIELD} is {charged!r}, and {slot!r}'s budgetUsd "
+                f"is {budget!r}: a turn that never settled is charged more than its pod "
+                "can spend"
             )
 
 

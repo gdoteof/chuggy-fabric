@@ -284,6 +284,20 @@ spec:
             # credential file a pod is given. Its Secret is made by hand and
             # declared nowhere here, and a pod mounting a Secret that is
             # missing stays in FailedMount.
+            #
+            # `anthropic-api` is chuggy's own Anthropic API key, the slot the
+            # subsidized lead of cluster/chuggy/chuggy-selector.yaml speaks
+            # through. Its Secret is made by hand and declared nowhere, as
+            # `track-record`'s is. `claudeCredential` says which kind of Claude
+            # credential a mount is, and a mount that says one reaches only a
+            # session placed on its own slot, so `claude-code` says one too: a
+            # mount that says none reaches every session, and a subsidized
+            # lead's pod would be handed this rig's subscription beside the key.
+            # `sessionBounds` names both of a mount's bounds. `turnsMax` bounds
+            # one turn and is the launcher's own. `budgetUsd` is metered over a
+            # pod's whole life, as the session bounds below argue, so it sits at
+            # a tenant's month: a working lead never reaches it, and no pod
+            # spends more than its tenant may.
             - name: CHUG_SCHEDULER_WORKER_CREDENTIAL_MOUNTS
               value: |
                 {
@@ -295,7 +309,15 @@ spec:
                   "claude-code": {
                     "secretName": "claude-code",
                     "key": "oauth-token",
-                    "mountPath": "/var/run/chuggy/credentials/claude-code"
+                    "mountPath": "/var/run/chuggy/credentials/claude-code",
+                    "claudeCredential": "Subscription"
+                  },
+                  "anthropic-api": {
+                    "secretName": "anthropic-api",
+                    "key": "api-key",
+                    "mountPath": "/var/run/chuggy/credentials/anthropic-api",
+                    "claudeCredential": "ApiKey",
+                    "sessionBounds": { "budgetUsd": 10, "turnsMax": 200 }
                   },
                   "track-record": {
                     "secretName": "track-record-chuggy",
@@ -1235,12 +1257,15 @@ spec:
             #
             # `credentials` is the execution policy's list less `codex-auth`,
             # since no session runs Codex, and `track-record`, since a session
-            # runs no gates. `kubernetesSessionPodRequest`
-            # denies a credential slot this list does not name, so it is the
-            # list and not the mounts above that decides what a session can
-            # authenticate as.
+            # runs no gates, with `anthropic-api`, which only a subsidized lead
+            # speaks through. `kubernetesSessionPodRequest` denies a credential
+            # slot this list does not name, so this list decides which slots a
+            # session may be placed on, and a mount's `claudeCredential` which of
+            # them reaches it.
             #
-            # `claude-code` is what the runtime speaks to the model with.
+            # `claude-code` is what a thread or a lead on its project's own
+            # runtime speaks to the model with, and `anthropic-api` is what a
+            # subsidized lead does.
             # `chuggy-git-worker` is what it clones this cluster's own git
             # service with, and it is here because a session bound there takes
             # a checkout: the plane mints for a forge and answers 404 for that
@@ -1291,7 +1316,7 @@ spec:
                   "runtimeVersion": "claude-code-latest",
                   "grant": {
                     "tools": [],
-                    "credentials": ["chuggy-git-worker", "claude-code"],
+                    "credentials": ["chuggy-git-worker", "claude-code", "anthropic-api"],
                     "network": true,
                     "filesystem": "WriteWorkspace",
                     "mayCompleteTask": false
