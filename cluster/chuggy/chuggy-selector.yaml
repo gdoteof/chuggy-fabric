@@ -325,6 +325,18 @@ spec:
             # the one chuggy-api.yaml verifies against and the subject of a
             # client-credentials token is the client's id, which is why that id
             # is set by hand where the client is created.
+            #
+            # `subsidizedLead` IS THE LEAD THIS DEPLOYMENT OFFERS ON ITS OWN KEY,
+            # which a project's administrator may choose in place of the
+            # project's own. Its slot is `anthropic-api` in
+            # cluster/chuggy/chuggy-scheduler.yaml, which the session policy
+            # there grants. `model` is the name the API reports back, because a
+            # pod's measured model is compared with it exactly, and the
+            # compaction window is the least a lead may have. The caps are one
+            # tenant's month and every tenant's month together, and the key's
+            # own workspace limit stands behind both. A turn that failed or never
+            # settled is charged `unmeasuredTurnMicros`, the most one pod can
+            # spend on the slot, which tests/session-placement.py holds to it.
             - name: CHUG_SELECTOR_CONFIG
               value: |
                 {
@@ -360,6 +372,17 @@ spec:
                     "pollIntervalMs": 2000,
                     "controlDeadlineMs": 30000,
                     "credentialSlot": "claude-code"
+                  },
+                  "subsidizedLead": {
+                    "credentialSlot": "anthropic-api",
+                    "model": "claude-haiku-5-5",
+                    "effort": "medium",
+                    "autoCompactWindow": 100000,
+                    "inputBytesPerDecision": 160000,
+                    "turnTokensMax": 500000,
+                    "tenantMonthlyMicros": 10000000,
+                    "deploymentMonthlyMicros": 100000000,
+                    "unmeasuredTurnMicros": 1000000
                   }
                 }
           resources:

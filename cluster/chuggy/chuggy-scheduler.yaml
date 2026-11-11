@@ -284,6 +284,20 @@ spec:
             # credential file a pod is given. Its Secret is made by hand and
             # declared nowhere here, and a pod mounting a Secret that is
             # missing stays in FailedMount.
+            #
+            # `anthropic-api` is chuggy's own Anthropic API key, the slot the
+            # subsidized lead of cluster/chuggy/chuggy-selector.yaml speaks
+            # through. Its Secret is made by hand and declared nowhere, as
+            # `track-record`'s is. `claudeCredential` says which kind of Claude
+            # credential a mount is, and a mount that says one reaches only a
+            # session placed on its own slot, so `claude-code` says one too: a
+            # mount that says none reaches every session, and a subsidized
+            # lead's pod would be handed this rig's subscription beside the key.
+            # A session's query lives as long as its pod, so `sessionBounds`
+            # bounds a pod's whole life on the key: the launcher's own turn
+            # bound, written because a mount's bounds name both, and a dollar
+            # cap only a runaway reaches. The selector charges a turn that never
+            # settled `unmeasuredTurnMicros`, which is that cap.
             - name: CHUG_SCHEDULER_WORKER_CREDENTIAL_MOUNTS
               value: |
                 {
@@ -295,7 +309,15 @@ spec:
                   "claude-code": {
                     "secretName": "claude-code",
                     "key": "oauth-token",
-                    "mountPath": "/var/run/chuggy/credentials/claude-code"
+                    "mountPath": "/var/run/chuggy/credentials/claude-code",
+                    "claudeCredential": "Subscription"
+                  },
+                  "anthropic-api": {
+                    "secretName": "anthropic-api",
+                    "key": "api-key",
+                    "mountPath": "/var/run/chuggy/credentials/anthropic-api",
+                    "claudeCredential": "ApiKey",
+                    "sessionBounds": { "budgetUsd": 1, "turnsMax": 200 }
                   },
                   "track-record": {
                     "secretName": "track-record-chuggy",
@@ -1291,7 +1313,7 @@ spec:
                   "runtimeVersion": "claude-code-latest",
                   "grant": {
                     "tools": [],
-                    "credentials": ["chuggy-git-worker", "claude-code"],
+                    "credentials": ["chuggy-git-worker", "claude-code", "anthropic-api"],
                     "network": true,
                     "filesystem": "WriteWorkspace",
                     "mayCompleteTask": false

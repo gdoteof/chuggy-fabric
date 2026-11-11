@@ -41,12 +41,13 @@ pkgs.runCommand "chuggy-development-worker" {
   # the model credential. Nothing per repository sits between them -- a forge
   # credential is minted per act rather than granted as a slot. The three are
   # the two attempt arms, which add the Codex credential and the Track Record
-  # token, and the session policy, which adds neither.
-  session_grants="$(grep -Fc '"credentials": ["chuggy-git-worker", "claude-code"]' "$scheduler" || true)"
+  # token, and the session policy, which adds the API key a subsidized lead
+  # speaks through.
+  session_grants="$(grep -Fc '"credentials": ["chuggy-git-worker", "claude-code", "anthropic-api"]' "$scheduler" || true)"
   attempt_grants="$(grep -Fc '"credentials": ["chuggy-git-worker", "claude-code", "codex-auth", "track-record"]' "$scheduler" || true)"
   grants="$(grep -Ec '^ +"credentials": \[' "$scheduler" || true)"
   if [ "$attempt_grants" != 2 ] || [ "$session_grants" != 1 ] || [ "$grants" != 3 ]; then
-    echo "development-worker: expected two grants of the in-cluster git credential, the model credentials \"claude-code\" and \"codex-auth\", and \"track-record\", and one of the first two alone; found $attempt_grants and $session_grants of $grants" >&2
+    echo "development-worker: expected two grants of the in-cluster git credential, the model credentials \"claude-code\" and \"codex-auth\", and \"track-record\", and one of the first two with \"anthropic-api\"; found $attempt_grants and $session_grants of $grants" >&2
     exit 1
   fi
   grep -F '"secretName": "claude-code"' "$scheduler" >/dev/null
