@@ -293,11 +293,11 @@ spec:
             # session placed on its own slot, so `claude-code` says one too: a
             # mount that says none reaches every session, and a subsidized
             # lead's pod would be handed this rig's subscription beside the key.
-            # A session's query lives as long as its pod, so `sessionBounds`
-            # bounds a pod's whole life on the key: the launcher's own turn
-            # bound, written because a mount's bounds name both, and a dollar
-            # cap only a runaway reaches. The selector charges a turn that never
-            # settled `unmeasuredTurnMicros`, which is that cap.
+            # `sessionBounds` names both of a mount's bounds. `turnsMax` bounds
+            # one turn and is the launcher's own. `budgetUsd` is metered over a
+            # pod's whole life, as the session bounds below argue, so it sits at
+            # a tenant's month: a working lead never reaches it, and no pod
+            # spends more than its tenant may.
             - name: CHUG_SCHEDULER_WORKER_CREDENTIAL_MOUNTS
               value: |
                 {
@@ -317,7 +317,7 @@ spec:
                     "key": "api-key",
                     "mountPath": "/var/run/chuggy/credentials/anthropic-api",
                     "claudeCredential": "ApiKey",
-                    "sessionBounds": { "budgetUsd": 1, "turnsMax": 200 }
+                    "sessionBounds": { "budgetUsd": 10, "turnsMax": 200 }
                   },
                   "track-record": {
                     "secretName": "track-record-chuggy",
@@ -1257,12 +1257,15 @@ spec:
             #
             # `credentials` is the execution policy's list less `codex-auth`,
             # since no session runs Codex, and `track-record`, since a session
-            # runs no gates. `kubernetesSessionPodRequest`
-            # denies a credential slot this list does not name, so it is the
-            # list and not the mounts above that decides what a session can
-            # authenticate as.
+            # runs no gates, with `anthropic-api`, which only a subsidized lead
+            # speaks through. `kubernetesSessionPodRequest` denies a credential
+            # slot this list does not name, so this list decides which slots a
+            # session may be placed on, and a mount's `claudeCredential` which of
+            # them reaches it.
             #
-            # `claude-code` is what the runtime speaks to the model with.
+            # `claude-code` is what a thread or a lead on its project's own
+            # runtime speaks to the model with, and `anthropic-api` is what a
+            # subsidized lead does.
             # `chuggy-git-worker` is what it clones this cluster's own git
             # service with, and it is here because a session bound there takes
             # a checkout: the plane mints for a forge and answers 404 for that

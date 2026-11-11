@@ -808,8 +808,8 @@ def main():
     #     ones placed on it: a subsidized lead's pod, on chuggy's own key, would
     #     be handed the subscription too. So each slot named here says one.
     #     And a subsidized lead's turn that never settled is charged
-    #     `unmeasuredTurnMicros`, which is meant to be the most one pod can
-    #     spend on its slot, so it is held to that mount's `budgetUsd`.
+    #     `unmeasuredTurnMicros`, which is held under its mount's `budgetUsd`:
+    #     a charge above what one pod can spend overcharges every failure.
     served = container(one(documents, "Deployment", "chuggy-api", CONTROL), "api")
     selecting = container(one(documents, "Deployment", "chuggy-selector", CONTROL), "selector")
     document = variable(selecting, SELECTOR_CONFIGURATION_VARIABLE)
@@ -860,12 +860,17 @@ def main():
                 f"{CREDENTIAL_MOUNTS_VARIABLE} mounts {slot!r} with no sessionBounds.budgetUsd, "
                 "so nothing bounds what one subsidized lead's pod spends"
             )
-        if charged != round(budget * MICROS_PER_DOLLAR):
+        if not isinstance(charged, int):
+            refuse(
+                f"{SELECTOR_CONFIGURATION_VARIABLE}.{SUBSIDIZED_LEAD_CONFIGURATION_KEY}."
+                f"{SUBSIDIZED_LEAD_UNMEASURED_FIELD} is {charged!r}, not a whole number of micros"
+            )
+        if charged > round(budget * MICROS_PER_DOLLAR):
             refuse(
                 f"{SELECTOR_CONFIGURATION_VARIABLE}.{SUBSIDIZED_LEAD_CONFIGURATION_KEY}."
                 f"{SUBSIDIZED_LEAD_UNMEASURED_FIELD} is {charged!r}, and {slot!r}'s budgetUsd "
-                f"is {budget!r}: a turn that never settled is charged other than the most "
-                "its pod can spend"
+                f"is {budget!r}: a turn that never settled is charged more than its pod "
+                "can spend"
             )
 
 
