@@ -150,6 +150,15 @@ paired, the Dockerfile and the daemon each one value, and the annotation the
 source's digest. The source they read, `chuggy-worker`, is held to its kind
 here and to its `ignore` by tests/flux-layers.py. The two run files are held to
 each other, to the Task's parameters, and to one daemon.
+
+THE RUNNER RELEASE TRIGGERS ARE HELD LIKE THE CONTRACT PUBLISH TRIGGER, FOR
+TWO PACKAGES. Their ServiceAccount, Roles, bindings, egress policy and two
+CronJobs are held as the others are; the Task's last step alone mounts a
+Secret, the one its run's package names, and reads the handoff read-only; its
+two policies are written here again from the two run files, which are one
+file but for `package`, and its token policy names the Secret of each
+package. The two sources are held to their kind here and to their spec by
+tests/flux-layers.py.
 """
 
 import json
@@ -278,6 +287,7 @@ TRIGGER_POLICIES = {
     "image-trigger-egress": trigger_egress("image-trigger"),
     "contract-publish-trigger-egress": trigger_egress("contract-publish-trigger"),
     "worker-image-trigger-egress": trigger_egress("worker-image-trigger"),
+    "runner-release-trigger-egress": trigger_egress("runner-release-trigger"),
 }
 
 # Each Distribution process of the namespace: who its one policy admits, the
@@ -434,6 +444,33 @@ CONTRACT_TRIGGER_ROLES = {
     ],
     BUILD_NAMESPACE: [{"apiGroups": ["tekton.dev"], "resources": ["taskruns"], "verbs": ["list", "create", "delete"]}],
 }
+# The runner release triggers: one ServiceAccount and a CronJob for each
+# package, each reading that package's source and creating from its own run
+# file, and a Task whose last step alone holds the token of its run's package.
+RUNNER_TRIGGER = "runner-release-trigger"
+RUNNER_TRIGGER_RUNS = "runner-release-trigger-runs"
+RUNNER_TASK = "publish-runner-release"
+RUNNER_TRIGGERS = {
+    f"runner-release-{package}-trigger": {"package": package, "source": package, "run": f"runner-release-{package}-run.yaml"}
+    for package in ("chuggy-linux", "chuggy-darwin")
+}
+RUNNER_SECRET = "chuggy-runner-release-token-$(params.package)"
+RUNNER_PARAMS = ["url", "commit", "package"]
+RUNNER_TIMEOUT = "30m0s"
+RUNNER_RUN_POLICY = "runner-release-creates-a-release-run"
+RUNNER_SOURCE_POLICY = "runner-release-releases-what-a-source-holds"
+RUNNER_TOKEN_POLICY = "runner-release-token-has-one-reader"
+RUNNER_TRIGGER_ROLES = {
+    "flux-system": [
+        {
+            "apiGroups": ["source.toolkit.fluxcd.io"],
+            "resources": ["gitrepositories"],
+            "resourceNames": [trigger["source"] for trigger in RUNNER_TRIGGERS.values()],
+            "verbs": ["get"],
+        }
+    ],
+    BUILD_NAMESPACE: [{"apiGroups": ["tekton.dev"], "resources": ["taskruns"], "verbs": ["list", "create", "delete"]}],
+}
 IMAGE_RUN_FIELDS = {"taskRef", "params", "timeout", "serviceAccountName", "podTemplate"}
 IMAGE_PARAMS = ["url", "commit", "image", "dockerfile"]
 # The one binding a layer renders for everyone who is authenticated, which a
@@ -476,6 +513,7 @@ SECRETS = {
     REPORT_TASK: {"secret": "chuggy-report-build", "steps": ["report"]},
     TWO_PLATFORM_TASK: {"secret": "arm64-builder-client", "steps": ["build"]},
     CONTRACT_TASK: {"secret": CONTRACT_SECRET, "steps": ["release"]},
+    RUNNER_TASK: {"secret": RUNNER_SECRET, "steps": ["release"]},
 }
 
 BUILD_STEP = {
@@ -504,6 +542,11 @@ STEPS = {
     },
     REPORT_TASK: {"report": {**CONFINED, **AS_CURL}},
     CONTRACT_TASK: {
+        "fetch": {**CONFINED, **AS_NODE},
+        "prepare": {**CONFINED, **AS_NODE},
+        "release": {**CONFINED, **AS_NODE},
+    },
+    RUNNER_TASK: {
         "fetch": {**CONFINED, **AS_NODE},
         "prepare": {**CONFINED, **AS_NODE},
         "release": {**CONFINED, **AS_NODE},
@@ -613,6 +656,7 @@ ASKED_OF = asked_of("pipelineruns", TRIGGER, "created-by-the-release-trigger")
 IMAGE_ASKED_OF = asked_of("taskruns", IMAGE_TRIGGER, "created-by-the-image-trigger")
 CONTRACT_ASKED_OF = asked_of("taskruns", CONTRACT_TRIGGER, "created-by-the-contract-publish-trigger")
 WORKER_ASKED_OF = asked_of("taskruns", WORKER_TRIGGER, "created-by-the-worker-image-trigger")
+RUNNER_ASKED_OF = asked_of("taskruns", RUNNER_TRIGGER, "created-by-the-runner-release-trigger")
 # The image and the Dockerfile a run the image trigger creates may name.
 BUILDS_WHAT_IS_NAMED = (
     'variables.params.exists(param, param.name == "image" && type(param.value) == string && param.value in variables.images)'
@@ -1013,29 +1057,30 @@ def param_values(run):
     return {param["name"]: param["value"] for param in run["spec"]["params"]}
 
 
-def token_policy_validation():
-    """What the contract token's policy holds a pod that reaches the Secret to:
-    the Task's own label, written from the constants this file holds."""
+def token_policy_validation(task):
+    """What a token's policy holds a pod that reaches the Secret to: the
+    Task's own label, written from the constants this file holds."""
     return (
         f'!variables.reaches || (has(object.metadata.labels) && "tekton.dev/task" in object.metadata.labels'
-        f' && object.metadata.labels["tekton.dev/task"] == {json.dumps(CONTRACT_TASK)})'
+        f' && object.metadata.labels["tekton.dev/task"] == {json.dumps(task)})'
     )
 
 
-def token_policy_reach():
-    """The four ways a pod carries a Secret, each by the Secret's name."""
-    name = json.dumps(CONTRACT_SECRET)
+def token_policy_reach(named):
+    """The four ways a pod carries a Secret, each by the Secret's name:
+    `named` is how the policy compares a name, `== "<secret>"` for one
+    Secret or `in [...]` for several."""
     return (
         f"(has(object.spec.volumes) ? object.spec.volumes : []).exists(volume,"
-        f" (has(volume.secret) && volume.secret.secretName == {name})"
+        f" (has(volume.secret) && volume.secret.secretName {named})"
         f" || (has(volume.projected) && volume.projected.sources.exists(source,"
-        f" has(source.secret) && source.secret.name == {name})))"
+        f" has(source.secret) && source.secret.name {named})))"
         f" || variables.containers.exists(container,"
         f" (has(container.env) && container.env.exists(entry,"
         f" has(entry.valueFrom) && has(entry.valueFrom.secretKeyRef)"
-        f" && entry.valueFrom.secretKeyRef.name == {name}))"
+        f" && entry.valueFrom.secretKeyRef.name {named}))"
         f" || (has(container.envFrom) && container.envFrom.exists(source,"
-        f" has(source.secretRef) && source.secretRef.name == {name})))"
+        f" has(source.secretRef) && source.secretRef.name {named})))"
     )
 
 
@@ -1144,7 +1189,7 @@ def worker_admit_is_held(cluster, build_directory):
                         refuse(f"worker-admit may reach the world on {ports}, and its steps speak on 443 and the API server's port")
 
 
-def admission_is_held(cluster, release_run, image_runs, contract_run, worker_runs, sources_namespace):
+def admission_is_held(cluster, release_run, image_runs, contract_run, worker_runs, runner_runs, sources_namespace):
     run = release_run["spec"]
     annotations = json.dumps(list(release_run["metadata"]["annotations"]))
     parameters = [param["name"] for param in run["params"]]
@@ -1160,6 +1205,10 @@ def admission_is_held(cluster, release_run, image_runs, contract_run, worker_run
     worker_images = {param_values(run)["image"]: param_values(run)["target"] for run in worker_runs.values()}
     (worker_dockerfile,) = {param_values(run)["dockerfile"] for run in worker_runs.values()}
     (worker_daemon,) = {param_values(run)["arm64-builder"] for run in worker_runs.values()}
+    runner_specs = [{name: value for name, value in run["spec"].items() if name != "params"} for run in runner_runs.values()]
+    for file, spec in zip(runner_runs, runner_specs):
+        exactly(f"{file}'s spec, its parameters apart,", spec, runner_specs[0])
+    runner_packages = [param_values(run)["package"] for run in runner_runs.values()]
     expected = {
         RUN_POLICY: {
             "asked": ASKED_OF,
@@ -1264,6 +1313,36 @@ def admission_is_held(cluster, release_run, image_runs, contract_run, worker_run
                 ' && params.spec.url == "https://github.com/" + param.value + ".git")'
             ],
         },
+        RUNNER_RUN_POLICY: {
+            "asked": RUNNER_ASKED_OF,
+            "variables": {
+                "spec": cel(runner_specs[0]),
+                "params": "has(object.spec.params) ? object.spec.params : []",
+            },
+            "validations": [
+                'object.apiVersion == "tekton.dev/v1"',
+                DEFAULTED_LABEL_ONLY,
+                "!has(object.metadata.annotations)",
+                'object.spec.all(field, field == "params" || field in variables.spec)',
+                "variables.spec.all(field, field in object.spec && object.spec[field] == variables.spec[field])",
+                f"variables.params.map(param, param.name) == {json.dumps(RUNNER_PARAMS)}",
+                'variables.params.exists(param, param.name == "package" && type(param.value) == string'
+                f" && param.value in {json.dumps(runner_packages)}"
+                ' && variables.params.exists(url, url.name == "url"'
+                ' && url.value == "https://github.com/kasofsk/" + param.value + ".git"))',
+            ],
+        },
+        RUNNER_SOURCE_POLICY: {
+            "asked": {**RUNNER_ASKED_OF, "paramKind": SOURCE_KIND},
+            "variables": {},
+            "validations": [
+                "!(has(object.spec.params)"
+                ' && object.spec.params.exists(param, param.name == "url" && param.value == params.spec.url))'
+                " || (has(params.status.artifact)"
+                ' && object.spec.params.exists(param, param.name == "commit" && type(param.value) == string'
+                ' && params.status.artifact.revision.endsWith("@sha1:" + param.value)))'
+            ],
+        },
     }
     exactly("the labels release-run.yaml carries", release_run["metadata"].get("labels"), None)
     exactly(
@@ -1278,36 +1357,46 @@ def admission_is_held(cluster, release_run, image_runs, contract_run, worker_run
             [parameter for named in IMAGE_SOURCES.values() for parameter in named.values()][:2],
         )
     policies = {name: policy["spec"] for name, policy in of(cluster, "ValidatingAdmissionPolicy").items()}
-    exactly("the admission policies rendered", sorted(policies), sorted([*expected, CONTRACT_TOKEN_POLICY, ADMIT_TOKEN_POLICY]))
-    token = policies[CONTRACT_TOKEN_POLICY]
     exactly(
-        f"whom and what ValidatingAdmissionPolicy {CONTRACT_TOKEN_POLICY} is asked about",
-        {field: value for field, value in token.items() if field not in ("variables", "validations")},
-        {
-            "failurePolicy": "Fail",
-            "matchConstraints": {
-                "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": BUILD_NAMESPACE}},
-                "resourceRules": [
-                    {"apiGroups": [""], "apiVersions": ["v1"], "operations": ["CREATE", "UPDATE"], "resources": ["pods"]}
-                ],
+        "the admission policies rendered",
+        sorted(policies),
+        sorted([*expected, CONTRACT_TOKEN_POLICY, RUNNER_TOKEN_POLICY, ADMIT_TOKEN_POLICY]),
+    )
+    # Each package's Secret, as the Task's volume names it for that package.
+    runner_secrets = [RUNNER_SECRET.replace("$(params.package)", package) for package in runner_packages]
+    for policy_name, task, named in (
+        (CONTRACT_TOKEN_POLICY, CONTRACT_TASK, f"== {json.dumps(CONTRACT_SECRET)}"),
+        (RUNNER_TOKEN_POLICY, RUNNER_TASK, f"in {json.dumps(runner_secrets)}"),
+    ):
+        token = policies[policy_name]
+        exactly(
+            f"whom and what ValidatingAdmissionPolicy {policy_name} is asked about",
+            {field: value for field, value in token.items() if field not in ("variables", "validations")},
+            {
+                "failurePolicy": "Fail",
+                "matchConstraints": {
+                    "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": BUILD_NAMESPACE}},
+                    "resourceRules": [
+                        {"apiGroups": [""], "apiVersions": ["v1"], "operations": ["CREATE", "UPDATE"], "resources": ["pods"]}
+                    ],
+                },
             },
-        },
-    )
-    exactly(
-        f"what ValidatingAdmissionPolicy {CONTRACT_TOKEN_POLICY} names",
-        {variable["name"]: tokens(variable["expression"]) for variable in token["variables"]},
-        {
-            "containers": tokens(
-                "object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])"
-            ),
-            "reaches": tokens(token_policy_reach()),
-        },
-    )
-    exactly(
-        f"what ValidatingAdmissionPolicy {CONTRACT_TOKEN_POLICY} holds a pod to",
-        [tokens(validation["expression"]) for validation in token["validations"]],
-        [tokens(token_policy_validation())],
-    )
+        )
+        exactly(
+            f"what ValidatingAdmissionPolicy {policy_name} names",
+            {variable["name"]: tokens(variable["expression"]) for variable in token["variables"]},
+            {
+                "containers": tokens(
+                    "object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])"
+                ),
+                "reaches": tokens(token_policy_reach(named)),
+            },
+        )
+        exactly(
+            f"what ValidatingAdmissionPolicy {policy_name} holds a pod to",
+            [tokens(validation["expression"]) for validation in token["validations"]],
+            [tokens(token_policy_validation(task))],
+        )
     for name, held in expected.items():
         policy = policies[name]
         exactly(
@@ -1330,6 +1419,16 @@ def admission_is_held(cluster, release_run, image_runs, contract_run, worker_run
         {name: binding["spec"] for name, binding in of(cluster, "ValidatingAdmissionPolicyBinding").items()},
         {
             CONTRACT_TOKEN_POLICY: {"policyName": CONTRACT_TOKEN_POLICY, "validationActions": ["Deny"]},
+            RUNNER_TOKEN_POLICY: {"policyName": RUNNER_TOKEN_POLICY, "validationActions": ["Deny"]},
+            RUNNER_RUN_POLICY: {"policyName": RUNNER_RUN_POLICY, "validationActions": ["Deny"]},
+            **{
+                f"runner-release-releases-what-{trigger['source']}-holds": {
+                    "policyName": RUNNER_SOURCE_POLICY,
+                    "validationActions": ["Deny"],
+                    "paramRef": {"name": trigger["source"], "namespace": sources_namespace, "parameterNotFoundAction": "Allow"},
+                }
+                for trigger in RUNNER_TRIGGERS.values()
+            },
             ADMIT_TOKEN_POLICY: {"policyName": ADMIT_TOKEN_POLICY, "validationActions": ["Deny"]},
             CONTRACT_RUN_POLICY: {"policyName": CONTRACT_RUN_POLICY, "validationActions": ["Deny"]},
             f"contract-publish-publishes-what-{CONTRACT_SOURCE}-holds": {
@@ -1413,34 +1512,35 @@ SAFE_SOURCE = [
 ]
 
 
-def contract_is_held(task):
-    """The contract Task's last step alone has the token, and runs nothing a
-    commit wrote. The steps before it run what the commit says, and have no
+def handoff_is_held(task):
+    """A releasing Task's last step alone has the token, and runs nothing a
+    commit wrote: the contract's and the runner packages'. The steps before it run what the commit says, and have no
     Secret; that is held by SECRETS. What is held here is the other half: the
     step with the token reads the hand-off directory read-only, takes no
     volume the commit's code writes but that one, and runs a file of the
     ConfigMap and no file of the checkout."""
+    name = task["metadata"]["name"]
     release = step_of(task, "release")
     written = {"source", "tmp"}
     for mount in release.get("volumeMounts", []):
         if mount["name"] in written:
-            refuse(f"Task {CONTRACT_TASK}'s release step mounts {mount['name']}, which the commit's code writes")
+            refuse(f"Task {name}'s release step mounts {mount['name']}, which the commit's code writes")
         if mount["name"] == "handoff" and mount.get("readOnly") is not True:
-            refuse(f"Task {CONTRACT_TASK}'s release step mounts the hand-off directory the commit's code writes, and not read-only")
+            refuse(f"Task {name}'s release step mounts the hand-off directory the commit's code writes, and not read-only")
     if not release["command"][1].startswith("/scripts/"):
-        refuse(f"Task {CONTRACT_TASK}'s release step runs {release['command'][1]}, which is not a file of the ConfigMap")
+        refuse(f"Task {name}'s release step runs {release['command'][1]}, which is not a file of the ConfigMap")
     # /source is a volume the kubelet made, owned by root, and the steps run as
     # another user: the two that run git on it say it is safe, by environment
     # and not by a file, and the step with the token runs no git and says nothing.
     for step in task["spec"]["steps"]:
         given = [entry for entry in step.get("env", []) if entry["name"].startswith("GIT_CONFIG")]
         exactly(
-            f"the git configuration of Task {CONTRACT_TASK}'s step {step['name']}",
+            f"the git configuration of Task {name}'s step {step['name']}",
             given,
             SAFE_SOURCE if step["name"] in ("fetch", "prepare") else [],
         )
     exactly(
-        f"Task {CONTRACT_TASK}'s steps that mount the hand-off directory",
+        f"Task {name}'s steps that mount the hand-off directory",
         [step["name"] for step in task["spec"]["steps"] if any(mount["name"] == "handoff" for mount in step.get("volumeMounts", []))],
         ["prepare", "release"],
     )
@@ -1537,7 +1637,30 @@ def main():
     exactly(f"the repository {CONTRACT_RUN} releases on", param_values(contract_run)["repository"], CONTRACT_REPOSITORY)
     exactly(f"the labels {CONTRACT_RUN} carries", contract_run["metadata"].get("labels"), None)
     exactly(f"the annotations {CONTRACT_RUN} carries", contract_run["metadata"].get("annotations"), None)
-    contract_is_held(tasks[CONTRACT_TASK])
+    handoff_is_held(tasks[CONTRACT_TASK])
+    runner_runs = {}
+    for cronjob, trigger in RUNNER_TRIGGERS.items():
+        file = trigger["run"]
+        (run,) = objects(carried(trigger_configs, file))
+        exactly(f"{file}'s kind", (run["apiVersion"], run["kind"]), ("tekton.dev/v1", "TaskRun"))
+        run_is_placed(file, run, run["spec"])
+        exactly(f"{file}'s Task", run["spec"]["taskRef"], {"name": RUNNER_TASK, "kind": "Task"})
+        exactly(f"what {file}'s spec carries", sorted(run["spec"]), sorted(IMAGE_RUN_FIELDS))
+        exactly(f"{file}'s timeout", run["spec"]["timeout"], RUNNER_TIMEOUT)
+        exactly(f"what {file} passes", [param["name"] for param in run["spec"]["params"]], RUNNER_PARAMS)
+        passes_what_is_declared(file, set(RUNNER_PARAMS), tasks[RUNNER_TASK])
+        exactly(f"the package {file} releases", param_values(run)["package"], trigger["package"])
+        exactly(f"the labels {file} carries", run["metadata"].get("labels"), None)
+        exactly(f"the annotations {file} carries", run["metadata"].get("annotations"), None)
+        runner_runs[file] = run
+    first, *others = runner_runs.values()
+    for other in others:
+        exactly(
+            "the runner release run files but for `package` and their names",
+            {**other, "metadata": {**other["metadata"], "generateName": None}, "spec": {**other["spec"], "params": other["spec"]["params"][:2]}},
+            {**first, "metadata": {**first["metadata"], "generateName": None}, "spec": {**first["spec"], "params": first["spec"]["params"][:2]}},
+        )
+    handoff_is_held(tasks[RUNNER_TASK])
     by_hand = {}
     for file in BY_HAND:
         (run,) = objects((directory / file).read_text())
@@ -1590,6 +1713,8 @@ def main():
             [("ServiceAccount", TRIGGER), ("CronJob", TRIGGER), ("ServiceAccount", IMAGE_TRIGGER)]
             + [("ServiceAccount", CONTRACT_TRIGGER), ("CronJob", CONTRACT_TRIGGER)]
             + [("ServiceAccount", WORKER_TRIGGER)]
+            + [("ServiceAccount", RUNNER_TRIGGER)]
+            + [("CronJob", name) for name in RUNNER_TRIGGERS]
             + [("CronJob", name) for name in IMAGE_TRIGGERS]
             + [("CronJob", name) for name in WORKER_TRIGGERS]
             + [("ConfigMap", name) for name in trigger_configs]
@@ -1667,13 +1792,33 @@ def main():
         environment.get("SOURCES_NAMESPACE"),
     )
 
+    runner_jobs = {}
+    for cronjob, trigger in RUNNER_TRIGGERS.items():
+        runner_job, runner_environment = cronjob_is_held(cluster, cronjob, RUNNER_TRIGGER)
+        run = runner_runs[trigger["run"]]
+        exactly(f"the Task CronJob {cronjob} reads the runs of", runner_environment.get("TASK"), RUNNER_TASK)
+        exactly(f"the source CronJob {cronjob} reads", runner_environment.get("SOURCE"), trigger["source"])
+        exactly(f"the parameter CronJob {cronjob} reads a run as being of", runner_environment.get("SUBJECT_PARAM"), "package")
+        exactly(f"the package CronJob {cronjob} reads the runs of", runner_environment.get("IMAGE"), param_values(run)["package"])
+        exactly(
+            f"the run file CronJob {cronjob} creates from",
+            (runner_environment.get("RUN_MANIFEST") or "").rpartition("/")[2],
+            trigger["run"],
+        )
+        exactly(
+            f"the namespace CronJob {cronjob} reads its source in",
+            runner_environment.get("SOURCES_NAMESPACE"),
+            environment.get("SOURCES_NAMESPACE"),
+        )
+        runner_jobs[cronjob] = runner_job
+
     # Whoever is bound in the build namespace can start a pod there under a
     # label of their choosing, so it is bound to the trigger and to nobody
     # else, whichever layer renders the binding.
     exactly(
         f"the RoleBindings of {BUILD_NAMESPACE}",
         sorted(of(cluster, "RoleBinding", BUILD_NAMESPACE)),
-        sorted([TRIGGER_RUNS, IMAGE_TRIGGER_RUNS, CONTRACT_TRIGGER_RUNS, WORKER_TRIGGER_RUNS, ADMIT_READS_RUNS]),
+        sorted([TRIGGER_RUNS, IMAGE_TRIGGER_RUNS, CONTRACT_TRIGGER_RUNS, WORKER_TRIGGER_RUNS, RUNNER_TRIGGER_RUNS, ADMIT_READS_RUNS]),
     )
     def rights_of(account):
         """What one trigger's ServiceAccount may do: one Role in each
@@ -1707,6 +1852,7 @@ def main():
     exactly("what the image trigger's ServiceAccount may do", rights_of(IMAGE_TRIGGER), IMAGE_TRIGGER_ROLES)
     exactly("what the contract publish trigger's ServiceAccount may do", rights_of(CONTRACT_TRIGGER), CONTRACT_TRIGGER_ROLES)
     exactly("what the worker image trigger's ServiceAccount may do", rights_of(WORKER_TRIGGER), WORKER_TRIGGER_ROLES)
+    exactly("what the runner release trigger's ServiceAccount may do", rights_of(RUNNER_TRIGGER), RUNNER_TRIGGER_ROLES)
     sources = of(cluster, "GitRepository", environment.get("SOURCES_NAMESPACE"))
     if "chuggy" not in sources:
         refuse(f"the trigger reads GitRepository chuggy in {environment.get('SOURCES_NAMESPACE')}, and no layer renders one there")
@@ -1724,7 +1870,12 @@ def main():
     exactly(f"the kind of GitRepository {WORKER_SOURCE}", {field: sources[WORKER_SOURCE][field] for field in SOURCE_KIND}, SOURCE_KIND)
     if CONTRACT_SOURCE not in sources:
         refuse(f"the contract publish trigger reads GitRepository {CONTRACT_SOURCE} in {environment.get('SOURCES_NAMESPACE')}, and no layer renders one there")
-    admission_is_held(cluster, release_run, image_runs, contract_run, worker_runs, environment.get("SOURCES_NAMESPACE"))
+    for trigger in RUNNER_TRIGGERS.values():
+        name = trigger["source"]
+        if name not in sources:
+            refuse(f"a runner release trigger reads GitRepository {name} in {environment.get('SOURCES_NAMESPACE')}, and no layer renders one there")
+        exactly(f"the kind of GitRepository {name}", {field: sources[name][field] for field in SOURCE_KIND}, SOURCE_KIND)
+    admission_is_held(cluster, release_run, image_runs, contract_run, worker_runs, runner_runs, environment.get("SOURCES_NAMESPACE"))
     worker_admit_is_held(cluster, sys.argv[4])
 
     # The policies.
@@ -1754,6 +1905,12 @@ def main():
         contract_job["template"]["metadata"].get("labels"),
         TRIGGER_POLICIES["contract-publish-trigger-egress"]["podSelector"]["matchLabels"],
     )
+    for cronjob in RUNNER_TRIGGERS:
+        exactly(
+            f"the labels the policy of CronJob {cronjob} selects its pod by",
+            runner_jobs[cronjob]["template"]["metadata"].get("labels"),
+            TRIGGER_POLICIES["runner-release-trigger-egress"]["podSelector"]["matchLabels"],
+        )
     exactly(
         f"the NetworkPolicies of {BUILD_NAMESPACE}",
         policies(cluster, BUILD_NAMESPACE),

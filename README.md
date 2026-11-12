@@ -434,13 +434,16 @@ whole map in one place.
 `chuggy.githubAppTokens` mints repository-scoped installation tokens into
 managed Kubernetes Secrets, one for each entry of `tokens` a host declares.
 gtr states the two Apps and where their keys are, which `tests/forge-app-key.py`
-reads, and declares one token: `contract-publish`, the portal App's, for
-kasofsk/chuggy with `contents: write`, into `chuggy-build`, for [the worker
-contract's release](#the-worker-contracts-release). The keys remain root-only
-host state outside this repository and the Nix store.
+reads, and declares three tokens, all the portal App's with `contents: write`
+into `chuggy-build`: `contract-publish`, for kasofsk/chuggy, for [the worker
+contract's release](#the-worker-contracts-release), and
+`runner-release-chuggy-linux` and `runner-release-chuggy-darwin`, each for
+that repository alone, for [the runner packages'
+releases](#the-runner-packages-releases). The keys remain root-only host state
+outside this repository and the Nix store.
 
-No pod is handed a repository's credential on a forge but the one step of the
-contract publish: the api, the ticket service, the finalizer and the importer
+No pod is handed a repository's credential on a forge but the last step of the
+contract publish and of a runner release: the api, the ticket service, the finalizer and the importer
 each mount a GitHub App's private key and mint for the act they are performing,
 and a work pod's is minted for it by the worker plane. The other exception is
 this cluster's own git service, which no App
@@ -1071,6 +1074,43 @@ other's draft, and the one that lost fails and is retried. The declaration
 formatter that wraps it makes every run fail until it is kept on one line again;
 nothing in chuggy changes for that. A published release whose tag was deleted is neither
 repaired nor reported.
+
+#### The runner packages' releases
+
+A ticket that releases kasofsk/chuggy-linux or kasofsk/chuggy-darwin lands as
+a merge that moves `package.json`'s version, and the package is released on
+GitHub as `v<version>` with `<package>-<version>.tgz` as its asset: what
+kasofsk/chuggy's `just pin-runner-release` pins and a pool installs. This
+makes that release for every commit of each package's `main`.
+
+`cluster/build-system/runner-release.yaml` holds the Task
+`publish-runner-release` and its two CronJobs,
+`runner-release-chuggy-linux-trigger` and `runner-release-chuggy-darwin-trigger`,
+each `image-trigger.sh` over the GitRepository of that name, with runs told
+apart by their `package` parameter. A run reads the package and version from
+`package.json`; if the remote already has the tag it stops there, which is the
+usual case and a success. Otherwise it finds the release commit, the newest
+that changed the version line, whose subject must be `release: <version>` or
+`release: <version>, <summary>`. The release's notes are that commit's body,
+less its trailers, or the summary where it has no body: so the release commit's
+message is where a release is described, and one with neither is refused. It
+then packs the tarball with `npm pack`, no lifecycle script running, and
+`runner-release.mjs` makes a draft at the run's commit, uploads the asset and
+publishes. A failed run is tried again after ten minutes; delete the newest
+`runner-release-<package>-*` TaskRun to try sooner.
+
+The tokens are as the contract's, one for each package's repository, into
+`chuggy-runner-release-token-<package>`, and the Task's volume names the one
+of its run's package. `tests/runner-release.nix` runs the last step against a
+GitHub that is a file's server, `tests/runner-prepare.nix` runs the step
+before it over a real history, `tests/runner-release-token.nix` holds the
+host's tokens to the Task, and `tests/image-trigger.nix` runs the trigger's
+decisions for both CronJobs.
+
+What it does not promise, beside what the contract's release does not: the tag
+is made at the commit the trigger runs, which is the release's merge unless
+`main` moved again within the minute. A published release is installed by no
+pool until kasofsk/chuggy pins it.
 
 #### The worker image's two platforms
 

@@ -148,6 +148,12 @@
         inherit pkgs;
         host = self.nixosConfigurations.gtr;
       };
+      runnerRelease = import ./tests/runner-release.nix { inherit pkgs; };
+      runnerPrepare = import ./tests/runner-prepare.nix { inherit pkgs; };
+      runnerReleaseToken = import ./tests/runner-release-token.nix {
+        inherit pkgs;
+        host = self.nixosConfigurations.gtr;
+      };
       workerAdmitToken = import ./tests/worker-admit-token.nix {
         inherit pkgs;
         host = self.nixosConfigurations.gtr;
@@ -266,9 +272,10 @@
         # first mint rather than at start-up.
         forge-app-key = forgeAppKey;
 
-        # And the one token the host mints, against the Task that mounts it: the
-        # name, the namespace, the repository and the App.
+        # And the tokens the host mints for a release, against the Task that
+        # mounts each: the name, the namespace, the repository and the App.
         contract-publish-token = contractPublishToken;
+        runner-release-token = runnerReleaseToken;
         worker-admit-token = workerAdmitToken;
 
         # The release step of the Task that publishes the contract, call by
@@ -279,6 +286,12 @@
         # declaration read, the tag skipped, the script's output held to the
         # one release the run is for.
         contract-prepare = contractPrepare;
+
+        # The same two steps of the Task that releases a runner package: the
+        # release made from the directory, and the notes read off the release
+        # commit behind the run's, over a real history.
+        runner-release = runnerRelease;
+        runner-prepare = runnerPrepare;
 
         # A roster the API reads, a file each reporter is verified by, the
         # Secret the host makes for it, the release run that presents one and

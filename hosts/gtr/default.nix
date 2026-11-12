@@ -261,6 +261,29 @@
       secretName = "chuggy-contract-publish-token";
       namespaces = [ "chuggy-build" ];
     };
+    # The runner releases' tokens (cluster/build-system/runner-release.yaml):
+    # the portal App again, one for each package's repository alone, with
+    # `contents: write`, for the reason the contract publish's is minted here.
+    # The Task's volume names the one of its run's package.
+    # tests/runner-release-token.py holds these entries to the Task.
+    tokens.runner-release-chuggy-linux = {
+      appId = config.chuggy.githubAppTokens.apps.portal.appId;
+      installationId = "156333284";
+      repository = "chuggy-linux";
+      permission = "write";
+      privateKeyFile = config.chuggy.githubAppTokens.apps.portal.privateKeyFile;
+      secretName = "chuggy-runner-release-token-chuggy-linux";
+      namespaces = [ "chuggy-build" ];
+    };
+    tokens.runner-release-chuggy-darwin = {
+      appId = config.chuggy.githubAppTokens.apps.portal.appId;
+      installationId = "156333284";
+      repository = "chuggy-darwin";
+      permission = "write";
+      privateKeyFile = config.chuggy.githubAppTokens.apps.portal.privateKeyFile;
+      secretName = "chuggy-runner-release-token-chuggy-darwin";
+      namespaces = [ "chuggy-build" ];
+    };
     # The worker admission's token (cluster/build-system/worker-admit.yaml): the
     # admit App, for gdoteof/chuggy-fabric alone, which may write contents and
     # pull requests. The ruleset lets that App merge through a pull request and

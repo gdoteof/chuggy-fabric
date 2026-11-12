@@ -1,0 +1,48 @@
+# One release of chuggy-linux, and the only manifest for one.
+#
+# NOT APPLIED, as contract-publish-run.yaml is not, for the reason it gives:
+# the generator in kustomization.yaml puts this file in the image trigger's
+# ConfigMap, and the CronJob `runner-release-chuggy-linux-trigger` writes the two
+# values into it and creates it each time GitRepository `chuggy-linux` holds a
+# commit the newest run did not release. A person who starts one does it
+# through that script, by
+# `kubectl create job --from=cronjob/runner-release-chuggy-linux-trigger` in
+# `chuggy-release-trigger`.
+#
+# EACH `@name@` IS A VALUE THE TRIGGER READ off the Flux source: the address it
+# fetches and the commit it holds. `package` is what is released, and what the
+# next comparison reads a run as being of: the trigger's `SUBJECT_PARAM`.
+# Admission holds it to the two packages and the address to its repository,
+# and tests/release-pipeline.py holds this file to the other package's but for
+# `package`.
+#
+# A RUN FOR EVERY COMMIT, AND MOST ARE NOTHING: runner-prepare.sh says why.
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: runner-release-chuggy-linux-
+  namespace: chuggy-build
+spec:
+  taskRef:
+    name: publish-runner-release
+    kind: Task
+  params:
+    - name: url
+      value: "@source-url@"
+    - name: commit
+      value: "@source-commit@"
+    - name: package
+      value: chuggy-linux
+  timeout: 30m0s
+  serviceAccountName: builder
+  podTemplate:
+    automountServiceAccountToken: false
+    nodeSelector:
+      chuggy.dev/node-role: builder
+      kubernetes.io/os: linux
+      kubernetes.io/arch: amd64
+    tolerations:
+      - key: chuggy.dev/node-role
+        operator: Equal
+        value: builder
+        effect: NoSchedule
