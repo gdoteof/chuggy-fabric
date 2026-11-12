@@ -11,14 +11,17 @@ ownership boundaries, deployment sequence, recovery path, and required checks.
 - Nothing is per repository here: a repository a run works on is bound from the
   console, and every credential an act needs is minted from a GitHub App key by
   the pod performing it. The `github-repository-transition` check refuses a pod
-  carrying a per-repository token. There is one exception: the host-minted
-  token `chuggy-contract-publish-token` (kasofsk/chuggy, `contents: write`, one
-  hour), mounted in the release step of the `publish-worker-contract` Task and
-  nowhere else. The portal App's key in a build namespace, where a commit's
-  `npm ci` runs, would be the wider exposure. The check names no suffix of
-  that Secret and covers only `chuggy` and `chuggy-work`, so it does not see it;
-  `tests/contract-publish-token.py` holds it to its repository, namespace and
-  App.
+  carrying a per-repository token. The exceptions are the host-minted release
+  tokens, each `contents: write` for one hour: `chuggy-contract-publish-token`
+  (kasofsk/chuggy), mounted in the release step of the
+  `publish-worker-contract` Task, and `chuggy-runner-release-token-<package>`
+  (kasofsk/chuggy-linux and kasofsk/chuggy-darwin), mounted in the release
+  step of the `publish-runner-release` Task, and nowhere else. The portal
+  App's key in a build namespace, where a commit's `npm ci` runs, would be the
+  wider exposure. The check names no suffix of those Secrets and covers only
+  `chuggy` and `chuggy-work`, so it does not see them;
+  `tests/contract-publish-token.py` and `tests/runner-release-token.py` hold
+  them to their repository, namespace and App.
 - `cluster/` is Flux-managed Kubernetes state. `main` is live, so merging a
   manifest change is a deployment action.
 - `cluster/chuggy-migrate` and `cluster/chuggy` are the exception: Flux applies
@@ -41,8 +44,8 @@ Two GitHub Apps divide control-plane authority from workload authority:
   gdoteof/chuggy-fabric admits only those two; `chuggy portal + admins own
   main` on kasofsk/chuggy also admits its organization admins -- and a human
   administrator token is intentionally not a substitute for any of them. The
-  one token the host mints from this key for a pod is the contract publish's,
-  under Architecture above.
+  tokens the host mints from this key for a pod are the contract publish's
+  and the runner releases', under Architecture above.
 - **Chuggy Worker** is the execution-plane App. The worker plane mounts its key
   and mints an attempt's or a session's credential from it for ticket branches
   and handoff work. It must not receive finalizer authority or

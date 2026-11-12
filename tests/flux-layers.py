@@ -115,6 +115,18 @@ SOURCES = {
         "url": "https://github.com/kasofsk/chug.gy.git",
         "ref": {"branch": "main"},
     },
+    # The runner packages, each released from its `main` by
+    # publish-runner-release.
+    ("source.toolkit.fluxcd.io/v1", "GitRepository", "chuggy-linux"): {
+        "interval": "1m",
+        "url": "https://github.com/kasofsk/chuggy-linux.git",
+        "ref": {"branch": "main"},
+    },
+    ("source.toolkit.fluxcd.io/v1", "GitRepository", "chuggy-darwin"): {
+        "interval": "1m",
+        "url": "https://github.com/kasofsk/chuggy-darwin.git",
+        "ref": {"branch": "main"},
+    },
     ("source.toolkit.fluxcd.io/v1", "OCIRepository", "chuggy-release"): {
         "interval": "1m",
         "url": "oci://release-registry.chuggy-registry.svc.cluster.local:5000/chuggy/release",

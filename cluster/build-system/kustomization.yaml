@@ -1,12 +1,13 @@
 # Tekton, the namespace builds run in, the release pipeline with its trigger,
 # the trigger that builds the site's image, the triggers that build the worker
 # image and its runtime, the job that admits a worker built, the Task and
-# trigger that release the worker contract, and the Task that builds an image
-# for two platforms.
+# trigger that release the worker contract, the Task and triggers that release
+# the runner packages, and the Task that builds an image for two platforms.
 #
 # A FILE THAT IS NOT IN `resources` IS NOT APPLIED. The manifests here left
 # out on purpose say so in their own headers: release-run.yaml,
-# chug-gy-image-run.yaml, contract-publish-run.yaml, worker-image-run.yaml and
+# chug-gy-image-run.yaml, contract-publish-run.yaml, the two
+# runner-release-*-run.yaml, worker-image-run.yaml and
 # worker-runtime-image-run.yaml, which a trigger creates, and
 # track-record-image-run.yaml, which a person does. admit-worker.sh and
 # arm64-builder.sh are a person's to run, and nothing here runs them.
@@ -21,6 +22,7 @@ resources:
   - worker-image-trigger.yaml
   - worker-admit.yaml
   - contract-publish.yaml
+  - runner-release.yaml
   - two-platform-image.yaml
 
 configMapGenerator:
@@ -39,6 +41,8 @@ configMapGenerator:
       - contract-gh.sh
       - contract-prepare.sh
       - contract-release.mjs
+      - runner-prepare.sh
+      - runner-release.mjs
     options:
       disableNameSuffixHash: true
   # What the release trigger runs, and the run it creates. Hashed, and
@@ -55,6 +59,8 @@ configMapGenerator:
       - image-trigger.sh
       - chug-gy-image-run.yaml
       - contract-publish-run.yaml
+      - runner-release-chuggy-linux-run.yaml
+      - runner-release-chuggy-darwin-run.yaml
       - worker-image-run.yaml
       - worker-runtime-image-run.yaml
   # What the worker admission runs, one script a step. Hashed the same way.

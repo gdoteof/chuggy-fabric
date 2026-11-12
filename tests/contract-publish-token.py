@@ -10,9 +10,11 @@ that has a contract to release -- which is the day a ticket waits on it.
 
 WHAT IS HELD, OF THE ENTRY THE HOST DECLARES:
 
-- there is one, and it is the only entry that delivers to `chuggy-build`: a
-  second Secret the host minted there would be one more a build pod could
-  mount, and the policy in contract-publish.yaml holds one name;
+- there is one, and the only other entries that deliver to `chuggy-build` are
+  the runner releases' (`runner-release-<package>`), which
+  tests/runner-release-token.py holds to their Task and their policy: any
+  other Secret the host minted there would be one more a build pod could
+  mount, and the two policies hold only those names;
 - it delivers the name the Task's volume reads, into the namespace the Task
   runs in and no other;
 - it is a token for the repository the Task's run releases on, and `write`,
@@ -36,6 +38,8 @@ TASK = "publish-worker-contract"
 RUN_CONFIG = "contract-publish-run.yaml"
 BUILD = "chuggy-build"
 APP = "portal"
+# The runner releases' entries, which tests/runner-release-token.py holds.
+RUNNER_TOKENS = "runner-release-"
 
 
 def refuse(message):
@@ -53,9 +57,11 @@ def main():
     token = tokens.get(TOKEN)
     if token is None:
         refuse(f"the host declares no token {TOKEN}, and the Task {TASK} mounts one")
-    delivering = sorted(name for name, other in tokens.items() if BUILD in other["namespaces"])
+    delivering = sorted(
+        name for name, other in tokens.items() if BUILD in other["namespaces"] and not name.startswith(RUNNER_TOKENS)
+    )
     if delivering != [TOKEN]:
-        refuse(f"the host delivers tokens {delivering} into {BUILD}, and the policy holds one Secret there")
+        refuse(f"the host delivers tokens {delivering} into {BUILD}, and the policies hold its Secret and the runner releases' there")
 
     (task,) = [d for d in documents if d["kind"] == "Task" and d["metadata"]["name"] == TASK]
     secrets = [volume["secret"] for volume in task["spec"]["volumes"] if "secret" in volume]
