@@ -14,8 +14,8 @@ to the pod's ServiceAccount grants them, and it evaluates the script's own
 ONE SUITE FOR EVERY CRONJOB THAT RUNS THIS SCRIPT. The command line may name
 another CronJob of the namespace, and the suite then runs as that one's pod is
 given it: its Task, its source, and the parameter its `SUBJECT_PARAM` says a
-run is of, which is `image` for the site's trigger and `repository` for the
-contract publish trigger. The cases below read "image" as that parameter's
+run is of, which is `image` for the site's trigger, `repository` for the
+contract publish trigger and `package` for the runner release triggers. The cases below read "image" as that parameter's
 value.
 
 A CRONJOB WITH `INPUTS_ANNOTATION` COMPARES THE SOURCE'S DIGEST, NOT ITS

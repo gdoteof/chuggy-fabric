@@ -433,9 +433,9 @@ whole map in one place.
 
 `chuggy.githubAppTokens` mints repository-scoped installation tokens into
 managed Kubernetes Secrets, one for each entry of `tokens` a host declares.
-gtr states the two Apps and where their keys are, which `tests/forge-app-key.py`
-reads, and declares three tokens, all the portal App's with `contents: write`
-into `chuggy-build`: `contract-publish`, for kasofsk/chuggy, for [the worker
+gtr states the Apps and where their keys are, which `tests/forge-app-key.py`
+reads. Of the tokens it declares, three are the portal App's with `contents:
+write` into `chuggy-build`: `contract-publish`, for kasofsk/chuggy, for [the worker
 contract's release](#the-worker-contracts-release), and
 `runner-release-chuggy-linux` and `runner-release-chuggy-darwin`, each for
 that repository alone, for [the runner packages'
@@ -443,7 +443,8 @@ releases](#the-runner-packages-releases). The keys remain root-only host state
 outside this repository and the Nix store.
 
 No pod is handed a repository's credential on a forge but the last step of the
-contract publish and of a runner release: the api, the ticket service, the finalizer and the importer
+contract publish and of a runner release, and the worker admission CronJob,
+which mounts `chuggy-admit-token`: the api, the ticket service, the finalizer and the importer
 each mount a GitHub App's private key and mint for the act they are performing,
 and a work pod's is minted for it by the worker plane. The other exception is
 this cluster's own git service, which no App

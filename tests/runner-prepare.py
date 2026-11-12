@@ -26,7 +26,8 @@ history as the step really reads it:
 - `npm ci` and `npm pack` run without lifecycle scripts, the pack into the
   pack directory; a pack that leaves no `<package>-<version>.tgz`, or leaves
   another file beside it, is a failure that writes no tag;
-- `notes` and then `tag` are written, and nothing else outside the pack.
+- `notes` and `tag` are written, and nothing else outside the pack; a run
+  refused after the notes are read leaves neither, nor the notes it set aside.
 """
 
 import os
@@ -84,6 +85,12 @@ class Remote:
         }
         subprocess.run(["git", "init", "--quiet", "-b", "main", str(self.path)], check=True, env=self.env)
         git(self.path, "config", "uploadpack.allowAnySHA1InWant", "true", env=self.env)
+
+    def at(self, seconds):
+        """Commit as of `seconds` past an epoch of this file's own, so that
+        which of two commits is newer is the test's to say."""
+        stamp = f"{1700000000 + seconds} +0000"
+        self.env = {**self.env, "GIT_AUTHOR_DATE": stamp, "GIT_COMMITTER_DATE": stamp}
 
     def commit(self, message, name=PACKAGE, version=None, extra=None):
         manifest = self.path / "package.json"
@@ -160,7 +167,7 @@ def run(scripts, root, remote, commit, fetched=None, packed=None, package=PACKAG
         timeout=60,
     )
     left = sorted(str(path.relative_to(out)) for path in out.rglob("*"))
-    files = {name: (out / name).read_text() for name in ("tag", "notes") if (out / name).is_file()}
+    files = {name: (out / name).read_text() for name in ("tag", "notes", "notes.part") if (out / name).is_file()}
     return done, left, files, log.read_text().splitlines()
 
 
@@ -223,6 +230,37 @@ def main():
             done, _, files, _ = run(scripts, root, remote, head)
             if done.returncode != 0 or files.get("notes") != "a summary\n":
                 report(case, f"exited {done.returncode} and wrote the notes {files.get('notes')!r}: {done.stderr.strip()[-300:]}")
+
+        # Two release branches, the older release landed last: its merge with
+        # main settled the version back to its own, and the newest commit to
+        # change the version line is the other release's.
+        remote = fresh()
+        remote.at(0)
+        remote.commit("the first", version="1.0.0")
+        git(remote.path, "checkout", "--quiet", "-b", "second", env=remote.env)
+        remote.at(10)
+        second = remote.commit("release: 1.2.0, the second", version="1.2.0")
+        git(remote.path, "checkout", "--quiet", "main", env=remote.env)
+        git(remote.path, "checkout", "--quiet", "-b", "first", env=remote.env)
+        remote.at(20)
+        remote.commit("release: 1.1.0, the first", version="1.1.0", extra="first")
+        git(remote.path, "checkout", "--quiet", "main", env=remote.env)
+        remote.at(30)
+        remote.merge("first", "Merge pull request #1")
+        git(remote.path, "checkout", "--quiet", "second", env=remote.env)
+        remote.at(40)
+        subprocess.run(["git", "-C", str(remote.path), "merge", "--quiet", "main"], env=remote.env, capture_output=True)
+        (remote.path / "package.json").write_text(
+            f'{{\n  "name": "{PACKAGE}",\n  "version": "1.2.0",\n  "description": "first",\n  "private": true\n}}\n'
+        )
+        git(remote.path, "add", "package.json", env=remote.env)
+        git(remote.path, "commit", "--quiet", "--no-edit", env=remote.env)
+        git(remote.path, "checkout", "--quiet", "main", env=remote.env)
+        remote.at(50)
+        head = remote.merge("second", "Merge pull request #2")
+        done, _, files, _ = run(scripts, root, remote, head, packed=f"{PACKAGE}-1.2.0.tgz")
+        if done.returncode != 0 or files.get("tag") != "v1.2.0\n" or files.get("notes") != "the second\n" or second not in done.stdout:
+            report("released-past-a-settled-conflict", f"exited {done.returncode} and wrote {files}: {done.stderr.strip()[-300:]}")
 
         # A tag the remote holds: nothing to do, and npm is never asked.
         remote = fresh()

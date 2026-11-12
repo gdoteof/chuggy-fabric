@@ -21,8 +21,10 @@
 # scripts/pin-runner-release.ts fetches the tarball under.
 #
 # THE NOTES ARE THE RELEASE COMMIT'S MESSAGE. The release commit is the newest
-# commit before the run's that changed the manifest's `version` line, and its
-# subject must be `release: <version>` or `release: <version>, <summary>`: a
+# commit at or behind the run's that changed the manifest's `version` line and
+# left it at this version: a merge that settled a conflict between two release
+# branches changed it in no commit `git log -G` lists, so a newer release
+# commit of another version may be behind it too. Its subject must be `release: <version>` or `release: <version>, <summary>`: a
 # version moved by a commit that does not say it is the release is a failure,
 # and no release is made. The notes are that message's body less its trailers
 # (`Co-Authored-By:` and the like), or the summary where the body is empty. A
@@ -45,6 +47,9 @@ refuse() {
 }
 
 : "${SOURCE:?}" "${OUT:?}" "${URL:?}" "${REPOSITORY:?}" "${PACKAGE:?}" "${COMMIT:?}" "${HOME:?}"
+# The notes are written aside and moved in once the pack is held: a run that
+# fails leaves none.
+trap 'rm -f "$OUT/notes.part"' EXIT
 mkdir -p "$HOME"
 cd "$SOURCE"
 
@@ -71,8 +76,17 @@ fi
 git fetch --quiet --unshallow "$URL" "$COMMIT" || refuse "could not fetch the history of $COMMIT from $URL"
 [ "$(git rev-parse --is-shallow-repository)" = false ] || refuse "the history of $COMMIT is still shallow"
 
-release=$(git log -1 --format=%H -G '^  "version": ' "$COMMIT" -- package.json)
-[ -n "$release" ] || refuse "no commit before $COMMIT changed package.json's version"
+release=
+for candidate in $(git log --format=%H -G '^  "version": ' "$COMMIT" -- package.json); do
+  moved=$(git show "$candidate:package.json" | node -e '
+    process.stdout.write(String(JSON.parse(require("fs").readFileSync(0, "utf8")).version));
+  ') || refuse "the package.json of $candidate cannot be read as a manifest"
+  if [ "$moved" = "$version" ]; then
+    release=$candidate
+    break
+  fi
+done
+[ -n "$release" ] || refuse "no commit at or behind $COMMIT moved package.json's version to $version"
 subject=$(git log -1 --format=%s "$release")
 case $subject in
   "release: $version" | "release: $version, "*) ;;
