@@ -1,6 +1,6 @@
 # The worker contract, released on GitHub at every commit of chuggy's `main`
-# that moves it: the Task that does it, the trigger that starts it, and what
-# holds each to that.
+# that changes it, under a release chosen here: the Task that does it, the
+# trigger that starts it, and what holds each to that.
 #
 # WHY IT IS HERE. A ticket that changes the worker contract lands as a pull
 # request merge, and nothing then released it: a person ran
@@ -14,8 +14,8 @@
 # the file they leave behind. `release` has the token and runs contract-release.mjs
 # from this repository, which reads what they left as data it checks, and
 # refuses a link where a file should be. `prepare`
-# is what checks that the tag is the declared release and that the dry run said
-# it would release that tag at this commit. `release` checks only the pattern
+# is what chooses the release, the minor after the newest the remote holds, and
+# checks that the dry run said it would release that tag at this commit. `release` checks only the pattern
 # of the tag, that the title is a package name and that release, the run's own
 # commit and one tarball: it trusts the tag `prepare` wrote. The credential is the
 # portal App's, as a token for kasofsk/chuggy alone with `contents: write`,
@@ -47,9 +47,9 @@
 #
 # WHAT THIS DOES NOT PROMISE. A release is made at a commit the trigger runs,
 # and the trigger runs the commit of `main` that Flux holds, once the source
-# has it. If `main` moves past two release bumps within one trigger interval,
-# or one retry delay after a failed run, the first of them is never run and
-# its release is not made: a person makes it with `just publish-worker-contract`.
+# has it. If `main` moves past two changes to the contract within one trigger
+# interval, or one retry delay after a failed run, the first of them is never
+# run and the two are one release, made at the second.
 # The trigger starts no run while one is unfinished, so two runs overlap only
 # when a person makes a Job from the CronJob by hand; they can delete each
 # other's draft, and the one that lost fails and is retried. A

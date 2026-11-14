@@ -1036,11 +1036,13 @@ chuggy makes that release by hand; this makes it for every commit of chuggy's
 `cluster/build-system/contract-publish.yaml` holds the Task and its trigger.
 The CronJob `contract-publish-trigger` is `image-trigger.sh` over GitRepository
 `chuggy` and the Task `publish-worker-contract`, with runs told apart by their
-`repository` parameter. A run fetches the commit and reads the release
-`src/contract/workerContract.ts` declares. If the remote already has the tag it
-stops there, which is the usual case and a success. Otherwise it runs
-chuggy's own `scripts/publish-worker-contract.ts --dry-run`, which refuses
-what the script refuses and packs the tarball, and a last step releases it:
+`repository` parameter. A run fetches the commit and the commit of the newest
+`worker-contract-v<release>` tag the remote holds. If `src/contract` is the
+same tree at both it stops there, which is the usual case and a success.
+Otherwise it chooses the release, the minor after that newest one, and runs
+chuggy's own `scripts/publish-worker-contract.ts --dry-run --release <release>`,
+which refuses what the script refuses and packs the tarball, and a last step
+releases it:
 `contract-release.mjs` makes a draft at the run's commit, uploads the asset
 and publishes, so a release never exists without its asset. A failed run is
 tried again after ten minutes; delete the newest `contract-publish-*` TaskRun
@@ -1065,16 +1067,18 @@ runs the step before it and the `gh` it gives the publish script, and the
 trigger's decisions are `tests/image-trigger.nix`'s, which runs them for both
 CronJobs.
 
-What it does not promise. If `main` moves past two release bumps within one
-trigger interval, or within the retry delay after a failed run, the first
-release is never run and never made; `just publish-worker-contract` makes it.
+What it does not promise. The release is this repository's to choose: chuggy's
+source names the version of its wire, which a change to the contract does not
+move, and no label for its package. If `main` moves past two changes to the
+contract within one trigger interval, or within the retry delay after a failed
+run, they are one release, made at the second. A change to how the pack is
+built that leaves `src/contract` as it was is not released. A run made by hand
+for a commit older than the newest release would release the older contract
+under the newer label.
 The trigger starts no run while one is unfinished, so two runs overlap only
 when someone makes a Job from the CronJob by hand; they can delete each
-other's draft, and the one that lost fails and is retried. The declaration
-`workerContractRelease` is read from a single line of one fixed form, so a
-formatter that wraps it makes every run fail until it is kept on one line again;
-nothing in chuggy changes for that. A published release whose tag was deleted is neither
-repaired nor reported.
+other's draft, and the one that lost fails and is retried. A published release
+whose tag was deleted is neither repaired nor reported.
 
 #### The runner packages' releases
 
