@@ -41,14 +41,14 @@ names its dashboard and the families its plane serves, and calls
   the lower twice.
 - The one exception is a distribution, every bucket of one family:
   `sum by (le) (increase(<family>_bucket{...}[<window>]))` and nothing else,
-  read as a heatmap with the legend `{{le}}`, in a bar gauge, a bar a bucket,
-  or a heatmap, a cell a bucket and step. Grafana takes from each bucket the
-  one below it, so each counts its own bucket alone, named by its bound.
-  Summed by any other label, a bucket is taken from one of another series; a
-  query read as a heatmap that is not this shape has series taken from one
-  another that are not buckets of one family; a bucket read whole that is not
-  read as a heatmap counts every bucket below it; and a heatmap reading
-  anything else has no buckets to draw.
+  read as a heatmap with the legend `{{le}}`, alone in a bar gauge, a bar a
+  bucket, or in a heatmap, a cell a bucket and step. Grafana takes from each
+  bucket the one below it, so each counts its own bucket alone, named by its
+  bound. Grouped by another label too, or beside a second query, a panel
+  draws one bar or cell per bucket per series under the same bucket names,
+  and nothing says which is which; a bucket read whole that is not read as a
+  heatmap counts every bucket below it; and a heatmap reading anything else
+  has no buckets to draw.
 - A stat, a bar gauge or a table shows one value for the selected time and a
   time series or a heatmap one for each step, so the first three read instant
   queries and any window over `[$__range]`, and the last two a range query and
@@ -415,7 +415,10 @@ class Check:
             if panel.get("targets") and panel.get("type") not in PANELS:
                 refuse(f"panel {panel.get('title')!r} is a {panel.get('type')}, a kind of panel this check does not read")
             instant, window = PANELS.get(panel.get("type"), (None, None))
-            for target in panel.get("targets") or []:
+            targets = panel.get("targets") or []
+            if len(targets) > 1 and any(target.get("format") == "heatmap" for target in targets):
+                refuse(f"panel {panel.get('title')!r} reads a distribution beside another query, so its bars share bucket names and none says which is which")
+            for target in targets:
                 where = f"panel {panel.get('title')!r} query {target.get('refId')}"
                 if (target.get("instant") is True, target.get("range") is True) != (instant, not instant):
                     refuse(f"{where} is not {'an instant' if instant else 'a range'} query, as its {panel['type']} reads")
@@ -431,7 +434,7 @@ class Check:
                 if distribution and panel["type"] not in DISTRIBUTED:
                     refuse(f"{where} is read as a heatmap, and a {panel['type']} does not draw a bar or a cell a bucket")
                 if distribution and (DISTRIBUTION.fullmatch(target["expr"]) is None or target.get("legendFormat") != "{{le}}"):
-                    refuse(f"{where} is read as a heatmap other than as {SHAPE} with the legend {{{{le}}}}, so Grafana takes its series from one another")
+                    refuse(f"{where} is read as a heatmap other than as {SHAPE} with the legend {{{{le}}}}, so its bars are not one per bucket of one family")
                 if panel["type"] == "heatmap" and not distribution:
                     refuse(f"{where} is not read as a heatmap, so its heatmap has no buckets to draw")
                 queries.append((where, target["expr"]))

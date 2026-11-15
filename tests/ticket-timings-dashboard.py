@@ -14,7 +14,7 @@ families the metrics plane serves, and a rule of this page's own.
 - A distribution's bar gauge names every bucket of its family and no other,
   each by its bound as Prometheus stores it as `le`: Go's shortest %g, which writes an
   exponent from a million, and `.0` added where it has neither. A bucket it
-  does not name reads as its bound in seconds, and a name written to a bound
+  does not name reads as its raw bound, and a name written to a bound
   Prometheus does not store, `le="1209600.0"` for `1.2096e+06`, names nothing.
 
 That the plane is scraped is tests/metrics-plane.py's to hold.

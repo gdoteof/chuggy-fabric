@@ -1516,8 +1516,8 @@ how long work and evaluation cycles took, how a landed ticket's time divides
 between its phases, how long evaluation stages, the agent's runs and the wait
 for a runner took, and lead and run time. A histogram is drawn as its
 distribution, a bar for each bucket counting what fell in it over the
-selected time, beside its median and 90th percentile, and work and evaluation
-cycles a day at a time in a heatmap too. Tenant, Project, Repository and Who
+selected time, and work and evaluation cycles a day at a time in a heatmap
+too. Tenant, Project, Repository and Who
 narrow it as they do the tickets page.
 `tests/ticket-timings-dashboard.py` holds it as the tickets dashboard is
 held, and each distribution's bars to the buckets of its family.
