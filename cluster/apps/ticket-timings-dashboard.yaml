@@ -1,0 +1,3854 @@
+# How long chuggy's tickets take, and where the time goes, on one page: how
+# long work and evaluation cycles took, how a landed ticket's time divides
+# between its phases, how long evaluation stages, the agent's runs and the
+# wait for a runner took, and lead and run time, read from the series
+# chuggy-metrics-plane-monitor.yaml has Prometheus scrape. It is the tickets
+# page's deep dive on time, and each page's header links to the other.
+#
+# THE DASHBOARD'S UID IS AN ADDRESS. `/d/chuggy-ticket-timings` is the page,
+# and a link handed to someone is not this file's to change: renaming the uid
+# breaks every one already given out.
+#
+# A DISTRIBUTION IS A HISTOGRAM'S BUCKETS, COUNTED OVER THE SELECTED TIME, or
+# over each day in a heatmap. Its query sums every bucket of one family by
+# `le` alone and is read as a heatmap, so Grafana takes from each bucket the
+# one below it and a bar or cell counts what fell in its bucket alone. A bar
+# is named by its bound, the one named for five minutes counting what fell
+# over the bound before it and up to five minutes.
+#
+# WHO AND REPOSITORY ARE VIEWS, NOT BOUNDARIES, as on the tickets page. Every
+# selector matches `owner=~"$owner"` and `repository=~"$repository"`.
+# Repository is the clone URL a ticket names, shown as owner and name; All is
+# `.*`, which matches a ticket that names none too. Every member signed in
+# can query every series whatever this page shows.
+#
+# EVERY QUERY SUMS, AND ONLY BY ITS FAMILY'S OWN LABELS, so a release
+# replacing the plane's pod draws no new line, and each ratio divides two sums
+# grouped alike.
+#
+# A STAGE READS AS ITS CONFIGURATION NAMES IT, or as its number where the
+# configuration names none, as on the tickets page.
+#
+# A RANGE COUNTS A SERIES FROM ITS FIRST VALUE, as on the usage page: the
+# plane names when each series began, as its OpenMetrics `_created`, and
+# Prometheus writes a zero at that time (cluster/apps/monitoring.yaml's
+# created-timestamp-zero-ingestion).
+#
+# It is a plain ConfigMap for the reason release-dashboard.yaml's is: the
+# sidecar finds it by label and nothing mounts it. dashboards/ticket_timings.py
+# writes this file whole; tests/ticket-timings-dashboard.py holds it to that
+# writer and to what its own header lists.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chuggy-ticket-timings-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  chuggy-ticket-timings.json: |-
+    {
+      "uid": "chuggy-ticket-timings",
+      "title": "Chuggy ticket timings",
+      "description": "How long chuggy's tickets take and where the time goes: work and evaluation cycles, a landed ticket's phases, evaluation stages, the agent's runs, the wait for a runner, and lead and run time, from the metrics plane. Who narrows the page to the tickets the signed-in person created, and Repository to those of a repository; each is a view, not a boundary.",
+      "tags": [
+        "chuggy"
+      ],
+      "schemaVersion": 39,
+      "version": 1,
+      "editable": false,
+      "graphTooltip": 1,
+      "timezone": "browser",
+      "time": {
+        "from": "now-7d",
+        "to": "now"
+      },
+      "refresh": "5m",
+      "templating": {
+        "list": [
+          {
+            "name": "tenant",
+            "label": "Tenant",
+            "description": "The tenants whose tickets the plane has counted.",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "query": "label_values(chuggy_tickets, tenant)",
+            "definition": "label_values(chuggy_tickets, tenant)",
+            "refresh": 2,
+            "sort": 1,
+            "multi": true,
+            "includeAll": true,
+            "allValue": ".*",
+            "current": {
+              "selected": true,
+              "text": [
+                "All"
+              ],
+              "value": [
+                "$__all"
+              ]
+            },
+            "options": []
+          },
+          {
+            "name": "project",
+            "label": "Project",
+            "description": "The selected tenants' projects.",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "query": "label_values(chuggy_tickets{tenant=~\"$tenant\"}, project)",
+            "definition": "label_values(chuggy_tickets{tenant=~\"$tenant\"}, project)",
+            "refresh": 2,
+            "sort": 1,
+            "multi": true,
+            "includeAll": true,
+            "allValue": ".*",
+            "current": {
+              "selected": true,
+              "text": [
+                "All"
+              ],
+              "value": [
+                "$__all"
+              ]
+            },
+            "options": []
+          },
+          {
+            "name": "repository",
+            "label": "Repository",
+            "description": "The repositories the selected projects' tickets name. All includes a ticket that names none.",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "query": "label_values(chuggy_tickets{tenant=~\"$tenant\", project=~\"$project\"}, repository)",
+            "definition": "label_values(chuggy_tickets{tenant=~\"$tenant\", project=~\"$project\"}, repository)",
+            "refresh": 2,
+            "sort": 1,
+            "multi": true,
+            "includeAll": true,
+            "allValue": ".*",
+            "current": {
+              "selected": true,
+              "text": [
+                "All"
+              ],
+              "value": [
+                "$__all"
+              ]
+            },
+            "options": [],
+            "regex": "/^(?<value>.*?(?<text>[^\\/:]+\\/[^\\/]+?)(?:\\.git)?)$/"
+          },
+          {
+            "name": "owner",
+            "label": "Who",
+            "description": "Everyone's tickets, or only those the signed-in person created.",
+            "type": "custom",
+            "query": "Everyone : .*,Me : ${__user.login}",
+            "multi": false,
+            "includeAll": false,
+            "current": {
+              "selected": true,
+              "text": "Everyone",
+              "value": ".*"
+            },
+            "options": [
+              {
+                "selected": true,
+                "text": "Everyone",
+                "value": ".*"
+              },
+              {
+                "selected": false,
+                "text": "Me",
+                "value": "${__user.login}"
+              }
+            ]
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "row",
+          "title": "At a glance",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Median work cycle",
+          "description": "Half the work cycles that ended over the selected time took longer than this, from the entry that put the ticket in work to its next entry. Approximate: interpolated within coarse buckets.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 1,
+            "w": 8,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_work_cycle_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range])))",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "noValue": "No data",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "mappings": [
+                {
+                  "type": "special",
+                  "options": {
+                    "match": "nan",
+                    "result": {
+                      "text": "No data",
+                      "index": 0
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Median evaluation cycle",
+          "description": "Half the evaluation cycles that ended over the selected time took longer than this, from the work's acceptance or a resume to the entry that took the ticket out of evaluation. Approximate: interpolated within coarse buckets.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 8,
+            "y": 1,
+            "w": 8,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_evaluation_cycle_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range])))",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "noValue": "No data",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "mappings": [
+                {
+                  "type": "special",
+                  "options": {
+                    "match": "nan",
+                    "result": {
+                      "text": "No data",
+                      "index": 0
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Median lead time",
+          "description": "Half the tickets landed over the selected time took longer than this from release to landing. Approximate: interpolated within coarse buckets.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 16,
+            "y": 1,
+            "w": 8,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_lead_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range])))",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "noValue": "None landed",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "mappings": [
+                {
+                  "type": "special",
+                  "options": {
+                    "match": "nan",
+                    "result": {
+                      "text": "None landed",
+                      "index": 0
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "Median run time",
+          "description": "Half the tickets landed over the selected time took longer than this from first dispatch to landing. Approximate: interpolated within coarse buckets.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 5,
+            "w": 8,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_run_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range])))",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "noValue": "None landed",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "mappings": [
+                {
+                  "type": "special",
+                  "options": {
+                    "match": "nan",
+                    "result": {
+                      "text": "None landed",
+                      "index": 0
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "Work cycles per landed ticket",
+          "description": "How many work cycles a ticket landed over the selected time went through, on average: its first, and one more each time it went back to work.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 8,
+            "y": 5,
+            "w": 8,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum (increase(chuggy_ticket_work_cycles_sum{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range])) / (sum (increase(chuggy_ticket_work_cycles_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range])) > 0)",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "No data",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 1,
+              "mappings": [
+                {
+                  "type": "special",
+                  "options": {
+                    "match": "nan",
+                    "result": {
+                      "text": "No data",
+                      "index": 0
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 7,
+          "type": "stat",
+          "title": "Median runner wait",
+          "description": "Half the attempts counted over the selected time waited longer than this from their opening to a runner's claim, in work and evaluation alike. Only an attempt a runner claimed is counted. Approximate: interpolated within coarse buckets.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 16,
+            "y": 5,
+            "w": 8,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_attempt_wait_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range])))",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "noValue": "No data",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "mappings": [
+                {
+                  "type": "special",
+                  "options": {
+                    "match": "nan",
+                    "result": {
+                      "text": "No data",
+                      "index": 0
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 8,
+          "type": "row",
+          "title": "Where a landed ticket's time goes",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 9,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 9,
+          "type": "bargauge",
+          "title": "Mean time in each phase",
+          "description": "How long a ticket landed over the selected time spent in each phase, on average, a phase it never stood in counted as none. The five add up to the mean lead time.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 10,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum (increase(chuggy_ticket_phase_time_seconds_sum{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Pending\"}[$__range])) / (sum (increase(chuggy_ticket_phase_time_seconds_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Pending\"}[$__range])) > 0)",
+              "legendFormat": "Pending",
+              "instant": true,
+              "range": false
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum (increase(chuggy_ticket_phase_time_seconds_sum{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Work\"}[$__range])) / (sum (increase(chuggy_ticket_phase_time_seconds_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Work\"}[$__range])) > 0)",
+              "legendFormat": "Work",
+              "instant": true,
+              "range": false
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum (increase(chuggy_ticket_phase_time_seconds_sum{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Evaluation\"}[$__range])) / (sum (increase(chuggy_ticket_phase_time_seconds_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Evaluation\"}[$__range])) > 0)",
+              "legendFormat": "Evaluation",
+              "instant": true,
+              "range": false
+            },
+            {
+              "refId": "D",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum (increase(chuggy_ticket_phase_time_seconds_sum{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Finalization\"}[$__range])) / (sum (increase(chuggy_ticket_phase_time_seconds_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Finalization\"}[$__range])) > 0)",
+              "legendFormat": "Finalization",
+              "instant": true,
+              "range": false
+            },
+            {
+              "refId": "E",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum (increase(chuggy_ticket_phase_time_seconds_sum{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Escalated\"}[$__range])) / (sum (increase(chuggy_ticket_phase_time_seconds_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Escalated\"}[$__range])) > 0)",
+              "legendFormat": "Escalated",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Pending"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "yellow"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Work"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "blue"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Evaluation"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "purple"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Finalization"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "light-green"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Escalated"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "red"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "orientation": "horizontal",
+            "displayMode": "basic",
+            "valueMode": "color",
+            "showUnfilled": true,
+            "namePlacement": "left",
+            "sizing": "manual",
+            "minVizHeight": 16,
+            "maxVizHeight": 32
+          }
+        },
+        {
+          "id": 10,
+          "type": "table",
+          "title": "Time in each phase",
+          "description": "How long the tickets landed over the selected time spent in each phase: the median and the 90th percentile, a phase a ticket never stood in counted as none. Approximate: interpolated within coarse buckets.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 10,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (phase) (increase(chuggy_ticket_phase_time_seconds_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range])) > 0",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le, phase) (increase(chuggy_ticket_phase_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range]))) >= 0",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.9, sum by (le, phase) (increase(chuggy_ticket_phase_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range]))) >= 0",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "merge",
+              "options": {}
+            },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "indexByName": {
+                  "phase": 0,
+                  "Value #A": 1,
+                  "Value #B": 2,
+                  "Value #C": 3
+                },
+                "renameByName": {
+                  "phase": "Phase",
+                  "Value #A": "Landed",
+                  "Value #B": "Median",
+                  "Value #C": "90th percentile"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "minWidth": 50,
+                "cellOptions": {
+                  "type": "auto"
+                }
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Landed"
+                },
+                "properties": [
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Median"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "s"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "90th percentile"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "s"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm",
+            "footer": {
+              "show": false
+            }
+          }
+        },
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "Mean time in each phase per day",
+          "description": "How long a ticket landed each day spent in each phase, on average, so each day's stack is that day's mean lead time. Each bar is a day, drawn once it has ended.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "1d",
+          "gridPos": {
+            "x": 0,
+            "y": 18,
+            "w": 24,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum (increase(chuggy_ticket_phase_time_seconds_sum{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Pending\"}[$__interval])) / (sum (increase(chuggy_ticket_phase_time_seconds_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Pending\"}[$__interval])) > 0)",
+              "legendFormat": "Pending",
+              "range": true
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum (increase(chuggy_ticket_phase_time_seconds_sum{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Work\"}[$__interval])) / (sum (increase(chuggy_ticket_phase_time_seconds_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Work\"}[$__interval])) > 0)",
+              "legendFormat": "Work",
+              "range": true
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum (increase(chuggy_ticket_phase_time_seconds_sum{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Evaluation\"}[$__interval])) / (sum (increase(chuggy_ticket_phase_time_seconds_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Evaluation\"}[$__interval])) > 0)",
+              "legendFormat": "Evaluation",
+              "range": true
+            },
+            {
+              "refId": "D",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum (increase(chuggy_ticket_phase_time_seconds_sum{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Finalization\"}[$__interval])) / (sum (increase(chuggy_ticket_phase_time_seconds_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Finalization\"}[$__interval])) > 0)",
+              "legendFormat": "Finalization",
+              "range": true
+            },
+            {
+              "refId": "E",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum (increase(chuggy_ticket_phase_time_seconds_sum{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Escalated\"}[$__interval])) / (sum (increase(chuggy_ticket_phase_time_seconds_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Escalated\"}[$__interval])) > 0)",
+              "legendFormat": "Escalated",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 80,
+                "lineWidth": 1,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                }
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Pending"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "yellow"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Work"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "blue"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Evaluation"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "purple"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Finalization"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "light-green"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Escalated"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "red"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 12,
+          "type": "row",
+          "title": "Work cycles",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 26,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 13,
+          "type": "bargauge",
+          "title": "Work cycle durations",
+          "description": "Work cycles that ended over the selected time, by how long each took, from the entry that put the ticket in work to its next entry. Each bar counts those over the bound of the bar before and up to its own.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 27,
+            "w": 12,
+            "h": 9
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (le) (increase(chuggy_ticket_work_cycle_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range]))",
+              "legendFormat": "{{le}}",
+              "instant": true,
+              "range": false,
+              "format": "heatmap"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0,
+              "min": 0,
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "60.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 1m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "120.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 2m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "300.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 5m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "600.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 10m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "900.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 15m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "1200.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 20m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "1800.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 30m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "2700.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 45m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "3600.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 1h"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "5400.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 90m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "7200.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 2h"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "10800.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 3h"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "14400.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 4h"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "28800.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 8h"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "+Inf"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "> 8h"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "orientation": "vertical",
+            "displayMode": "basic",
+            "valueMode": "text",
+            "showUnfilled": false,
+            "namePlacement": "auto",
+            "sizing": "auto",
+            "text": {
+              "valueSize": 14
+            }
+          }
+        },
+        {
+          "id": 14,
+          "type": "heatmap",
+          "title": "Work cycle durations per day",
+          "description": "Work cycles that ended each day, by how long each took: a cell for each bucket, shaded by how many fell in it, the axis giving its bound. Each column is a day, drawn once it has ended.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "1d",
+          "gridPos": {
+            "x": 12,
+            "y": 27,
+            "w": 12,
+            "h": 9
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (le) (increase(chuggy_ticket_work_cycle_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__interval]))",
+              "legendFormat": "{{le}}",
+              "range": true,
+              "format": "heatmap"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          },
+          "options": {
+            "calculate": false,
+            "rowsFrame": {
+              "layout": "le"
+            },
+            "yAxis": {
+              "axisPlacement": "left",
+              "unit": "s",
+              "reverse": false
+            },
+            "color": {
+              "mode": "scheme",
+              "scheme": "Blues",
+              "steps": 64,
+              "exponent": 0.5,
+              "fill": "dark-blue",
+              "reverse": false
+            },
+            "cellGap": 1,
+            "cellValues": {
+              "unit": "short",
+              "decimals": 0
+            },
+            "filterValues": {
+              "le": 1e-09
+            },
+            "showValue": "never",
+            "legend": {
+              "show": true
+            },
+            "tooltip": {
+              "mode": "single",
+              "yHistogram": false,
+              "showColorScale": false
+            }
+          }
+        },
+        {
+          "id": 15,
+          "type": "timeseries",
+          "title": "Work cycles per day",
+          "description": "How long the work cycles that ended each day took, the median and the 90th percentile: a ticket's first cycle, from its dispatch, apart from those that followed a rework, a resume or an invalidation. Approximate: interpolated within coarse buckets. Each point is a day, drawn once it has ended.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "1d",
+          "gridPos": {
+            "x": 0,
+            "y": 36,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_work_cycle_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", began=\"TicketDispatched\"}[$__interval])))",
+              "legendFormat": "First, median",
+              "range": true
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.9, sum by (le) (increase(chuggy_ticket_work_cycle_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", began=\"TicketDispatched\"}[$__interval])))",
+              "legendFormat": "First, 90th percentile",
+              "range": true
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_work_cycle_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", began!=\"TicketDispatched\"}[$__interval])))",
+              "legendFormat": "Later, median",
+              "range": true
+            },
+            {
+              "refId": "D",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.9, sum by (le) (increase(chuggy_ticket_work_cycle_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", began!=\"TicketDispatched\"}[$__interval])))",
+              "legendFormat": "Later, 90th percentile",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 0,
+                "showPoints": "auto",
+                "spanNulls": false
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 16,
+          "type": "timeseries",
+          "title": "Work cycles ended per day, by how",
+          "description": "Work cycles that ended each day, by the entry that ended them: the work accepted, the process failed, no execution available, or the ticket revoked. Each bar is a day, drawn once it has ended, and the legend totals the bars.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "1d",
+          "gridPos": {
+            "x": 12,
+            "y": 36,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (ended) (increase(chuggy_ticket_work_cycle_duration_seconds_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__interval]))",
+              "legendFormat": "{{ended}}",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 80,
+                "lineWidth": 1,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                }
+              },
+              "decimals": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "TicketWorkResultAccepted"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "green"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "TicketWorkProcessFailed"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "red"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "TicketWorkExecutionUnavailable"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "orange"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "TicketRevoked"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "text"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "sum"
+              ],
+              "sortBy": "Total",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 17,
+          "type": "table",
+          "title": "Work cycles by how they began and ended",
+          "description": "Work cycles that ended over the selected time, by the entry that began each and the one that ended it: how many, and the median and the 90th percentile of how long they took. Approximate: interpolated within coarse buckets.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 44,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (began, ended) (increase(chuggy_ticket_work_cycle_duration_seconds_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range])) > 0",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le, began, ended) (increase(chuggy_ticket_work_cycle_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range]))) >= 0",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.9, sum by (le, began, ended) (increase(chuggy_ticket_work_cycle_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range]))) >= 0",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "merge",
+              "options": {}
+            },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "indexByName": {
+                  "began": 0,
+                  "ended": 1,
+                  "Value #A": 2,
+                  "Value #B": 3,
+                  "Value #C": 4
+                },
+                "renameByName": {
+                  "began": "Began by",
+                  "ended": "Ended by",
+                  "Value #A": "Cycles",
+                  "Value #B": "Median",
+                  "Value #C": "90th percentile"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "minWidth": 50,
+                "cellOptions": {
+                  "type": "auto"
+                }
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Cycles"
+                },
+                "properties": [
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Median"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "s"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "90th percentile"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "s"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm",
+            "footer": {
+              "show": false
+            }
+          }
+        },
+        {
+          "id": 18,
+          "type": "bargauge",
+          "title": "Work cycles per landed ticket",
+          "description": "Tickets landed over the selected time, by how many work cycles each went through. Each bar counts those over the bound of the bar before and up to its own.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 44,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (le) (increase(chuggy_ticket_work_cycles_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range]))",
+              "legendFormat": "{{le}}",
+              "instant": true,
+              "range": false,
+              "format": "heatmap"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0,
+              "min": 0,
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "1.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "1"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "2.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "2"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "3.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "3"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "4.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "4"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "5.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "5"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "7.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "6\u20137"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "10.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "8\u201310"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "+Inf"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "> 10"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "orientation": "vertical",
+            "displayMode": "basic",
+            "valueMode": "text",
+            "showUnfilled": false,
+            "namePlacement": "auto",
+            "sizing": "auto",
+            "text": {
+              "valueSize": 14
+            }
+          }
+        },
+        {
+          "id": 19,
+          "type": "row",
+          "title": "Evaluation cycles",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 52,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 20,
+          "type": "bargauge",
+          "title": "Evaluation cycle durations",
+          "description": "Evaluation cycles that ended over the selected time, by how long each took, from the work's acceptance or a resume to the entry that took the ticket out of evaluation. Each bar counts those over the bound of the bar before and up to its own.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 53,
+            "w": 12,
+            "h": 9
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (le) (increase(chuggy_ticket_evaluation_cycle_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range]))",
+              "legendFormat": "{{le}}",
+              "instant": true,
+              "range": false,
+              "format": "heatmap"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0,
+              "min": 0,
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "60.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 1m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "120.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 2m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "300.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 5m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "600.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 10m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "900.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 15m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "1200.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 20m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "1800.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 30m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "2700.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 45m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "3600.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 1h"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "5400.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 90m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "7200.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 2h"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "10800.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 3h"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "14400.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 4h"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "28800.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 8h"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "+Inf"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "> 8h"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "orientation": "vertical",
+            "displayMode": "basic",
+            "valueMode": "text",
+            "showUnfilled": false,
+            "namePlacement": "auto",
+            "sizing": "auto",
+            "text": {
+              "valueSize": 14
+            }
+          }
+        },
+        {
+          "id": 21,
+          "type": "heatmap",
+          "title": "Evaluation cycle durations per day",
+          "description": "Evaluation cycles that ended each day, by how long each took: a cell for each bucket, shaded by how many fell in it, the axis giving its bound. Each column is a day, drawn once it has ended.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "1d",
+          "gridPos": {
+            "x": 12,
+            "y": 53,
+            "w": 12,
+            "h": 9
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (le) (increase(chuggy_ticket_evaluation_cycle_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__interval]))",
+              "legendFormat": "{{le}}",
+              "range": true,
+              "format": "heatmap"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          },
+          "options": {
+            "calculate": false,
+            "rowsFrame": {
+              "layout": "le"
+            },
+            "yAxis": {
+              "axisPlacement": "left",
+              "unit": "s",
+              "reverse": false
+            },
+            "color": {
+              "mode": "scheme",
+              "scheme": "Blues",
+              "steps": 64,
+              "exponent": 0.5,
+              "fill": "dark-blue",
+              "reverse": false
+            },
+            "cellGap": 1,
+            "cellValues": {
+              "unit": "short",
+              "decimals": 0
+            },
+            "filterValues": {
+              "le": 1e-09
+            },
+            "showValue": "never",
+            "legend": {
+              "show": true
+            },
+            "tooltip": {
+              "mode": "single",
+              "yHistogram": false,
+              "showColorScale": false
+            }
+          }
+        },
+        {
+          "id": 22,
+          "type": "timeseries",
+          "title": "Evaluation cycles per day",
+          "description": "How long the evaluation cycles that ended each day took, the median and the 90th percentile. Approximate: interpolated within coarse buckets. Each point is a day, drawn once it has ended.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "1d",
+          "gridPos": {
+            "x": 0,
+            "y": 62,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_evaluation_cycle_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__interval])))",
+              "legendFormat": "Evaluation cycle, median",
+              "range": true
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.9, sum by (le) (increase(chuggy_ticket_evaluation_cycle_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__interval])))",
+              "legendFormat": "Evaluation cycle, 90th percentile",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 0,
+                "showPoints": "auto",
+                "spanNulls": false
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 23,
+          "type": "table",
+          "title": "Evaluation cycles by how they began and ended",
+          "description": "Evaluation cycles that ended over the selected time, by the entry that began each and the one that took the ticket out of evaluation: how many, and the median and the 90th percentile of how long they took. Approximate: interpolated within coarse buckets.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 62,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (began, ended) (increase(chuggy_ticket_evaluation_cycle_duration_seconds_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range])) > 0",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le, began, ended) (increase(chuggy_ticket_evaluation_cycle_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range]))) >= 0",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.9, sum by (le, began, ended) (increase(chuggy_ticket_evaluation_cycle_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range]))) >= 0",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "merge",
+              "options": {}
+            },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "indexByName": {
+                  "began": 0,
+                  "ended": 1,
+                  "Value #A": 2,
+                  "Value #B": 3,
+                  "Value #C": 4
+                },
+                "renameByName": {
+                  "began": "Began by",
+                  "ended": "Ended by",
+                  "Value #A": "Cycles",
+                  "Value #B": "Median",
+                  "Value #C": "90th percentile"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "minWidth": 50,
+                "cellOptions": {
+                  "type": "auto"
+                }
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Cycles"
+                },
+                "properties": [
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Median"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "s"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "90th percentile"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "s"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm",
+            "footer": {
+              "show": false
+            }
+          }
+        },
+        {
+          "id": 24,
+          "type": "table",
+          "title": "Evaluation stages",
+          "description": "Evaluation attempts that ended over the selected time, by stage: how many, and the median and the 90th percentile of how long each ran, from a runner's claim, or its opening where no runner claimed it, to its end. A stage reads as its configuration names it, or as its number where the configuration names none. Approximate: interpolated within coarse buckets.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 70,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (stage) (increase(chuggy_attempt_duration_seconds_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Evaluation\"}[$__range])) > 0",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le, stage) (increase(chuggy_attempt_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Evaluation\"}[$__range]))) >= 0",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.9, sum by (le, stage) (increase(chuggy_attempt_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Evaluation\"}[$__range]))) >= 0",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "merge",
+              "options": {}
+            },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "indexByName": {
+                  "stage": 0,
+                  "Value #A": 1,
+                  "Value #B": 2,
+                  "Value #C": 3
+                },
+                "renameByName": {
+                  "stage": "Stage",
+                  "Value #A": "Attempts",
+                  "Value #B": "Median",
+                  "Value #C": "90th percentile"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "minWidth": 50,
+                "cellOptions": {
+                  "type": "auto"
+                }
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Attempts"
+                },
+                "properties": [
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Median"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "s"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "90th percentile"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "s"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm",
+            "footer": {
+              "show": false
+            }
+          }
+        },
+        {
+          "id": 25,
+          "type": "timeseries",
+          "title": "Evaluation stages per day",
+          "description": "How long the evaluation attempts that ended each day ran, the median of each stage. A stage reads as its configuration names it, or as its number where the configuration names none. Approximate: interpolated within coarse buckets. Each point is a day, drawn once it has ended.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "1d",
+          "gridPos": {
+            "x": 12,
+            "y": 70,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le, stage) (increase(chuggy_attempt_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Evaluation\"}[$__interval])))",
+              "legendFormat": "{{stage}}",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 0,
+                "showPoints": "auto",
+                "spanNulls": false
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 26,
+          "type": "row",
+          "title": "Runs and runners",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 78,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 27,
+          "type": "bargauge",
+          "title": "Work attempt durations",
+          "description": "Work attempts that ended over the selected time, by how long each ran, from a runner's claim, or its opening where no runner claimed it, to its end: the agent's own run, which a work cycle holds with the time around it. Each bar counts those over the bound of the bar before and up to its own.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 79,
+            "w": 12,
+            "h": 9
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (le) (increase(chuggy_attempt_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Work\"}[$__range]))",
+              "legendFormat": "{{le}}",
+              "instant": true,
+              "range": false,
+              "format": "heatmap"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0,
+              "min": 0,
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "30.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 30s"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "60.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 1m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "120.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 2m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "300.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 5m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "600.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 10m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "900.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 15m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "1200.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 20m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "1800.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 30m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "2700.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 45m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "3600.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 1h"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "5400.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 90m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "7200.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 2h"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "+Inf"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "> 2h"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "orientation": "vertical",
+            "displayMode": "basic",
+            "valueMode": "text",
+            "showUnfilled": false,
+            "namePlacement": "auto",
+            "sizing": "auto",
+            "text": {
+              "valueSize": 14
+            }
+          }
+        },
+        {
+          "id": 28,
+          "type": "bargauge",
+          "title": "Runner wait",
+          "description": "Attempts counted over the selected time, in work and evaluation alike, by how long each waited from its opening to a runner's claim. Only an attempt a runner claimed is counted, which leaves out most on the cluster. Each bar counts those over the bound of the bar before and up to its own.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 79,
+            "w": 12,
+            "h": 9
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (le) (increase(chuggy_attempt_wait_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range]))",
+              "legendFormat": "{{le}}",
+              "instant": true,
+              "range": false,
+              "format": "heatmap"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0,
+              "min": 0,
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "10.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 10s"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "30.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 30s"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "60.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 1m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "120.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 2m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "300.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 5m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "600.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 10m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "1200.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 20m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "1800.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 30m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "3600.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 1h"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "7200.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 2h"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "14400.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 4h"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "+Inf"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "> 4h"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "orientation": "vertical",
+            "displayMode": "basic",
+            "valueMode": "text",
+            "showUnfilled": false,
+            "namePlacement": "auto",
+            "sizing": "auto",
+            "text": {
+              "valueSize": 14
+            }
+          }
+        },
+        {
+          "id": 29,
+          "type": "timeseries",
+          "title": "Runner wait per day, by placement",
+          "description": "How long the attempts counted each day waited for a runner's claim, by where they were placed, the median and the 90th percentile. Approximate: interpolated within coarse buckets. Each point is a day, drawn once it has ended.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "1d",
+          "gridPos": {
+            "x": 0,
+            "y": 88,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le, placement) (increase(chuggy_attempt_wait_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__interval])))",
+              "legendFormat": "{{placement}}, median",
+              "range": true
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.9, sum by (le, placement) (increase(chuggy_attempt_wait_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__interval])))",
+              "legendFormat": "{{placement}}, 90th percentile",
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 0,
+                "showPoints": "auto",
+                "spanNulls": false
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 30,
+          "type": "table",
+          "title": "Runner wait by phase and placement",
+          "description": "Attempts counted over the selected time, by phase and by where they were placed: how many, and the median and the 90th percentile of how long they waited for a runner's claim. Approximate: interpolated within coarse buckets.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 88,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (phase, placement) (increase(chuggy_attempt_wait_seconds_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range])) > 0",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le, phase, placement) (increase(chuggy_attempt_wait_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range]))) >= 0",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.9, sum by (le, phase, placement) (increase(chuggy_attempt_wait_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range]))) >= 0",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "merge",
+              "options": {}
+            },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "indexByName": {
+                  "phase": 0,
+                  "placement": 1,
+                  "Value #A": 2,
+                  "Value #B": 3,
+                  "Value #C": 4
+                },
+                "renameByName": {
+                  "phase": "Phase",
+                  "placement": "Placement",
+                  "Value #A": "Attempts",
+                  "Value #B": "Median",
+                  "Value #C": "90th percentile"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "minWidth": 50,
+                "cellOptions": {
+                  "type": "auto"
+                }
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Attempts"
+                },
+                "properties": [
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Median"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "s"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "90th percentile"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "s"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm",
+            "footer": {
+              "show": false
+            }
+          }
+        },
+        {
+          "id": 31,
+          "type": "row",
+          "title": "Lead and run time",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 96,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 32,
+          "type": "bargauge",
+          "title": "Lead time",
+          "description": "Tickets landed over the selected time, by how long each took from release to landing. Each bar counts those over the bound of the bar before and up to its own.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 97,
+            "w": 12,
+            "h": 9
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (le) (increase(chuggy_ticket_lead_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range]))",
+              "legendFormat": "{{le}}",
+              "instant": true,
+              "range": false,
+              "format": "heatmap"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0,
+              "min": 0,
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "900.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 15m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "1800.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 30m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "3600.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 1h"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "7200.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 2h"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "14400.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 4h"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "28800.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 8h"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "86400.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 1d"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "172800.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 2d"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "345600.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 4d"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "604800.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 7d"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "1.2096e+06"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 14d"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "+Inf"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "> 14d"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "orientation": "vertical",
+            "displayMode": "basic",
+            "valueMode": "text",
+            "showUnfilled": false,
+            "namePlacement": "auto",
+            "sizing": "auto",
+            "text": {
+              "valueSize": 14
+            }
+          }
+        },
+        {
+          "id": 33,
+          "type": "bargauge",
+          "title": "Run time",
+          "description": "Tickets landed over the selected time, by how long each took from first dispatch to landing. Each bar counts those over the bound of the bar before and up to its own.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 97,
+            "w": 12,
+            "h": 9
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (le) (increase(chuggy_ticket_run_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range]))",
+              "legendFormat": "{{le}}",
+              "instant": true,
+              "range": false,
+              "format": "heatmap"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0,
+              "min": 0,
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "900.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 15m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "1800.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 30m"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "3600.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 1h"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "7200.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 2h"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "14400.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 4h"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "28800.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 8h"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "86400.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 1d"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "172800.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 2d"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "345600.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 4d"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "604800.0"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 7d"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "1.2096e+06"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "\u2264 14d"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "+Inf"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "> 14d"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "orientation": "vertical",
+            "displayMode": "basic",
+            "valueMode": "text",
+            "showUnfilled": false,
+            "namePlacement": "auto",
+            "sizing": "auto",
+            "text": {
+              "valueSize": 14
+            }
+          }
+        }
+      ],
+      "links": [
+        {
+          "title": "Chuggy tickets",
+          "type": "link",
+          "url": "/d/chuggy-tickets",
+          "tooltip": "How many tickets were released, landed and revoked, sent back, escalated, and what they cost.",
+          "icon": "dashboard",
+          "targetBlank": false,
+          "asDropdown": false,
+          "includeVars": true,
+          "keepTime": true,
+          "tags": []
+        },
+        {
+          "title": "Tickets in the console",
+          "type": "link",
+          "url": "https://chuggy.vteng.io/",
+          "tooltip": "Each ticket, in chuggy's console, which opens on the project last open there.",
+          "icon": "external link",
+          "targetBlank": true,
+          "asDropdown": false,
+          "includeVars": false,
+          "keepTime": false,
+          "tags": []
+        }
+      ]
+    }

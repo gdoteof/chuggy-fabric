@@ -19,6 +19,10 @@
 # `owner` label from. Every member signed in can query every series whatever
 # this page shows.
 #
+# REPOSITORY IS A VIEW TOO. Every selector matches `repository=~"$repository"`,
+# the clone URL a ticket names, shown as owner and name. All is `.*`, which
+# matches a ticket that names none too.
+#
 # EVERY QUERY SUMS, AND ONLY BY ITS FAMILY'S OWN LABELS, so a release
 # replacing the plane's pod draws no new line, and each ratio divides two sums
 # grouped alike, as an alert rule would read them.
@@ -48,7 +52,7 @@ data:
     {
       "uid": "chuggy-tickets",
       "title": "Chuggy tickets",
-      "description": "How chuggy's tickets are going: released, landed and revoked, how often a result sent one back and from where, how long one took, how long one stood escalated and what one cost, from the metrics plane. Costs are estimates at list price. Who narrows the page to the tickets the signed-in person created; it is a view, not a boundary.",
+      "description": "How chuggy's tickets are going: released, landed and revoked, how often a result sent one back and from where, how long one took, how long one stood escalated and what one cost, from the metrics plane. Costs are estimates at list price. Who narrows the page to the tickets the signed-in person created, and Repository to those of a repository; each is a view, not a boundary.",
       "tags": [
         "chuggy"
       ],
@@ -119,6 +123,34 @@ data:
             "options": []
           },
           {
+            "name": "repository",
+            "label": "Repository",
+            "description": "The repositories the selected projects' tickets name. All includes a ticket that names none.",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "query": "label_values(chuggy_tickets{tenant=~\"$tenant\", project=~\"$project\"}, repository)",
+            "definition": "label_values(chuggy_tickets{tenant=~\"$tenant\", project=~\"$project\"}, repository)",
+            "refresh": 2,
+            "sort": 1,
+            "multi": true,
+            "includeAll": true,
+            "allValue": ".*",
+            "current": {
+              "selected": true,
+              "text": [
+                "All"
+              ],
+              "value": [
+                "$__all"
+              ]
+            },
+            "options": [],
+            "regex": "/^(?<value>.*?(?<text>[^\\/:]+\\/[^\\/]+?)(?:\\.git)?)$/"
+          },
+          {
             "name": "owner",
             "label": "Who",
             "description": "Everyone's tickets, or only those the signed-in person created.",
@@ -182,7 +214,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=\"TicketCreated\"}[$__range]))",
+              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", event=\"TicketCreated\"}[$__range]))",
               "instant": true,
               "range": false
             }
@@ -245,7 +277,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=\"TicketFinalizationSucceeded\"}[$__range]))",
+              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", event=\"TicketFinalizationSucceeded\"}[$__range]))",
               "instant": true,
               "range": false
             }
@@ -308,7 +340,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=\"TicketRevoked\"}[$__range]))",
+              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", event=\"TicketRevoked\"}[$__range]))",
               "instant": true,
               "range": false
             }
@@ -371,7 +403,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(chuggy_tickets{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", phase!~\"Done|Revoked\"})",
+              "expr": "sum(chuggy_tickets{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase!~\"Done|Revoked\"})",
               "instant": true,
               "range": false
             }
@@ -434,7 +466,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(chuggy_tickets{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", phase=\"Escalated\"})",
+              "expr": "sum(chuggy_tickets{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Escalated\"})",
               "instant": true,
               "range": false
             }
@@ -501,7 +533,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=~\"TicketWorkProcessFailed|TicketWorkExecutionUnavailable|TicketEvaluationFailureEscalated|TicketEvaluationBlocked|TicketFinalizationUnavailable\"}[$__range]))",
+              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", event=~\"TicketWorkProcessFailed|TicketWorkExecutionUnavailable|TicketEvaluationFailureEscalated|TicketEvaluationBlocked|TicketFinalizationUnavailable\"}[$__range]))",
               "instant": true,
               "range": false
             }
@@ -564,7 +596,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(increase(chuggy_ticket_reworks_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", le=\"0.0\"}[$__range])) / (sum(increase(chuggy_ticket_reworks_count{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])) > 0)",
+              "expr": "sum(increase(chuggy_ticket_reworks_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", le=\"0.0\"}[$__range])) / (sum(increase(chuggy_ticket_reworks_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range])) > 0)",
               "instant": true,
               "range": false
             }
@@ -639,7 +671,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(increase(chuggy_ticket_reworks_sum{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])) / (sum(increase(chuggy_ticket_reworks_count{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])) > 0)",
+              "expr": "sum(increase(chuggy_ticket_reworks_sum{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range])) / (sum(increase(chuggy_ticket_reworks_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range])) > 0)",
               "instant": true,
               "range": false
             }
@@ -714,7 +746,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_lead_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])))",
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_lead_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range])))",
               "instant": true,
               "range": false
             }
@@ -788,7 +820,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "(sum(increase(chuggy_ticket_lead_time_seconds_sum{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])) - sum(increase(chuggy_ticket_run_time_seconds_sum{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range]))) / (sum(increase(chuggy_ticket_lead_time_seconds_count{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])) > 0)",
+              "expr": "(sum(increase(chuggy_ticket_lead_time_seconds_sum{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range])) - sum(increase(chuggy_ticket_run_time_seconds_sum{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range]))) / (sum(increase(chuggy_ticket_lead_time_seconds_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range])) > 0)",
               "instant": true,
               "range": false
             }
@@ -862,7 +894,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_cost_usd_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", end=\"Done\"}[$__range])))",
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_cost_usd_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", end=\"Done\"}[$__range])))",
               "instant": true,
               "range": false
             }
@@ -937,7 +969,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(increase(chuggy_ticket_cost_usd_sum{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])) / (sum(increase(chuggy_ticket_cost_usd_count{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", end=\"Done\"}[$__range])) > 0)",
+              "expr": "sum(increase(chuggy_ticket_cost_usd_sum{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range])) / (sum(increase(chuggy_ticket_cost_usd_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", end=\"Done\"}[$__range])) > 0)",
               "instant": true,
               "range": false
             }
@@ -1026,7 +1058,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=\"TicketCreated\"}[$__interval]))",
+              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", event=\"TicketCreated\"}[$__interval]))",
               "legendFormat": "Released",
               "range": true
             }
@@ -1092,7 +1124,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=\"TicketFinalizationSucceeded\"}[$__interval]))",
+              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", event=\"TicketFinalizationSucceeded\"}[$__interval]))",
               "legendFormat": "Landed",
               "range": true
             },
@@ -1102,7 +1134,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=\"TicketRevoked\"}[$__interval]))",
+              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", event=\"TicketRevoked\"}[$__interval]))",
               "legendFormat": "Revoked",
               "range": true
             }
@@ -1198,7 +1230,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum by (phase) (chuggy_tickets{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", phase!~\"Done|Revoked\"})",
+              "expr": "sum by (phase) (chuggy_tickets{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase!~\"Done|Revoked\"})",
               "legendFormat": "{{phase}}",
               "range": true
             }
@@ -1334,7 +1366,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum by (escalation) (chuggy_tickets{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", phase=\"Escalated\"})",
+              "expr": "sum by (escalation) (chuggy_tickets{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", phase=\"Escalated\"})",
               "legendFormat": "{{escalation}}",
               "instant": true,
               "range": false
@@ -1427,7 +1459,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum by (stage) (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=\"TicketEvaluationReworkStarted\"}[$__interval]))",
+              "expr": "sum by (stage) (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", event=\"TicketEvaluationReworkStarted\"}[$__interval]))",
               "legendFormat": "{{stage}}",
               "range": true
             },
@@ -1437,7 +1469,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=\"TicketFinalizationNeedsWork\"}[$__interval]))",
+              "expr": "sum (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", event=\"TicketFinalizationNeedsWork\"}[$__interval]))",
               "legendFormat": "Landing",
               "range": true
             }
@@ -1503,7 +1535,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(increase(chuggy_ticket_reworks_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", le=\"0.0\"}[$__interval])) / (sum(increase(chuggy_ticket_reworks_count{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__interval])) > 0)",
+              "expr": "sum(increase(chuggy_ticket_reworks_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", le=\"0.0\"}[$__interval])) / (sum(increase(chuggy_ticket_reworks_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__interval])) > 0)",
               "legendFormat": "First-pass rate",
               "range": true
             }
@@ -1565,7 +1597,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(increase(chuggy_ticket_reworks_sum{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__interval])) / (sum(increase(chuggy_ticket_reworks_count{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__interval])) > 0)",
+              "expr": "sum(increase(chuggy_ticket_reworks_sum{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__interval])) / (sum(increase(chuggy_ticket_reworks_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__interval])) > 0)",
               "legendFormat": "Reworks per landed ticket",
               "range": true
             }
@@ -1638,7 +1670,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_lead_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])))",
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_lead_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range])))",
               "legendFormat": "Lead time, median",
               "instant": true,
               "range": false
@@ -1649,7 +1681,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "histogram_quantile(0.9, sum by (le) (increase(chuggy_ticket_lead_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])))",
+              "expr": "histogram_quantile(0.9, sum by (le) (increase(chuggy_ticket_lead_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range])))",
               "legendFormat": "Lead time, 90th percentile",
               "instant": true,
               "range": false
@@ -1660,7 +1692,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_run_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])))",
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_run_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range])))",
               "legendFormat": "Run time, median",
               "instant": true,
               "range": false
@@ -1671,7 +1703,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "histogram_quantile(0.9, sum by (le) (increase(chuggy_ticket_run_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])))",
+              "expr": "histogram_quantile(0.9, sum by (le) (increase(chuggy_ticket_run_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range])))",
               "legendFormat": "Run time, 90th percentile",
               "instant": true,
               "range": false
@@ -1750,7 +1782,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_lead_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__interval])))",
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_lead_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__interval])))",
               "legendFormat": "Lead time, median",
               "range": true
             },
@@ -1760,7 +1792,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "histogram_quantile(0.9, sum by (le) (increase(chuggy_ticket_lead_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__interval])))",
+              "expr": "histogram_quantile(0.9, sum by (le) (increase(chuggy_ticket_lead_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__interval])))",
               "legendFormat": "Lead time, 90th percentile",
               "range": true
             },
@@ -1770,7 +1802,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_run_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__interval])))",
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_run_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__interval])))",
               "legendFormat": "Run time, median",
               "range": true
             },
@@ -1780,7 +1812,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "histogram_quantile(0.9, sum by (le) (increase(chuggy_ticket_run_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__interval])))",
+              "expr": "histogram_quantile(0.9, sum by (le) (increase(chuggy_ticket_run_time_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__interval])))",
               "legendFormat": "Run time, 90th percentile",
               "range": true
             }
@@ -1853,7 +1885,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum by (event) (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", event=~\"TicketWorkProcessFailed|TicketWorkExecutionUnavailable|TicketEvaluationFailureEscalated|TicketEvaluationBlocked|TicketFinalizationUnavailable\"}[$__interval]))",
+              "expr": "sum by (event) (increase(chuggy_ticket_events_total{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", event=~\"TicketWorkProcessFailed|TicketWorkExecutionUnavailable|TicketEvaluationFailureEscalated|TicketEvaluationBlocked|TicketFinalizationUnavailable\"}[$__interval]))",
               "legendFormat": "{{event}}",
               "range": true
             }
@@ -1918,7 +1950,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum by (event, by) (increase(chuggy_ticket_escalation_duration_seconds_count{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range])) > 0",
+              "expr": "sum by (event, by) (increase(chuggy_ticket_escalation_duration_seconds_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range])) > 0",
               "instant": true,
               "range": false,
               "format": "table"
@@ -1929,7 +1961,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "histogram_quantile(0.5, sum by (le, event, by) (increase(chuggy_ticket_escalation_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range]))) >= 0",
+              "expr": "histogram_quantile(0.5, sum by (le, event, by) (increase(chuggy_ticket_escalation_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range]))) >= 0",
               "instant": true,
               "range": false,
               "format": "table"
@@ -1940,7 +1972,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "histogram_quantile(0.9, sum by (le, event, by) (increase(chuggy_ticket_escalation_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range]))) >= 0",
+              "expr": "histogram_quantile(0.9, sum by (le, event, by) (increase(chuggy_ticket_escalation_duration_seconds_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range]))) >= 0",
               "instant": true,
               "range": false,
               "format": "table"
@@ -2066,7 +2098,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_cost_usd_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", end=\"Done\"}[$__range])))",
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_cost_usd_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", end=\"Done\"}[$__range])))",
               "legendFormat": "Median",
               "instant": true,
               "range": false
@@ -2077,7 +2109,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "histogram_quantile(0.9, sum by (le) (increase(chuggy_ticket_cost_usd_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", end=\"Done\"}[$__range])))",
+              "expr": "histogram_quantile(0.9, sum by (le) (increase(chuggy_ticket_cost_usd_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", end=\"Done\"}[$__range])))",
               "legendFormat": "90th percentile",
               "instant": true,
               "range": false
@@ -2153,7 +2185,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(increase(chuggy_ticket_cost_usd_sum{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", end=\"Revoked\"}[$__range]))",
+              "expr": "sum(increase(chuggy_ticket_cost_usd_sum{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", end=\"Revoked\"}[$__range]))",
               "instant": true,
               "range": false
             }
@@ -2216,7 +2248,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(increase(chuggy_run_cost_usd_total{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__range]))",
+              "expr": "sum(increase(chuggy_run_cost_usd_total{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__range]))",
               "instant": true,
               "range": false
             }
@@ -2280,7 +2312,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(increase(chuggy_ticket_cost_usd_sum{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\"}[$__interval])) / (sum(increase(chuggy_ticket_cost_usd_count{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", end=\"Done\"}[$__interval])) > 0)",
+              "expr": "sum(increase(chuggy_ticket_cost_usd_sum{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\"}[$__interval])) / (sum(increase(chuggy_ticket_cost_usd_count{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", end=\"Done\"}[$__interval])) > 0)",
               "legendFormat": "Ended tickets, per landed ticket",
               "range": true
             },
@@ -2290,7 +2322,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_cost_usd_bucket{tenant=~\"$tenant\", project=~\"$project\", owner=~\"$owner\", end=\"Done\"}[$__interval])))",
+              "expr": "histogram_quantile(0.5, sum by (le) (increase(chuggy_ticket_cost_usd_bucket{tenant=~\"$tenant\", project=~\"$project\", repository=~\"$repository\", owner=~\"$owner\", end=\"Done\"}[$__interval])))",
               "legendFormat": "A landed ticket, median",
               "range": true
             }
@@ -2330,6 +2362,18 @@ data:
         }
       ],
       "links": [
+        {
+          "title": "Chuggy ticket timings",
+          "type": "link",
+          "url": "/d/chuggy-ticket-timings",
+          "tooltip": "How long work and evaluation cycles, phases, runs and the wait for a runner took.",
+          "icon": "dashboard",
+          "targetBlank": false,
+          "asDropdown": false,
+          "includeVars": true,
+          "keepTime": true,
+          "tags": []
+        },
         {
           "title": "Tickets in the console",
           "type": "link",

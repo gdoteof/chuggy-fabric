@@ -6,7 +6,8 @@ bucket this page reads outside histogram_quantile.
 
 - The families and each one's labels are copied below from kasofsk/chuggy's
   `src/interpreter/metricsPlane.ts`. Every one carries `owner`, so every
-  selector is narrowed by Who.
+  selector is narrowed by Who, and every one but a session's carries
+  `repository`, so every selector here is narrowed by Repository.
 - A grouping by a label a family carries is bounded by the plane, which labels
   nothing by ticket, execution, attempt or session.
 - That bucket is the first-pass rate's: the landed tickets no result sent
@@ -24,9 +25,9 @@ import sys
 import tickets
 from dashboard import Check, documents_of, run, written
 
-TASK = {"tenant", "project", "owner", "phase", "stage", "runner", "workload", "placement"}
+TASK = {"tenant", "project", "repository", "owner", "phase", "stage", "runner", "workload", "placement"}
 SESSION = {"tenant", "project", "owner", "session"}
-TICKET = {"tenant", "project", "owner"}
+TICKET = {"tenant", "project", "repository", "owner"}
 FAMILIES = {
     "chuggy_attempts_ended_total": ("counter", TASK | {"state"}),
     "chuggy_attempt_duration_seconds": ("histogram", TASK),

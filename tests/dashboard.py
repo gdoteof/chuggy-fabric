@@ -15,9 +15,9 @@ names its dashboard and the families its plane serves, and calls
   changed with it.
 - A matcher on a label its family does not carry matches nothing once its
   value is narrowed.
-- A selector naming a family that carries `tenant`, `project` or `owner`
-  without that label's variable matcher is a panel the variables do not
-  narrow, and nothing on the page says so.
+- A selector naming a family that carries `tenant`, `project`, `repository`
+  or `owner` without that label's variable matcher is a panel the variables
+  do not narrow, and nothing on the page says so.
 - A selector no aggregation encloses reaches the panel as scraped, one series
   per combination of its family's labels and of those Prometheus adds. A
   grouping by a label its family does not carry is one series with that label
@@ -39,12 +39,22 @@ names its dashboard and the families its plane serves, and calls
   Prometheus stores it, and one in a query: a bound written otherwise reads
   nothing, and each bucket holds every one below it, so a sum of two counts
   the lower twice.
+- The one exception is a distribution, every bucket of one family:
+  `sum by (le) (increase(<family>_bucket{...}[<window>]))` and nothing else,
+  read as a heatmap with the legend `{{le}}`, alone in a bar gauge, a bar a
+  bucket, or in a heatmap, a cell a bucket and step. Grafana takes from each
+  bucket the one below it, so each counts its own bucket alone, named by its
+  bound. Grouped by another label too, or beside a second query, a panel
+  draws one bar or cell per bucket per series under the same bucket names,
+  and nothing says which is which; a bucket read whole that is not read as a
+  heatmap counts every bucket below it; and a heatmap reading anything else
+  has no buckets to draw.
 - A stat, a bar gauge or a table shows one value for the selected time and a
-  time series one for each step, so the first three read instant queries and
-  any window over `[$__range]`, and the last a range query and any window over
-  `[$__interval]`. Either window in the other panel counts a span the panel
-  does not say, and either query in it draws the wrong shape. A kind of panel
-  not named here is refused rather than read.
+  time series or a heatmap one for each step, so the first three read instant
+  queries and any window over `[$__range]`, and the last two a range query and
+  any window over `[$__interval]`. Either window in the other panel counts a
+  span the panel does not say, and either query in it draws the wrong shape.
+  A kind of panel not named here is refused rather than read.
 - A table shows one frame at a time unless it merges them, and a query it does
   not read as a table is a row a step rather than a row a series, so a table
   reads every query as a table and merges their frames.
@@ -76,7 +86,12 @@ ME = "${__user.login}"
 BUILT_IN = {"__range", "__interval", "__rate_interval"}
 
 # What a selector naming a family that carries each label matches it by.
-NARROWED = {"tenant": '=~"$tenant"', "project": '=~"$project"', "owner": '=~"$owner"'}
+NARROWED = {
+    "tenant": '=~"$tenant"',
+    "project": '=~"$project"',
+    "repository": '=~"$repository"',
+    "owner": '=~"$owner"',
+}
 
 # Each kind of panel: whether its queries are instant, and the window a range reads.
 PANELS = {
@@ -84,7 +99,14 @@ PANELS = {
     "bargauge": (True, "$__range"),
     "table": (True, "$__range"),
     "timeseries": (False, "$__interval"),
+    "heatmap": (False, "$__interval"),
 }
+
+# The kinds of panel that draw a distribution, a bar or a cell a bucket.
+DISTRIBUTED = {"bargauge", "heatmap"}
+# A distribution's query: every bucket of one family, summed by `le` alone.
+DISTRIBUTION = re.compile(r'sum by \(le\) \(increase\([A-Za-z_:][A-Za-z0-9_:]*_bucket\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*\}\[[^\[\]]*\]\)\)')
+SHAPE = "sum by (le) (increase(<family>_bucket{...}[<window>]))"
 
 AGGREGATIONS = {"sum", "min", "max", "avg", "count"}
 # What reads a range: of a counter, and of a gauge.
@@ -322,7 +344,7 @@ class Check:
                 refuse(f"{where} does not match {label}{matcher}, so the page's {label} does not narrow it")
         return found, labels
 
-    def panel_selector(self, selector, where, window):
+    def panel_selector(self, selector, where, window, distribution=False):
         found, labels = self.held(selector, where)
         aggregations = [inner for kind, inner in selector.enclosing if kind == "aggregation"]
         functions = [inner for kind, inner in selector.enclosing if kind == "function"]
@@ -346,8 +368,10 @@ class Check:
             if name.endswith("_bucket"):
                 quantile = [at for at, step in enumerate(selector.enclosing) if step == ("function", "histogram_quantile")]
                 bounds = [(operator, value) for label, operator, value in selector.matchers if label == "le"]
-                if not quantile and (len(bounds) != 1 or bounds[0][0] != "=" or (name, bounds[0][1]) not in self.buckets):
-                    refuse(f"{where} reads {name} outside histogram_quantile other than at a bucket its check names, by le=")
+                if distribution and bounds:
+                    refuse(f"{where} matches le on {name} in a distribution, which reads every bucket")
+                if not quantile and not distribution and (len(bounds) != 1 or bounds[0][0] != "=" or (name, bounds[0][1]) not in self.buckets):
+                    refuse(f"{where} reads {name} outside histogram_quantile other than as a distribution or at a bucket its check names, by le=")
                 if quantile and bounds:
                     refuse(f"{where} matches le on {name} into histogram_quantile, which reads every bucket")
                 between = [inner for kind, inner in selector.enclosing[quantile[-1] + 1:] if kind == "aggregation"] if quantile else []
@@ -391,7 +415,10 @@ class Check:
             if panel.get("targets") and panel.get("type") not in PANELS:
                 refuse(f"panel {panel.get('title')!r} is a {panel.get('type')}, a kind of panel this check does not read")
             instant, window = PANELS.get(panel.get("type"), (None, None))
-            for target in panel.get("targets") or []:
+            targets = panel.get("targets") or []
+            if len(targets) > 1 and any(target.get("format") == "heatmap" for target in targets):
+                refuse(f"panel {panel.get('title')!r} reads a distribution beside another query, so its bars share bucket names and none says which is which")
+            for target in targets:
                 where = f"panel {panel.get('title')!r} query {target.get('refId')}"
                 if (target.get("instant") is True, target.get("range") is True) != (instant, not instant):
                     refuse(f"{where} is not {'an instant' if instant else 'a range'} query, as its {panel['type']} reads")
@@ -403,11 +430,18 @@ class Check:
                     refuse(f"{where} has no expression")
                 if panel["type"] == "table" and target.get("format") != "table":
                     refuse(f"{where} is not read as a table, so its rows are steps rather than series")
+                distribution = target.get("format") == "heatmap"
+                if distribution and panel["type"] not in DISTRIBUTED:
+                    refuse(f"{where} is read as a heatmap, and a {panel['type']} does not draw a bar or a cell a bucket")
+                if distribution and (DISTRIBUTION.fullmatch(target["expr"]) is None or target.get("legendFormat") != "{{le}}"):
+                    refuse(f"{where} is read as a heatmap other than as {SHAPE} with the legend {{{{le}}}}, so its bars are not one per bucket of one family")
+                if panel["type"] == "heatmap" and not distribution:
+                    refuse(f"{where} is not read as a heatmap, so its heatmap has no buckets to draw")
                 queries.append((where, target["expr"]))
                 labels_of = lambda selector, where=where: self.resolved(selector, where)[1]
                 selectors = parsed(target["expr"], where, labels_of).selectors
                 for selector in selectors:
-                    self.panel_selector(selector, where, window)
+                    self.panel_selector(selector, where, window, distribution)
                 outside = [
                     name
                     for selector in selectors
