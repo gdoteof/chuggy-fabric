@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Writes cluster/apps/tickets-dashboard.yaml: python3 dashboards/tickets.py > cluster/apps/tickets-dashboard.yaml"""
 
-from grafana import Board, ME, colours, dashboard, link, manifest, query_variable, target, who
+from grafana import REPOSITORY, Board, ME, board_link, colours, dashboard, link, manifest, query_variable, target, who
 
 HEADER = """\
 # How chuggy's tickets are going, on one page: how many were released, landed
@@ -25,6 +25,10 @@ HEADER = """\
 # `owner` label from. Every member signed in can query every series whatever
 # this page shows.
 #
+# REPOSITORY IS A VIEW TOO. Every selector matches `repository=~"$repository"`,
+# the clone URL a ticket names, shown as owner and name. All is `.*`, which
+# matches a ticket that names none too.
+#
 # EVERY QUERY SUMS, AND ONLY BY ITS FAMILY'S OWN LABELS, so a release
 # replacing the plane's pod draws no new line, and each ratio divides two sums
 # grouped alike, as an alert rule would read them.
@@ -44,7 +48,7 @@ HEADER = """\
 # what its own header lists.
 """
 
-S = 'tenant=~"$tenant", project=~"$project", owner=~"$owner"'
+S = 'tenant=~"$tenant", project=~"$project", repository=~"$repository", owner=~"$owner"'
 EVENTS = "chuggy_ticket_events_total"
 RANGE = "[$__range]"
 STEP = "[$__interval]"
@@ -347,7 +351,7 @@ board.lines(
 TICKETS = dashboard(
     "chuggy-tickets",
     "Chuggy tickets",
-    "How chuggy's tickets are going: released, landed and revoked, how often a result sent one back and from where, how long one took, how long one stood escalated and what one cost, from the metrics plane. Costs are estimates at list price. Who narrows the page to the tickets the signed-in person created; it is a view, not a boundary.",
+    "How chuggy's tickets are going: released, landed and revoked, how often a result sent one back and from where, how long one took, how long one stood escalated and what one cost, from the metrics plane. Costs are estimates at list price. Who narrows the page to the tickets the signed-in person created, and Repository to those of a repository; each is a view, not a boundary.",
     "now-7d",
     "5m",
     [
@@ -361,6 +365,12 @@ TICKETS = dashboard(
             'label_values(chuggy_tickets{tenant=~"$tenant"}, project)',
             "The selected tenants' projects.",
         ),
+        query_variable(
+            "repository", "Repository",
+            'label_values(chuggy_tickets{tenant=~"$tenant", project=~"$project"}, repository)',
+            "The repositories the selected projects' tickets name. All includes a ticket that names none.",
+            regex=REPOSITORY,
+        ),
         who(
             "Everyone's tickets, or only those the signed-in person created.",
             [("Everyone", ".*"), ("Me", ME)],
@@ -369,6 +379,7 @@ TICKETS = dashboard(
     ],
     board.panels,
     links=[
+        board_link("Chuggy ticket timings", "chuggy-ticket-timings", "How long work and evaluation cycles, phases, runs and the wait for a runner took."),
         link(
             "Tickets in the console",
             "https://chuggy.vteng.io/",

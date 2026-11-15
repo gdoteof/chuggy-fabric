@@ -15,9 +15,14 @@ import json
 DS = {"type": "prometheus", "uid": "prometheus"}
 # What Grafana fills with the signed-in person's login.
 ME = "${__user.login}"
+# What a repository variable matches each clone URL by: the URL whole its value,
+# its owner and name what the choice reads.
+REPOSITORY = r"/^(?<value>.*?(?<text>[^\/:]+\/[^\/]+?)(?:\.git)?)$/"
 
 
-def target(ref, expr, legend=None, instant=False, table=False):
+def target(ref, expr, legend=None, instant=False, table=False, heatmap=False):
+    """A query; `heatmap` has Grafana read a histogram's buckets as each one's own
+    count, the one below taken from it."""
     found = {"refId": ref, "datasource": DS, "expr": expr}
     if legend is not None:
         found["legendFormat"] = legend
@@ -28,6 +33,8 @@ def target(ref, expr, legend=None, instant=False, table=False):
         found["range"] = True
     if table:
         found["format"] = "table"
+    if heatmap:
+        found["format"] = "heatmap"
     return found
 
 
@@ -41,8 +48,11 @@ def colours(pairs):
     ]
 
 
-def query_variable(name, label, query, description):
-    return {
+def query_variable(name, label, query, description, regex=None):
+    """A variable of the values `query` finds; `regex`, where given, is what Grafana
+    matches each against, its `text` group what the choice reads and its `value`
+    group what a query is given."""
+    found = {
         "name": name,
         "label": label,
         "description": description,
@@ -58,6 +68,9 @@ def query_variable(name, label, query, description):
         "current": {"selected": True, "text": ["All"], "value": ["$__all"]},
         "options": [],
     }
+    if regex is not None:
+        found["regex"] = regex
+    return found
 
 
 def who(description, choices, chosen):
@@ -110,6 +123,22 @@ def link(title, url, tooltip):
         "asDropdown": False,
         "includeVars": False,
         "keepTime": False,
+        "tags": [],
+    }
+
+
+def board_link(title, uid, tooltip):
+    """A link in the page's header to another dashboard here, keeping the selected time and variables."""
+    return {
+        "title": title,
+        "type": "link",
+        "url": f"/d/{uid}",
+        "tooltip": tooltip,
+        "icon": "dashboard",
+        "targetBlank": False,
+        "asDropdown": False,
+        "includeVars": True,
+        "keepTime": True,
         "tags": [],
     }
 
@@ -194,8 +223,10 @@ class Board:
             },
         })
 
-    def bars(self, title, description, targets, x, y, w, h, unit, interval, decimals=None, overrides=(), points=None):
-        """Stacked bars, each what its counters rose by over one step, the legend totalling them."""
+    def bars(self, title, description, targets, x, y, w, h, unit, interval, decimals=None, overrides=(), points=None, totalled=True):
+        """Stacked bars, each what its counters rose by over one step, the legend totalling
+        them; where not `totalled`, each bar is a value a sum would misread, and the legend
+        only names them."""
         defaults = {
             "unit": unit,
             "min": 0,
@@ -228,9 +259,7 @@ class Board:
                     "displayMode": "table",
                     "placement": "right",
                     "showLegend": True,
-                    "calcs": ["sum"],
-                    "sortBy": "Total",
-                    "sortDesc": True,
+                    **({"calcs": ["sum"], "sortBy": "Total", "sortDesc": True} if totalled else {"calcs": []}),
                 },
                 "tooltip": {"mode": "multi", "sort": "desc"},
             },
@@ -311,6 +340,68 @@ class Board:
                 "showUnfilled": True,
                 "namePlacement": "left",
                 **({"sizing": "auto"} if tallest is None else {"sizing": "manual", "minVizHeight": 16, "maxVizHeight": tallest}),
+            },
+        })
+
+    def distribution(self, title, description, targets, x, y, w, h, names):
+        """A bar for each bucket of a histogram, in the order of their bounds, each the
+        count in it alone; `names` gives each bound, as Prometheus stores it, the name
+        its bar reads."""
+        self.add({
+            "type": "bargauge",
+            "title": title,
+            "description": description,
+            "datasource": DS,
+            "gridPos": grid(x, y, w, h),
+            "targets": targets,
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "none",
+                    "decimals": 0,
+                    "min": 0,
+                    "color": {"mode": "fixed", "fixedColor": "blue"},
+                    "thresholds": {"mode": "absolute", "steps": [{"color": "text", "value": None}]},
+                },
+                "overrides": [
+                    {"matcher": {"id": "byName", "options": bound}, "properties": [{"id": "displayName", "value": name}]}
+                    for bound, name in names
+                ],
+            },
+            "options": {
+                "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
+                "orientation": "vertical",
+                "displayMode": "basic",
+                "valueMode": "text",
+                "showUnfilled": False,
+                "namePlacement": "auto",
+                "sizing": "auto",
+                "text": {"valueSize": 14},
+            },
+        })
+
+    def heatmap(self, title, description, targets, x, y, w, h, unit, interval):
+        """A column for each step and a cell for each bucket of a histogram, shaded by
+        the count in that bucket alone, the axis giving each bucket's bound in `unit`."""
+        self.add({
+            "type": "heatmap",
+            "title": title,
+            "description": description,
+            "datasource": DS,
+            "interval": interval,
+            "gridPos": grid(x, y, w, h),
+            "targets": targets,
+            "fieldConfig": {"defaults": {}, "overrides": []},
+            "options": {
+                "calculate": False,
+                "rowsFrame": {"layout": "le"},
+                "yAxis": {"axisPlacement": "left", "unit": unit, "reverse": False},
+                "color": {"mode": "scheme", "scheme": "Blues", "steps": 64, "exponent": 0.5, "fill": "dark-blue", "reverse": False},
+                "cellGap": 1,
+                "cellValues": {"unit": "short", "decimals": 0},
+                "filterValues": {"le": 1e-9},
+                "showValue": "never",
+                "legend": {"show": True},
+                "tooltip": {"mode": "single", "yHistogram": False, "showColorScale": False},
             },
         })
 
