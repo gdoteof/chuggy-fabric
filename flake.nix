@@ -430,6 +430,10 @@
         # metrics plane's ticket families.
         tickets-dashboard = import ./tests/tickets-dashboard.nix { inherit pkgs; };
 
+        # The ticket timings dashboard: the same again, and a distribution's
+        # bars named by every bucket its family's bounds give it.
+        ticket-timings-dashboard = import ./tests/ticket-timings-dashboard.nix { inherit pkgs; };
+
         # The evaluator command a Chuggy ticket runs, and the only check that
         # reads .chug/tasks/ci.sh.
         chug-ci = chugCi;

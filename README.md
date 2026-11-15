@@ -51,8 +51,9 @@ only by their own directory.
                                     no other layer waits on
     cluster/chug-gy/                chuggy's public site at chug.gy, in a
                                     layer of its own the same way
-    dashboards/                     what writes the usage, tickets and
-                                    runners dashboards' manifests in
+    dashboards/                     what writes the usage, tickets,
+                                    ticket timings and runners
+                                    dashboards' manifests in
                                     cluster/apps/
 
     hosts/gtr/default.nix           geoff's Beelink GTR: hostname, radios, mesh, k3s, tunnel
@@ -1503,9 +1504,23 @@ escalated, the first-pass rate and reworks, where a result sent a ticket back
 from, lead and run time, how long escalations held apart by whether a member
 or the scheduler ended them, and what a landed ticket cost. A ticket's owner
 is the member who first wrote its draft, so Who narrows it as it narrows the
-usage page. The plane names no ticket, so the page counts them and links to
-the console for each one.
+usage page. Repository narrows it to the tickets that name one clone URL,
+shown as its owner and name; All counts a ticket that names none too. The
+plane names no ticket, so the page counts them and links to the console for
+each one.
 `tests/tickets-dashboard.py` holds it as the usage dashboard is held.
+
+The **Chuggy ticket timings** dashboard (`/d/chuggy-ticket-timings`) is the
+tickets page's deep dive on time, and each page's header links to the other:
+how long work and evaluation cycles took, how a landed ticket's time divides
+between its phases, how long evaluation stages, the agent's runs and the wait
+for a runner took, and lead and run time. A histogram is drawn as its
+distribution, a bar for each bucket counting what fell in it over the
+selected time, and work and evaluation cycles a day at a time in a heatmap
+too. Tenant, Project, Repository and Who
+narrow it as they do the tickets page.
+`tests/ticket-timings-dashboard.py` holds it as the tickets dashboard is
+held, and each distribution's bars to the buckets of its family.
 
 ### Track Record is scraped, and has a page
 
@@ -1552,9 +1567,9 @@ pool-plane release can drop a report period of counts from its totals, which
 the manifest's header explains. `tests/runners-dashboard.py` holds it as the
 usage dashboard is held, to the families the pool plane serves.
 
-`dashboards/` writes the usage, tickets and runners dashboards' manifests
-whole, and each one's test refuses a manifest other than what its writer
-writes.
+`dashboards/` writes the usage, tickets, ticket timings and runners
+dashboards' manifests whole, and each one's test refuses a manifest other
+than what its writer writes.
 
 ### Control-plane targets are switched off
 
