@@ -7,15 +7,21 @@ usage: contract-prepare.py NODE SCRIPTS_DIR
 The step runs a commit's code and then decides, from what the script printed,
 whether the next step has a release to make. So what is held is that decision:
 
-- the release is read from its one declaration; a declaration that is absent,
-  not a version, or written twice is a failure and writes nothing;
-- a tag the remote holds is success, writes nothing and installs nothing;
-- a remote that cannot be asked about the tag, in the step and in the gh,
+- the release is the minor after the newest `worker-contract-v<release>` tag
+  the remote holds, by number and not by text, whatever the commit's source
+  says; tags of another form are not counted, a tag listed with its commit is
+  read at the commit, and a remote with no such tag is a failure;
+- the newest release tagged at the run's commit is success, writes nothing,
+  installs nothing and fetches nothing;
+- a `src/contract` that is the tree at the newest release's commit is success,
+  writes nothing and installs nothing; a release's commit that cannot be
+  fetched, and either commit without the tree, is a failure;
+- a remote that cannot be asked for its tags, in the step and in the gh,
   is a failure that writes nothing and echoes nothing it said, and not an
   absent tag;
 - a tree not at the run's commit is a failure before `npm ci`;
-- `npm ci` runs without lifecycle scripts, and the script runs with --dry-run
-  and a gh of ours first on the PATH;
+- `npm ci` runs without lifecycle scripts, and the script runs with --dry-run,
+  the chosen release and a gh of ours first on the PATH;
 - the script's output as it prints it (`Packed <sha>  <tarball>` and `would
   release and tag <tag> at <commit>`) is a release: `title` and then `tag`
   are written, and the title is the manifest's name and the release;
@@ -35,10 +41,19 @@ from pathlib import Path
 
 COMMIT = "b" * 40
 SHA = "c" * 64
-RELEASE = "1.2.3"
+RELEASE = "1.10.0"
 TAG = f"worker-contract-v{RELEASE}"
+RELEASED = "1.9.4"
+RELEASED_AT = "a" * 40
 NAME = "@chuggy/worker-contract"
-DECLARATION = f'export const workerContractRelease = "{RELEASE}";\n'
+TARBALL = f"chuggy-worker-contract-{RELEASE}.tgz"
+
+
+def listed(*tags):
+    return "".join(f"{commit}\trefs/tags/{tag}\n" for tag, commit in tags)
+
+
+REMOTE = listed(("worker-contract-v1.2.0", "e" * 40), (f"worker-contract-v{RELEASED}", RELEASED_AT))
 FAKE_NODE = """#!/bin/sh
 if [ "$1" = -e ]; then exec "$REAL_NODE" "$@"; fi
 echo "node $*" >> "$LOG"
@@ -50,7 +65,13 @@ FAKE_GIT = """#!/bin/sh
 echo "git $*" >> "$LOG"
 case $1 in
   ls-remote) if [ -n "$FAKE_LS_FAIL" ]; then echo "fatal: secret-looking remote output" >&2; exit 128; fi; printf '%s' "$FAKE_REMOTE" ;;
-  rev-parse) echo "$FAKE_HEAD" ;;
+  fetch) [ -z "$FAKE_FETCH_FAIL" ] || exit 128 ;;
+  rev-parse)
+    case $* in
+      *HEAD:src/contract) [ -n "$FAKE_TREE_HERE" ] || exit 1; echo "$FAKE_TREE_HERE" ;;
+      *:src/contract) [ -n "$FAKE_TREE_RELEASED" ] || exit 1; echo "$FAKE_TREE_RELEASED" ;;
+      *) echo "$FAKE_HEAD" ;;
+    esac ;;
 esac
 """
 FAKE_NPM = """#!/bin/sh
@@ -73,18 +94,18 @@ def tools(directory, node):
     return bin, node
 
 
-def printed(out, tarball="chuggy-worker-contract-1.2.3.tgz", tag=TAG, commit=COMMIT, packed=True):
+def printed(out, tarball=TARBALL, tag=TAG, commit=COMMIT, packed=True):
     first = f"Packed {SHA}  {out}/pack/{tarball}\n" if packed else ""
     return first + f"would release and tag {tag} at {commit}\n"
 
 
-def prepare(node, scripts, name, declaration=DECLARATION, remote="", fail_remote=False, head=COMMIT, manifest=None, say=None, tarball="chuggy-worker-contract-1.2.3.tgz"):
+def prepare(node, scripts, name, remote=REMOTE, fail_remote=False, head=COMMIT, manifest=None, say=None, tarball=TARBALL, here="1" * 40, released="2" * 40, fail_fetch=False):
     with tempfile.TemporaryDirectory() as root:
         directory = Path(root)
         bin, node = tools(directory, node)
         source, out, gh = directory / "source", directory / "out", directory / "gh"
         (source / "src/contract").mkdir(parents=True)
-        (source / "src/contract/workerContract.ts").write_text("// x\n" + declaration + "export const other = 1;\n")
+        (source / "src/contract/workerContract.ts").write_text('export const workerContractRelease = "7.7.7";\n')
         (source / "src/contract/package.json").write_text(manifest or f'{{"name": "{NAME}", "private": true}}')
         out.mkdir()
         say = printed(out) if say is None else say(out)
@@ -102,6 +123,9 @@ def prepare(node, scripts, name, declaration=DECLARATION, remote="", fail_remote
             "FAKE_REMOTE": remote,
             "FAKE_LS_FAIL": "1" if fail_remote else "",
             "FAKE_HEAD": head,
+            "FAKE_TREE_HERE": here,
+            "FAKE_TREE_RELEASED": released,
+            "FAKE_FETCH_FAIL": "1" if fail_fetch else "",
             "FAKE_PRINTED": say,
             "FAKE_TARBALL": str(out / "pack" / tarball) if tarball else "",
         }
@@ -149,17 +173,49 @@ def main():
         report("golden", f"wrote {written}: title {title!r}, tag {tag!r}")
     if not installed:
         report("golden", "installed no gh")
-    if not any(line.startswith("git ls-remote --tags https://github.com/owner/repo.git refs/tags/" + TAG) for line in log):
-        report("golden", f"asked the remote for {TAG} as {log}")
+    if "git ls-remote --tags https://github.com/owner/repo.git refs/tags/worker-contract-v*" not in log:
+        report("golden", f"asked the remote for its releases as {log}")
+    if f"git fetch --quiet --depth 1 https://github.com/owner/repo.git {RELEASED_AT}" not in log:
+        report("golden", f"fetched the newest release's commit as {log}")
     if "npm ci --ignore-scripts --no-audit --no-fund" not in log:
         report("golden", f"installed with {log}")
     dry = [line for line in log if line.startswith("node ")]
-    if len(dry) != 1 or "--dry-run" not in dry[0] or "scripts/publish-worker-contract.ts" not in dry[0]:
+    if len(dry) != 1 or "--dry-run" not in dry[0] or f"--release {RELEASE} " not in dry[0] or "scripts/publish-worker-contract.ts" not in dry[0]:
         report("golden", f"ran the script as {dry}")
 
-    done, log, written, title, tag, installed = prepare(node, scripts, "tag-held", remote=f"{COMMIT}\trefs/tags/{TAG}\n")
-    if done.returncode != 0 or written or installed or any(line.startswith(("npm", "node")) for line in log):
-        report("tag-held", f"exited {done.returncode}, wrote {written}, installed {installed}, ran {log}")
+    for name, arguments in {
+        "released-at-this-commit": {"remote": listed((f"worker-contract-v{RELEASED}", COMMIT))},
+        "contract-as-released": {"here": "3" * 40, "released": "3" * 40},
+    }.items():
+        done, log, written, title, tag, installed = prepare(node, scripts, name, **arguments)
+        if done.returncode != 0 or written or installed or any(line.startswith(("npm", "node")) for line in log):
+            report(name, f"exited {done.returncode}, wrote {written}, installed {installed}, ran {log}")
+        if name == "released-at-this-commit" and any(line.startswith("git fetch") for line in log):
+            report(name, f"fetched {log}")
+
+    for name, remote, at in (
+        ("newest-by-number", listed(("worker-contract-v1.9.0", "e" * 40), ("worker-contract-v1.10.0", "f" * 40), ("worker-contract-v1.2.9", "e" * 40)), "f" * 40),
+        ("other-forms-not-counted", listed((f"worker-contract-v{RELEASED}", RELEASED_AT), ("worker-contract-v2.0.0-rc", "e" * 40), ("worker-contract-v3", "e" * 40), ("worker-contract-v01.99.0", "e" * 40)), RELEASED_AT),
+        ("tag-with-its-commit", listed((f"worker-contract-v{RELEASED}", "e" * 40), (f"worker-contract-v{RELEASED}^{{}}", RELEASED_AT)), RELEASED_AT),
+    ):
+        wanted = "1.11.0" if name == "newest-by-number" else RELEASE
+        say = lambda out, wanted=wanted: printed(out, tarball=f"chuggy-worker-contract-{wanted}.tgz", tag=f"worker-contract-v{wanted}")
+        done, log, written, title, tag, _ = prepare(node, scripts, name, remote=remote, say=say, tarball=f"chuggy-worker-contract-{wanted}.tgz")
+        if done.returncode != 0 or tag != f"worker-contract-v{wanted}\n" or title != f"{NAME} {wanted}\n":
+            report(name, f"exited {done.returncode} with tag {tag!r}, title {title!r}: {done.stderr.strip()}")
+        if not any(line.startswith("git fetch") and line.endswith(at) for line in log):
+            report(name, f"fetched {log}, not {at}")
+
+    for name, arguments in {
+        "no-release-to-number-from": {"remote": ""},
+        "only-other-forms": {"remote": listed(("worker-contract-v2.0.0-rc", "e" * 40))},
+        "release-commit-not-fetched": {"fail_fetch": True},
+        "release-commit-without-the-tree": {"released": ""},
+        "commit-without-the-tree": {"here": ""},
+    }.items():
+        log = refused(node, scripts, name, **arguments)
+        if any(line.startswith(("npm", "node")) for line in log):
+            report(name, f"ran {log}")
 
     log = refused(node, scripts, "remote-cannot-be-asked", fail_remote=True)
     if any(line.startswith(("npm", "node")) for line in log):
@@ -170,16 +226,6 @@ def main():
     done, log = gh(node, scripts, "gh-remote-cannot-be-asked", ["release", "view", TAG], fail_remote=True)
     if done.returncode != 2 or "secret-looking" in done.stderr:
         report("gh-remote-cannot-be-asked", f"exited {done.returncode}: {done.stderr.strip()}")
-
-    for name, declaration in {
-        "no-declaration": "",
-        "declaration-not-a-version": 'export const workerContractRelease = "1.2";\n',
-        "declaration-twice": DECLARATION + DECLARATION.replace(RELEASE, "1.2.4"),
-        "declaration-indented": " " + DECLARATION,
-    }.items():
-        log = refused(node, scripts, name, declaration=declaration)
-        if any(line.startswith(("npm", "node")) for line in log):
-            report(name, f"ran {log}")
 
     log = refused(node, scripts, "head-elsewhere", head="d" * 40)
     if any(line.startswith(("npm", "node")) for line in log):
@@ -199,12 +245,12 @@ def main():
         "tarball-not-tgz": lambda out: f"Packed {SHA}  {out}/pack/x.zip\nwould release and tag {TAG} at {COMMIT}\n",
         "short-sha": lambda out: f"Packed abc  {out}/pack/x.tgz\nwould release and tag {TAG} at {COMMIT}\n",
         "no-packed-line": lambda out: printed(out, packed=False),
-        "other-tag": lambda out: printed(out, tag="worker-contract-v1.2.4"),
+        "other-tag": lambda out: printed(out, tag="worker-contract-v1.10.1"),
         "other-commit": lambda out: printed(out, commit="d" * 40),
         "handshake-with-trailing-text": lambda out: printed(out).rstrip("\n") + " and more\n",
-        "released-for-real": lambda out: f"Packed {SHA}  {out}/pack/chuggy-worker-contract-1.2.3.tgz\nreleased and tagged {TAG} at {COMMIT}\n",
+        "released-for-real": lambda out: f"Packed {SHA}  {out}/pack/{TARBALL}\nreleased and tagged {TAG} at {COMMIT}\n",
     }.items():
-        refused(node, scripts, name, say=say, tarball="sub/x.tgz" if name == "tarball-in-a-subdirectory" else "chuggy-worker-contract-1.2.3.tgz")
+        refused(node, scripts, name, say=say, tarball="sub/x.tgz" if name == "tarball-in-a-subdirectory" else TARBALL)
     refused(node, scripts, "tarball-not-made", tarball="")
 
     for name, arguments, remote, code, says in (
