@@ -22,8 +22,20 @@ its id, after ending the identity's session. Under an image that drew it otherwi
 would be pressed and a person would meet that image's card, whose Yes ends only Hydra's
 session.
 
+`cluster/apps/ory/ui/standard_headers.hbs` and `ory_branding.hbs` replace two of
+the image's partials, which its layouts include in every page but the welcome
+one: the head, with the sheets a card is drawn in, and the line under a card.
+Under an image whose layouts drew a page otherwise, its head could lack a sheet
+it needs, and Ory's name could be drawn under the card again.
+
+`cluster/apps/ory/ui/chuggy.css` and `favicon.svg` are added to the `public/`
+the image serves at the host's root. The sheet sets the properties that image's
+cards read their colours from; under one that read others, the cards would be
+Ory's own light ones on chuggy's page.
+
 So each view names the digest it was read against, and the Deployment is held
-to it. A refusal is not a defect in either file: it says the page has to be
+to it. The partials and the files added to `public/` are held as views are,
+and are called views below. A refusal is not a defect in either file: it says the page has to be
 looked at under the new image before the view names it.
 
 AND TO THE PATH THE IMAGE READS THE VIEW FROM. A view mounted at any other
@@ -36,6 +48,10 @@ as the digest is, so it is written beside each view below.
 READ FROM THE DEPLOYMENT, because the pod is what serves a view: the image is
 that of the container which mounts it, and the text is the ConfigMap's which
 that mount's volume names, under whatever name the render gave it.
+
+AND EVERY FILE MOUNTED FROM THE VIEWS' ConfigMap IS ONE OF THEM, `welcome.hbs`
+apart. A file mounted beside the views and not named below would be held to
+nothing, and the image under it could change without this gate saying so.
 
 WHAT THIS GATE CANNOT SEE. Whether a view is right for the image it names,
 which takes a browser, or whether the path beside it is where that image reads
@@ -66,6 +82,8 @@ class View(NamedTuple):
 
 # `welcome.hbs` is mounted beside these and is not one of them: it replaces a
 # layout whole and reads nothing the image draws.
+UNHELD = {"welcome.hbs"}
+
 VIEWS = {
     "login.hbs": View(
         path="/usr/src/app/views/login.hbs",
@@ -107,6 +125,54 @@ VIEWS = {
             "The view presses the card's Yes by the id that image draws it with, so drive a "
             "sign-out from the console under the new image first and sign in again to see the "
             "login page."
+        ),
+    ),
+    "standard_headers.hbs": View(
+        path="/usr/src/app/views/partials/standard_headers.hbs",
+        elsewhere=(
+            "At another path the image's layouts include their own head: Ory's favicon, a "
+            "title that does not name chuggy, and no `chuggy.css`, so every page is Ory's light "
+            "one."
+        ),
+        look=(
+            "The partial links that image's sheets by the paths it serves them from, so open "
+            "the login, consent, logout and error pages under the new image first, in light and "
+            "dark, and see each card drawn whole in chuggy's colours."
+        ),
+    ),
+    "ory_branding.hbs": View(
+        path="/usr/src/app/views/partials/ory_branding.hbs",
+        elsewhere=(
+            "At another path the image's layout includes its own, and `Protected by` and Ory's "
+            "mark are drawn under every card."
+        ),
+        look=(
+            "The partial is empty because that image's layout draws Ory's name through it "
+            "alone, so open a page under the new image first and see no `Protected by` under "
+            "its card."
+        ),
+    ),
+    "chuggy.css": View(
+        path="/usr/src/app/public/chuggy.css",
+        elsewhere=(
+            "At another path it is not served at `/chuggy.css`, which `standard_headers.hbs` "
+            "and `welcome.hbs` link, and every page is drawn in Ory's light theme."
+        ),
+        look=(
+            "The sheet sets the `--ory-theme-*` properties that image's cards read, so open the "
+            "login, consent and logout pages under the new image first, in light and dark, and "
+            "see no colour of Ory's left on a card."
+        ),
+    ),
+    "favicon.svg": View(
+        path="/usr/src/app/public/favicon.svg",
+        elsewhere=(
+            "At another path it is not served at `/favicon.svg`, which `standard_headers.hbs` "
+            "and `welcome.hbs` name, and a sign-in page's tab shows the browser's blank mark."
+        ),
+        look=(
+            "The image is what serves `public/` at the host's root, so open `/favicon.svg` under "
+            "the new image first and see chuggy's mark."
         ),
     ),
 }
@@ -187,12 +253,37 @@ def hold(documents, pod, name, view):
         )
 
 
+def unheld(pod):
+    """The files mounted from a volume a view is mounted from, which this gate
+    holds to nothing."""
+    volumes = {
+        mount["name"]
+        for container in pod["containers"] + pod.get("initContainers", [])
+        for mount in container.get("volumeMounts", [])
+        if mount.get("subPath") in VIEWS
+    }
+    return sorted(
+        {
+            mount.get("subPath", f"the whole of volume {mount['name']}")
+            for container in pod["containers"] + pod.get("initContainers", [])
+            for mount in container.get("volumeMounts", [])
+            if mount["name"] in volumes
+            and mount.get("subPath") not in VIEWS
+            and mount.get("subPath") not in UNHELD
+        }
+    )
+
+
 def main():
     if len(sys.argv) != 2:
         refuse("usage: ory-ui-view.py RENDERED_MANIFEST")
     documents = documents_in(sys.argv[1])
     pod = in_namespace(documents, "Deployment", DEPLOYMENT)["spec"]["template"]["spec"]
-    refused = []
+    refused = [
+        f"{name} is mounted beside the views and this gate holds it to no image and no path. "
+        "Name it in VIEWS, with the path the image reads it from, and the digest in the file."
+        for name in unheld(pod)
+    ]
     for name, view in VIEWS.items():
         try:
             hold(documents, pod, name, view)

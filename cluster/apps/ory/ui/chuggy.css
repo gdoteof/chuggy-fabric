@@ -1,0 +1,132 @@
+/* The sign-in pages in the console's colours and type: id.vteng.io is where a
+ * person new here decides whether to trust chuggy, and a page that reads as
+ * another product is a reason not to.
+ *
+ * Mounted over nothing: the image serves its `public/` directory at the root
+ * of the host, and this is added to it as `/chuggy.css`. `standard_headers.hbs`
+ * links it after the image's own sheets, so the image's login, consent,
+ * logout and error cards are drawn in it, and `welcome.hbs` links it too.
+ *
+ * TWO HALVES. The first is the console's tokens, as
+ * kasofsk/chuggy@1713af0ccec570b4da1e3f386b444582594d8a39 states them in
+ * `ui/chuggy-ui/app/styles/tokens.css`: the ones this sheet uses and no
+ * others, each value copied whole, so a theme follows `prefers-color-scheme`
+ * by `light-dark()` as the console's does. A token the console changes is
+ * changed here by hand, and nothing here notices it has drifted.
+ *
+ * The second paints the image's cards with them. The image draws its cards
+ * with Ory Elements, which reads every colour and its font from
+ * `--ory-theme-*` properties that its `/theme.css` sets on `body`; set again on
+ * `body` in a sheet linked later, they win. Ory's accent is the console's
+ * filled control, its foreground the console's ink, its surfaces the
+ * console's levels. A property a card reads that is not set here keeps the
+ * image's light value, so each one the image's Elements read is set.
+ *
+ * READ AGAINST THE IMAGE
+ * sha256:46a7bac1ad0c67c692b37d0380613fd4618fd751afac2c5314aa8d3ae77ef1f0
+ * because the property names, and that `/theme.css` sets them on `body`, are
+ * that image's. Under one whose Elements read others, or set them on an
+ * element nearer the card, the cards are drawn in Ory's own light theme around
+ * the console's page colour. So tests/ory-ui-view.py holds ory-ui.yaml to that
+ * image and to the path this sheet is served from, and another is named here
+ * once its cards have been looked at in both themes. */
+
+:root {
+  color-scheme: light dark;
+
+  --surface-0: light-dark(#edf0ea, #0e1210); /* the page */
+  --surface-1: light-dark(#f7f8f5, #151a17); /* a panel */
+  --surface-2: light-dark(#e2e6de, #0a0d0b); /* inset: code */
+  --surface-inverse: light-dark(#151a17, #eef2ee); /* a filled control */
+
+  --ink-1: light-dark(#151a17, #eef2ee); /* headings, values, figures */
+  --ink-2: light-dark(#2b332e, #c9d1cb); /* lines */
+  --ink-3: light-dark(#5b665f, #8a948c); /* keys, meta, retired */
+  --ink-inverse: light-dark(#f7f8f5, #0e1210);
+
+  --edge: light-dark(#cdd4ca, #262d28); /* hairlines: panels, rows */
+  --edge-control: light-dark(#6f7a72, #66716a); /* the border of a control */
+
+  --tone-pass: light-dark(#287740, #79c68f);
+  --tone-fail: light-dark(#b3342c, #f08880);
+
+  --wash: 10%;
+  --wash-fail: color-mix(in srgb, var(--tone-fail) var(--wash), var(--surface-1));
+
+  --font-prose:
+    system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+}
+
+body {
+  --ory-theme-font-family: var(--font-prose);
+  --ory-theme-font-family-mono: var(--font-mono);
+
+  /* The console's primary button: the inverse surface under inverse ink. */
+  --ory-theme-accent-def: var(--surface-inverse);
+  --ory-theme-accent-muted: color-mix(
+    in srgb,
+    var(--surface-inverse) 85%,
+    var(--surface-1)
+  );
+  --ory-theme-accent-emphasis: var(--ink-2);
+  --ory-theme-accent-disabled: var(--edge);
+  --ory-theme-accent-subtle: var(--surface-2);
+
+  --ory-theme-foreground-def: var(--ink-1);
+  --ory-theme-foreground-muted: var(--ink-2);
+  --ory-theme-foreground-subtle: var(--ink-3);
+  --ory-theme-foreground-disabled: var(--ink-3);
+  --ory-theme-foreground-on-dark: var(--ink-inverse);
+  --ory-theme-foreground-on-accent: var(--ink-inverse);
+  --ory-theme-foreground-on-disabled: var(--surface-1);
+
+  --ory-theme-background-surface: var(--surface-1);
+  --ory-theme-background-canvas: var(--surface-0);
+  --ory-theme-background-subtle: var(--surface-2);
+
+  --ory-theme-error-def: var(--tone-fail);
+  --ory-theme-error-subtle: var(--wash-fail);
+  --ory-theme-error-muted: var(--tone-fail);
+  --ory-theme-error-emphasis: var(--tone-fail);
+  --ory-theme-success-emphasis: var(--tone-pass);
+
+  --ory-theme-border-def: var(--edge);
+
+  /* Ory's "text" is the ink on a filled button, and on an outlined one. */
+  --ory-theme-text-def: var(--ink-inverse);
+  --ory-theme-text-disabled: var(--ink-3);
+
+  --ory-theme-input-background: var(--surface-1);
+  --ory-theme-input-disabled: var(--surface-2);
+  --ory-theme-input-placeholder: var(--ink-3);
+  --ory-theme-input-text: var(--ink-1);
+
+  background: var(--surface-0);
+  color: var(--ink-2);
+  font-family: var(--font-prose);
+}
+
+/* A link in the console's ink, as the console draws one. The links the
+ * image's cards draw set their own colour, and keep it. */
+a {
+  color: inherit;
+  text-decoration-color: var(--edge-control);
+  text-underline-offset: 0.15em;
+}
+
+/* The console draws a control's border darker than a panel's hairline, so a
+ * field reads as a field on a panel of the same level. Elements gives the two
+ * one colour. */
+body input:not([type="hidden"], [type="checkbox"]) {
+  border-color: var(--edge-control);
+}
+
+/* The password field's show-and-hide mark is drawn in a fill the image writes
+ * into the markup, a near-black that a dark theme loses. */
+body [aria-label="Toggle password visibility"] path {
+  fill: var(--ink-2);
+}
