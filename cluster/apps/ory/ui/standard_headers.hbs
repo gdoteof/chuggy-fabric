@@ -1,0 +1,41 @@
+<meta content="width=device-width, initial-scale=1" name="viewport" />
+<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+<meta charset="utf-8" />
+<title>{{projectName}} · chuggy</title>
+<link type="text/css" rel="stylesheet" href="assets/normalize.css" />
+<link type="text/css" rel="stylesheet" href="assets/fa-brands.min.css" />
+<link type="text/css" rel="stylesheet" href="assets/fa-solid.min.css" />
+<link type="text/css" rel="stylesheet" href="assets/fontawesome.min.css" />
+<link type="text/css" rel="stylesheet" href="style.css" />
+<link type="text/css" rel="stylesheet" href="theme.css" />
+<link type="text/css" rel="stylesheet" href="main.css" />
+<link type="text/css" rel="stylesheet" href="chuggy.css" />
+{{! The image's own partials/standard_headers.hbs, changed in what a page is
+    drawn in and what its tab says. The image's layouts include it in the head
+    of every page but the welcome layout, which `welcome.hbs` replaces: the
+    login, consent, logout and error pages among them.
+
+    THE FAVICON IS CHUGGY'S, `favicon.svg`, which is served beside this sheet
+    from the image's `public/`. The image's names `favico.png`, Ory's mark,
+    through a value every route is handed; this does not read it.
+
+    THE TITLE NAMES CHUGGY, after the name the image's route gives its page:
+    `Sign in · chuggy`, `Consent · chuggy`, `Logout · chuggy`.
+
+    `chuggy.css` IS LINKED LAST, because it sets the properties the image's
+    `theme.css` sets, on the same element, and the later wins.
+
+    THE IMAGE'S FONTS ARE NOT LOADED. Its Inter and JetBrains Mono are
+    preloaded and declared here in the image's partial, and `chuggy.css` names
+    the console's faces, which are the reader's own system's; the three
+    Font Awesome sheets stay, because a card draws the GitHub button's mark
+    from them.
+
+    READ AGAINST THE IMAGE
+    sha256:46a7bac1ad0c67c692b37d0380613fd4618fd751afac2c5314aa8d3ae77ef1f0
+    because every sheet above but the last is that image's, at the path it
+    serves it from, and the image's layouts are what include this partial. An
+    image that served another sheet a card needs would have it drawn unstyled
+    here. So tests/ory-ui-view.py holds ory-ui.yaml to that image and to the
+    path it reads this partial from, and another is named here once its pages
+    have been looked at under this one. }}

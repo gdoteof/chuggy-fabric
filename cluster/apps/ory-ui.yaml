@@ -123,7 +123,10 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 6
-          # The image's views replaced; `ory/ui/` says why each one.
+          # The image's views replaced, two of its partials replaced, and two
+          # files added to the `public/` it serves at the host's root: the
+          # sheet and the favicon that draw its pages as chuggy's. `ory/ui/`
+          # says why each one, in the file.
           volumeMounts:
             - name: views
               mountPath: /usr/src/app/views/login.hbs
@@ -140,6 +143,22 @@ spec:
             - name: views
               mountPath: /usr/src/app/views/layouts/welcome.hbs
               subPath: welcome.hbs
+              readOnly: true
+            - name: views
+              mountPath: /usr/src/app/views/partials/standard_headers.hbs
+              subPath: standard_headers.hbs
+              readOnly: true
+            - name: views
+              mountPath: /usr/src/app/views/partials/ory_branding.hbs
+              subPath: ory_branding.hbs
+              readOnly: true
+            - name: views
+              mountPath: /usr/src/app/public/chuggy.css
+              subPath: chuggy.css
+              readOnly: true
+            - name: views
+              mountPath: /usr/src/app/public/favicon.svg
+              subPath: favicon.svg
               readOnly: true
           securityContext:
             allowPrivilegeEscalation: false

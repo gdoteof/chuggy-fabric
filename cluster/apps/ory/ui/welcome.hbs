@@ -1,12 +1,16 @@
 <!DOCTYPE html>
 {{! Replaces the image's welcome layout, a demo of Ory's own pages. This
     host's root and its sessions page both render with it, and send a browser
-    to the console instead. }}
+    to the console instead. What shows before the browser goes is drawn in
+    `chuggy.css` under chuggy's favicon, which the image serves from its
+    `public/` as it does for the other pages. }}
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta http-equiv="refresh" content="0; url=https://chuggy.vteng.io/" />
     <title>chuggy</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link type="text/css" rel="stylesheet" href="chuggy.css" />
   </head>
   <body>
     <a href="https://chuggy.vteng.io/">chuggy</a>

@@ -143,3 +143,7 @@ configMapGenerator:
       - consent.hbs=ory/ui/consent.hbs
       - welcome.hbs=ory/ui/welcome.hbs
       - logout.hbs=ory/ui/logout.hbs
+      - standard_headers.hbs=ory/ui/standard_headers.hbs
+      - ory_branding.hbs=ory/ui/ory_branding.hbs
+      - chuggy.css=ory/ui/chuggy.css
+      - favicon.svg=ory/ui/favicon.svg
