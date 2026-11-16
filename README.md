@@ -1821,7 +1821,7 @@ One process per responsibility, all out of one image:
 
 | Workload | Command | Database role | Listens |
 |---|---|---|---|
-| `chuggy-api` | `src/roots/nativeHttp.ts` | `chuggy_api`, and `chuggy_selector_review` on a second pool | yes, 3000 |
+| `chuggy-api` | `src/roots/nativeHttp.ts` | `chuggy_api` | yes, 3000 |
 | `chuggy-ticket-service` | `src/roots/ticketService.ts` | `chuggy_ticket_service` | no |
 | `chuggy-scheduler` | `src/roots/scheduler.ts` | `chuggy_scheduler` | no |
 | `chuggy-finalizer` | `src/roots/finalizer.ts` | `chuggy_finalizer` | no |
@@ -2023,12 +2023,10 @@ they are resumed.
    `chuggy-postgres-credentials`, `CHUG_PG_CONFIGURATION_IMPORTER_PASSWORD`
    among them, and the file re-issues every password it reads.
 
-   It is first because of three memberships no migration can grant itself.
+   It is first because of two memberships no migration can grant itself.
    `chuggy_owner` in `chuggy_boundary_owner` is what makes migration 17's
    `GRANT EXECUTE` land: without it 17 commits while granting nothing, and no
-   re-run of the Job repairs that. `chuggy_api_login` in
-   `chuggy_selector_review` is what the API's second pool connects as, and
-   without it the API refuses to listen. `chuggy_configuration_importer_login`
+   re-run of the Job repairs that. `chuggy_configuration_importer_login`
    in `chuggy_configuration_importer` is everything the importer may do,
    because it connects as the login and sets no role. Read that they landed:
 
@@ -2037,7 +2035,7 @@ they are resumed.
      psql -U postgres -d chuggy -Atc \
      "SELECT r.rolname, count(am.member) FROM pg_roles r
         LEFT JOIN pg_auth_members am ON am.roleid = r.oid
-       WHERE r.rolname IN ('chuggy_boundary_owner', 'chuggy_selector_review',
+       WHERE r.rolname IN ('chuggy_boundary_owner',
                            'chuggy_configuration_importer')
        GROUP BY 1 ORDER BY 1;"
    kubectl -n chuggy exec postgres-0 -- \
@@ -2045,15 +2043,14 @@ they are resumed.
      "SELECT r.rolname, m.rolname FROM pg_auth_members am
         JOIN pg_roles r ON r.oid = am.roleid
         JOIN pg_roles m ON m.oid = am.member
-       WHERE r.rolname IN ('chuggy_boundary_owner', 'chuggy_selector_review',
+       WHERE r.rolname IN ('chuggy_boundary_owner',
                            'chuggy_configuration_importer');"
    ```
 
-   The first prints a row for each of the three roles, and a missing row is a
+   The first prints a row for each of the two roles, and a missing row is a
    name this database does not have: `-Atc` prints nothing and exits 0 for an
    empty result, so without it a mistyped name and an absent grant look the
-   same. The second lists `chuggy_boundary_owner|chuggy_owner`,
-   `chuggy_selector_review|chuggy_api_login` and
+   same. The second lists `chuggy_boundary_owner|chuggy_owner` and
    `chuggy_configuration_importer|chuggy_configuration_importer_login` among
    its rows.
 2. **Resume the two layers**, as [Operating a release](#operating-a-release)
