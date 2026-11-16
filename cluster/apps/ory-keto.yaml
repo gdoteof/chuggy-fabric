@@ -1,13 +1,12 @@
 # Ory Keto: what a principal may do, held as relationships rather than as
 # columns. Hydra says who a caller is and Kratos holds the person; this answers
 # whether that subject may administer, dispatch or read a project. The chuggy
-# API asks it, and so does the selector's wake pass, which asks only whether the
-# member whose thread is waking may still `read` the project and skips that
-# thread for the pass where no tuple says so, and so does the scheduler, which
-# asks only whether a pool a project registered still holds `Execute` -- as the
-# pool plane asks of every pool that polls it. The access plane asks whether a
-# caller administers a tenant or a project, and reads and writes the tuples
-# that say who holds a role in it.
+# API asks it, and so does the scheduler, which asks whether the member whose
+# thread is waking may still `read` the project and skips that thread for the
+# pass where no tuple says so, and whether a pool a project registered still
+# holds `Execute` -- as the pool plane asks of every pool that polls it. The
+# access plane asks whether a caller administers a tenant or a project, and
+# reads and writes the tuples that say who holds a role in it.
 #
 # The model is `ory/namespaces.ts` -- object types, the relations a tuple may
 # state, and the permits computed from them. It is configuration for the reason
@@ -131,8 +130,8 @@ spec:
         - name: config
           configMap: { name: keto-config }
 ---
-# Read: checks and expansions. No Ingress -- the callers are the chuggy API and
-# the selector, both from inside the cluster.
+# Read: checks and expansions. No Ingress -- the callers are the chuggy API, the
+# scheduler, the pool plane and the access plane, all from inside the cluster.
 apiVersion: v1
 kind: Service
 metadata:

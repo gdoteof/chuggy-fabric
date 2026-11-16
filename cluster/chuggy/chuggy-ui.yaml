@@ -73,8 +73,7 @@
 # is issued `aud: []` and every read the API serves it is a 401 -- with a token
 # that verifies perfectly. The API takes `CHUG_API_OIDC_AUDIENCE` as one required
 # string -- see `oidcAudienceVariable` in kasofsk/chuggy's
-# `src/roots/nativeHttp.ts` -- so there is one audience for one API, and it is
-# the same string chuggy-selector.yaml registers its own client with.
+# `src/roots/nativeHttp.ts` -- so there is one audience for one API.
 #
 # `offline_access` is what makes the session survive a reload: without it Hydra
 # issues no refresh token and the console is signed out fifteen minutes later,

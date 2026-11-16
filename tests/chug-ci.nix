@@ -111,10 +111,10 @@ pkgs.runCommand "chuggy-chug-ci" {
     'cluster/chuggy/kustomization\.yaml:[0-9]+ names registry\.chuggy\.internal/chuggy/api and not at the digest of nothing: - name: '
 
   plant annotation
-  edit annotation/cluster/chuggy/chuggy-selector.yaml \
-    's|^  labels: { app: chuggy-selector }$|&\n  annotations:\n    fabric.chuggy.dev/source-commit: 482708e4|'
+  edit annotation/cluster/chuggy/chuggy-scheduler.yaml \
+    's|^  labels: { app: chuggy-scheduler }$|&\n  annotations:\n    fabric.chuggy.dev/source-commit: 482708e4|'
   refused annotation "a source commit on a Deployment" \
-    'cluster/chuggy/chuggy-selector\.yaml:[0-9]+ carries fabric\.chuggy\.dev/source-commit: '
+    'cluster/chuggy/chuggy-scheduler\.yaml:[0-9]+ carries fabric\.chuggy\.dev/source-commit: '
 
   # publish.sh writes the key as the path of a JSON patch, and a hand that
   # copies it into the directory's kustomization writes it the same way.

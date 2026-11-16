@@ -285,14 +285,14 @@ spec:
             # declared nowhere here, and a pod mounting a Secret that is
             # missing stays in FailedMount.
             #
-            # `anthropic-api` is chuggy's own Anthropic API key, the slot the
-            # subsidized lead of cluster/chuggy/chuggy-selector.yaml speaks
-            # through. Its Secret is made by hand and declared nowhere, as
-            # `track-record`'s is. `claudeCredential` says which kind of Claude
-            # credential a mount is, and a mount that says one reaches only a
-            # session placed on its own slot, so `claude-code` says one too: a
-            # mount that says none reaches every session, and a subsidized
-            # lead's pod would be handed this rig's subscription beside the key.
+            # `anthropic-api` is chuggy's own Anthropic API key, the slot a
+            # subsidized lead speaks through. Its Secret is made by hand and
+            # declared nowhere, as `track-record`'s is. `claudeCredential` says
+            # which kind of Claude credential a mount is, and a mount that says
+            # one reaches only a session placed on its own slot, so
+            # `claude-code` says one too: a mount that says none reaches every
+            # session, and a subsidized lead's pod would be handed this rig's
+            # subscription beside the key.
             # `sessionBounds` names both of a mount's bounds. `turnsMax` bounds
             # one turn and is the launcher's own. `budgetUsd` is metered over a
             # pod's whole life, as the session bounds below argue, so it sits at
@@ -1270,11 +1270,10 @@ spec:
             # refuses a URL carrying a path, a query, a fragment or credentials,
             # because the pod's client builds the versioned path onto it.
             #
-            # The same Service the selector's own `source.baseUrl` names, on the
-            # same port, and the `chuggy-sessions` egress arm for 3000 in
-            # chuggy-work.yaml is what makes it reachable -- an origin here
-            # naming a destination no arm permits is a tool that hangs and then
-            # times out, with nothing saying why.
+            # The API's in-cluster Service. The `chuggy-sessions` egress arm for
+            # 3000 in chuggy-work.yaml is what makes it reachable -- an origin
+            # here naming a destination no arm permits is a tool that hangs and
+            # then times out, with nothing saying why.
             - name: CHUG_SCHEDULER_SESSION_API_URL
               value: http://chuggy-api.chuggy.svc.cluster.local:3000
             # The site's map, which a session resolves its project's binding
@@ -1435,75 +1434,6 @@ spec:
             # list until this rig wanted something other than the default from
             # each, and _PASS_BOUNDS and _BOUNDS each still name only the one
             # bound they moved.
-            #
-            # ------------------------------- the lead's membership, and why ----
-            #
-            # NOT A MANIFEST, AND NOT BECAUSE NOBODY GOT TO IT. The session this
-            # deployment places for a project's lead authenticates as the
-            # `chuggy-selector` principal chuggy-selector.yaml registers, and
-            # what that principal may do on a project is one Keto tuple,
-            # `Project#developers`. kasofsk/chuggy's `provisionProjectAccess.ts`
-            # writes it on Keto's write port, and it is not journalled state,
-            # so no migration seeds it and none should: a migration cannot know
-            # which projects exist. A Job here would be the same command with a
-            # Kubernetes object wrapped round it, re-created under a new name at
-            # every release and re-running a grant for a project list this
-            # repository does not have either.
-            #
-            # So it is a command, run once per project, and this is where it is
-            # written down -- beside the grant and the API origin above, which
-            # are the other two things that must all be true before a lead's
-            # tool reaches anything. From the API's pod, which
-            # ory-network-policy.yaml admits to Keto's write port:
-            #
-            #   kubectl -n chuggy exec deploy/chuggy-api -- env \
-            #     CHUG_PROVISION_KETO_WRITE_URL=http://keto-write.ory.svc.cluster.local:4467 \
-            #     CHUG_PROVISION_ACTION=grant \
-            #     CHUG_API_OIDC_ISSUER=<the issuer chuggy-api.yaml states> \
-            #     CHUG_PROVISION_SUBJECT=chuggy-selector \
-            #     CHUG_PROVISION_TENANT=vteng CHUG_PROVISION_PROJECT=chuggy \
-            #     CHUG_PROVISION_RELATION=developers \
-            #     node --experimental-strip-types src/roots/provisionProjectAccess.ts
-            #
-            # A LEAD SPENDS THE SHARED CLAUDE CREDENTIAL, so the selector opens
-            # none for a project until the project's TENANT grants the same
-            # principal hosted runs. That is once per tenant: the same command
-            # with `CHUG_PROVISION_PROJECT=` empty and
-            # `CHUG_PROVISION_RELATION=hosted_execution`. Without it the
-            # selector writes `HostedRunsNotGranted` for the project to stderr
-            # and its lead never runs.
-            #
-            # THE ISSUER IS THE STRING AND NOT A DESCRIPTION OF ONE. That root
-            # derives the principal from issuer and subject, and a principal
-            # that differs from the one the token carries by a character
-            # authenticates perfectly and is refused `NotFound` on every project
-            # call, with nothing anywhere saying why. chuggy-selector.yaml's
-            # `identity.principal` is that same derivation already written out,
-            # so the two can be read against each other before the tuple is.
-            #
-            # THE RELATION IS THE CEILING AND WHAT IT LEAVES OUT IS THE POINT.
-            # `developers` permits read, develop, propose and execute. Not
-            # `dispatch`, so a pod that ignored its whole tool roster still
-            # could not dispatch past a project's approval gate; not
-            # `manage_selector`, so it cannot rewrite its own objectives. Those
-            # are the controls, and they are in Keto rather than in the pod
-            # being controlled.
-            #
-            # ------------------------------------- and the Automatic switch ----
-            #
-            # ALSO NOT A MANIFEST, AND NOT THE SAME KIND OF THING. Whether a
-            # project dispatches automatically is a per-project SETTING written
-            # through the API under the revision it was read at, and a write
-            # REPLACES THE WHOLE OVERRIDE SET -- so a hand-written body carrying
-            # only `dispatchMode` deletes that project's North Star and every
-            # limit it had. Set it in the console's own editor, which reads the
-            # revision and sends the set back whole.
-            #
-            # It is fenced on a row nothing here writes either: the settings
-            # write is refused `AutomaticDispatchUnavailable` until
-            # `selector_runtime_readiness` says a production host is registered,
-            # which the selector writes on a pass, which takes a running
-            # replica -- and chuggy-selector.yaml is where that count is.
           resources:
             requests: { cpu: 50m, memory: 128Mi }
             limits: { memory: 384Mi }
