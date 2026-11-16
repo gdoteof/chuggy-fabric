@@ -96,6 +96,36 @@
     # The Mac virtual kubelet (macmini-m1, 192.168.0.175) is on this LAN and runs
     # no k3s agent, so there is no tunnel to reach it through.
     egressSelectorMode = "disabled";
+
+    # Hydra's id_tokens for Headlamp's client, and nothing else of Hydra's
+    # (cluster/headlamp/headlamp.yaml). A person is `chuggy:<sub>`, the Kratos
+    # identity id, and every person is in `chuggy:members`, which is bound to
+    # `view` and to nothing else.
+    #
+    # THE AUDIENCE IS WHAT KEEPS THIS TO HEADLAMP. Hydra issues an id_token to
+    # a client with that client's id as its audience, so another client's
+    # id_tokens carry their own. An access token carries the audiences its
+    # client is granted, and no client is registered with `chuggy-headlamp` as
+    # one: the api's personal clients are granted `https://chuggy.vteng.io/api`,
+    # and Headlamp's own client is registered with no audience at all. A client
+    # registered with this audience later would have its access tokens
+    # authenticate here as members. tests/headlamp.py holds the audience to the
+    # client id Headlamp is configured with.
+    #
+    # The issuer is the discovery document's `issuer` exactly, no trailing
+    # slash. Hydra runs in this cluster, so on a cold boot it is down until the
+    # API server is up; that holds nothing (see the option's description), and
+    # a member's token is refused until it answers.
+    jwtAuthenticators = [{
+      issuer = {
+        url = "https://auth.vteng.io";
+        audiences = [ "chuggy-headlamp" ];
+      };
+      claimMappings = {
+        username = { claim = "sub"; prefix = "chuggy:"; };
+        groups.expression = ''["chuggy:members"]'';
+      };
+    }];
   };
 
   # --------------------------------------------------------------- chuggy ----
@@ -162,6 +192,9 @@
     #
     # track-record is Track Record's API, cluster/track-record/track-record.yaml.
     #
+    # headlamp is Headlamp, cluster/headlamp/headlamp.yaml: a read-only view
+    # of this cluster for every chuggy member, signed in through auth.
+    #
     # chug.gy and www.chug.gy are chuggy's public site, cluster/chug-gy/chug-gy.yaml.
     # A second zone on the same Cloudflare account: its apex and one label under
     # it are what Universal SSL covers there, as on vteng.io. The site answers
@@ -177,6 +210,7 @@
       "chuggy-worker.vteng.io"
       "chuggy-registry.vteng.io"
       "track-record.vteng.io"
+      "headlamp.vteng.io"
       "chug.gy"
       "www.chug.gy"
     ];

@@ -38,11 +38,12 @@ layer names the `fabric` source. Either of the two on `fabric` and its own
 directory still renders, and applies manifests that name no release: a Job
 and services whose image no registry holds.
 
-NO LAYER WAITS ON `track-record` OR `chug-gy`. A layer that named either in
-`dependsOn` would be held by a Track Record or a site that did not come up, and
-so would every layer waiting on that one, which is how a chuggy release comes
-to wait on it. cluster/flux/track-record.yaml and cluster/flux/chug-gy.yaml
-argue the two layers.
+NO LAYER WAITS ON `track-record`, `chug-gy` OR `headlamp`. A layer that named
+one in `dependsOn` would be held by a Track Record, a site or a Headlamp that
+did not come up, and so would every layer waiting on that one, which is how a
+chuggy release comes to wait on it. cluster/flux/track-record.yaml,
+cluster/flux/chug-gy.yaml and cluster/flux/headlamp.yaml argue the three
+layers.
 """
 
 import json
@@ -90,10 +91,11 @@ LAYERS = {
     ),
     "track-record": layer("./cluster/track-record"),
     "chug-gy": layer("./cluster/chug-gy"),
+    "headlamp": layer("./cluster/headlamp"),
 }
 
 # The layers no other layer may wait on.
-WAITED_ON_BY_NONE = ("track-record", "chug-gy")
+WAITED_ON_BY_NONE = ("track-record", "chug-gy", "headlamp")
 
 
 SOURCES = {

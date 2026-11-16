@@ -1,0 +1,30 @@
+# What cluster/headlamp/ declares: Headlamp at `headlamp.vteng.io`, a
+# read-only view of this cluster for every chuggy member, which no part of a
+# chuggy release uses.
+#
+# A LAYER OF ITS OWN, AND NOTHING DEPENDS ON IT, for the reason
+# track-record.yaml gives: in `apps` its health would be that layer's, and a
+# Headlamp that did not come up would hold every chuggy release. Here it holds
+# nothing, and tests/flux-layers.py refuses a layer that waits on it.
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: headlamp
+  namespace: flux-system
+spec:
+  # NO `dependsOn`: its namespace is its own, Traefik and its IngressClass are
+  # k3s's, and helm-controller and the HelmRepository kind are Flux's, there
+  # before any layer is. Hydra, which a person signs in through, is in `apps`,
+  # and nothing here needs it to apply: a Headlamp whose issuer is down starts
+  # and answers, and a sign-in waits on Hydra rather than this layer on `apps`.
+  interval: 5m
+  path: ./cluster/headlamp
+  sourceRef:
+    kind: GitRepository
+    name: fabric
+  # No `deletionPolicy: Orphan`: nothing here holds data, so deleting the
+  # layer deleting what it applied costs a sign-in and nothing else.
+  prune: true
+  wait: true
+  timeout: 3m

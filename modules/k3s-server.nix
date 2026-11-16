@@ -16,6 +16,17 @@ let
     ];
   };
 
+  # The API server's structured authentication, rendered only when a host
+  # names an authenticator: with none there is no file and no flag, and the
+  # API server authenticates as k3s configures it alone.
+  authenticationConfigPath = "/etc/rancher/k3s/authentication-config.yaml";
+  authenticationConfig = (pkgs.formats.yaml { }).generate "k3s-authentication-config.yaml" {
+    apiVersion = "apiserver.config.k8s.io/v1beta1";
+    kind = "AuthenticationConfiguration";
+    jwt = cfg.jwtAuthenticators;
+  };
+  authenticates = cfg.jwtAuthenticators != [ ];
+
   # An IPv4 address or CIDR block, and nothing else -- the type is the guard,
   # not a nicety. These strings become `iptables -s` arguments in
   # networking.firewall.extraCommands, which runs under `bash -e`: one entry
@@ -139,6 +150,38 @@ in
       '';
     };
 
+    jwtAuthenticators = lib.mkOption {
+      type = lib.types.listOf (pkgs.formats.yaml { }).type;
+      default = [ ];
+      example = [{
+        issuer = { url = "https://auth.example.dev"; audiences = [ "example-client" ]; };
+        claimMappings = {
+          username = { claim = "sub"; prefix = "example:"; };
+          groups.expression = ''["example:members"]'';
+        };
+      }];
+      description = ''
+        JWT authenticators the API server trusts, each an `apiserver.config.k8s.io/v1beta1`
+        `JWTAuthenticator` exactly as the AuthenticationConfiguration's `jwt`
+        list takes it. The module writes them to
+        ${authenticationConfigPath}, passes it as
+        `--kube-apiserver-arg=authentication-config=`, and restarts k3s when
+        the file changes. An empty list writes no file and adds no flag.
+
+        AN ISSUER THAT IS DOWN HOLDS NEITHER THE API SERVER'S START NOR ITS
+        READINESS (Kubernetes 1.31: the authenticator discovers its issuer in
+        the background, every ten seconds until it answers, and refuses its
+        tokens until then), so an issuer that runs in this cluster is a valid
+        one to name. Its health is consulted only to accept a file changed
+        under a running API server, which keeps the old one until the new
+        one's issuers answer; a start, and so the restart a changed file
+        causes here, waits on nothing.
+
+        The `--oidc-*` flags and this file are mutually exclusive, and k3s
+        sets neither by itself.
+      '';
+    };
+
     nodeTaints = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ ];
@@ -190,6 +233,8 @@ in
           "--egress-selector-mode=${cfg.egressSelectorMode}"
         ]
         ++ map (san: "--tls-san=${san}") cfg.apiSans
+        ++ lib.optional authenticates
+          "--kube-apiserver-arg=authentication-config=${authenticationConfigPath}"
       );
     };
 
@@ -197,7 +242,11 @@ in
     # the private registry. The endpoint is HTTP because it is a ClusterIP and
     # never crosses the cluster network.
     environment.etc."rancher/k3s/registries.yaml".source = registryConfig;
-    systemd.services.k3s.restartTriggers = [ registryConfig ];
+    environment.etc."rancher/k3s/authentication-config.yaml" = lib.mkIf authenticates {
+      source = authenticationConfig;
+    };
+    systemd.services.k3s.restartTriggers =
+      [ registryConfig ] ++ lib.optional authenticates authenticationConfig;
 
     # Bundled components are left on deliberately: traefik (ingress), servicelb
     # (LoadBalancer services), local-path (default StorageClass), coredns,

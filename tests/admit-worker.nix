@@ -23,7 +23,7 @@ pkgs.runCommand "chuggy-admit-worker" {
     1111111111111111111111111111111111111111 \
     sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
     sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb > /dev/null
-  for directory in apps track-record chug-gy chuggy-migrate chuggy; do
+  for directory in apps track-record chug-gy headlamp chuggy-migrate chuggy; do
     kubectl kustomize cluster/"$directory" >> cluster.yaml
     echo '---' >> cluster.yaml
   done
