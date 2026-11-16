@@ -11,6 +11,14 @@ button by where the image draws each. An image that drew the two in one form
 would have the view hide both: the card a person new here meets would offer the
 link to a password and nothing else.
 
+ITS SCRIPT PRESSES THE GITHUB BUTTON AND NOTHING ELSE. For a browser that
+came from an invite link `login.hbs` presses the card's one answer, which is the
+button that posts `provider=github`. So the view carries one script, the script
+one press, and that press is a `click()` on what was read by
+`button[name="provider"][value="github"]` and by nothing else; a script that
+submits a form, dispatches an event or leaves the page another way is refused.
+Whether the cookie it reads is the gate's is held by tests/kratos-github.py.
+
 `cluster/apps/ory/ui/consent.hbs` ticks the permissions a client asked for and
 hides the tick boxes the image draws them as. Under an image that drew a
 permission as anything else it would tick nothing and hide nothing, and a
@@ -68,6 +76,52 @@ import yaml
 NAMESPACE = "ory"
 DEPLOYMENT = "ory-ui"
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+
+
+# The one button login.hbs's script may press, and the ways a script presses
+# or leaves a page other than a click on it.
+GITHUB_BUTTON = 'button[name="provider"][value="github"]'
+SCRIPT = re.compile(r"<script\b[^>]*>(.*?)</script>", re.DOTALL | re.IGNORECASE)
+CLICK = re.compile(r"\b([A-Za-z_$][\w$]*)\s*(?:\?\.|\.)\s*click\s*\(")
+OTHER_PRESS = re.compile(
+    r"\b(?:click|submit|requestSubmit|dispatchEvent|fetch|XMLHttpRequest|sendBeacon|"
+    r"assign|replace|open|eval|Function|setTimeout|setInterval)\b"
+    r"|\blocation\s*(?:\.\s*href\s*)?=(?!=)"
+)
+
+
+def pressing(text):
+    """Refuse a login view whose script presses anything but the GitHub button."""
+    scripts = SCRIPT.findall(text)
+    if len(scripts) != 1:
+        refuse(
+            f"login.hbs carries {len(scripts)} scripts, and is read as carrying one, which "
+            "presses the GitHub button for a browser that came from an invite link"
+        )
+    script = scripts[0]
+    clicks = CLICK.findall(script)
+    if len(clicks) != 1:
+        refuse(f"the script in login.hbs presses {len(clicks)} things, and presses one")
+    pressed = clicks[0]
+    bound = re.findall(
+        rf"\b(?:const|let|var)\s+{re.escape(pressed)}\s*=\s*[\w$.]+\s*\.\s*querySelector\(\s*"
+        rf"'{re.escape(GITHUB_BUTTON)}'\s*\)\s*;",
+        script,
+    )
+    assigned = re.findall(rf"(?<![\w$.]){re.escape(pressed)}\s*=(?!=)", script)
+    if len(bound) != 1 or len(assigned) != 1:
+        refuse(
+            f"the script in login.hbs presses {pressed}, which is not read once by "
+            f"querySelector('{GITHUB_BUTTON}') and never assigned again: what it presses "
+            "is the card's GitHub button alone"
+        )
+    rest = CLICK.sub("", script, count=1)
+    other = sorted({found.group(0) for found in OTHER_PRESS.finditer(rest)})
+    if other:
+        refuse(
+            f"the script in login.hbs also uses {', '.join(other)}: it presses the GitHub "
+            "button by a click and does nothing else to the page"
+        )
 
 
 class View(NamedTuple):
@@ -251,6 +305,8 @@ def hold(documents, pod, name, view):
             f"Deployment {NAMESPACE}/{DEPLOYMENT} runs {container['image']} and {name} was "
             f"read against {read[0]}. {view.look} Then name the new digest in the view."
         )
+    if name == "login.hbs":
+        pressing(text)
 
 
 def unheld(pod):

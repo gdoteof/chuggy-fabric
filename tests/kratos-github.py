@@ -65,6 +65,14 @@ given no identity. So it is run against the claims Kratos's `github-app`
 provider makes -- an address GitHub verified, one it did not, and none -- and
 the whole of what it maps is compared.
 
+AND THE LOGIN VIEW READS THE COOKIE THE GATE READS. `login.hbs`, mounted in
+the self-service UI's pod, presses the card's GitHub button for a browser
+holding the invite cookie, and that browser has to be the one the gate admits.
+So with the flow open the view's script names one cookie, the one below, which
+is the gate's body's. A cookie renamed in one and not the other leaves a person
+with a link pressing the card again, or the card pressed for a browser the gate
+refuses. tests/ory-ui-view.py holds what the script presses.
+
 A REFUSED PERSON IS SENT OFF THE HOST KRATOS SERVES. `registration.ui_url` is
 where Kratos sends whoever the gate refuses, with the flow's id. The stock
 registration page on Kratos's own host draws a form for a flow it is handed,
@@ -174,10 +182,16 @@ ADMITTING = "oidc"
 
 # The two bodies, whole. `chuggy_invite` is the console's name for the cookie
 # its page for an invite link sets, and this is a copy of it.
-GATE_BODY = (
-    "function(ctx) { token: ({ chuggy_invite: '' } + ctx.request_cookies).chuggy_invite }\n"
-)
+COOKIE = "chuggy_invite"
+GATE_BODY = f"function(ctx) {{ token: ({{ {COOKIE}: '' }} + ctx.request_cookies).{COOKIE} }}\n"
 REFUSAL_BODY = "function(ctx) { token: '' }\n"
+
+# The self-service UI's login view, whose script reads the cookie too, and how
+# it names one: as a key at the start of `document.cookie` or after a `;`.
+UI_DEPLOYMENT = "ory-ui"
+LOGIN_VIEW = "login.hbs"
+SCRIPT = re.compile(r"<script\b[^>]*>(.*?)</script>", re.DOTALL | re.IGNORECASE)
+COOKIE_READ = re.compile(r"\(\?:\^\|;\\s\*\)([A-Za-z0-9_-]+)=")
 
 # What the two hooks and `session` are, as the document has to give them. The
 # keys of a `web_hook`'s config this gate reads; any other is refused.
@@ -189,7 +203,6 @@ CANCEL = "RUNTIME ERROR: cancel"
 
 # The requests a body is evaluated against, as (what the request carries, its
 # cookies, the token the gate's body sends). The refusal's sends none for any.
-COOKIE = "chuggy_invite"
 REQUESTS = (
     ("the cookie", {COOKIE: "a-link-token"}, "a-link-token"),
     ("no cookie", {}, ""),
@@ -601,6 +614,38 @@ def hooked(hooks, method, url, path, data):
     return key, text
 
 
+def login_view(documents):
+    """The text of the login view the self-service UI's pod mounts."""
+    pod = one(documents, "Deployment", UI_DEPLOYMENT, ORY)["spec"]["template"]["spec"]
+    mounts = [
+        mount
+        for entry in pod.get("containers", []) + pod.get("initContainers", [])
+        for mount in entry.get("volumeMounts") or []
+        if mount.get("subPath") == LOGIN_VIEW
+    ]
+    if len(mounts) != 1:
+        refuse(f"expected one mount of {LOGIN_VIEW} in {UI_DEPLOYMENT}, found {len(mounts)}")
+    volumes = [volume for volume in pod.get("volumes") or [] if volume["name"] == mounts[0]["name"]]
+    source = volumes[0].get("configMap") if len(volumes) == 1 else None
+    if not source:
+        refuse(f"{LOGIN_VIEW} is not mounted from one ConfigMap this gate can open")
+    text = (one(documents, "ConfigMap", source["name"], ORY).get("data") or {}).get(LOGIN_VIEW)
+    if text is None:
+        refuse(f"the ConfigMap {UI_DEPLOYMENT} mounts {LOGIN_VIEW} from carries none")
+    return text
+
+
+def invited(documents):
+    """The login view's script reads the gate's cookie and no other."""
+    scripts = SCRIPT.findall(login_view(documents))
+    read = sorted({name for script in scripts for name in COOKIE_READ.findall(script)})
+    if read != [COOKIE]:
+        refuse(
+            f"the script in {LOGIN_VIEW} reads the cookies {read} and the gate's body reads "
+            f"{COOKIE!r}: the card is pressed for the browser the gate admits, and for no other"
+        )
+
+
 def registration(documents, deployment, path, data, document):
     """An open registration flow, held to the plane's gate."""
     name = path.name
@@ -734,6 +779,7 @@ def main():
     opened = within(document, "selfservice", "flows", "registration").get("enabled") is not False
     if opened:
         registration(documents, deployment, path, data, document)
+        invited(documents)
 
     if oidc.get("enabled") is not True:
         return
