@@ -100,11 +100,10 @@
 # ALL SEVEN KEYS ARE ALREADY THERE, and so is every login role they name -- read
 # off the rig, not assumed. Six of the seven are the credentials this namespace
 # presents; the seventh, `chuggy_dispatcher_login`, is legacy and no workload
-# here names it. So no workload here is waiting on a key. What the roles file
-# still has to fix is the MEMBERSHIP below it, not a missing credential:
-# `chuggy_owner` is not in `chuggy_boundary_owner`. Which makes prerequisite 4 the hazard rather than the
-# gap -- the roles file re-issues the six passwords it names unconditionally, so
-# a re-run with values that are not the ones in this Secret leaves the Secret
+# here names it. So no workload here is waiting on a key, and `chuggy_owner` is
+# in `chuggy_boundary_owner`. Which makes prerequisite 4 the hazard rather than
+# a gap -- the roles file re-issues the six passwords it names unconditionally,
+# so a re-run with values that are not the ones in this Secret leaves the Secret
 # wrong and every pod here dies at its next restart.
 #
 # A `secretKeyRef` NAMING A KEY THAT IS NOT THERE REFUSES TO START THE POD,
