@@ -21,5 +21,6 @@ resources:
   - chug-gy.yaml
   - chuggy-migrate.yaml
   - chuggy.yaml
+  - headlamp.yaml
   - sources.yaml
   - track-record.yaml

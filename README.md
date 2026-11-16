@@ -51,6 +51,9 @@ only by their own directory.
                                     no other layer waits on
     cluster/chug-gy/                chuggy's public site at chug.gy, in a
                                     layer of its own the same way
+    cluster/headlamp/               Headlamp at headlamp.vteng.io, the
+                                    cluster read-only for every member, in
+                                    a layer of its own the same way
     dashboards/                     what writes the usage, tickets,
                                     ticket timings and runners
                                     dashboards' manifests in
@@ -96,8 +99,8 @@ That remaining fixture is a **second Flux control loop**, which is why the
 reconciles a ConfigMap beside it every minute, so that object carries
 `kustomize.toolkit.fluxcd.io/name: rig` — Flux-managed, and no business of this
 repo. What this repo owns carries the name of a layer `cluster/flux/` declares
-— `apps`, `build-system`, `chuggy-migrate`, `chuggy`, `track-record` or
-`chug-gy` — in `namespace: flux-system`. Anything else, labelled or not, came from somewhere
+— `apps`, `build-system`, `chuggy-migrate`, `chuggy`, `track-record`,
+`chug-gy` or `headlamp` — in `namespace: flux-system`. Anything else, labelled or not, came from somewhere
 that is not this repo.
 
 ## Workflow
@@ -1268,8 +1271,8 @@ and `cluster/chuggy/`, and no `Kustomization` reads it: the release trigger
 does. The
 root applies `cluster/flux/`, where each layer Flux reconciles is declared as
 its own `Kustomization`, so what Flux reconciles, and in what order, is changed
-by a commit and not by a host rebuild. `apps`, `build-system`, `track-record`
-and `chug-gy` read `fabric`, each a directory of this repository;
+by a commit and not by a host rebuild. `apps`, `build-system`, `track-record`,
+`chug-gy` and `headlamp` read `fabric`, each a directory of this repository;
 `chuggy-migrate` and `chuggy` read `OCIRepository` `chuggy-release`, each an
 overlay of the release it holds. `cluster/flux/sources.yaml` declares that
 source and `GitRepository` `chuggy`, the two of a release that are the same on
@@ -1461,6 +1464,89 @@ Secret agree, the reloads return 200, and a datasource or dashboard added to
 `server.root_url` is set to the public address. Without it Grafana builds
 redirect and share links from the in-cluster address, and they break the moment
 you follow one.
+
+### Headlamp: the cluster, read-only, for every member
+
+`cluster/headlamp/headlamp.yaml` runs Headlamp 0.46 at `headlamp.vteng.io`, in
+a layer of its own that no other layer waits on. **Every chuggy member signs
+in, through Hydra, and sees the cluster as ClusterRole `view`** — the same
+population Grafana makes a Viewer, and for the same reason it is no wider: a
+Viewer already reads every pod's logs through Loki.
+
+Headlamp redeems the code itself and sends the person's id_token to the API
+server as the bearer. The API server verifies it against `https://auth.vteng.io`
+by the JWT authenticator gtr declares (`chuggy.k3s.jwtAuthenticators` in
+`hosts/gtr/default.nix`), names the person `chuggy:<sub>` — their Kratos
+identity id — in group `chuggy:members`, and RBAC decides: one
+ClusterRoleBinding gives that group `view`, and nothing else is bound to it.
+Headlamp's own ServiceAccount is bound to nothing; the chart's default binding
+of it to `cluster-admin` is off, and so is acting as it on a person's behalf.
+The authenticator accepts only tokens whose audience is `chuggy-headlamp`,
+which is Headlamp's id_tokens and nothing else Hydra issues: another client's
+id_tokens carry its own id, and no client is granted `chuggy-headlamp` as an
+access-token audience. The `headlamp` check holds each of these.
+
+**What `view` carries here.** Every namespace's workloads, pods, Services,
+Ingresses, NetworkPolicies, events, claims and ConfigMaps, each pod's spec and
+its logs, and, through the roles Flux and Tekton aggregate into `view`, every
+Flux object (a HelmRelease's values included) and every Tekton run. No
+ConfigMap or pod environment value here holds a credential: the database
+passwords reach their pods from Secrets by `$(...)` expansion.
+
+**What it does not.** No Secret, no write of any kind, no `exec`, `attach`,
+`port-forward` or service proxy, and no Roles or bindings. Cluster-scoped
+objects other than namespaces — nodes, PersistentVolumes, StorageClasses,
+CRDs — are not in `view`, so Headlamp's pages for them answer forbidden. Helm
+management in Headlamp and its plugin manager are off.
+
+**Its session.** Hydra's id_token lives 15 minutes. Headlamp asks for
+`offline_access` and keeps the refresh token in its own memory, and 0.46
+refreshes an id_token that is expired or within ten seconds of it on the
+person's next request, so the 15 minutes are not seen. A person is sent back
+through Hydra when Headlamp's session (24 hours, the chart's default) or
+Hydra's refresh token (`ttl.refresh_token`, 24 hours) runs out, or when
+Headlamp's pod restarts and forgets every refresh token: auto-login takes them
+straight to the sign-in. Headlamp asks for `openid` itself and for what its
+scopes name, which is `offline_access` alone; Hydra's scope strategy is
+`exact`, so the client is registered with those two and no other.
+
+**On a cold boot** Hydra is down until the API server is up. That holds
+nothing: the API server starts and is ready without its issuer, discovers it in
+the background every ten seconds, and until it answers refuses a member's
+token, which is a sign-in that fails and nothing else.
+
+The client and its secret are out of band, the same rule as Grafana's:
+
+    kubectl -n ory exec deploy/hydra -c hydra -- hydra create oauth2-client \
+      --endpoint http://127.0.0.1:4445 --id chuggy-headlamp --name Headlamp \
+      --grant-type authorization_code,refresh_token --response-type code \
+      --scope openid,offline_access --skip-consent \
+      --redirect-uri https://headlamp.vteng.io/oidc-callback
+    kubectl create secret generic headlamp-oidc -n headlamp \
+      --from-literal=OIDC_CLIENT_SECRET=<the client secret Hydra returned>
+
+Register it with no `--audience`: an audience on this client would let its
+access tokens authenticate as well. The Secret carries `OIDC_CLIENT_SECRET`
+and nothing else; the client id, issuer, scopes, callback, PKCE and auto-login
+are plain values in the HelmRelease. Its namespace is the layer's, so create
+the Secret once the layer has applied it. Until the Secret exists the pod waits
+in `CreateContainerConfigError` and the `headlamp` layer is not Ready, which
+holds nothing else.
+
+**After merge**, the two operator steps, in this order:
+
+1. Rebuild gtr at the merge commit, which adds `headlamp.vteng.io` to the
+   tunnel and the authenticator to the API server (k3s restarts for it):
+
+       sudo nixos-rebuild switch \
+         --flake github:gdoteof/chuggy-fabric/<full-commit-sha>#gtr
+
+2. Route the name to the tunnel, by its UUID:
+
+       cloudflared tunnel route dns 84115dde-a1d0-4e8a-832a-e4da2cf98180 headlamp.vteng.io
+
+Until the first, a person who signs in is refused by the API server; until the
+second, the name does not resolve.
 
 ### Flux and Tekton are scraped, and a release has a page
 

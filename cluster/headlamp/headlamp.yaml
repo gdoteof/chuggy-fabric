@@ -1,0 +1,182 @@
+# Headlamp at `headlamp.vteng.io`: this cluster, read-only, for every chuggy
+# member. The README's "Headlamp" section is the operator's half: the Hydra
+# client, the Secret, and the steps after merge.
+#
+# A PERSON IS WHO THE API SERVER SEES, NOT HEADLAMP. Headlamp signs a person in
+# with chuggy's login (Hydra at https://auth.vteng.io), redeems the code itself
+# and sends the person's id_token to the API server as the bearer. The API
+# server verifies that token against Hydra by the JWT authenticator
+# hosts/gtr/default.nix declares (`chuggy.k3s.jwtAuthenticators`), which names
+# the person `chuggy:<sub>` in the group `chuggy:members`, and RBAC decides:
+# the one binding below gives that group `view`.
+#
+# HEADLAMP'S OWN SERVICEACCOUNT HOLDS NOTHING. The chart binds it to
+# `cluster-admin` unless told otherwise, and `unsafeUseServiceAccountToken`
+# would send every person's request as it; the first is off and the second
+# stays off. Its token is still mounted, because in-cluster mode reads the API
+# server's address and CA from beside it, and it authorises nothing beyond what
+# every authenticated caller is given.
+#
+# THE CLIENT SECRET IS THE ONE VALUE NOT HERE: `headlamp-oidc`, made by hand
+# and carrying `OIDC_CLIENT_SECRET` alone. Without it the pod does not start
+# (CreateContainerConfigError), the release is not Ready, and this layer alone
+# is held; no layer waits on it. Everything else is a plain value below.
+#
+# THE ARGUMENTS ARE BUILT FROM `env`, which is the chart's arm that turns each
+# OIDC_* entry here into its `-oidc-*` flag and a `$(OIDC_*)` the kubelet
+# expands. `config.oidc.secret.create` is off, so the chart makes no Secret of
+# its own, and `externalSecret` is off, because that arm reads every OIDC_*
+# from one Secret by `envFrom` and passes `$(OIDC_CLIENT_SECRET)` literally when
+# the Secret lacks the key; a `secretKeyRef` refuses the pod instead.
+# tests/headlamp.py holds each flag to a variable set here.
+#
+# SCOPES. Headlamp asks for `openid` itself and then for what OIDC_SCOPES
+# names, `profile,email` when it names nothing. Hydra's scope strategy is
+# `exact`, so a scope the client is not registered with fails the sign-in:
+# this asks for `offline_access` and the client is registered with
+# `openid,offline_access`. `offline_access` is the refresh token: an id_token
+# lives 15 minutes (cluster/apps/ory/hydra.yaml), and Headlamp 0.46 refreshes
+# one that is within ten seconds of expiry, or past it, on the person's next
+# request (backend/pkg/auth/middleware.go), from a refresh token it keeps in
+# memory. A Headlamp pod that restarts has forgotten them, and auto-login
+# sends each person back through Hydra.
+#
+# THE POD REACHES HYDRA AT ITS PUBLIC ADDRESS, through Cloudflare and the
+# tunnel, for discovery, the code exchange and every refresh, because the
+# issuer string is what the id_token is verified against. Nothing in this tree
+# refuses that egress: no NetworkPolicy selects a pod in `headlamp`, so it is
+# unisolated both ways, and cluster/apps/ory-network-policy.yaml admits
+# Hydra's public port from anywhere on the pod network, Traefik included, which
+# is where the tunnel arrives. A policy added here later needs a public HTTPS
+# arm, as cluster/apps/chuggy-control-plane-network-policy.yaml has for the
+# API, and the API server at the node's address on 6443.
+#
+# The host is public only once it is also in `chuggy.tunnel.hostnames` and has
+# a CNAME to the tunnel, as cluster/chuggy/chuggy-ui.yaml's "the host, three
+# ways" describes. tests/headlamp.py holds the Ingress's host to gtr's list
+# and to the callback below.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: headlamp
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: headlamp
+  namespace: headlamp
+spec:
+  interval: 24h
+  url: https://kubernetes-sigs.github.io/headlamp/
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: headlamp
+  namespace: headlamp
+spec:
+  interval: 1h
+  chart:
+    spec:
+      chart: headlamp
+      # Pinned, like every other version in this repo. Bump deliberately, and
+      # read the new chart's templates/deployment.yaml and
+      # templates/clusterrolebinding.yaml against the values below first.
+      version: "0.46.0"
+      sourceRef:
+        kind: HelmRepository
+        name: headlamp
+        namespace: headlamp
+  values:
+    image:
+      # The chart's appVersion, by the digest of its multi-platform index.
+      tag: v0.46.0@sha256:8a0ef97527544baa2b35825940ddf4db6e2d09c30cd5aa31fd269ff604cc8b75
+    # The chart's default binds its ServiceAccount to `cluster-admin`.
+    clusterRoleBinding:
+      create: false
+    config:
+      inCluster: true
+      unsafeUseServiceAccountToken: false
+      enableHelm: false
+      oidc:
+        secret:
+          create: false
+        externalSecret:
+          enabled: false
+    env:
+      - name: OIDC_CLIENT_ID
+        value: chuggy-headlamp
+      - name: OIDC_CLIENT_SECRET
+        valueFrom:
+          secretKeyRef:
+            name: headlamp-oidc
+            key: OIDC_CLIENT_SECRET
+      # The discovery document's `issuer` exactly, no trailing slash, as the
+      # API server's authenticator names it.
+      - name: OIDC_ISSUER_URL
+        value: https://auth.vteng.io
+      - name: OIDC_SCOPES
+        value: offline_access
+      - name: OIDC_CALLBACK_URL
+        value: https://headlamp.vteng.io/oidc-callback
+      - name: OIDC_USE_PKCE
+        value: "true"
+      - name: OIDC_AUTO_LOGIN
+        value: "true"
+    # What `restricted` admits; the chart's default sets none of the first
+    # three.
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: [ALL]
+      seccompProfile:
+        type: RuntimeDefault
+      runAsNonRoot: true
+      runAsUser: 100
+      runAsGroup: 101
+      privileged: false
+    resources:
+      requests: { cpu: 10m, memory: 64Mi }
+      limits: { memory: 512Mi }
+---
+# Every chuggy member reads every namespace, and nothing else is bound to the
+# group. `view` carries no Secret, no write, and no `pods/exec`, `pods/attach`,
+# `pods/portforward` or `services/proxy`; it does carry `pods/log` and every
+# ConfigMap. The README's "Headlamp" section says what that exposes here.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: chuggy-members-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: chuggy:members
+---
+# Single-label and with no `tls:`, for the reasons chuggy-ui.yaml gives. The
+# Service is the chart's, named for the release.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: headlamp
+  namespace: headlamp
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: headlamp.vteng.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: headlamp
+                port: { name: http }
