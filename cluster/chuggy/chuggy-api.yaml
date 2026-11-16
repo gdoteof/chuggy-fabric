@@ -9,9 +9,9 @@
 # ------------------------------------------------------------- the image ----
 #
 # THE NAME IS API-SPECIFIC AND THE IMAGE IS NOT. It copies the whole of `src/`
-# and sets a default CMD of this root alone, so the same bytes carry the
-# selector, the scheduler, the ticket service, the finalizer and the migration
-# command, and the four files beside this one select theirs from it. Renaming it
+# and sets a default CMD of this root alone, so the same bytes carry
+# every other control-plane command and the migration command, and the files
+# beside this one select theirs from it. Renaming it
 # to the control-plane image is revised PR 2 of kasofsk/chuggy#197, in the
 # repository that builds it; nothing here can rename an image it does not build.
 #
@@ -40,44 +40,6 @@
 # verbatim -- which would be a connection failure and not a silent empty
 # password -- and a `secretKeyRef` naming a key that is not there refuses to
 # start the pod at all.
-#
-# TWO POOLS, TWO ROLES, ONE PROCESS. The API also opens a second connection as
-# `chuggy_selector_review`, which reads the selector's proposal deliveries and
-# reviews and nothing else, and it refuses to listen unless that connection is
-# that role. It is a separate least-authority credential rather than a widening
-# of `chuggy_api`, which is why it is a second URL and not a second query.
-#
-# THE GRANT THAT MAKES IT WORK IS IN NO MIGRATION. The migration creates
-# `chuggy_selector_review` NOLOGIN and grants it its two reads; what grants the
-# group to a login role is kasofsk/chuggy's
-# `deploy/rig/postgres/postgres-roles.sql`, in a copy of it carrying
-#
-#   GRANT chuggy_selector_review TO chuggy_api_login;
-#
-# NOT EVERY #242 COMMIT CARRIES IT. That line and the membership grant beside it
-# arrive part-way along the branch, so "from #242" is not the check. The
-# README's prerequisite 1 pre-filters the checkout in hand for both grants and
-# then reads `pg_auth_members` on the server, which is the only thing that
-# settles whether they landed. The selected release image carries both.
-#
-# It is on this rig: `pg_auth_members` carries
-# `chuggy_selector_review|chuggy_api_login` and this API is listening. A
-# database rolled out from an older copy of that file has neither grant, and
-# then no credential here can become the role and the API refuses to listen.
-#
-# THE REMEDY THERE IS NOT TO RUN THAT ONE STATEMENT BY HAND. Running it closes
-# that gap and leaves the one beside it -- the same file is what makes
-# `chuggy_owner` a member of `chuggy_boundary_owner`, without which 17 commits
-# while granting nothing and no re-run repairs it.
-# cluster/chuggy-migrate/chuggy-migrate.yaml argues that at length, including
-# why it has to happen BEFORE the Job runs. Re-run the whole file, once, before
-# any of this starts -- and read prerequisite 4 first, because the file
-# re-issues every login password.
-#
-# What the grant widens is what `chuggy_api_login` inherits on its ordinary
-# connection -- two more SELECTs, on tables this same process already reads
-# through the other pool. What it buys is that the review reads arrive under a
-# role that can do nothing else.
 #
 # `sslmode` is unset and therefore `prefer`, which this server answers with
 # plaintext because it serves no TLS. Read that as a statement of what is NOT
@@ -139,9 +101,8 @@
 # off the rig, not assumed. Six of the seven are the credentials this namespace
 # presents; the seventh, `chuggy_dispatcher_login`, is legacy and no workload
 # here names it. So no workload here is waiting on a key. What the roles file
-# still has to fix is the two MEMBERSHIPS below it, not a missing credential:
-# `chuggy_selector_review` has no members and `chuggy_owner` is not in
-# `chuggy_boundary_owner`. Which makes prerequisite 4 the hazard rather than the
+# still has to fix is the MEMBERSHIP below it, not a missing credential:
+# `chuggy_owner` is not in `chuggy_boundary_owner`. Which makes prerequisite 4 the hazard rather than the
 # gap -- the roles file re-issues the six passwords it names unconditionally, so
 # a re-run with values that are not the ones in this Secret leaves the Secret
 # wrong and every pod here dies at its next restart.
@@ -335,7 +296,7 @@ spec:
             - name: http
               containerPort: 3000
           env:
-            # Defined before the URLs that expand it, which is the ordering
+            # Defined before the URL that expands it, which is the ordering
             # Kubernetes resolves `$(...)` in.
             - name: CHUG_API_PASSWORD
               valueFrom:
@@ -343,12 +304,6 @@ spec:
                   { name: chuggy-postgres-credentials, key: api-password }
             - name: CHUG_API_DATABASE_URL
               value: postgres://chuggy_api_login:$(CHUG_API_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy?options=-c%20role%3Dchuggy_api
-            # The same credential becoming a different group. One password,
-            # because one process holds both pools and a second password would
-            # be a second thing to rotate for no separation it does not already
-            # have; the separation is the role, and it is in the option.
-            - name: CHUG_API_SELECTOR_REVIEW_DATABASE_URL
-              value: postgres://chuggy_api_login:$(CHUG_API_PASSWORD)@postgres.chuggy.svc.cluster.local:5432/chuggy?options=-c%20role%3Dchuggy_selector_review
             - name: CHUG_API_IDEMPOTENCY_KEYING
               valueFrom:
                 secretKeyRef: { name: chuggy-api, key: idempotency-keying }
@@ -371,10 +326,6 @@ spec:
               value: http://keto-read.ory.svc.cluster.local:4466
             - name: CHUG_API_KETO_WRITE_URL
               value: http://keto-write.ory.svc.cluster.local:4467
-            # The selector's subject, which the API grants each project created
-            # here. No workload in this repository authenticates as it.
-            - name: CHUG_API_SELECTOR_SUBJECT
-              value: chuggy-selector
             - name: CHUG_API_HYDRA_ADMIN_URL
               value: http://hydra-admin.ory.svc.cluster.local:4445
             # What a runner's pool file names, which redeeming its registration
