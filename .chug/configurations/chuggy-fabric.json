@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "name": "chuggy-fabric",
+  "configuration": {
+    "version": 3,
+    "image": "registry.chuggy.internal/chuggy/worker@sha256:722257abd3e46bffac7639423fbe4f68cac3491ba4b5e54e210492f2b22cbef9",
+    "workloads": {
+      "build": {
+        "runner": "Agent",
+        "prompt": {
+          "path": ".chug/prompts/work.md"
+        },
+        "worker": {
+          "mode": {
+            "type": "SingleAgent",
+            "agent": "Claude",
+            "arguments": [
+              "--allowedTools=Bash,Edit,Read,Write,Glob,Grep",
+              "--model=opus"
+            ]
+          },
+          "setup": [],
+          "files": []
+        },
+        "authority": {
+          "tools": ["claude-code", "shell"],
+          "credentials": ["claude-code"],
+          "network": true,
+          "filesystem": "WriteWorkspace",
+          "mayCompleteTask": false
+        }
+      },
+      "ci": {
+        "runner": "Commands",
+        "commands": [".chug/tasks/ci.sh"],
+        "worker": {
+          "setup": [],
+          "files": []
+        },
+        "authority": {
+          "tools": ["shell"],
+          "credentials": [],
+          "network": true,
+          "filesystem": "WriteWorkspace",
+          "mayCompleteTask": false
+        }
+      },
+      "review": {
+        "runner": "Agent",
+        "purpose": "Review",
+        "reevaluate": "OnChange",
+        "prompt": {
+          "path": ".chug/prompts/review.md"
+        },
+        "worker": {
+          "mode": {
+            "type": "SingleAgent",
+            "agent": "Claude",
+            "arguments": [
+              "--allowedTools=Bash,Edit,Read,Write,Glob,Grep",
+              "--model=opus"
+            ]
+          },
+          "setup": [],
+          "files": []
+        },
+        "authority": {
+          "tools": ["claude-code", "shell"],
+          "credentials": ["claude-code"],
+          "network": true,
+          "filesystem": "WriteWorkspace",
+          "mayCompleteTask": false
+        }
+      },
+      "approval": {
+        "runner": "Approval",
+        "instructions": "main is live, so this merge is a deployment. Run the nix flake check entries the review named on the change's head, read the change, and approve only what you would merge yourself."
+      }
+    },
+    "plans": {
+      "approved": [
+        {
+          "name": "checks",
+          "evaluators": ["ci"]
+        },
+        {
+          "name": "review",
+          "evaluators": ["review"]
+        },
+        {
+          "name": "approval",
+          "evaluators": ["approval"]
+        }
+      ]
+    },
+    "finalizers": {
+      "stacked": {
+        "finalization": {
+          "kind": "GitMerge",
+          "mode": "PullRequestMerge",
+          "policy": "Stacked"
+        }
+      }
+    },
+    "defaults": {
+      "work": "build",
+      "evaluation": "approved",
+      "finalization": "stacked"
+    }
+  }
+}

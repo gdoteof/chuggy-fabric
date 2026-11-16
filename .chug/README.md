@@ -1,19 +1,22 @@
 # Chuggy tickets in this repository
 
-This repository declares no configuration. `.chug/tasks/` holds what one would
-point a worker at: the check command and the reviewer's brief. The declaration
-envelope and the configuration contract are Chuggy's, and are stated in
-Chuggy's own repository rather than restated here: the envelope in
-`.chug/configurations/README.md` there, the authored half of the readiness a
-configuration has to reach in `src/interpreter/taskConfiguration.ts`, and the
-release half it must also reach — `version`, `image` and the execution
-requirement — in `releaseConfigurationReadiness` in
-`src/interpreter/authoring.ts`. No ticket makes a release: `README.md` says how
-one is made.
+`.chug/configurations/chuggy-fabric.json` is what chuggy works a ticket here
+under. An agent builds the change from `.chug/prompts/work.md`.
+`.chug/tasks/ci.sh` checks it, and a reviewer judges it by
+`.chug/tasks/review-change.md`, from `.chug/prompts/review.md`. Then, by
+default, a person approves it before it merges, because `main` is live and the
+merge is the deployment.
 
-How a ticket lands is not a configuration's to say. It is the binding's
-default in Chuggy's console -- a merged pull request, on both live bindings, as
-of this writing -- and no file here can state or check it.
+A ticket lands only at a commit that holds `main`'s tip. If `main` moves while
+the ticket waits, the checks and the approval run again, and the review runs
+again only if the ticket's own diff changed.
 
-What the check stage covers, and what it leaves for `nix flake check`, is
-stated in `.chug/tasks/ci.sh`; `tests/chug-ci.nix` is what holds that file.
+The image a run works in carries no Nix. What the check stage covers, and what
+it leaves for `nix flake check`, is stated in `.chug/tasks/ci.sh`, and
+`tests/chug-ci.nix` is what holds that file. The reviewer names the Nix checks a
+change still needs, and the approval is where they are run.
+
+The declaration's shape is Chuggy's, and is stated in Chuggy's own repository
+rather than restated here: the envelope in `.chug/configurations/README.md`
+there, and the schema in `src/contract/configurationDocument.ts`. No ticket
+makes a release: the top-level `README.md` says how one is made.
