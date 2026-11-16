@@ -1399,8 +1399,8 @@ spec:
             # `mayCompleteTask` is false for the reason it is false above: the
             # single journaled actor is what completes a ticket.
             #
-            # `routes` places a project's threads and lead as the execution
-            # policy places its work: on its own registered runners unless the
+            # `routes` places a project's threads as the execution policy
+            # places its work: on its own registered runners unless the
             # project chose this cluster (kasofsk/chuggy#843). Every project
             # that stood before that release was given a row keeping it here.
             - name: CHUG_SCHEDULER_SESSION_POLICY
@@ -1416,7 +1416,7 @@ spec:
                     "filesystem": "WriteWorkspace",
                     "mayCompleteTask": false
                   },
-                  "routes": { "Thread": "Pool", "Lead": "Pool" }
+                  "routes": { "Thread": "Pool" }
                 }
             # A COMMIT THAT MOVES THE WORKER REWRITES THE VALUE ABOVE, and it
             # rewrites the whole of it: this variable is one JSON document, so
