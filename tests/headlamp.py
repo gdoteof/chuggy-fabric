@@ -101,6 +101,13 @@ def release_values(layer):
             f"{CHART[0]} {CHART[1]}: read that chart's templates/deployment.yaml and "
             "clusterrolebinding.yaml against these values, then move CHART here"
         )
+    retries = ((release["spec"].get("install") or {}).get("remediation") or {}).get("retries")
+    if not isinstance(retries, int) or retries >= 0:
+        refuse(
+            f"install.remediation.retries is {retries!r}, not negative: the first install "
+            "fails until headlamp-oidc is made by hand, and with a bounded count the "
+            "release is left Stalled after the Secret exists"
+        )
     values = release["spec"].get("values") or {}
 
     if (values.get("clusterRoleBinding") or {}).get("create") is not False:

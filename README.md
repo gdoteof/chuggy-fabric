@@ -1531,7 +1531,9 @@ and nothing else; the client id, issuer, scopes, callback, PKCE and auto-login
 are plain values in the HelmRelease. Its namespace is the layer's, so create
 the Secret once the layer has applied it. Until the Secret exists the pod waits
 in `CreateContainerConfigError` and the `headlamp` layer is not Ready, which
-holds nothing else.
+holds nothing else. The release retries a failed install without limit
+(`install.remediation.retries: -1`), uninstalling it between attempts, so the
+first install after the Secret exists comes Ready with no reconcile by hand.
 
 **After merge**, the two operator steps, in this order:
 

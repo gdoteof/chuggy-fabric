@@ -20,7 +20,11 @@
 # THE CLIENT SECRET IS THE ONE VALUE NOT HERE: `headlamp-oidc`, made by hand
 # and carrying `OIDC_CLIENT_SECRET` alone. Without it the pod does not start
 # (CreateContainerConfigError), the release is not Ready, and this layer alone
-# is held; no layer waits on it. Everything else is a plain value below.
+# is held; no layer waits on it. The Secret's namespace is applied with the
+# release, so the first install always fails; `install.remediation.retries` is
+# -1 so it is uninstalled and tried again until the Secret exists, and not left
+# Stalled (RetriesExceeded) as the default of 0 would leave it. Everything
+# else is a plain value below.
 #
 # THE ARGUMENTS ARE BUILT FROM `env`, which is the chart's arm that turns each
 # OIDC_* entry here into its `-oidc-*` flag and a `$(OIDC_*)` the kubelet
@@ -81,6 +85,11 @@ metadata:
   namespace: headlamp
 spec:
   interval: 1h
+  # Unlimited: a failed install is uninstalled and retried, so the release
+  # comes Ready on its own once `headlamp-oidc` is made. See the header.
+  install:
+    remediation:
+      retries: -1
   chart:
     spec:
       chart: headlamp
