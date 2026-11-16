@@ -222,14 +222,15 @@
         # sections of one document, each method that can register carries its
         # own hook to that gate, and the client secret reaches one element of
         # a list by its position. The mapper and the hooks' bodies are
-        # evaluated.
+        # evaluated, and the login view's script reads the gate's cookie.
         kratos-github = import ./tests/kratos-github.nix { inherit pkgs; };
 
         # The image the login page and the allow page are served by against
         # the one each view was read against, and where each view is mounted
         # against where that image reads it. A view hides parts of a card by
         # what that image draws, and a new image or a moved mount is one line
-        # that evaluates whatever the page then looks like.
+        # that evaluates whatever the page then looks like. And the login
+        # view's script presses the card's GitHub button and nothing else.
         ory-ui-view = import ./tests/ory-ui-view.nix { inherit pkgs; };
 
         # The access plane's issuer, audience and algorithms against the API's,

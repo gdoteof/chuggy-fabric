@@ -2,6 +2,28 @@
   <span id="use-password"></span>
   {{{card}}}
   <a href="#use-password">Use a password</a>
+  <script>
+    (() => {
+      try {
+        const flow = new URLSearchParams(location.search).get("flow");
+        const login = document.querySelector("#login");
+        const github = login.querySelector('button[name="provider"][value="github"]');
+        if (
+          !flow ||
+          !github ||
+          !/(?:^|;\s*)chuggy_invite=[^;]/.test(document.cookie) ||
+          login.querySelector('[data-testid^="ui/message/"]') ||
+          login.querySelector(
+            '[data-testid="login-flow-oidc"] input[name="identifier"]:not([type="hidden"])',
+          ) ||
+          sessionStorage.getItem("chuggy-invite-pressed") === flow
+        )
+          return;
+        sessionStorage.setItem("chuggy-invite-pressed", flow);
+        github.click();
+      } catch {}
+    })();
+  </script>
 
   {{> js_setup nodes=nodes}}
   {{#if extraPartial }}
@@ -12,15 +34,17 @@
     card's links are hidden, its E-Mail and password fields are closed until
     asked for, and its GitHub button is filled. The element and the link above
     close and open the fields, and the rest is the rules below, each under its
-    reason.
+    reason. The script presses the GitHub button for a browser that came from
+    an invite link, and is the paragraph under PRESSED below.
 
     READ AGAINST THE IMAGE
     sha256:46a7bac1ad0c67c692b37d0380613fd4618fd751afac2c5314aa8d3ae77ef1f0
-    because the rules are about where that image draws things. One that drew
-    the GitHub button in the password's form would have the closed card hide
-    both, and leave a person new here only the link to a password. So
-    tests/ory-ui-view.py holds ory-ui.yaml to that image, and another is named
-    here once its card has been looked at under these rules. }}
+    because the rules and the script are about where that image draws things.
+    One that drew the GitHub button in the password's form would have the
+    closed card hide both, and leave a person new here only the link to a
+    password. So tests/ory-ui-view.py holds ory-ui.yaml to that image, and
+    another is named here once its card has been looked at under these rules
+    and this script. }}
 <style>
   {{! The card links sign-up and recovery whether or not kratos.yaml enables
       them. It enables no recovery. It opens registration only to a person who
@@ -40,10 +64,10 @@
       form stays in the card, closed, and the link under the GitHub button
       opens it.
 
-      NO SCRIPT. The link names the empty element before the card, and the
-      form is closed only while the page's address does not. Following the
-      link also moves where the Tab key starts to that element, so the keys
-      after it walk the card from its top.
+      NO SCRIPT CLOSES THEM. The link names the empty element before the
+      card, and the form is closed only while the page's address does not.
+      Following the link also moves where the Tab key starts to that element,
+      so the keys after it walk the card from its top.
 
       A CARD THAT CARRIES A MESSAGE IS DRAWN OPEN. A refused password comes
       back as the same flow with a message, at an address without the
@@ -77,6 +101,22 @@
       in a field of the hidden type, sent to GitHub or not; so the card is
       asked for a field of another type, and a refresh turned back at GitHub
       is drawn open under GitHub's message, as the image draws it.
+
+      PRESSED FOR A BROWSER THAT CAME FROM AN INVITE LINK. The console's page
+      for a link sets `chuggy_invite` for the parent domain before it signs in,
+      and that cookie is what the registration gate in kratos.yaml reads. Such
+      a browser has one answer on this card, the GitHub button, which is the
+      only method that registers, so the script presses it: once per flow, by
+      the flow's id kept in sessionStorage before the press, and only on a card
+      that draws the button, carries no message and has not been sent to
+      GitHub, by the test the rules here use. A person who presses Cancel at
+      GitHub comes back to the card, which is not pressed again, and nor is a
+      refresh of the flow. The button is read by its name and value, which a
+      form has to post under whatever draws it. A failure is not a stop: where
+      a content security policy forbids inline script, the browser runs none or
+      sessionStorage throws, nothing is pressed and the person presses the
+      card. tests/ory-ui-view.py holds the script to pressing that button
+      alone, and tests/kratos-github.py its cookie to the gate's.
 
       ONLY A CARD THAT OFFERS BOTH IS CLOSED. Without the GitHub button a
       closed card would offer nothing but the link that opens it, and a
