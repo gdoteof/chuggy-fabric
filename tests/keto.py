@@ -74,9 +74,7 @@ POSTGRES_CLIENT = ("chuggy.dev/postgres-client", "true")
 
 # The API, the scheduler, the pool plane and the access plane are each told
 # where the read port is, and each URL is a second copy of the Service's own
-# number. The selector holds a copy of its own, and tests/selector-reach.py
-# resolves that one against this Service and against the selector's egress arm;
-# this gate reads the others, and the arm each workload's own policy has to
+# number. This gate reads each, and the arm each workload's own policy has to
 # carry for its URL to be openable at all. Each is (deployment, container,
 # variable, egress policy).
 READERS = (

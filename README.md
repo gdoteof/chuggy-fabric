@@ -1823,7 +1823,6 @@ One process per responsibility, all out of one image:
 |---|---|---|---|
 | `chuggy-api` | `src/roots/nativeHttp.ts` | `chuggy_api`, and `chuggy_selector_review` on a second pool | yes, 3000 |
 | `chuggy-ticket-service` | `src/roots/ticketService.ts` | `chuggy_ticket_service` | no |
-| `chuggy-selector` | `src/roots/selector.ts` | `chuggy_selector_service` | no |
 | `chuggy-scheduler` | `src/roots/scheduler.ts` | `chuggy_scheduler` | no |
 | `chuggy-finalizer` | `src/roots/finalizer.ts` | `chuggy_finalizer` | no |
 | `chuggy-worker-plane` | `src/roots/workerPlane.ts` | `chuggy_worker_plane` | yes, 3001 |
@@ -1856,7 +1855,7 @@ attempt is a fresh address starting the same wait from nothing. A Job of this
 shape whose container connects once produced five consecutive pods with five
 distinct IPs, over 2m42s, every one refused. A pod that asked again inside the
 same sandbox was admitted on its second attempt, two seconds in. That is also
-why the api, the ticket service, the selector, the scheduler and the finalizer
+why the api, the ticket service, the scheduler and the finalizer
 each wait the same way before their process starts: a process whose first
 connection is refused exits, and a restart on a rollout reads like a fault.
 
@@ -1937,7 +1936,7 @@ they move together. The migration Job's name changes with chuggy's commit
 because Kubernetes makes its pod template immutable; a release that changes
 the Job and not that commit is what `force` on its layer is for.
 
-Four of them open no socket, so they have no probe and no Service. They
+Three of them open no socket, so they have no probe and no Service. They
 report an unmet precondition by name and exit; the kubelet restarts them. A
 process that is alive and making no progress is therefore invisible to
 Kubernetes, and closing that needs a health listener in chuggy itself.
@@ -2074,8 +2073,7 @@ they are resumed.
    Secret has a key for before step 2.
 5. **Make the control plane's Secrets that no unit generates**, by hand. A
    value never goes in this repository, which is public. The manifest named
-   carries the command and argues it: `chuggy-selector` in
-   `chuggy-selector.yaml`, `chuggy-finalizer-credentials` in
+   carries the command and argues it: `chuggy-finalizer-credentials` in
    `chuggy-finalizer.yaml`, `chuggy-github-app-portal` and
    `chuggy-github-app-portal-client` in `chuggy-api.yaml`, and
    `chuggy-github-app-worker` in `chuggy-worker-plane.yaml`, and, once Track
