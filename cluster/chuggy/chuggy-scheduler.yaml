@@ -1209,10 +1209,10 @@ spec:
             # `chuggy-sessions` NetworkPolicy in chuggy-work.yaml selects, and a
             # pod in that namespace selected by NO policy is isolated in neither
             # direction -- so an empty value here is strictly worse than the
-            # worker label would be. `chuggy.dev/api-client` is what the third
-            # `from` element on `chuggy-api-admits-traefik-and-the-selector`
-            # admits. Neither is authentication: what a session may do is its
-            # bearer's and its principal's.
+            # worker label would be. `chuggy.dev/api-client` is what the second
+            # `from` element on `chuggy-api-ingress` admits. Neither is
+            # authentication: what a session may do is its bearer's and its
+            # principal's.
             #
             # No PostgreSQL label: a session runs no gates, so no server is
             # placed beside it, and the control plane's server admits nothing

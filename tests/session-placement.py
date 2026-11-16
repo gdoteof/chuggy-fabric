@@ -158,7 +158,7 @@ SESSION_EGRESS = {
 # and neither expectation is a literal label written here.
 SESSION_EGRESS_TARGETS = {
     frozenset({("TCP", 3001)}): "chuggy-worker-plane-ingress",
-    frozenset({("TCP", 3000)}): "chuggy-api-admits-traefik-and-the-selector",
+    frozenset({("TCP", 3000)}): "chuggy-api-ingress",
 }
 
 POD_TEMPLATE_KINDS = ("Deployment", "StatefulSet", "DaemonSet", "Job", "ReplicaSet")
@@ -523,7 +523,7 @@ def main():
     if not admits(plane, "ingress", WORK, labels, "TCP", 3001):
         refuse("the worker plane admits no session pod, so no turn is ever claimed")
     api = one(
-        documents, "NetworkPolicy", "chuggy-api-admits-traefik-and-the-selector", CONTROL
+        documents, "NetworkPolicy", "chuggy-api-ingress", CONTROL
     )
     if not admits(api, "ingress", WORK, labels, "TCP", 3000):
         refuse("the API admits no session pod, so its egress arm for 3000 reaches nothing")
