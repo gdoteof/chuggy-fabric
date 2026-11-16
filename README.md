@@ -1943,10 +1943,10 @@ Kubernetes, and closing that needs a health listener in chuggy itself.
 
 ### The network boundary around them
 
-`cluster/apps/chuggy-control-plane-network-policy.yaml` holds nine
-NetworkPolicies: one that admits nothing to the five processes with no listener
-or to the migration Job, one that admits the API from Traefik, the selector, a
-session pod and Flux's notification-controller alone, and seven egress rules
+`cluster/apps/chuggy-control-plane-network-policy.yaml` holds eight
+NetworkPolicies: one that admits nothing to the four processes with no listener
+or to the migration Job, one that admits the API from Traefik, a session pod
+and Flux's notification-controller alone, and six egress rules
 that each state completely where one workload may go. The widest is the
 scheduler's, which needs the Kubernetes API server at an address that is a DHCP
 lease, so it permits everything but the pod and service networks; the file
@@ -1991,7 +1991,7 @@ public route to the plane, its Ingress or the registry front's middleware,
 names that Service. The policy is in `cluster/chuggy/chuggy-pool-plane.yaml`,
 and `tests/pool-plane-metrics.py` holds it and the routes.
 
-**`chuggy-ui` is selected by none of the nine, in either direction**, and that
+**`chuggy-ui` is selected by none of the eight, in either direction**, and that
 is the state this PR leaves it in rather than a decision it argues. It is the
 console: nginx serving static files, reached from Traefik, with no `proxy_pass`
 in it — the browser reaches the API through Traefik and this pod opens no

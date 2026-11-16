@@ -159,9 +159,9 @@ spec:
     # what the pod's own MCP tools go over, at the origin
     # `CHUG_SCHEDULER_SESSION_API_URL` names, and what that bearer may do there
     # is the principal's project membership and not this rule. Its other half is
-    # the third `from` element on
-    # `chuggy-api-admits-traefik-and-the-selector`. Either half alone refuses
-    # the connection, so the two were written in one change and move together.
+    # the second `from` element on `chuggy-api-ingress`. Either half alone
+    # refuses the connection, so the two were written in one change and move
+    # together.
     - to:
         - namespaceSelector:
             matchLabels:

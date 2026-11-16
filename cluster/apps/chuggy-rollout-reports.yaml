@@ -29,7 +29,7 @@
 # THE ADDRESS IS THE API'S SERVICE AND NOT ITS PUBLIC NAME. The release
 # pipeline's `report` task posts to `chuggy.vteng.io` because nothing admits a
 # build pod to the control plane. This pod is admitted, by one element of
-# `chuggy-api-admits-traefik-and-the-selector`, and going out to come back
+# `chuggy-api-ingress`, and going out to come back
 # would put Cloudflare, the tunnel, Traefik and the Ingress, which is an object
 # of the release being reported, between a rollout and the report of it. It is
 # plain HTTP, as the pod's port is: the key signs and is never sent. The
