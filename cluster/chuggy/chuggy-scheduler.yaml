@@ -1400,8 +1400,8 @@ spec:
             # single journaled actor is what completes a ticket.
             #
             # `routes` places a project's threads as the execution policy
-            # places its work: on its own registered runners unless the
-            # project chose this cluster (kasofsk/chuggy#843). Every project
+            # places its work: on the member's own registered runners unless
+            # the project chose this cluster (kasofsk/chuggy#843). Every project
             # that stood before that release was given a row keeping it here.
             - name: CHUG_SCHEDULER_SESSION_POLICY
               value: |
