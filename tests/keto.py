@@ -72,11 +72,11 @@ WRITE_SERVICE = "keto-write"
 POSTGRES_POLICY = "postgres-admits-labelled-clients"
 POSTGRES_CLIENT = ("chuggy.dev/postgres-client", "true")
 
-# The API, the scheduler, the pool plane and the access plane are each told
-# where the read port is, and each URL is a second copy of the Service's own
-# number. This gate reads each, and the arm each workload's own policy has to
-# carry for its URL to be openable at all. Each is (deployment, container,
-# variable, egress policy).
+# The API, the scheduler, the pool plane, the access plane and the worker plane
+# are each told where the read port is, and each URL is a second copy of the
+# Service's own number. This gate reads each, and the arm each workload's own
+# policy has to carry for its URL to be openable at all. Each is (deployment,
+# container, variable, egress policy).
 READERS = (
     ("chuggy-api", "api", "CHUG_API_KETO_READ_URL", "chuggy-api-egress"),
     (
@@ -96,6 +96,12 @@ READERS = (
         "access-plane",
         "CHUG_ACCESS_PLANE_KETO_READ_URL",
         "chuggy-access-plane-egress",
+    ),
+    (
+        "chuggy-worker-plane",
+        "worker-plane",
+        "CHUG_WORKER_PLANE_KETO_READ_URL",
+        "chuggy-worker-plane-egress",
     ),
 )
 
