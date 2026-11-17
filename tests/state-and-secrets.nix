@@ -166,7 +166,6 @@ pkgs.testers.runNixOSTest {
         "owner-password",
         "api-password",
         "ticket-service-password",
-        "selector-service-password",
         "scheduler-password",
         "finalizer-password",
         "worker-plane-password",

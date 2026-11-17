@@ -1905,9 +1905,8 @@ every service group is deliberate in `postgres-roles.sql`, so a correctly
 provisioned database is on this branch by construction.
 
 Then the Job goes `Complete`, the ledger advances, the grant does not land, and
-the API's selector-context reads fail at runtime with `permission denied for
-function project_capacity_account`. **Deleting the Job does not fix it** — the
-ledger committed, so a re-run has nothing pending and applies nothing. Recovery
+nothing reports it. **Deleting the Job does not fix it** — the ledger committed,
+so a re-run has nothing pending and applies nothing. Recovery
 is the membership grant plus re-issuing migration 17's grant by hand. Which is
 why prerequisite 1 below has to happen *before* the Job runs, not after.
 

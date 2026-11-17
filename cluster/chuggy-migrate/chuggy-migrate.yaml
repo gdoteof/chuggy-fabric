@@ -149,9 +149,7 @@
 # is the accident, not the rule.
 #
 # THEN THE RUN EXITS 0 AND THE JOB IS `Complete`, the ledger advances, the grant
-# does not land, and the API's selector-context reads fail at runtime with
-# `permission denied for function project_capacity_account` -- a failure with no
-# signal at the layer that caused it.
+# does not land, and nothing reports it at the layer that caused it.
 #
 # AND DELETING THE JOB DOES NOT FIX IT. That is the property that makes this
 # worth this much text. The ledger row committed, so the applied ledger is still

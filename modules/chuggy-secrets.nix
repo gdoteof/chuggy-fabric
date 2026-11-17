@@ -157,7 +157,6 @@ let
       "owner-password" = "password";
       "api-password" = "password";
       "ticket-service-password" = "password";
-      "selector-service-password" = "password";
       "scheduler-password" = "password";
       "finalizer-password" = "password";
       "worker-plane-password" = "password";
