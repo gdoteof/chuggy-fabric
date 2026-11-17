@@ -385,7 +385,8 @@ IMAGE_TRIGGER_ROLES = {
     BUILD_NAMESPACE: [{"apiGroups": ["tekton.dev"], "resources": ["taskruns"], "verbs": ["list", "create", "delete"]}],
 }
 # The worker image triggers: one ServiceAccount and a CronJob for each of the
-# two images a worker release is, each built from the Dockerfile at its own
+# two images a worker release is and for the chat image, each built from the
+# Dockerfile at its own
 # target, by the two-platform Task, for the digest of the inputs a source
 # holds and not its commit.
 WORKER_TRIGGER = "worker-image-trigger"

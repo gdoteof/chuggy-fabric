@@ -1034,8 +1034,8 @@ runs for one inputs digest by hand:
 
 A build is stopped, run by hand and retried as the site's is: delete the newest
 `worker-image-*`, `worker-runtime-image-*` and `chat-image-*` TaskRuns to build
-the same inputs again, and `kubectl create job --from=cronjob/worker-image-trigger`
-in `chuggy-release-trigger` to ask now.
+the same inputs again, and `kubectl create job --from=cronjob/<trigger>` in
+`chuggy-release-trigger`, for each image's trigger, to ask now.
 
 #### The worker contract's release
 

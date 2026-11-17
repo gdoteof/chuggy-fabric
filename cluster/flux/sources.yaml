@@ -37,7 +37,7 @@ spec:
 #
 # THE INPUTS ARE THE FILES images/worker/Dockerfile READS FROM THE CONTEXT:
 # the directory images/worker/ (the Dockerfile, core.json which pins the core
-# the runtime ships, core.sh), package-lock.json (the Playwright version the
+# the runtime ships, core.sh, chat-sessions.sh), package-lock.json (the Playwright version the
 # `worker` stage installs) and .claude/settings.json (the roster of practices
 # the `worker` stage installs). The final stage also runs the whole tree's
 # gates and keeps only their verdict, so a change elsewhere can turn that

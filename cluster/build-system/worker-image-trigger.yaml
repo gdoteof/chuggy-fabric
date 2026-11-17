@@ -59,8 +59,9 @@
 #
 # NOT SUSPENDED: nothing is deployed by a build. cluster/chuggy/chuggy-scheduler.yaml
 # names the images by digest, and a change writing the digests two runs
-# report is what admits a worker; cluster/chuggy/chuggy-pool-plane.yaml names
-# the chat image the same way. The field is the layer's, as the image
+# report is what admits a worker. Nothing names the chat image until a person
+# writes its digest as CHUG_POOL_PLANE_CHAT_IMAGE in
+# cluster/chuggy/chuggy-pool-plane.yaml. The field is the layer's, as the image
 # trigger's is.
 apiVersion: v1
 kind: ServiceAccount
@@ -288,7 +289,7 @@ spec:
     parameterNotFoundAction: Allow
 ---
 # WHERE THE TRIGGERS' PODS MAY GO: the cluster's DNS and the API server's port,
-# as release-trigger.yaml's `release-trigger-egress` argues. Both CronJobs carry
+# as release-trigger.yaml's `release-trigger-egress` argues. Each CronJob carries
 # the one label this selects.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
