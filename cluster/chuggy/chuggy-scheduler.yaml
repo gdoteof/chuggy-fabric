@@ -285,19 +285,9 @@ spec:
             # declared nowhere here, and a pod mounting a Secret that is
             # missing stays in FailedMount.
             #
-            # `anthropic-api` is chuggy's own Anthropic API key, the slot a
-            # subsidized lead speaks through. Its Secret is made by hand and
-            # declared nowhere, as `track-record`'s is. `claudeCredential` says
-            # which kind of Claude credential a mount is, and a mount that says
-            # one reaches only a session placed on its own slot, so
-            # `claude-code` says one too: a mount that says none reaches every
-            # session, and a subsidized lead's pod would be handed this rig's
-            # subscription beside the key.
-            # `sessionBounds` names both of a mount's bounds. `turnsMax` bounds
-            # one turn and is the launcher's own. `budgetUsd` is metered over a
-            # pod's whole life, as the session bounds below argue, so it sits at
-            # a tenant's month: a working lead never reaches it, and no pod
-            # spends more than its tenant may.
+            # `claudeCredential` says which kind of Claude credential a mount
+            # is, and a mount that says one reaches only a session placed on
+            # its own slot; a mount that says none reaches every session.
             - name: CHUG_SCHEDULER_WORKER_CREDENTIAL_MOUNTS
               value: |
                 {
@@ -311,13 +301,6 @@ spec:
                     "key": "oauth-token",
                     "mountPath": "/var/run/chuggy/credentials/claude-code",
                     "claudeCredential": "Subscription"
-                  },
-                  "anthropic-api": {
-                    "secretName": "anthropic-api",
-                    "key": "api-key",
-                    "mountPath": "/var/run/chuggy/credentials/anthropic-api",
-                    "claudeCredential": "ApiKey",
-                    "sessionBounds": { "budgetUsd": 10, "turnsMax": 200 }
                   },
                   "track-record": {
                     "secretName": "track-record-chuggy",
@@ -1271,8 +1254,7 @@ spec:
             - name: CHUG_SCHEDULER_SESSION_DEADLINE_SECS
               value: "14400"
             # Which model every session of this site speaks to. A site choice
-            # and not a session's: the lead is the project's standing reader,
-            # and reading a project well is the work.
+            # and not a session's.
             - name: CHUG_SCHEDULER_SESSION_MODEL
               value: opus
             # Where the pod's own tools reach this installation's API. THE
@@ -1319,10 +1301,9 @@ spec:
                   "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\",\"credential\":\"chuggy-git-worker\",\"credentialUsername\":\"worker\"}}"
                 }
             # How many session attempts one Claude account may have live at
-            # once. The published default is written for a site whose only
-            # session is a lead; this site is about to have a lead and a thread
-            # per user on one shared account, and a ceiling that the lead alone
-            # can fill is a thread that never gets placed.
+            # once. Every thread placed on this cluster speaks through one
+            # shared account, and a ceiling one member's threads can fill is
+            # another member's thread that never gets placed.
             #
             # Six, and every other bound left at its default. It is under the
             # installation-wide ceiling the process defaults to -- which the
@@ -1335,20 +1316,21 @@ spec:
             # than the number: it is per account, and today there is one.
             - name: CHUG_SCHEDULER_SESSION_PASS_BOUNDS
               value: '{"attemptsPerAccountMax":6}'
-            # THE DOLLAR CAP IS PER ATTEMPT, AND A LEAD OUTLIVES ANY ATTEMPT.
+            # THE DOLLAR CAP IS PER ATTEMPT, AND A SESSION OUTLIVES ANY ATTEMPT.
             # The runtime meters `budgetUsd` over one pod's whole life and
             # answers every turn after the cap the same way before a token is
-            # spent, so the cap is what ends a lead pod -- and the first turn of
-            # the pod that replaces it re-reads the lead's entire transcript at
-            # full price. Under the launcher's published default that first turn
-            # is most of the cap, so a pod takes a few turns and then fails
-            # whichever turn comes next, whatever that turn was carrying.
+            # spent, so the cap is what ends a session pod -- and the first turn
+            # of the pod that replaces it re-reads the session's entire
+            # transcript at full price. Under the launcher's published default
+            # that first turn is most of the cap, so a pod takes a few turns and
+            # then fails whichever turn comes next, whatever that turn was
+            # carrying.
             #
-            # So the cap is set where a working lead cannot reach it. What bounds
-            # a session's spend is the account's own rate limit and the idle
-            # bound, which ends a pod nothing is asking anything of; a cap a
-            # working lead can reach is a cap that fails the work at the moment
-            # it arrives. It is a cap and not none because the bounds carry no
+            # So the cap is set where a working session cannot reach it. What
+            # bounds a session's spend is the account's own rate limit and the
+            # idle bound, which ends a pod nothing is asking anything of; a cap
+            # a working session can reach is a cap that fails the work at the
+            # moment it arrives. It is a cap and not none because the bounds carry no
             # way to name none, only a floor of a cent, and a runaway that
             # spends this much in one pod is a runaway this site wants stopped.
             - name: CHUG_SCHEDULER_SESSION_BOUNDS
@@ -1360,15 +1342,12 @@ spec:
             #
             # `credentials` is the execution policy's list less `codex-auth`,
             # since no session runs Codex, and `track-record`, since a session
-            # runs no gates, with `anthropic-api`, which only a subsidized lead
-            # speaks through. `kubernetesSessionPodRequest` denies a credential
+            # runs no gates. `kubernetesSessionPodRequest` denies a credential
             # slot this list does not name, so this list decides which slots a
             # session may be placed on, and a mount's `claudeCredential` which of
             # them reaches it.
             #
-            # `claude-code` is what a thread or a lead on its project's own
-            # runtime speaks to the model with, and `anthropic-api` is what a
-            # subsidized lead does.
+            # `claude-code` is what a thread speaks to the model with.
             # `chuggy-git-worker` is what it clones this cluster's own git
             # service with, and it is here because a session bound there takes
             # a checkout: the plane mints for a forge and answers 404 for that
@@ -1379,8 +1358,7 @@ spec:
             #
             # NO FORGE CREDENTIAL IS GRANTED, and a session needs none: the
             # plane mints what a pod presents to the forge, and a slot is what
-            # this list is about. A lead reads a binding; it has no branch to
-            # push and no forge call to make.
+            # this list is about.
             #
             # `mirrors` IS GONE WITH THE MIRROR ITSELF. It rewrote a GitHub
             # binding to an in-cluster copy as the placement was composed, which
@@ -1393,17 +1371,15 @@ spec:
             # THIS LIST IS THE WHOLE OF THAT BOUND, and the network is not the
             # other half of it: `chuggy-sessions`' public-443 arm cannot name a
             # host, so github.com is already reachable from a session pod. What
-            # stops a lead pushing to the forge is that it holds no credential
-            # for one, and nothing else does.
+            # stops a session pushing to the forge with a credential of this
+            # list is that the list holds none for one.
             #
             # `tools` is empty, and stays empty. It is a `PolicyAuthorityGrant`
             # field the session pod reads nothing out of: what tools a session
             # holds is its `agent_session.capabilities`, mapped in the image to
-            # `allowedTools`/`disallowedTools`. Writing the lead's roster here
-            # would be a third copy of it -- after chuggy's
-            # `src/interpreter/leadTools.ts` and chuggy-common's
-            # `chuggyTools.mjs` -- that nothing reads and nothing holds against
-            # the other two, which is a control described as stronger than it is.
+            # `allowedTools`/`disallowedTools`. A roster written here would be a
+            # copy of that mapping that nothing reads and nothing holds against
+            # it, which is a control described as stronger than it is.
             # `mayCompleteTask` is false for the reason it is false above: the
             # single journaled actor is what completes a ticket.
             #
@@ -1419,7 +1395,7 @@ spec:
                   "runtimeVersion": "claude-code-latest",
                   "grant": {
                     "tools": [],
-                    "credentials": ["chuggy-git-worker", "claude-code", "anthropic-api"],
+                    "credentials": ["chuggy-git-worker", "claude-code"],
                     "network": true,
                     "filesystem": "WriteWorkspace",
                     "mayCompleteTask": false
