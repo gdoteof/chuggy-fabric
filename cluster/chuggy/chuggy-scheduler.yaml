@@ -286,8 +286,9 @@ spec:
             # missing stays in FailedMount.
             #
             # `claudeCredential` says which kind of Claude credential a mount
-            # is, and a mount that says one reaches only a session placed on
-            # its own slot; a mount that says none reaches every session.
+            # is: a session placed on its slot is told that kind, and a mount
+            # that says one reaches only a session placed on its own slot,
+            # where a mount that says none reaches every session.
             - name: CHUG_SCHEDULER_WORKER_CREDENTIAL_MOUNTS
               value: |
                 {
@@ -1300,10 +1301,12 @@ spec:
                 {
                   "CHUG_WORKER_REPOSITORIES": "{\"http://git.chuggy-git.svc.cluster.local./chuggy.git\":{\"url\":\"http://git.chuggy-git.svc.cluster.local./chuggy.git\",\"credential\":\"chuggy-git-worker\",\"credentialUsername\":\"worker\"}}"
                 }
-            # How many session attempts one Claude account may have live at
-            # once. Every thread placed on this cluster speaks through one
-            # shared account, and a ceiling one member's threads can fill is
-            # another member's thread that never gets placed.
+            # How many session attempts one project may have live on this
+            # cluster at once. The count is per capacity account, which is
+            # `project_capacity_account(tenant, project)`, and it leaves out
+            # attempts on a member's own runners. A ceiling one member's
+            # threads can fill is another member's thread in that project that
+            # never gets placed.
             #
             # Six, and every other bound left at its default. It is under the
             # installation-wide ceiling the process defaults to -- which the
@@ -1311,9 +1314,6 @@ spec:
             # above the cluster's is one that can never bind -- and that ceiling
             # is not restated here, because a value written equal to its default
             # is the second copy this section's last paragraph is about.
-            #
-            # Per-user credentials would change the axis this counts on rather
-            # than the number: it is per account, and today there is one.
             - name: CHUG_SCHEDULER_SESSION_PASS_BOUNDS
               value: '{"attemptsPerAccountMax":6}'
             # THE DOLLAR CAP IS PER ATTEMPT, AND A SESSION OUTLIVES ANY ATTEMPT.
@@ -1330,9 +1330,10 @@ spec:
             # bounds a session's spend is the account's own rate limit and the
             # idle bound, which ends a pod nothing is asking anything of; a cap
             # a working session can reach is a cap that fails the work at the
-            # moment it arrives. It is a cap and not none because the bounds carry no
-            # way to name none, only a floor of a cent, and a runaway that
-            # spends this much in one pod is a runaway this site wants stopped.
+            # moment it arrives. It is a cap and not none because the bounds
+            # carry no way to name none, only a floor of a cent, and a runaway
+            # that spends this much in one pod is a runaway this site wants
+            # stopped.
             - name: CHUG_SCHEDULER_SESSION_BOUNDS
               value: '{"budgetUsd":1000}'
             # The one image, profile and grant every session here runs under.
