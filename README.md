@@ -950,7 +950,8 @@ the `cronjob` label. Like every alert here it is
 
 `worker-image-run.yaml` and `worker-runtime-image-run.yaml` are the `TaskRun`s
 that build a worker release's two images at a chuggy commit, for [two
-platforms](#the-worker-images-two-platforms). Flux applies neither them nor
+platforms](#the-worker-images-two-platforms), and `chat-image-run.yaml` builds
+the chat image the same way. Flux applies neither them nor
 `release-run.yaml`, and nobody creates them by hand: the [worker image
 triggers](#the-worker-images) do.
 
@@ -1003,7 +1004,15 @@ inputs change and not at every commit: GitRepository `chuggy-worker` in
 (`cluster/build-system/worker-image-trigger.yaml`) compare that source's artifact
 digest with the one written on each image's newest run. The reasoning, and
 what admission holds a run to, is in that file's header; `image-trigger.sh` is
-the script and `tests/image-trigger.nix` runs it for both.
+the script and `tests/image-trigger.nix` runs it for each.
+
+The CronJob `chat-image-trigger` in the same file builds a third image from
+the same inputs, `chuggy/chat`: the Dockerfile's `chat` stage, which is what a
+member's chat host runs its sessions in. Its digest is written by hand as
+`CHUG_POOL_PLANE_CHAT_IMAGE` in `cluster/chuggy/chuggy-pool-plane.yaml`, as
+`registry.chuggy.internal/chuggy/chat@sha256:<digest>`; while that variable is
+unset a chat host is answered the session policy's image. The worker admission
+below does not read its runs.
 
 A build is not an admission. The runs report a `digest` result each, and
 `cluster/build-system/admit-worker.sh` turns the two into the change to
@@ -1021,12 +1030,12 @@ runs for one inputs digest by hand:
 
     kubectl -n chuggy-build get taskruns --sort-by=.metadata.creationTimestamp \
       -o custom-columns='NAME:.metadata.name,COMMIT:.spec.params[?(@.name=="commit")].value,DONE:.status.conditions[0].status,DIGEST:.status.results[?(@.name=="digest")].value' \
-      | grep worker-
+      | grep -e worker- -e chat-image-
 
 A build is stopped, run by hand and retried as the site's is: delete the newest
-`worker-image-*` and `worker-runtime-image-*` TaskRuns to build the same inputs
-again, and `kubectl create job --from=cronjob/worker-image-trigger` in
-`chuggy-release-trigger` to ask now.
+`worker-image-*`, `worker-runtime-image-*` and `chat-image-*` TaskRuns to build
+the same inputs again, and `kubectl create job --from=cronjob/worker-image-trigger`
+in `chuggy-release-trigger` to ask now.
 
 #### The worker contract's release
 
