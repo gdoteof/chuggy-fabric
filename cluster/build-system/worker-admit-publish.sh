@@ -15,7 +15,8 @@
 #   the branch is deleted;
 # - otherwise `main` must still be the commit the change was made against:
 #   the branch is created at it, the file written to it with the blob it was
-#   made from, and the pull request opened;
+#   made from, then the pool plane's file the same way where the hand-off
+#   carries one, and the pull request opened;
 # - then `main` must still be that commit, and the pull request is merged at
 #   the head it was opened at.
 #
@@ -54,6 +55,16 @@ done
 branch=$(cat "$IN/branch")
 path=$(cat "$IN/path")
 blob=$(cat "$IN/blob")
+# The pool plane's file, where its chat image moved: all three or none.
+chat_path='' chat_blob=''
+if [ -e "$IN/chat-path" ] || [ -e "$IN/chat-blob" ] || [ -e "$IN/chat-content" ]; then
+  for name in chat-path chat-blob chat-content; do
+    [ -f "$IN/$name" ] && [ ! -L "$IN/$name" ] || refuse "$IN/$name is not a regular file"
+  done
+  chat_path=$(cat "$IN/chat-path")
+  chat_blob=$(cat "$IN/chat-blob")
+  [ -n "$chat_path" ] && [ -n "$chat_blob" ] || refuse "the chat hand-off names no path or no blob"
+fi
 base=$(cat "$IN/base")
 version=$(cat "$IN/version")
 target=$(cat "$IN/target")
@@ -62,13 +73,14 @@ case $branch in
   admit/worker-????????????) ;;
   *) refuse "branch '$branch' is not one this makes" ;;
 esac
-case /$path/$target/ in
+case /$path/$target/${chat_path:-x}/ in
   */../* | //* | *//*) refuse "path or target is not a plain relative name" ;;
 esac
-case $path$target in
-  *[!A-Za-z0-9/._-]* | "") refuse "path or target holds a character this does not pass to a URL" ;;
+[ -n "$path" ] && [ -n "$target" ] || refuse "path or target is not a plain relative name"
+case $path$target$chat_path in
+  *[!A-Za-z0-9/._-]*) refuse "path or target holds a character this does not pass to a URL" ;;
 esac
-case $blob$base in
+case $blob$base$chat_blob in
   *[!0-9a-f]*) refuse "blob or base is not a hash" ;;
 esac
 
@@ -169,6 +181,18 @@ if [ "$written" != 200 ]; then
   refuse "writing $path on $branch answered $written"
 fi
 head=$(jq -er '.commit.sha' "$work/response.json")
+
+if [ -n "$chat_path" ]; then
+  jq -n --rawfile message "$IN/message" --arg branch "$branch" --arg blob "$chat_blob" \
+    --rawfile content "$IN/chat-content" \
+    '{message: $message, branch: $branch, sha: $blob, content: ($content | @base64)}' > "$work/body.json"
+  written=$(api PUT "/contents/$chat_path" "$work/body.json")
+  if [ "$written" != 200 ]; then
+    expect "204 422" DELETE "/git/refs/heads/$branch"
+    refuse "writing $chat_path on $branch answered $written"
+  fi
+  head=$(jq -er '.commit.sha' "$work/response.json")
+fi
 
 title=$(sed -n 1p "$IN/message")
 jq -n --arg title "$title" --arg head "$branch" --arg base "$target" --rawfile body "$IN/message" \

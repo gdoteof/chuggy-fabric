@@ -3,7 +3,7 @@
 chuggy-scheduler.yaml, and over files shaped to the cases below, and hold what
 it writes.
 
-usage: admit-worker.py SCRIPT SCHEDULER_FILE BUSYBOX_BIN WORK
+usage: admit-worker.py SCRIPT SCHEDULER_FILE PLANE_FILE BUSYBOX_BIN WORK
 
 The script runs under a BusyBox shell with BusyBox's tools only, because the
 pod or the machine that runs it may have no others.
@@ -22,7 +22,14 @@ THE CASES, by the line of the script each is the only reader of:
 - a file with no `chuggy-worker`, one of the three places missing or doubled,
   and a version that is not `0.<n>` are refused;
 - a refused run leaves the file as it was byte for byte;
-- MESSAGE_FILE gets a message naming the version, the commit and both digests.
+- MESSAGE_FILE gets a message naming the version, the commit and both digests;
+- with the repository's pool plane file and a chat digest: that file's one
+  changed line is the chat image's, the message names the digest, and a second
+  run writes neither file; a chat image the file already names leaves it as it
+  was and still admits the worker; a chat digest that is not one, a plane file
+  that is absent, and one naming no chat image or two are refused with both
+  files as they were; a worker that landed while the chat image names another
+  is refused.
 """
 
 import difflib
@@ -41,6 +48,8 @@ RUNTIME = "CHUG_SCHEDULER_WORKER_RUNTIME"
 COMMIT = "1" * 40
 WORKER = "sha256:" + "a" * 64
 RUNTIME_DIGEST = "sha256:" + "b" * 64
+CHAT = "CHUG_POOL_PLANE_CHAT_IMAGE"
+CHAT_DIGEST = "sha256:" + "c" * 64
 FAILURES = []
 
 
@@ -61,9 +70,40 @@ def variables(text):
 
 
 class Suite:
-    def __init__(self, script, scheduler, busybox, work):
+    def __init__(self, script, scheduler, plane, busybox, work):
         self.script, self.busybox, self.work = Path(script), Path(busybox), Path(work)
         self.original = Path(scheduler).read_text()
+        self.plane = Path(plane).read_text()
+
+    def run_chat(self, name, text, plane, chat=CHAT_DIGEST, worker=WORKER, message=False):
+        """The script over a scheduler file and a plane file, `plane` being its
+        text or nothing for a file that is not there."""
+        case = self.work / name
+        case.mkdir(parents=True, exist_ok=True)
+        file, plane_file = case / "chuggy-scheduler.yaml", case / "chuggy-pool-plane.yaml"
+        file.write_text(text)
+        if plane is not None:
+            plane_file.write_text(plane)
+        environment = {"PATH": str(self.busybox), "TMPDIR": str(case)}
+        if message:
+            environment["MESSAGE_FILE"] = str(case / "message")
+        completed = subprocess.run(
+            [str(self.busybox / "sh"), str(self.script), str(file), COMMIT, worker, RUNTIME_DIGEST, str(plane_file), chat],
+            env=environment,
+            text=True,
+            capture_output=True,
+        )
+        return completed, file.read_text(), plane_file.read_text() if plane is not None else None
+
+    def refuses_chat(self, name, plane, says, text=None, **options):
+        text = self.original if text is None else text
+        completed, after, plane_after = self.run_chat(name, text, plane, **options)
+        if completed.returncode == 0:
+            report(name, f"exited 0: {completed.stdout.strip()}")
+        if says not in completed.stderr:
+            report(name, f"did not say `{says}`: {completed.stderr.strip()}")
+        if after != text or plane_after != plane:
+            report(name, "was refused and wrote a file")
 
     def run(self, name, text, *arguments, message=False):
         case = self.work / name
@@ -141,8 +181,8 @@ spec:
 
 
 def main():
-    if len(sys.argv) != 5:
-        raise SystemExit("usage: admit-worker.py SCRIPT SCHEDULER_FILE BUSYBOX_BIN WORK")
+    if len(sys.argv) != 6:
+        raise SystemExit("usage: admit-worker.py SCRIPT SCHEDULER_FILE PLANE_FILE BUSYBOX_BIN WORK")
     suite = Suite(*sys.argv[1:])
     original = suite.original
 
@@ -246,6 +286,39 @@ def main():
     completed = subprocess.run([str(suite.busybox / "sh"), str(suite.script), str(suite.work / "absent"), COMMIT, WORKER, RUNTIME_DIGEST], env={"PATH": str(suite.busybox)}, text=True, capture_output=True)
     if completed.returncode == 0 or "is not a file" not in completed.stderr:
         report("no-file", "a file that is not there was not refused")
+
+    # The chat image, in the repository's own pool plane file.
+    plane = suite.plane
+    completed, after, plane_after = suite.run_chat("chat", original, plane, message=True)
+    if completed.returncode != 0:
+        report("chat", f"exited {completed.returncode}: {completed.stderr.strip()}")
+    if WORKER not in after:
+        report("chat", "the worker was not admitted")
+    before_lines, after_lines = plane.splitlines(), plane_after.splitlines()
+    moved = [(old, new) for old, new in zip(before_lines, after_lines) if old != new]
+    if len(before_lines) != len(after_lines) or len(moved) != 1 or not moved[0][1].endswith(f'/chuggy/chat@{CHAT_DIGEST}"'):
+        report("chat", f"the plane file's changed lines are {moved}")
+    if CHAT_DIGEST not in (suite.work / "chat" / "message").read_text():
+        report("chat", "the message does not name the chat digest")
+    if completed.stdout.count("--- a/") != 2:
+        report("chat", "printed no diff of each file")
+    again, same, plane_same = suite.run_chat("chat-again", after, plane_after)
+    if again.returncode != 0 or same != after or plane_same != plane_after or "nothing is written" not in again.stdout:
+        report("chat-again", f"wrote over what it had written: {again.stdout.strip()} {again.stderr.strip()}")
+    (held,) = re.findall(r"chuggy/chat@(sha256:[0-9a-f]{64})", plane)
+    completed, after, plane_after = suite.run_chat("chat-already-named", original, plane, chat=held)
+    if completed.returncode != 0 or WORKER not in after or plane_after != plane:
+        report("chat-already-named", f"exited {completed.returncode}, or wrote the plane file: {completed.stderr.strip()}")
+    suite.refuses_chat("chat-is-no-digest", plane, "is not sha256:<64 hex>", chat="sha256:" + "c" * 63)
+    suite.refuses_chat("chat-plane-is-absent", None, "is not a file")
+    suite.refuses_chat("chat-is-not-named", plane.replace(CHAT, "SOMETHING_ELSE"), "exactly one chat image")
+    doubled = plane + f'            - name: {CHAT}\n              value: "x/chat@{held}"\n'
+    suite.refuses_chat("chat-is-doubled", doubled, "exactly one chat image")
+    suite.run("chat-worker-landed", original, COMMIT, WORKER, RUNTIME_DIGEST)
+    suite.refuses_chat("chat-names-another-after-the-worker-landed", plane, "names others", text=(suite.work / "chat-worker-landed" / "chuggy-scheduler.yaml").read_text())
+    completed = subprocess.run([str(suite.busybox / "sh"), str(suite.script), "a", COMMIT, WORKER, RUNTIME_DIGEST, "b"], env={"PATH": str(suite.busybox)}, text=True, capture_output=True)
+    if completed.returncode == 0 or "usage" not in completed.stderr:
+        report("usage", "a plane file with no chat digest was not refused")
 
     if FAILURES:
         raise SystemExit(f"admit-worker: {len(FAILURES)} failed: {', '.join(FAILURES)}")

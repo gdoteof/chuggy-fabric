@@ -1008,18 +1008,19 @@ the script and `tests/image-trigger.nix` runs it for each.
 
 The CronJob `chat-image-trigger` in the same file builds a third image from
 the same inputs, `chuggy/chat`: the Dockerfile's `chat` stage, which is what a
-member's chat host runs its sessions in. Its digest is written by hand as
+member's chat host runs its sessions in. Its digest is
 `CHUG_POOL_PLANE_CHAT_IMAGE` in `cluster/chuggy/chuggy-pool-plane.yaml`, as
-`registry.chuggy.internal/chuggy/chat@sha256:<digest>`; while that variable is
-unset a chat host is answered the session policy's image. The worker admission
-below does not read its runs.
+`registry.chuggy.internal/chuggy/chat@sha256:<digest>`, and the worker
+admission below moves it with the worker of the same inputs.
 
 A build is not an admission. The runs report a `digest` result each, and
-`cluster/build-system/admit-worker.sh` turns the two into the change to
+`cluster/build-system/admit-worker.sh` turns them into the change to
 `cluster/chuggy/chuggy-scheduler.yaml` that offers the worker, points the
-session policy at it and moves the runtime. The CronJob `worker-admit` in
-`chuggy-admit` (`cluster/build-system/worker-admit.yaml`) runs it unattended
-on the newest pair, holds the result to `tests/session-placement.py`, and
+session policy at it and moves the runtime, and the change to
+`cluster/chuggy/chuggy-pool-plane.yaml` that moves the chat image. The CronJob
+`worker-admit` in `chuggy-admit` (`cluster/build-system/worker-admit.yaml`)
+runs it unattended on the newest pair once the chat image of the same inputs
+is built, holds the result to `tests/session-placement.py`, and
 opens and merges the pull request as a GitHub App of its own; the header says
 its token is minted on the host (`tokens.worker-admit` in
 `hosts/gtr/default.nix`, held to the CronJob by `tests/worker-admit-token.nix`)

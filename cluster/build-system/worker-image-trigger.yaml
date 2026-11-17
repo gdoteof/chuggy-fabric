@@ -59,10 +59,9 @@
 #
 # NOT SUSPENDED: nothing is deployed by a build. cluster/chuggy/chuggy-scheduler.yaml
 # names the images by digest, and a change writing the digests two runs
-# report is what admits a worker. Nothing names the chat image until a person
-# writes its digest as CHUG_POOL_PLANE_CHAT_IMAGE in
-# cluster/chuggy/chuggy-pool-plane.yaml. The field is the layer's, as the image
-# trigger's is.
+# report is what admits a worker, and it moves CHUG_POOL_PLANE_CHAT_IMAGE in
+# cluster/chuggy/chuggy-pool-plane.yaml to the chat image's. The field is the
+# layer's, as the image trigger's is.
 apiVersion: v1
 kind: ServiceAccount
 metadata:

@@ -8,10 +8,10 @@
 #
 # WHAT IT IS FOR. A member's chat host runs its sessions in one container, and
 # the `chat` stage is the image for that container: the runtime's tree without
-# what only a job runs. A chat host is answered it once a person writes its
-# digest as the pool plane's CHUG_POOL_PLANE_CHAT_IMAGE in
-# cluster/chuggy/chuggy-pool-plane.yaml: admit-worker.sh and the CronJob of
-# worker-admit.yaml read the worker's and the runtime's runs and not this one.
+# what only a job runs. Its digest is the pool plane's
+# CHUG_POOL_PLANE_CHAT_IMAGE in cluster/chuggy/chuggy-pool-plane.yaml, which
+# admit-worker.sh moves with the worker of the same inputs, run by the CronJob
+# of worker-admit.yaml.
 #
 # BUILT WHENEVER THE WORKER IS, for the reason the runtime is: it carries the
 # shipped core, and whether one build changed it is not known before the

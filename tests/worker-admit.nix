@@ -11,6 +11,6 @@ pkgs.runCommand "chuggy-worker-admit" {
   set -eu
   mkdir work
   export HOME="$PWD/work/home"
-  python3 ${./worker-admit.py} ${../cluster/build-system} ${../cluster/chuggy/chuggy-scheduler.yaml} "$PWD/work"
+  python3 ${./worker-admit.py} ${../cluster/build-system} ${../cluster/chuggy/chuggy-scheduler.yaml} ${../cluster/chuggy/chuggy-pool-plane.yaml} "$PWD/work"
   touch "$out"
 ''

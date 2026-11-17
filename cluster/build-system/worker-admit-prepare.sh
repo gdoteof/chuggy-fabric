@@ -4,7 +4,8 @@
 #
 # It runs after worker-admit-read.sh, with no token of any kind. It reads
 # `$IN/pair.env` as data, checks out FABRIC_URL's BRANCH afresh, runs the
-# checkout's own admit-worker.sh over the scheduler file, renders the cluster
+# checkout's own admit-worker.sh over the scheduler file and, for the chat
+# image, the pool plane's, renders the cluster
 # the way tests/rendered-cluster.nix does and runs tests/session-placement.py
 # over it. A step that fails fails the pod, and the step after it, which is the
 # one with the GitHub token, is never started.
@@ -12,7 +13,10 @@
 # WHAT IT LEAVES under `$OUT` IS ALL THE NEXT STEP READS, as regular files: the
 # branch name, the commit message, the changed file's path and new content, the
 # blob and the commit it was made against, and a `ready` marker written last.
-# When there is nothing to admit it leaves nothing, and succeeds.
+# Where the pool plane's file changed too, its path, content and blob are
+# `chat-path`, `chat-content` and `chat-blob`; a chat image the file already
+# names leaves none of the three. When there is nothing to admit it leaves
+# nothing, and succeeds.
 #
 # NOTHING TO ADMIT is no pair, or a worker digest the checkout's scheduler file
 # already holds: a pair that landed, whoever landed it, is not admitted again.
@@ -27,7 +31,7 @@
 # step reads their output as files only.
 set -eu
 
-: "${IN:?}" "${OUT:?}" "${FABRIC_URL:?}" "${BRANCH:?}" "${CHECKOUT:?}" "${SCHEDULER:?}"
+: "${IN:?}" "${OUT:?}" "${FABRIC_URL:?}" "${BRANCH:?}" "${CHECKOUT:?}" "${SCHEDULER:?}" "${PLANE:?}"
 
 say() {
   echo "worker-admit: $*"
@@ -40,14 +44,15 @@ refuse() {
 
 [ -f "$IN/pair.env" ] || { say "no pair to admit"; exit 0; }
 
-# The file is three lines of a form this wrote; it is read, not sourced.
+# The file is lines of a form the step before wrote; it is read, not sourced.
 value_of() {
   sed -n "s/^$1=//p" "$IN/pair.env" | head -n 1
 }
 commit=$(value_of COMMIT)
 worker=$(value_of WORKER_DIGEST)
 runtime=$(value_of RUNTIME_DIGEST)
-for digest in "$worker" "$runtime"; do
+chat=$(value_of CHAT_DIGEST)
+for digest in "$worker" "$runtime" "$chat"; do
   case $digest in
     sha256:*) ;;
     *) refuse "pair.env holds '$digest', which is not a sha256 digest" ;;
@@ -68,10 +73,16 @@ if grep -F "$worker" "$SCHEDULER" > /dev/null; then
 fi
 
 blob=$(git rev-parse "HEAD:$SCHEDULER")
-MESSAGE_FILE=$CHECKOUT/.admit-message sh cluster/build-system/admit-worker.sh "$SCHEDULER" "$commit" "$worker" "$runtime"
+chat_blob=$(git rev-parse "HEAD:$PLANE")
+MESSAGE_FILE=$CHECKOUT/.admit-message sh cluster/build-system/admit-worker.sh "$SCHEDULER" "$commit" "$worker" "$runtime" "$PLANE" "$chat"
 
-changed=$(git status --porcelain --untracked-files=no)
-[ "$changed" = " M $SCHEDULER" ] || refuse "the rewrite changed '$changed', not only $SCHEDULER"
+# The scheduler's file, and the pool plane's where its chat image moved.
+changed=$(git status --porcelain --untracked-files=no | sort | tr '\n' ';')
+case $changed in
+  " M $SCHEDULER;") plane_changed=false ;;
+  " M $PLANE; M $SCHEDULER;") plane_changed=true ;;
+  *) refuse "the rewrite changed '$changed', not $SCHEDULER and at most $PLANE" ;;
+esac
 
 # The cluster as the checks read it: every directory that declares the
 # cluster's own objects, as one stream.
@@ -90,6 +101,11 @@ cp "$CHECKOUT/.admit-message" "$OUT/message"
 printf '%s' "admit/worker-$(printf '%s' "${worker#sha256:}" | cut -c1-12)" > "$OUT/branch"
 printf '%s' "$SCHEDULER" > "$OUT/path"
 printf '%s' "$blob" > "$OUT/blob"
+if $plane_changed; then
+  cp "$PLANE" "$OUT/chat-content"
+  printf '%s' "$PLANE" > "$OUT/chat-path"
+  printf '%s' "$chat_blob" > "$OUT/chat-blob"
+fi
 printf '%s' "$base" > "$OUT/base"
 printf '%s' "$version" > "$OUT/version"
 printf '%s' "$BRANCH" > "$OUT/target"
