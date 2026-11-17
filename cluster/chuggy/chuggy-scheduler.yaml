@@ -1304,9 +1304,8 @@ spec:
             # How many session attempts one project may have live on this
             # cluster at once. The count is per capacity account, which is
             # `project_capacity_account(tenant, project)`, and it leaves out
-            # attempts on a member's own runners. A ceiling one member's
-            # threads can fill is another member's thread in that project that
-            # never gets placed.
+            # attempts on any pool. A ceiling one member's threads can fill is
+            # another member's thread in that project that never gets placed.
             #
             # Six, and every other bound left at its default. It is under the
             # installation-wide ceiling the process defaults to -- which the
@@ -1327,9 +1326,9 @@ spec:
             # carrying.
             #
             # So the cap is set where a working session cannot reach it. What
-            # bounds a session's spend is the account's own rate limit and the
-            # idle bound, which ends a pod nothing is asking anything of; a cap
-            # a working session can reach is a cap that fails the work at the
+            # bounds a session's spend is the Claude account's rate limit and
+            # the idle bound, which ends a pod nothing is asking anything of; a
+            # cap a working session can reach is a cap that fails the work at the
             # moment it arrives. It is a cap and not none because the bounds
             # carry no way to name none, only a floor of a cent, and a runaway
             # that spends this much in one pod is a runaway this site wants
