@@ -13,7 +13,7 @@ pkgs.runCommand "chuggy-admit-worker" {
 } ''
   set -eu
   mkdir work
-  python3 ${./admit-worker.py} ${script} ${../cluster/chuggy/chuggy-scheduler.yaml} ${pkgs.busybox}/bin "$PWD/work"
+  python3 ${./admit-worker.py} ${script} ${../cluster/chuggy/chuggy-scheduler.yaml} ${../cluster/chuggy/chuggy-pool-plane.yaml} ${pkgs.busybox}/bin "$PWD/work"
 
   # What the rewrite makes of the tree is still a tree the placement checks
   # accept: the new worker is the newest offered and the session policy is on it.
@@ -22,7 +22,9 @@ pkgs.runCommand "chuggy-admit-worker" {
   PATH=${pkgs.busybox}/bin sh ${script} cluster/chuggy/chuggy-scheduler.yaml \
     1111111111111111111111111111111111111111 \
     sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
-    sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb > /dev/null
+    sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
+    cluster/chuggy/chuggy-pool-plane.yaml \
+    sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc > /dev/null
   for directory in apps track-record chug-gy headlamp chuggy-migrate chuggy; do
     kubectl kustomize cluster/"$directory" >> cluster.yaml
     echo '---' >> cluster.yaml

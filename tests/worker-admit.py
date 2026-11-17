@@ -2,7 +2,7 @@
 """Run the three scripts of the worker admission against stand-ins for what
 they speak to, and hold what each does.
 
-usage: worker-admit.py BUILD_SYSTEM_DIRECTORY SCHEDULER_FILE WORK
+usage: worker-admit.py BUILD_SYSTEM_DIRECTORY SCHEDULER_FILE PLANE_FILE WORK
 
 BUILD_SYSTEM_DIRECTORY holds worker-admit-{read,prepare,publish}.sh and
 admit-worker.sh. WORK is an empty directory. `sh`, `git`, `jq`, `curl`'s
@@ -16,20 +16,30 @@ THE CASES, by the script each is the only reader of:
   inputs have a run unfinished, failed or missing; a run of another task, one
   with no annotation and one of another image are not counted; a digest or a
   commit that is not a full hash is refused; no runs is nothing, and succeeds;
+  the chat image's digest is read with the pair's, a pair whose chat run is
+  missing, unfinished or failed is nothing, and a chat run of newer inputs
+  beside a pair does not move which inputs are the newest;
 - prepare: over a repository holding this tree's scheduler file, the change is
   made, the placement check is run and the hand-off is the file, the message,
   the branch named for the worker digest and the blob and commit it was made
   against, with `ready` last; a digest the file already holds, and no pair, hand
   off nothing; a placement check that fails fails the step and hands off nothing;
+  the pool plane's file is handed off beside the scheduler's with its own blob
+  where the chat image moved, and not where the file already names it;
 - publish: against a stand-in GitHub, a hand-off becomes a branch, one file
   written with the blob it was made from, and one pull request merged at its
   head; an open pull request is merged and not opened again; a branch with no
   open pull request is left alone; a `main` that moved is not merged over and
   nothing is made; a conflict closes the pull request and deletes the branch and
   fails; no hand-off and no token are as they say; and the token is in no
-  argument of any request and in no output.
+  argument of any request and in no output; a hand-off carrying the pool
+  plane's file writes it second, from its own blob, and merges at that write's
+  head, each file with its own content; that write refused deletes the branch
+  and opens nothing; a chat hand-off that is partial, linked, or names a path
+  that is not plain, makes no request.
 """
 
+import base64
 import json
 import os
 import stat
@@ -39,15 +49,19 @@ from pathlib import Path
 
 BUILD = Path(sys.argv[1]).resolve()
 SCHEDULER = Path(sys.argv[2]).resolve()
-WORK = Path(sys.argv[3]).resolve()
+PLANE = Path(sys.argv[3]).resolve()
+WORK = Path(sys.argv[4]).resolve()
+PLANE_PATH = "cluster/chuggy/chuggy-pool-plane.yaml"
 FAILURES = []
 ANNOTATION = "fabric.chuggy.dev/worker-inputs"
 TASK = "build-two-platform-image"
 WORKER_IMAGE = "registry.example/chuggy/worker"
 RUNTIME_IMAGE = "registry.example/chuggy/worker-runtime"
+CHAT_IMAGE = "registry.example/chuggy/chat"
 COMMIT = "1" * 40
 WORKER = "sha256:" + "a" * 64
 RUNTIME = "sha256:" + "b" * 64
+CHAT = "sha256:" + "5" * 64
 TOKEN = "ghs_secret_value_0123456789"
 
 
@@ -95,11 +109,16 @@ def task_run(name, created, inputs, image, outcome, digest=None, commit=COMMIT, 
     }
 
 
-def pair(inputs, stamp, outcome="True", worker=WORKER, runtime=RUNTIME, commit=COMMIT):
-    return [
+def pair(inputs, stamp, outcome="True", worker=WORKER, runtime=RUNTIME, commit=COMMIT, chat=CHAT, chat_outcome="True"):
+    """The worker's run, the runtime's and then the chat image's, which `chat`
+    as nothing leaves out."""
+    runs = [
         task_run(f"w-{inputs[7:]}", f"2026-01-01T{stamp}:00Z", inputs, WORKER_IMAGE, outcome, worker, commit),
         task_run(f"r-{inputs[7:]}", f"2026-01-01T{stamp}:01Z", inputs, RUNTIME_IMAGE, outcome, runtime, commit),
     ]
+    if chat is not None:
+        runs.append(task_run(f"c-{inputs[7:]}", f"2026-01-01T{stamp}:02Z", inputs, CHAT_IMAGE, chat_outcome, chat, commit))
+    return runs
 
 
 def read(case, items, code=0, *, found=None, stdout=()):
@@ -110,7 +129,7 @@ def read(case, items, code=0, *, found=None, stdout=()):
         case,
         {
             "RUNS_NAMESPACE": "chuggy-build", "TASK": TASK, "WORKER_IMAGE": WORKER_IMAGE,
-            "RUNTIME_IMAGE": RUNTIME_IMAGE, "ANNOTATION": ANNOTATION, "OUT": str(out),
+            "RUNTIME_IMAGE": RUNTIME_IMAGE, "CHAT_IMAGE": CHAT_IMAGE, "ANNOTATION": ANNOTATION, "OUT": str(out),
         },
     )
     expect(f"read: {case}", result, code, stdout=stdout)
@@ -119,8 +138,8 @@ def read(case, items, code=0, *, found=None, stdout=()):
         report(f"read: {case}", f"left {held!r}, not {found!r}")
 
 
-def pair_env(inputs, worker=WORKER, runtime=RUNTIME, commit=COMMIT):
-    return f"INPUTS={inputs}\nCOMMIT={commit}\nWORKER_DIGEST={worker}\nRUNTIME_DIGEST={runtime}\n"
+def pair_env(inputs, worker=WORKER, runtime=RUNTIME, commit=COMMIT, chat=CHAT):
+    return f"INPUTS={inputs}\nCOMMIT={commit}\nWORKER_DIGEST={worker}\nRUNTIME_DIGEST={runtime}\nCHAT_DIGEST={chat}\n"
 
 
 def cases_read():
@@ -143,6 +162,13 @@ def cases_read():
     read("no digest", pair("sha256:in1", "10", worker=""), 1, stdout=["not a sha256 digest"])
     read("a commit that is not one", pair("sha256:in1", "10", commit="main"), 1, stdout=["not a commit hash"])
     read("an annotation with a space", pair("a b", "10"), 1, stdout=["holds whitespace"])
+    read("no chat run", pair("sha256:in1", "10", chat=None), stdout=["no run of the chat image"])
+    read("a chat run unfinished", pair("sha256:in1", "10", chat=None, chat_outcome="Unknown") + [task_run("c", "2026-01-01T10:02:00Z", "sha256:in1", CHAT_IMAGE, "Unknown")], stdout=["nothing to admit"])
+    read("a chat run failed", pair("sha256:in1", "10", chat_outcome="False"), stdout=["nothing to admit"])
+    read("a chat digest that is not one", pair("sha256:in1", "10", chat="sha256:xyz"), 1, stdout=["not a sha256 digest"])
+    ahead = [task_run("c-ahead", "2026-01-01T11:00:00Z", "sha256:in2", CHAT_IMAGE, "True", "sha256:" + "6" * 64)]
+    read("a chat run of newer inputs", pair("sha256:in1", "10") + ahead, found=wanted)
+    read("only chat runs", ahead, stdout=["nothing to admit"])
 
 
 def git(*args, cwd):
@@ -157,6 +183,7 @@ def fabric(name, check):
     placement check that is `check`."""
     root = WORK / "fabric" / name
     write(root / "cluster/chuggy/chuggy-scheduler.yaml", SCHEDULER.read_text())
+    write(root / PLANE_PATH, PLANE.read_text())
     write(root / "cluster/build-system/admit-worker.sh", (BUILD / "admit-worker.sh").read_text())
     write(root / "tests/session-placement.py", f"import sys\nraise SystemExit({check})\n")
     git("init", "--quiet", "--initial-branch=main", cwd=root)
@@ -174,7 +201,7 @@ def prepare(case, repo, pair_text, code=0, *, ready=True, stdout=()):
         {
             "IN": str(directory / "in"), "OUT": str(directory / "out"), "FABRIC_URL": f"file://{repo}",
             "BRANCH": "main", "CHECKOUT": str(directory / "checkout"),
-            "SCHEDULER": "cluster/chuggy/chuggy-scheduler.yaml",
+            "SCHEDULER": "cluster/chuggy/chuggy-scheduler.yaml", "PLANE": PLANE_PATH,
         },
     )
     expect(f"prepare: {case}", result, code, stdout=stdout)
@@ -202,6 +229,22 @@ def cases_prepare():
         blob = subprocess.run(["git", "rev-parse", "HEAD:cluster/chuggy/chuggy-scheduler.yaml"], cwd=repo, capture_output=True, text=True).stdout.strip()
         if (out / "blob").read_text() != blob:
             report("prepare: a pair", "the blob is not the file's at the base")
+        chat_blob = subprocess.run(["git", "rev-parse", f"HEAD:{PLANE_PATH}"], cwd=repo, capture_output=True, text=True).stdout.strip()
+        held = {name: (out / name).read_text() if (out / name).exists() else None for name in ("chat-path", "chat-blob")}
+        if held != {"chat-path": PLANE_PATH, "chat-blob": chat_blob}:
+            report("prepare: a pair", f"the chat hand-off is {held}")
+        if not (out / "chat-content").exists() or (out / "chat-content").read_text() != PLANE.read_text().replace(_held_chat(), CHAT):
+            report("prepare: a pair", "the chat content is not the plane file with its chat image moved")
+        if CHAT not in (out / "message").read_text():
+            report("prepare: a pair", "the message does not name the chat digest")
+    if (repo / PLANE_PATH).read_text() != PLANE.read_text():
+        report("prepare: a pair", "the plane file of the repository it cloned from was changed")
+    out = prepare("a chat image already named", repo, pair_env("sha256:in1", chat=_held_chat()), stdout=["is ready on"])
+    if any((out / name).exists() for name in ("chat-path", "chat-blob", "chat-content")):
+        report("prepare: a chat image already named", "the plane file was handed off unchanged")
+    if not out.joinpath("content").exists() or WORKER not in (out / "content").read_text():
+        report("prepare: a chat image already named", "the worker was not handed off")
+    prepare("a chat digest that is not one", repo, pair_env("sha256:in1", chat="latest"), 1, ready=False, stdout=["not a sha256 digest"])
     if (repo / "cluster/chuggy/chuggy-scheduler.yaml").read_text() != SCHEDULER.read_text():
         report("prepare: a pair", "the repository it cloned from was changed")
 
@@ -216,6 +259,12 @@ def cases_prepare():
 def _held_worker():
     import re
     return re.findall(r"sha256:[0-9a-f]{64}", SCHEDULER.read_text())[-1]
+
+
+def _held_chat():
+    import re
+    (held,) = re.findall(r"chuggy/chat@(sha256:[0-9a-f]{64})", PLANE.read_text())
+    return held
 
 
 GITHUB = r'''#!/usr/bin/env python3
@@ -252,7 +301,9 @@ elif method == "GET" and path.startswith(repo + "/git/ref/heads/admit/"):
 elif method == "POST" and path == repo + "/git/refs":
     state["branch"] = True; done(201, {})
 elif method == "PUT" and path.startswith(repo + "/contents/"):
-    state["written"] = body; done(state.get("write_status", 200), {"commit": {"sha": "9" * 40}, "message": "write refused"})
+    first = "written" not in state
+    state["written" if first else "written_chat"] = {**body, "path": path.split("/contents/", 1)[1]}
+    done(state.get("write_status" if first else "chat_write_status", 200), {"commit": {"sha": ("9" if first else "7") * 40}, "message": "write refused"})
 elif method == "POST" and path == repo + "/pulls":
     state["opened"] = body; done(201, {"number": 7})
 elif method == "GET" and path == repo + "/pulls/7":
@@ -269,7 +320,7 @@ sys.stdout.write(str(status))
 '''
 
 
-def handoff(name):
+def handoff(name, chat=False):
     out = WORK / "handoff" / name
     out.mkdir(parents=True)
     files = {
@@ -277,6 +328,8 @@ def handoff(name):
         "base": "3" * 40, "version": "0.99", "target": "main",
         "message": "Admit worker 0.99, and run sessions and chat on it\n\nbody\n", "content": "new content\n",
     }
+    if chat:
+        files.update({"chat-path": PLANE_PATH, "chat-blob": "6" * 40, "chat-content": "new plane\n"})
     for key, value in files.items():
         write(out / key, value)
     write(out / "ready", "")
@@ -366,6 +419,37 @@ def cases_publish():
         final = publish(f"a hand-off with a bad {name}", {}, 1, directory=out)
         if final["log"]:
             report(f"publish: a hand-off with a bad {name}", "a request was made")
+    final = publish("a hand-off with the chat image", {}, stdout=["admitted"], directory=handoff("chat", chat=True))
+    if methods(final) != [*wanted[:5], f"PUT /contents/{PLANE_PATH}", *wanted[5:]]:
+        report("publish: a hand-off with the chat image", f"made {methods(final)}")
+    second = final.get("written_chat", {})
+    if (second.get("sha"), second.get("branch"), second.get("path")) != ("6" * 40, "admit/worker-" + "a" * 12, PLANE_PATH):
+        report("publish: a hand-off with the chat image", "the plane file was not written from its blob on the branch")
+    contents = [base64.b64decode(final.get(key, {}).get("content", "")).decode() for key in ("written", "written_chat")]
+    if contents != ["new content\n", "new plane\n"]:
+        report("publish: a hand-off with the chat image", f"the files were written as {contents}")
+    if final["written"]["path"] != "cluster/chuggy/chuggy-scheduler.yaml" or final.get("merged", {}).get("sha") != "7" * 40:
+        report("publish: a hand-off with the chat image", "the merge is not at the head the plane file was written to")
+    final = publish("a chat file that cannot be written", {"chat_write_status": 409}, 1, stdout=["answered 409"], directory=handoff("chat-refused", chat=True))
+    if not final.get("deleted") or "opened" in final:
+        report("publish: a chat file that cannot be written", "the branch was left or a pull request opened")
+    out = handoff("chat-partial", chat=True)
+    (out / "chat-blob").unlink()
+    final = publish("a partial chat hand-off", {}, 1, directory=out, stdout=["not a regular file"])
+    if final["log"]:
+        report("publish: a partial chat hand-off", "a request was made")
+    for name, value in {"chat-path": "../x", "chat-blob": "zz"}.items():
+        out = handoff(f"bad-{name}", chat=True)
+        write(out / name, value)
+        final = publish(f"a hand-off with a bad {name}", {}, 1, directory=out)
+        if final["log"]:
+            report(f"publish: a hand-off with a bad {name}", "a request was made")
+    out = handoff("chat-linked", chat=True)
+    (out / "chat-content").unlink()
+    (out / "chat-content").symlink_to("/etc/hostname")
+    final = publish("a linked chat file", {}, 1, directory=out, stdout=["not a regular file"])
+    if final["log"]:
+        report("publish: a linked chat file", "a request was made")
     out = handoff("linked")
     (out / "content").unlink()
     (out / "content").symlink_to("/etc/hostname")

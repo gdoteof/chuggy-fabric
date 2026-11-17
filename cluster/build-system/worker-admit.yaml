@@ -2,10 +2,10 @@
 # been built is offered, and if not, the pull request that offers it, merged.
 #
 # WHAT IT AUTOMATES is the second manual step of a worker release. The first,
-# worker-image-trigger.yaml, builds the worker and the runtime for each digest
-# of the worker's inputs. This reads the two runs' `digest` results, writes
-# what the manual admissions wrote with admit-worker.sh into a fresh checkout of
-# this repository's `main`, and merges it as a pull request. cluster/chuggy
+# worker-image-trigger.yaml, builds the worker, the runtime and the chat image
+# for each digest of the worker's inputs. This reads the three runs' `digest`
+# results, writes what the manual admissions wrote with admit-worker.sh into a
+# fresh checkout of this repository's `main`, and merges it as a pull request. cluster/chuggy
 # reaches the cluster from a published release, so merging is the whole of an
 # admission, as the manual commits were.
 #
@@ -63,10 +63,12 @@
 #
 # NOT HANDLED. No alert fires when it stops succeeding: cluster/apps's
 # TriggerNotSucceeding reads the trigger namespace only. A pair admitted by a
-# person first is not admitted again, and a rejected pull request is not made
+# person first is not admitted again, and neither is its chat image where that
+# person left the pool plane's as it was, and a rejected pull request is not made
 # again until its branch is deleted. Nothing checks that the registry holds the
 # digests. A build whose inputs moved again before it was admitted is never
-# admitted; the newer one is.
+# admitted; the newer one is. A chat image whose build keeps failing holds the
+# worker of the same inputs back with it.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -258,6 +260,7 @@ spec:
                 - { name: TASK, value: build-two-platform-image }
                 - { name: WORKER_IMAGE, value: registry.chuggy-registry.svc.cluster.local:5000/chuggy/worker }
                 - { name: RUNTIME_IMAGE, value: registry.chuggy-registry.svc.cluster.local:5000/chuggy/worker-runtime }
+                - { name: CHAT_IMAGE, value: registry.chuggy-registry.svc.cluster.local:5000/chuggy/chat }
                 - { name: ANNOTATION, value: fabric.chuggy.dev/worker-inputs }
                 - { name: OUT, value: /work/pair }
               resources:
@@ -286,6 +289,7 @@ spec:
                 - { name: BRANCH, value: main }
                 - { name: CHECKOUT, value: /work/checkout }
                 - { name: SCHEDULER, value: cluster/chuggy/chuggy-scheduler.yaml }
+                - { name: PLANE, value: cluster/chuggy/chuggy-pool-plane.yaml }
               resources:
                 requests: { cpu: 100m, memory: 128Mi }
                 limits: { memory: 1Gi }

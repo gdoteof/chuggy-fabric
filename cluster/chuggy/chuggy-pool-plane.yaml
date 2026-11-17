@@ -81,7 +81,7 @@ spec:
             # The image a member's chat host runs its sessions in, in place of
             # the session policy's: a run of
             # cluster/build-system/chat-image-run.yaml reports the digest, and
-            # a person writes it here.
+            # cluster/build-system/admit-worker.sh writes it here.
             - name: CHUG_POOL_PLANE_CHAT_IMAGE
               value: "registry.chuggy.internal/chuggy/chat@sha256:af37c08fc2bd95efc4c5b2ff6cb40f4c17960903731d288273264f8f9eb70ea9"
             # The API's public origin, which a session a pool runs calls its
