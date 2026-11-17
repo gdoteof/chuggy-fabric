@@ -63,7 +63,8 @@
 #
 # NOT HANDLED. No alert fires when it stops succeeding: cluster/apps's
 # TriggerNotSucceeding reads the trigger namespace only. A pair admitted by a
-# person first is not admitted again, and a rejected pull request is not made
+# person first is not admitted again, and neither is its chat image where that
+# person left the pool plane's as it was, and a rejected pull request is not made
 # again until its branch is deleted. Nothing checks that the registry holds the
 # digests. A build whose inputs moved again before it was admitted is never
 # admitted; the newer one is. A chat image whose build keeps failing holds the

@@ -497,7 +497,7 @@
         release-publish = releasePublish;
 
         # The change that admits a worker release, written from the digests
-        # its two builds report, and what the rewritten tree is held to.
+        # its builds report, and what the rewritten tree is held to.
         admit-worker = admitWorker;
         worker-admit = workerAdmit;
 

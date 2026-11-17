@@ -34,10 +34,12 @@ THE CASES, by the script each is the only reader of:
   fails; no hand-off and no token are as they say; and the token is in no
   argument of any request and in no output; a hand-off carrying the pool
   plane's file writes it second, from its own blob, and merges at that write's
-  head; that write refused deletes the branch and opens nothing; a chat
-  hand-off that is partial, or names a path that is not plain, makes no request.
+  head, each file with its own content; that write refused deletes the branch
+  and opens nothing; a chat hand-off that is partial, linked, or names a path
+  that is not plain, makes no request.
 """
 
+import base64
 import json
 import os
 import stat
@@ -423,6 +425,9 @@ def cases_publish():
     second = final.get("written_chat", {})
     if (second.get("sha"), second.get("branch"), second.get("path")) != ("6" * 40, "admit/worker-" + "a" * 12, PLANE_PATH):
         report("publish: a hand-off with the chat image", "the plane file was not written from its blob on the branch")
+    contents = [base64.b64decode(final.get(key, {}).get("content", "")).decode() for key in ("written", "written_chat")]
+    if contents != ["new content\n", "new plane\n"]:
+        report("publish: a hand-off with the chat image", f"the files were written as {contents}")
     if final["written"]["path"] != "cluster/chuggy/chuggy-scheduler.yaml" or final.get("merged", {}).get("sha") != "7" * 40:
         report("publish: a hand-off with the chat image", "the merge is not at the head the plane file was written to")
     final = publish("a chat file that cannot be written", {"chat_write_status": 409}, 1, stdout=["answered 409"], directory=handoff("chat-refused", chat=True))
@@ -439,6 +444,12 @@ def cases_publish():
         final = publish(f"a hand-off with a bad {name}", {}, 1, directory=out)
         if final["log"]:
             report(f"publish: a hand-off with a bad {name}", "a request was made")
+    out = handoff("chat-linked", chat=True)
+    (out / "chat-content").unlink()
+    (out / "chat-content").symlink_to("/etc/hostname")
+    final = publish("a linked chat file", {}, 1, directory=out, stdout=["not a regular file"])
+    if final["log"]:
+        report("publish: a linked chat file", "a request was made")
     out = handoff("linked")
     (out / "content").unlink()
     (out / "content").symlink_to("/etc/hostname")

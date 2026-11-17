@@ -16,7 +16,7 @@
 # that does not name exactly one chat image is refused before anything is
 # written, and one that already names the digest is left as it is.
 #
-# IT WRITES WHAT THE MANUAL COMMITS DID, and nothing else: in
+# IN FILE IT WRITES WHAT THE MANUAL COMMITS DID, and nothing else: in
 # CHUG_SCHEDULER_OFFERED_IMAGES one entry appended, last, as `chuggy-worker`
 # at the next version after the highest the list holds, for the worker digest;
 # the `image` of CHUG_SCHEDULER_SESSION_POLICY moved to that digest; and
@@ -51,8 +51,10 @@
 # which worker-admit.yaml's header says the owner creates.
 #
 # NOT HANDLED: that a registry holds the digests, or that they are those of the
-# two runs of one inputs digest: worker-admit-read.sh chooses the pair, and
-# nothing here can tell a digest from the right run from one from another.
+# runs of one inputs digest: worker-admit-read.sh chooses them, and nothing
+# here can tell a digest from the right run from one from another. A worker
+# that landed without its chat image is refused, not completed: the chat image
+# is then a person's to write.
 set -eu
 
 refuse() {

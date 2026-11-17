@@ -19,7 +19,8 @@
 # nothing, and succeeds.
 #
 # NOTHING TO ADMIT is no pair, or a worker digest the checkout's scheduler file
-# already holds: a pair that landed, whoever landed it, is not admitted again.
+# already holds: a pair that landed, whoever landed it, is not admitted again,
+# and the chat image of its inputs is not looked at.
 #
 # THE BRANCH IS NAMED FOR THE WORKER DIGEST, `admit/worker-<12 hex>`, so the
 # same pair is the same branch: that is what lets the next step count a branch

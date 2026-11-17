@@ -22,8 +22,8 @@ pkgs.runCommand "chuggy-admit-worker" {
   PATH=${pkgs.busybox}/bin sh ${script} cluster/chuggy/chuggy-scheduler.yaml \
     1111111111111111111111111111111111111111 \
     sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
-    sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \\
-    cluster/chuggy/chuggy-pool-plane.yaml \\
+    sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
+    cluster/chuggy/chuggy-pool-plane.yaml \
     sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc > /dev/null
   for directory in apps track-record chug-gy headlamp chuggy-migrate chuggy; do
     kubectl kustomize cluster/"$directory" >> cluster.yaml

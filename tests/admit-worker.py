@@ -22,7 +22,7 @@ THE CASES, by the line of the script each is the only reader of:
 - a file with no `chuggy-worker`, one of the three places missing or doubled,
   and a version that is not `0.<n>` are refused;
 - a refused run leaves the file as it was byte for byte;
-- MESSAGE_FILE gets a message naming the version, the commit and both digests;
+- MESSAGE_FILE gets a message naming the version, the commit and the two digests;
 - with the repository's pool plane file and a chat digest: that file's one
   changed line is the chat image's, the message names the digest, and a second
   run writes neither file; a chat image the file already names leaves it as it
