@@ -1,5 +1,5 @@
 # The worker image triggers: each minute, whether a build of chuggy's worker
-# image, and of its runtime, is started.
+# image, of its runtime, and of its chat image is started.
 #
 # WHEN: WHEN THE WORKER'S INPUTS MOVE, NOT WHEN `main` DOES. A build is two
 # platforms, a Mac's daemon and the whole tree's gates, and most commits to
@@ -11,7 +11,7 @@
 # only when one of them does. The triggers compare that digest with the one
 # written on the newest run of each image (image-trigger.sh, under
 # INPUTS_ANNOTATION), so a commit elsewhere starts nothing and a change to
-# images/worker/ starts both builds, at the commit the source then holds.
+# images/worker/ starts every build, at the commit the source then holds.
 # The existing triggers compare commits, which is right for an image the whole
 # repository builds; this is why they cannot be used as they are.
 #
@@ -21,11 +21,13 @@
 # same inputs differ. They are built again when the inputs move, or when a
 # person deletes the newest run.
 #
-# TWO CRONJOBS, ONE SOURCE, ONE SERVICEACCOUNT. `worker-image-trigger` builds
-# `chuggy/worker` and `worker-runtime-image-trigger` builds
-# `chuggy/worker-runtime` from the same Dockerfile; image-trigger.sh decides
+# THREE CRONJOBS, ONE SOURCE, ONE SERVICEACCOUNT. `worker-image-trigger` builds
+# `chuggy/worker`, `worker-runtime-image-trigger` builds
+# `chuggy/worker-runtime` and `chat-image-trigger` builds `chuggy/chat`, the
+# image a member's chat host runs its sessions in, from the same Dockerfile;
+# image-trigger.sh decides
 # each by that image's own runs, so each has at most one unfinished build, and
-# the two run at once against the one arm64 daemon. They read the source in
+# they run at once against the one arm64 daemon. They read the source in
 # separate minutes' Jobs, and a push between the reads gives each its own
 # commit: the pair a release is made of is the two runs carrying the same
 # inputs digest, and not the same commit.
@@ -46,10 +48,10 @@
 # more: the Task these runs are of is handed a client certificate for the Mac's
 # daemon, and `arm64-builder` names where it is sent. The two policies below
 # admit from this ServiceAccount a run whose `spec` is worker-image-run.yaml's,
-# of the Dockerfile that file names, for the image and the target of either run
-# file and no other pairing, to the daemon that file names, at the address and
-# the commit the source holds and with the one annotation, the digest the
-# source holds. tests/release-pipeline.py writes the same from the two files
+# of the Dockerfile that file names, for the image and the target of one of the
+# run files and no other pairing, to the daemon that file names, at the address
+# and the commit the source holds and with the one annotation, the digest the
+# source holds. tests/release-pipeline.py writes the same from the run files
 # and refuses a difference, so no file moves alone.
 #
 # IT READS A RUN AS THE API SERVER WILL STORE IT, as image-trigger.yaml
@@ -57,7 +59,9 @@
 #
 # NOT SUSPENDED: nothing is deployed by a build. cluster/chuggy/chuggy-scheduler.yaml
 # names the images by digest, and a change writing the digests two runs
-# report is what admits a worker. The field is the layer's, as the image
+# report is what admits a worker. Nothing names the chat image until a person
+# writes its digest as CHUG_POOL_PLANE_CHAT_IMAGE in
+# cluster/chuggy/chuggy-pool-plane.yaml. The field is the layer's, as the image
 # trigger's is.
 apiVersion: v1
 kind: ServiceAccount
@@ -115,11 +119,12 @@ subjects:
     namespace: chuggy-release-trigger
 ---
 # THE RUN, LESS WHAT THE TRIGGER WRITES INTO IT. `spec` below is
-# worker-image-run.yaml's without its parameters, as CEL; the runtime's is the
-# same and the policy holds one. `images` is each image the two files build,
-# with the target each builds it at, and a run names an image and its target
-# together or is refused: the worker at the last stage, the runtime at
-# `runtime`. The Dockerfile and the daemon are one value each.
+# worker-image-run.yaml's without its parameters, as CEL; the runtime's and
+# the chat image's are the same and the policy holds one. `images` is each
+# image the run files build, with the target each builds it at, and a run names
+# an image and its target together or is refused: the worker at the last
+# stage, the runtime at `runtime`, the chat image at `chat`. The Dockerfile and
+# the daemon are one value each.
 #
 # NO LABEL BUT THE DEFAULTED ONE, AND ONE ANNOTATION. A run's labels are its
 # pod's labels, as image-trigger.yaml argues. The annotation is the digest the
@@ -165,7 +170,8 @@ spec:
       expression: |-
         {
           "registry.chuggy-registry.svc.cluster.local:5000/chuggy/worker": "",
-          "registry.chuggy-registry.svc.cluster.local:5000/chuggy/worker-runtime": "runtime"
+          "registry.chuggy-registry.svc.cluster.local:5000/chuggy/worker-runtime": "runtime",
+          "registry.chuggy-registry.svc.cluster.local:5000/chuggy/chat": "chat"
         }
     - name: params
       expression: >-
@@ -283,7 +289,7 @@ spec:
     parameterNotFoundAction: Allow
 ---
 # WHERE THE TRIGGERS' PODS MAY GO: the cluster's DNS and the API server's port,
-# as release-trigger.yaml's `release-trigger-egress` argues. Both CronJobs carry
+# as release-trigger.yaml's `release-trigger-egress` argues. Each CronJob carries
 # the one label this selects.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -437,6 +443,76 @@ spec:
                 - { name: IMAGE, value: registry.chuggy-registry.svc.cluster.local:5000/chuggy/worker-runtime }
                 - { name: INPUTS_ANNOTATION, value: fabric.chuggy.dev/worker-inputs }
                 - { name: RUN_MANIFEST, value: /trigger/worker-runtime-image-run.yaml }
+                - { name: RETRY_DELAY_SECONDS, value: "300" }
+                - { name: KEEP_RUNS, value: "10" }
+              resources:
+                requests: { cpu: 25m, memory: 64Mi }
+                limits: { memory: 256Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - { name: trigger, mountPath: /trigger, readOnly: true }
+                - { name: tmp, mountPath: /tmp }
+          volumes:
+            - name: trigger
+              configMap:
+                name: image-trigger
+            - name: tmp
+              emptyDir: {}
+---
+# THE CHAT IMAGE: the worker trigger's, over the chat image's runs, and its
+# own CronJob for the reason the runtime's is.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: chat-image-trigger
+  namespace: chuggy-release-trigger
+  labels: { app: worker-image-trigger }
+spec:
+  schedule: "* * * * *"
+  suspend: false
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 30
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 45
+      ttlSecondsAfterFinished: 600
+      template:
+        metadata:
+          labels: { app: worker-image-trigger }
+        spec:
+          serviceAccountName: worker-image-trigger
+          automountServiceAccountToken: true
+          restartPolicy: Never
+          terminationGracePeriodSeconds: 5
+          nodeSelector:
+            kubernetes.io/os: linux
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: trigger
+              image: ghcr.io/fluxcd/flux-cli:v2.6.4@sha256:d6734ea180b0f5135e6a343482da1a669c526ef85525da53a6415c6a9f359861
+              imagePullPolicy: IfNotPresent
+              command: [/bin/sh, /trigger/image-trigger.sh]
+              env:
+                # kubectl keeps a discovery cache under it.
+                - { name: HOME, value: /tmp }
+                - { name: SOURCES_NAMESPACE, value: flux-system }
+                - { name: SOURCE, value: chuggy-worker }
+                - { name: RUNS_NAMESPACE, value: chuggy-build }
+                - { name: TASK, value: build-two-platform-image }
+                - { name: IMAGE, value: registry.chuggy-registry.svc.cluster.local:5000/chuggy/chat }
+                - { name: INPUTS_ANNOTATION, value: fabric.chuggy.dev/worker-inputs }
+                - { name: RUN_MANIFEST, value: /trigger/chat-image-run.yaml }
                 - { name: RETRY_DELAY_SECONDS, value: "300" }
                 - { name: KEEP_RUNS, value: "10" }
               resources:

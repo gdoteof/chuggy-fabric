@@ -1,0 +1,55 @@
+# One build of chuggy's chat image, for linux/amd64 and linux/arm64, and the
+# only manifest for one.
+#
+# NOT APPLIED, and a third run of worker-image-run.yaml's shape, whose header
+# argues everything this file shares with it: the trigger that creates it, the
+# placeholders, the Task and the placement. What differs is the Dockerfile's
+# `chat` stage as `target`, and the image it is pushed to.
+#
+# WHAT IT IS FOR. A member's chat host runs its sessions in one container, and
+# the `chat` stage is the image for that container: the runtime's tree without
+# what only a job runs. A chat host is answered it once a person writes its
+# digest as the pool plane's CHUG_POOL_PLANE_CHAT_IMAGE in
+# cluster/chuggy/chuggy-pool-plane.yaml: admit-worker.sh and the CronJob of
+# worker-admit.yaml read the worker's and the runtime's runs and not this one.
+#
+# BUILT WHENEVER THE WORKER IS, for the reason the runtime is: it carries the
+# shipped core, and whether one build changed it is not known before the
+# registry has the digest.
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: chat-image-
+  namespace: chuggy-build
+  annotations:
+    fabric.chuggy.dev/worker-inputs: "@source-inputs@"
+spec:
+  taskRef:
+    name: build-two-platform-image
+    kind: Task
+  params:
+    - name: url
+      value: "@source-url@"
+    - name: commit
+      value: "@source-commit@"
+    - name: image
+      value: registry.chuggy-registry.svc.cluster.local:5000/chuggy/chat
+    - name: dockerfile
+      value: images/worker/Dockerfile
+    - name: target
+      value: chat
+    - name: arm64-builder
+      value: tcp://192.168.0.175:1234
+  timeout: 3h0m0s
+  serviceAccountName: builder
+  podTemplate:
+    automountServiceAccountToken: false
+    nodeSelector:
+      chuggy.dev/node-role: builder
+      kubernetes.io/os: linux
+      kubernetes.io/arch: amd64
+    tolerations:
+      - key: chuggy.dev/node-role
+        operator: Equal
+        value: builder
+        effect: NoSchedule

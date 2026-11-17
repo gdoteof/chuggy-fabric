@@ -25,8 +25,8 @@ spec:
 ---
 # chuggy's `main`, less everything the worker image is not built from. No layer
 # applies it: the worker image triggers read it, in
-# cluster/build-system/worker-image-trigger.yaml, and build the worker and the
-# runtime at the commit it holds when its digest has moved.
+# cluster/build-system/worker-image-trigger.yaml, and build the worker, the
+# runtime and the chat image at the commit it holds when its digest has moved.
 #
 # THE DIGEST IS WHAT THEY COMPARE, NOT THE REVISION. `revision` is the commit
 # and moves with every push to `main`; `digest` is the archive's, and the
@@ -37,7 +37,7 @@ spec:
 #
 # THE INPUTS ARE THE FILES images/worker/Dockerfile READS FROM THE CONTEXT:
 # the directory images/worker/ (the Dockerfile, core.json which pins the core
-# the runtime ships, core.sh), package-lock.json (the Playwright version the
+# the runtime ships, core.sh, chat-sessions.sh), package-lock.json (the Playwright version the
 # `worker` stage installs) and .claude/settings.json (the roster of practices
 # the `worker` stage installs). The final stage also runs the whole tree's
 # gates and keeps only their verdict, so a change elsewhere can turn that

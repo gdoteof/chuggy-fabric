@@ -91,8 +91,8 @@ files it is spoken to with, the directory the halves are left in for `index`,
 and the Secret's mount; its parameters, results and volumes are
 `build-image`'s but for the daemon, which has no default, and the Secret. Its
 `index` step reads that directory and writes the result the `build` step
-would have. worker-image-run.yaml and worker-runtime-image-run.yaml are the
-runs of it.
+would have. worker-image-run.yaml, worker-runtime-image-run.yaml and
+chat-image-run.yaml are the runs of it.
 
 EVERY IMAGE IS PINNED BY DIGEST, and every step names its `command`, without
 which Tekton asks the image's registry for the entrypoint.
@@ -144,11 +144,11 @@ image-trigger.yaml argues it.
 
 THE WORKER IMAGE TRIGGERS ARE HELD LIKE THE IMAGE TRIGGER, FOR THE RUNS OF THE
 TWO-PLATFORM TASK. Their ServiceAccount, Roles, bindings, egress policy and
-two CronJobs are held as the others are, and their two policies are written
-here again from the two run files: the spec, the image and target of each
+three CronJobs are held as the others are, and their two policies are written
+here again from the three run files: the spec, the image and target of each
 paired, the Dockerfile and the daemon each one value, and the annotation the
 source's digest. The source they read, `chuggy-worker`, is held to its kind
-here and to its `ignore` by tests/flux-layers.py. The two run files are held to
+here and to its `ignore` by tests/flux-layers.py. The run files are held to
 each other, to the Task's parameters, and to one daemon.
 
 THE RUNNER RELEASE TRIGGERS ARE HELD LIKE THE CONTRACT PUBLISH TRIGGER, FOR
@@ -385,7 +385,8 @@ IMAGE_TRIGGER_ROLES = {
     BUILD_NAMESPACE: [{"apiGroups": ["tekton.dev"], "resources": ["taskruns"], "verbs": ["list", "create", "delete"]}],
 }
 # The worker image triggers: one ServiceAccount and a CronJob for each of the
-# two images a worker release is, each built from the Dockerfile at its own
+# two images a worker release is and for the chat image, each built from the
+# Dockerfile at its own
 # target, by the two-platform Task, for the digest of the inputs a source
 # holds and not its commit.
 WORKER_TRIGGER = "worker-image-trigger"
@@ -396,6 +397,7 @@ WORKER_ANNOTATION = "fabric.chuggy.dev/worker-inputs"
 WORKER_TRIGGERS = {
     "worker-image-trigger": {"run": "worker-image-run.yaml", "target": ""},
     "worker-runtime-image-trigger": {"run": "worker-runtime-image-run.yaml", "target": "runtime"},
+    "chat-image-trigger": {"run": "chat-image-run.yaml", "target": "chat"},
 }
 WORKER_PARAMS = ["url", "commit", "image", "dockerfile", "target", "arm64-builder"]
 WORKER_TIMEOUT = "3h0m0s"
