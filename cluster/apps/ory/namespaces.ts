@@ -16,6 +16,8 @@
 // tenant without one is not managed from the site, and no error says so,
 // though a holder written there as the site's `admins` still holds.
 //
+// `make_access_tokens` is implied by `administer` alone, with no relation that grants it and no site path, as `merge_proposals` is.
+//
 // A HOLDER IS A PERSON OR THE HOLDERS OF A ROLE, written as a subject set, and
 // never the holders of another of these relations. Keto follows such a chain
 // and stops at its read depth with an ordinary denial.
@@ -123,6 +125,7 @@ class Project implements Namespace {
     chat_metadata: (ctx: Context): boolean => this.permits.read(ctx),
     skip_planned_evaluations: (ctx: Context): boolean => this.permits.administer(ctx),
     merge_proposals: (ctx: Context): boolean => this.permits.administer(ctx),
+    make_access_tokens: (ctx: Context): boolean => this.permits.administer(ctx),
     grant_admin: (ctx: Context): boolean => this.related.admin_granters.includes(ctx.subject),
     grant_developer: (ctx: Context): boolean => this.related.developer_granters.includes(ctx.subject),
     grant_dispatcher: (ctx: Context): boolean => this.related.dispatcher_granters.includes(ctx.subject),
