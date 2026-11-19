@@ -19,9 +19,10 @@ contract publish trigger and `package` for the runner release triggers. The case
 value.
 
 A CRONJOB WITH `INPUTS_ANNOTATION` COMPARES THE SOURCE'S DIGEST, NOT ITS
-COMMIT. The worker image triggers are the cases below with "the commit" read
-as "the digest of the inputs": a run is for the digest its annotation says, and
-`commit` in a case names which of two digests the run carries. The cases only
+COMMIT. The docs' trigger and the worker image triggers are the cases below
+with "the commit" read as "the digest of the inputs": a run is for the digest
+its annotation says, and `commit` in a case names which of two digests the run
+carries. The cases only
 they have are at the end of `main`: a source that moved to a commit with the
 digest it had starts nothing, a digest that moved at the same commit starts a
 run, a run carrying no annotation is for no inputs, and a failed run is

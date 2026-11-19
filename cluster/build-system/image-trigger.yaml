@@ -1,13 +1,22 @@
-# The image trigger: each minute, whether a build of the site's image is
-# started.
+# The image triggers: each minute, whether a build of the site's image is
+# started, and whether one of the docs' image is.
+#
+# TWO CRONJOBS, TWO SOURCES, ONE SERVICEACCOUNT. `chug-gy-image-trigger` builds
+# `chug-gy/web` at each commit GitRepository `chug-gy` holds;
+# `chuggy-docs-image-trigger` builds `chug-gy/docs`, the docs as an image,
+# when the inputs GitRepository `chuggy-docs` holds move, which is
+# image-trigger.sh's INPUTS_ANNOTATION. Both create a run of the one Task, in
+# the one placement, from a run file that differs from the other in its image
+# and its annotation, so what the token may create is one shape and is held by
+# one pair of policies below; a second ServiceAccount would say it twice.
 #
 # THE RELEASE TRIGGER'S NAMESPACE, BECAUSE THE SAME ARGUMENT PLACES IT THERE:
 # release-trigger.yaml says why a thing that reads the API server is not in
 # `chuggy-build`, and that namespace is where the tokens and the one route are.
 # A ServiceAccount of its own, so that what each token can do is said once.
 #
-# WHAT ITS TOKEN CAN DO IS THREE VERBS AND ONE READ. `get` on the one source it
-# compares, by name, in `flux-system`; `list`, `create` and `delete` on
+# WHAT ITS TOKEN CAN DO IS THREE VERBS AND ONE READ. `get` on the two sources
+# it compares, by name, in `flux-system`; `list`, `create` and `delete` on
 # TaskRuns in `chuggy-build`. It cannot read a run's pods or logs, a Secret
 # anywhere, or any other source.
 #
@@ -15,15 +24,15 @@
 # TaskRun may carry a task of its own, a pod template of its own and any
 # parameters, and `chuggy-build` admits a privileged pod, so the verb by itself
 # is any pod that namespace admits. The two policies below admit from this
-# ServiceAccount a run whose `spec` is chug-gy-image-run.yaml's, for an image
-# and a Dockerfile that file names, at the address and the commit the source
-# holds, with no label but the one Tekton's defaulting writes on every run
+# ServiceAccount a run whose `spec` is the run files', for an image and a
+# Dockerfile a file names, at the address and the commit of that image's
+# source, with no label but the one Tekton's defaulting writes on every run
 # (`app.kubernetes.io/managed-by`, before this policy sees the run) and no
-# annotation. So what the token can start is the
-# run the trigger would start.
+# annotation but the docs' inputs, the digest `chuggy-docs` holds. So what the
+# token can start is a run a trigger would start.
 #
 # image-trigger.sh, in the ConfigMap kustomization.yaml generates beside
-# chug-gy-image-run.yaml, argues what it decides.
+# the run files, argues what it decides.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -39,7 +48,7 @@ metadata:
 rules:
   - apiGroups: [source.toolkit.fluxcd.io]
     resources: [gitrepositories]
-    resourceNames: [chug-gy]
+    resourceNames: [chug-gy, chuggy-docs]
     verbs: [get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -81,19 +90,24 @@ subjects:
     namespace: chuggy-release-trigger
 ---
 # THE RUN, LESS WHAT THE TRIGGER WRITES INTO IT. `spec` below is
-# chug-gy-image-run.yaml's without its parameters, as CEL, and `images` is
-# the one image that file builds, with its Dockerfile. tests/release-pipeline.py
-# writes the same from that file and refuses a difference, so neither moves
-# alone.
+# chug-gy-image-run.yaml's without its parameters, as CEL, and
+# chuggy-docs-image-run.yaml's is the same; `images` is each image the two
+# build, with its Dockerfile. tests/release-pipeline.py writes the same from
+# the files and refuses a difference, so no file moves alone.
+#
+# NO LABEL BUT THE DEFAULTED ONE, AND NO ANNOTATION BUT THE DOCS' INPUTS. A
+# run's labels and annotations are its pod's. The annotation is the digest the
+# docs trigger's comparison reads, and the policy below holds it to the
+# source's, and holds a run of the site's image to carrying none.
 #
 # IT READS A RUN AS THE API SERVER WILL STORE IT, after Tekton's webhook has
 # rewritten it: a `taskRef` with no `kind` is given `Task`, and `1h` is
 # written `1h0m0s`. The run file writes both as stored.
 #
 # THE PARAMETERS ARE HELD HERE AND BELOW. The four names, each once, are held
-# here; `image` and `dockerfile` to the file's values here, because a run for
+# here; `image` and `dockerfile` to a file's values here, because a run for
 # another image or another Dockerfile is any build a commit can describe; `url`
-# and `commit` to the source below.
+# and `commit` to that image's source below.
 #
 # ONLY `tekton.dev/v1`, and NOTHING BUT THE TRIGGER'S ServiceAccount IS HELD BY
 # THIS POLICY, for the reasons release-trigger.yaml gives of its own.
@@ -133,7 +147,10 @@ spec:
         }
     - name: images
       expression: |-
-        {"registry.chuggy-registry.svc.cluster.local:5000/chug-gy/web": "Dockerfile"}
+        {
+          "registry.chuggy-registry.svc.cluster.local:5000/chug-gy/web": "Dockerfile",
+          "registry.chuggy-registry.svc.cluster.local:5000/chug-gy/docs": "Dockerfile"
+        }
     - name: params
       expression: >-
         has(object.spec.params) ? object.spec.params : []
@@ -149,30 +166,32 @@ spec:
         a run the image trigger creates carries no label but the one
         Tekton's defaulting writes on every run, and a run's labels are its
         pod's labels
-    - expression: "!has(object.metadata.annotations)"
+    - expression: >-
+        !has(object.metadata.annotations) || object.metadata.annotations.all(name, name in
+        ["fabric.chuggy.dev/docs-inputs"])
       message: >-
-        a run the image trigger creates carries no annotation, and a run's
-        annotations are its pod's annotations
+        a run the image trigger creates carries no annotation but the digest
+        of the docs' inputs, and a run's annotations are its pod's annotations
     - expression: object.spec.all(field, field == "params" || field in variables.spec)
       message: >-
-        a run the image trigger creates sets nothing chug-gy-image-run.yaml does
-        not, and a task, a step's overrides or a pod template of its own is a
-        pod of its writer's choosing
+        a run the image trigger creates sets nothing its run files do not, and
+        a task, a step's overrides or a pod template of its own is a pod of
+        its writer's choosing
     - expression: variables.spec.all(field, field in object.spec && object.spec[field] == variables.spec[field])
       message: >-
-        a run the image trigger creates is of chug-gy-image-run.yaml's Task,
-        within its time, and its pod runs where and as what that file says
+        a run the image trigger creates is of its run files' Task, within
+        their time, and its pod runs where and as what they say
     - expression: variables.params.map(param, param.name) == ["url", "commit", "image", "dockerfile"]
       message: >-
-        a run the image trigger creates passes the parameters
-        chug-gy-image-run.yaml passes, each once
+        a run the image trigger creates passes the parameters its run files
+        pass, each once
     - expression: >-
         variables.params.exists(param, param.name == "image" && type(param.value) == string && param.value in variables.images)
         && variables.params.exists(param, param.name == "dockerfile" && type(param.value) == string
         && variables.params.exists(image, image.name == "image" && variables.images[string(image.value)] == param.value))
       message: >-
-        a run the image trigger creates builds an image chug-gy-image-run.yaml
-        names, from the Dockerfile it names for that image
+        a run the image trigger creates builds an image a run file names, from
+        the Dockerfile it names for that image
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
@@ -182,21 +201,30 @@ spec:
   policyName: image-trigger-creates-an-image-run
   validationActions: [Deny]
 ---
-# WHAT A RUN IS FOR IS WHAT THE SOURCE HOLDS, as release-trigger.yaml's policy
-# of the same shape argues: `url` is the address the source fetches, and
-# `commit` the commit of the artifact it holds. A source that moved between
+# WHAT A RUN IS FOR IS WHAT ITS IMAGE'S SOURCE HOLDS, as release-trigger.yaml's
+# policy of the same shape argues: `url` is the address the source fetches,
+# and `commit` the commit of the artifact it holds. A source that moved between
 # the trigger's read and its create is refused here, and the next minute reads
 # again.
+#
+# EACH BINDING BELOW GIVES THE POLICY ONE SOURCE, and `named` is the image
+# built from it and the annotation its runs carry its inputs in, none for the
+# site's. A run of that image must be from that source, at what it holds, and
+# carry the digest it holds in that annotation, or, for the site's, no
+# annotation at all; a run
+# of the other image is the other binding's to judge, and the policy above
+# holds every run to one of the two. So neither image is built from the other's
+# repository.
 #
 # A SOURCE THAT IS NOT THERE REFUSES THE TRIGGER, NOT EVERYONE. The release
 # policy's bindings say `parameterNotFoundAction: Deny`, and a release source
 # that is gone then refuses every PipelineRun, which are the release's own. A
 # TaskRun is every build's: a release run's own tasks are TaskRuns, and a
-# `chug-gy` source that is gone must not hold a release. So the binding below
-# says `Allow`, which skips this policy for a run created while the source is
-# not there. The trigger creates none then, because it reads the source first
+# `chug-gy` source that is gone must not hold a release. So each binding
+# below says `Allow`, which skips this policy for a run created while its
+# source is not there. The trigger creates none then, because it reads the source first
 # and a read that fails is a failure; and the policy above still holds the
-# run's shape, so what a token could start without a source is a build of the
+# run's shape, so what a token could start without a source is a build of a
 # named image from the named Dockerfile at a commit of its choosing, which is
 # an image under `chug-gy/` in `registry` and nothing a layer applies.
 apiVersion: admissionregistration.k8s.io/v1
@@ -220,15 +248,24 @@ spec:
   variables:
     - name: named
       expression: >-
-        {"chug-gy": {"address": "url", "commit": "commit"}}[params.metadata.name]
+        {
+          "chug-gy": dyn({"image": "registry.chuggy-registry.svc.cluster.local:5000/chug-gy/web", "inputs": ""}),
+          "chuggy-docs": dyn({"image": "registry.chuggy-registry.svc.cluster.local:5000/chug-gy/docs", "inputs": "fabric.chuggy.dev/docs-inputs"})
+        }[params.metadata.name]
   validations:
     - expression: >-
-        has(params.status.artifact) && has(object.spec.params)
-        && object.spec.params.exists(param, param.name == variables.named.address && param.value == params.spec.url)
-        && object.spec.params.exists(param, param.name == variables.named.commit && type(param.value) == string
+        !(has(object.spec.params)
+        && object.spec.params.exists(param, param.name == "image" && param.value == variables.named.image))
+        || (has(params.status.artifact)
+        && object.spec.params.exists(param, param.name == "url" && param.value == params.spec.url)
+        && object.spec.params.exists(param, param.name == "commit" && type(param.value) == string
         && params.status.artifact.revision.endsWith("@sha1:" + param.value))
+        && (variables.named.inputs == "" ? !has(object.metadata.annotations)
+        : has(object.metadata.annotations)
+        && object.metadata.annotations == {string(variables.named.inputs): params.status.artifact.digest}))
       messageExpression: >-
-        "a run the image trigger creates is for the address and the commit GitRepository "
+        "a run the image trigger creates of " + variables.named.image
+        + " is for the address, the commit and the inputs GitRepository "
         + params.metadata.name + " holds"
 ---
 apiVersion: admissionregistration.k8s.io/v1
@@ -243,10 +280,22 @@ spec:
     namespace: flux-system
     parameterNotFoundAction: Allow
 ---
-# WHERE THE TRIGGER'S POD MAY GO: the cluster's DNS and the API server's port,
-# as release-trigger.yaml's `release-trigger-egress` argues. The same rule
-# again, selected by this trigger's label, because a policy's selector names
-# one label and each trigger carries its own.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: image-trigger-builds-what-chuggy-docs-holds
+spec:
+  policyName: image-trigger-builds-what-a-source-holds
+  validationActions: [Deny]
+  paramRef:
+    name: chuggy-docs
+    namespace: flux-system
+    parameterNotFoundAction: Allow
+---
+# WHERE THE TRIGGERS' PODS MAY GO: the cluster's DNS and the API server's
+# port, as release-trigger.yaml's `release-trigger-egress` argues. The same
+# rule again, selected by these triggers' label, because a policy's selector
+# names one label and each ServiceAccount's triggers carry their own.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -334,6 +383,84 @@ spec:
                 - { name: TASK, value: build-image }
                 - { name: IMAGE, value: registry.chuggy-registry.svc.cluster.local:5000/chug-gy/web }
                 - { name: RUN_MANIFEST, value: /trigger/chug-gy-image-run.yaml }
+                - { name: RETRY_DELAY_SECONDS, value: "300" }
+                - { name: KEEP_RUNS, value: "10" }
+              resources:
+                requests: { cpu: 25m, memory: 64Mi }
+                limits: { memory: 256Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - { name: trigger, mountPath: /trigger, readOnly: true }
+                - { name: tmp, mountPath: /tmp }
+          volumes:
+            - name: trigger
+              configMap:
+                name: image-trigger
+            - name: tmp
+              emptyDir: {}
+---
+# THE DOCS' IMAGE. Each minute, whether GitRepository `chuggy-docs` holds
+# inputs the newest build of `chug-gy/docs` was not started for: the site's
+# trigger but for its source, its image, its run file and INPUTS_ANNOTATION,
+# which has it compare the digest of the docs and not the commit, so a commit
+# to kasofsk/chuggy-docs that leaves them as they were starts nothing. Its
+# timing is the site's trigger's, and tests/release-pipeline.py holds the
+# triggers to one timing.
+#
+# NOT SUSPENDED, and nothing is deployed by a build: no layer names the image
+# yet. The field is the layer's, as the site's trigger's is.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: chuggy-docs-image-trigger
+  namespace: chuggy-release-trigger
+  labels: { app: image-trigger }
+spec:
+  schedule: "* * * * *"
+  suspend: false
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 30
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 45
+      ttlSecondsAfterFinished: 600
+      template:
+        metadata:
+          labels: { app: image-trigger }
+        spec:
+          serviceAccountName: image-trigger
+          automountServiceAccountToken: true
+          restartPolicy: Never
+          terminationGracePeriodSeconds: 5
+          nodeSelector:
+            kubernetes.io/os: linux
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: trigger
+              image: ghcr.io/fluxcd/flux-cli:v2.6.4@sha256:d6734ea180b0f5135e6a343482da1a669c526ef85525da53a6415c6a9f359861
+              imagePullPolicy: IfNotPresent
+              command: [/bin/sh, /trigger/image-trigger.sh]
+              env:
+                # kubectl keeps a discovery cache under it.
+                - { name: HOME, value: /tmp }
+                - { name: SOURCES_NAMESPACE, value: flux-system }
+                - { name: SOURCE, value: chuggy-docs }
+                - { name: RUNS_NAMESPACE, value: chuggy-build }
+                - { name: TASK, value: build-image }
+                - { name: IMAGE, value: registry.chuggy-registry.svc.cluster.local:5000/chug-gy/docs }
+                - { name: INPUTS_ANNOTATION, value: fabric.chuggy.dev/docs-inputs }
+                - { name: RUN_MANIFEST, value: /trigger/chuggy-docs-image-run.yaml }
                 - { name: RETRY_DELAY_SECONDS, value: "300" }
                 - { name: KEEP_RUNS, value: "10" }
               resources:
