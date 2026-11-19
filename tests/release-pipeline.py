@@ -128,19 +128,21 @@ under another path, the source the trigger reads in a namespace where it is
 not, and a release pushed to a repository the Flux source does not read, or
 to a registry that is not the release registry's Service.
 
-THE IMAGE TRIGGER IS HELD BESIDE THE RELEASE TRIGGER, TO THE SAME THINGS. It
-shares the namespace, and the namespace is still held to exactly what is
+THE IMAGE TRIGGERS ARE HELD BESIDE THE RELEASE TRIGGER, TO THE SAME THINGS.
+They share the namespace, and the namespace is still held to exactly what is
 rendered there: each trigger's ServiceAccount, each CronJob, the ConfigMaps
 and one egress policy a trigger. Each CronJob is held to the one timing, the
 one pod and the one container shape; each ServiceAccount to its own two Roles,
-bound to it alone; `chuggy-build`'s RoleBindings to the two. What the image
-trigger creates is a TaskRun, so its two policies are held to that file as the
-release trigger's are to release-run.yaml: the spec written from the file as
-the trigger's ConfigMap carries it, the four parameters each once, the image
-and the Dockerfile the file names, and the source the CronJob reads. Its
-source binding says `Allow` where the release's say `Deny`, because a TaskRun
-is every build's and a site source that is gone must not hold a release;
-image-trigger.yaml argues it.
+bound to it alone; `chuggy-build`'s RoleBindings to the two. What the site's
+and the docs' triggers create is a TaskRun, so their two policies are held to
+the two run files as the release trigger's are to release-run.yaml: the one
+spec written from the files as the triggers' ConfigMap carries them, the four
+parameters each once, the image and the Dockerfile each file names, no
+annotation but the docs' inputs, and each image to the source its CronJob
+reads and to the annotation that CronJob compares. The source bindings say
+`Allow` where the release's say `Deny`, because a TaskRun is every build's and
+a site source that is gone must not hold a release; image-trigger.yaml argues
+it.
 
 THE WORKER IMAGE TRIGGERS ARE HELD LIKE THE IMAGE TRIGGER, FOR THE RUNS OF THE
 TWO-PLATFORM TASK. Their ServiceAccount, Roles, bindings, egress policy and
@@ -364,15 +366,23 @@ TRIGGER_ROLES = {
 }
 TRIGGER_RUNS = "release-trigger-runs"
 
-# The image trigger: one ServiceAccount, and a CronJob for each image it
-# builds, each named with the source it reads, the run file it creates from and
-# the policy that selects its pod.
+# The image triggers: one ServiceAccount, and a CronJob for each image it
+# builds, each named with the source it reads, the run file it creates from,
+# the policy that selects its pod and the annotation its runs carry the
+# source's digest in, where it compares that and not the commit.
 IMAGE_TRIGGER = "image-trigger"
 IMAGE_TRIGGER_RUNS = "image-trigger-runs"
+DOCS_ANNOTATION = "fabric.chuggy.dev/docs-inputs"
 IMAGE_TRIGGERS = {
-    "chug-gy-image-trigger": {"source": "chug-gy", "run": "chug-gy-image-run.yaml", "policy": "image-trigger-egress"},
+    "chug-gy-image-trigger": {
+        "source": "chug-gy", "run": "chug-gy-image-run.yaml", "policy": "image-trigger-egress", "inputs": None,
+    },
+    "chuggy-docs-image-trigger": {
+        "source": "chuggy-docs", "run": "chuggy-docs-image-run.yaml", "policy": "image-trigger-egress",
+        "inputs": DOCS_ANNOTATION,
+    },
 }
-IMAGE_SOURCES = {trigger["source"]: {"address": "url", "commit": "commit"} for trigger in IMAGE_TRIGGERS.values()}
+IMAGE_SOURCES = [trigger["source"] for trigger in IMAGE_TRIGGERS.values()]
 IMAGE_TRIGGER_ROLES = {
     "flux-system": [
         {
@@ -1200,6 +1210,13 @@ def admission_is_held(cluster, release_run, image_runs, contract_run, worker_run
     for file, spec in zip(image_runs, specs):
         exactly(f"{file}'s spec, its parameters apart,", spec, specs[0])
     images = {param_values(image_run)["image"]: param_values(image_run)["dockerfile"] for image_run in image_runs.values()}
+    # Each image trigger's source, with the image built from it and the
+    # annotation its runs carry its inputs in, empty for none.
+    image_sources = {
+        trigger["source"]: {"image": param_values(image_runs[trigger["run"]])["image"], "inputs": trigger["inputs"] or ""}
+        for trigger in IMAGE_TRIGGERS.values()
+    }
+    image_annotations = [trigger["inputs"] for trigger in IMAGE_TRIGGERS.values() if trigger["inputs"]]
     contract_spec = {name: value for name, value in contract_run["spec"].items() if name != "params"}
     worker_specs = [{name: value for name, value in run["spec"].items() if name != "params"} for run in worker_runs.values()]
     for file, spec in zip(worker_runs, worker_specs):
@@ -1239,7 +1256,8 @@ def admission_is_held(cluster, release_run, image_runs, contract_run, worker_run
             "validations": [
                 'object.apiVersion == "tekton.dev/v1"',
                 DEFAULTED_LABEL_ONLY,
-                "!has(object.metadata.annotations)",
+                "!has(object.metadata.annotations) || object.metadata.annotations.all(name, name in"
+                f" {json.dumps(image_annotations)})",
                 'object.spec.all(field, field == "params" || field in variables.spec)',
                 "variables.spec.all(field, field in object.spec && object.spec[field] == variables.spec[field])",
                 f"variables.params.map(param, param.name) == {json.dumps(IMAGE_PARAMS)}",
@@ -1248,8 +1266,18 @@ def admission_is_held(cluster, release_run, image_runs, contract_run, worker_run
         },
         IMAGE_SOURCE_POLICY: {
             "asked": {**IMAGE_ASKED_OF, "paramKind": SOURCE_KIND},
-            "variables": {"named": f"{json.dumps(IMAGE_SOURCES)}[params.metadata.name]"},
-            "validations": [FOR_A_SOURCE],
+            "variables": {"named": f"{cel(image_sources)}[params.metadata.name]"},
+            "validations": [
+                "!(has(object.spec.params)"
+                ' && object.spec.params.exists(param, param.name == "image" && param.value == variables.named.image))'
+                " || (has(params.status.artifact)"
+                ' && object.spec.params.exists(param, param.name == "url" && param.value == params.spec.url)'
+                ' && object.spec.params.exists(param, param.name == "commit" && type(param.value) == string'
+                ' && params.status.artifact.revision.endsWith("@sha1:" + param.value))'
+                ' && (variables.named.inputs == "" ? !has(object.metadata.annotations)'
+                " : has(object.metadata.annotations)"
+                " && object.metadata.annotations == {string(variables.named.inputs): params.status.artifact.digest}))"
+            ],
         },
         WORKER_RUN_POLICY: {
             "asked": WORKER_ASKED_OF,
@@ -1352,12 +1380,11 @@ def admission_is_held(cluster, release_run, image_runs, contract_run, worker_run
         sorted(parameter for named in SOURCES.values() for parameter in named.values()),
         sorted(parameters),
     )
-    for file, image_run in image_runs.items():
-        exactly(
-            f"the parameters {file} is held to",
-            [name for name in IMAGE_PARAMS if name not in ("image", "dockerfile")],
-            [parameter for named in IMAGE_SOURCES.values() for parameter in named.values()][:2],
-        )
+    exactly(
+        "the images the image triggers' sources are held by",
+        sorted(source["image"] for source in image_sources.values()),
+        sorted(images),
+    )
     policies = {name: policy["spec"] for name, policy in of(cluster, "ValidatingAdmissionPolicy").items()}
     exactly(
         "the admission policies rendered",
@@ -1611,7 +1638,11 @@ def main():
         exactly(f"what {file} passes", [param["name"] for param in run["spec"]["params"]], IMAGE_PARAMS)
         passes_what_is_declared(file, set(IMAGE_PARAMS), tasks[BUILD_TASK])
         exactly(f"the labels {file} carries", run["metadata"].get("labels"), None)
-        exactly(f"the annotations {file} carries", run["metadata"].get("annotations"), None)
+        exactly(
+            f"the annotations {file} carries",
+            run["metadata"].get("annotations"),
+            {trigger["inputs"]: "@source-inputs@"} if trigger["inputs"] else None,
+        )
         image_runs[file] = run
     worker_runs = {}
     for cronjob, trigger in WORKER_TRIGGERS.items():
@@ -1737,6 +1768,11 @@ def main():
         image_job, image_environment = cronjob_is_held(cluster, cronjob, IMAGE_TRIGGER)
         exactly(f"the Task CronJob {cronjob} reads the runs of", image_environment.get("TASK"), BUILD_TASK)
         exactly(f"the source CronJob {cronjob} reads", image_environment.get("SOURCE"), trigger["source"])
+        exactly(
+            f"the annotation CronJob {cronjob} reads a run's inputs by",
+            image_environment.get("INPUTS_ANNOTATION"),
+            trigger["inputs"],
+        )
         exactly(
             f"the image CronJob {cronjob} reads the runs by",
             image_environment.get("IMAGE"),

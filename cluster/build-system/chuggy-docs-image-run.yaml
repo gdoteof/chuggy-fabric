@@ -1,0 +1,60 @@
+# One build of the docs' image, and the only manifest for one.
+#
+# NOT APPLIED, as chug-gy-image-run.yaml is not, and for its reason. The
+# generator in kustomization.yaml puts this file in the image trigger's
+# ConfigMap, and the CronJob `chuggy-docs-image-trigger` writes the three
+# values into it and creates it each time GitRepository `chuggy-docs` holds
+# inputs the newest build did not build. A person who starts one does it
+# through that script, by
+# `kubectl create job --from=cronjob/chuggy-docs-image-trigger` in
+# `chuggy-release-trigger`, which starts a build only where the inputs differ
+# from the newest run's; to build the same inputs again, delete the newest run.
+#
+# EACH `@name@` IS A VALUE THE TRIGGER READ off the Flux source: the address it
+# fetches, the commit it holds, and the digest of the archive of the inputs
+# (cluster/flux/sources.yaml says what those are). The digest is written as the
+# run's one annotation, which is what the next comparison reads this run by.
+# The `commit` parameter is what the Task checks out and tags by.
+#
+# The run's `digest` result is the docs at that commit as an image. Nothing
+# names it yet, so a build deploys nothing.
+#
+# NOT UNDER `chuggy/` IN THE REGISTRY, for the reason chug-gy-image-run.yaml
+# gives; under `chug-gy/` beside the site it is read by.
+#
+# THE SAME TASK, THE SAME PLACEMENT AND THE SAME SPEC as chug-gy-image-run.yaml,
+# because one admission policy holds both: the files differ in their image and
+# in the annotation alone.
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: chuggy-docs-image-
+  namespace: chuggy-build
+  annotations:
+    fabric.chuggy.dev/docs-inputs: "@source-inputs@"
+spec:
+  taskRef:
+    name: build-image
+    kind: Task
+  params:
+    - name: url
+      value: "@source-url@"
+    - name: commit
+      value: "@source-commit@"
+    - name: image
+      value: registry.chuggy-registry.svc.cluster.local:5000/chug-gy/docs
+    - name: dockerfile
+      value: Dockerfile
+  timeout: 1h0m0s
+  serviceAccountName: builder
+  podTemplate:
+    automountServiceAccountToken: false
+    nodeSelector:
+      chuggy.dev/node-role: builder
+      kubernetes.io/os: linux
+      kubernetes.io/arch: amd64
+    tolerations:
+      - key: chuggy.dev/node-role
+        operator: Equal
+        value: builder
+        effect: NoSchedule

@@ -2,7 +2,8 @@
 # Whether a build of one image is started now, and the builds that are kept.
 #
 # A CronJob of the image runs this each minute: `chug-gy-image-trigger` for
-# the site's, and `contract-publish-trigger` and the two
+# the site's, `chuggy-docs-image-trigger` for the docs', and
+# `contract-publish-trigger` and the two
 # `runner-release-<package>-trigger`s for a TaskRun that is not a build of an
 # image. It compares what one Flux source holds with the newest build of
 # the image and creates at most one TaskRun, from the run manifest beside it.
