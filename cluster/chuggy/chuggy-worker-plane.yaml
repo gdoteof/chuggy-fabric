@@ -171,8 +171,8 @@ spec:
 # Two kinds of pod in `chuggy-work` reach this listener, and each is admitted by
 # the label its own egress policy is keyed on rather than by the namespace: a
 # namespace rule alone would admit anything anyone ever places there. The
-# scheduler is the third, and Traefik the fourth, for a harness on a pool
-# outside this cluster.
+# scheduler is the third, and Traefik the fourth, for a harness on a member's
+# runner or chat host outside this cluster.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -271,13 +271,13 @@ spec:
       ports:
         - { protocol: TCP, port: 443 }
 ---
-# Where a pool's harness calls back: each assignment carries this host as its
+# Where a runner's harness calls back: each assignment carries this host as its
 # callback URL (chuggy-pool-plane.yaml), and every route resolves against it.
 #
 # WHAT THIS PUBLISHES is every `/v1` route this plane serves, and each of them
 # authenticates an attempt's or a session's bearer before it reads or writes
 # any stored state (kasofsk/chuggy's `src/adapters/http/workerPlaneServer.ts`).
-# A pool's harness holds an attempt's bearer and calls the attempt routes; the
+# A runner's harness holds an attempt's bearer and calls the attempt routes; the
 # session routes are published beside them and refuse any bearer but a live
 # session's. The probes are outside `/v1`, so they are not published.
 #
@@ -285,7 +285,7 @@ spec:
 # takes comes near it: the largest is an artifact, one PUT bounded by
 # `CHUG_WORKER_PLANE_UPLOAD_BYTES_MAX` -- unset above, so chuggy's 4 MiB
 # `workerPlaneUploadBytesMax`. Raised past 100 MB, it would let a pod in this
-# cluster upload what the edge refuses a pool.
+# cluster upload what the edge refuses a runner.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

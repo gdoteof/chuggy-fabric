@@ -179,15 +179,15 @@
     # could not read them -- the split is Traefik's, in
     # cluster/chuggy/chuggy-ui.yaml, and this list cannot express it either way.
     #
-    # chuggy-pool and chuggy-worker are the two planes a worker pool on a
-    # machine outside this cluster calls: the one it polls for assignments, and
+    # chuggy-pool and chuggy-worker are the two planes a member's runner or
+    # chat host on a machine outside this cluster calls: the one it polls for assignments, and
     # the one each assignment's harness calls back. The harness resolves every
     # route against the callback address's origin, so the worker plane cannot
     # sit under a path on another name. The pool plane could, but only behind a
     # rewrite, because it serves its routes from its root; its own name needs
     # none.
     #
-    # chuggy-registry is the read-only registry front such a pool pulls its
+    # chuggy-registry is the read-only registry front such a runner pulls its
     # image from, cluster/apps/registry-public.yaml.
     #
     # track-record is Track Record's API, cluster/track-record/track-record.yaml.

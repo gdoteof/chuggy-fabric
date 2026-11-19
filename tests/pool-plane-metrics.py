@@ -3,8 +3,8 @@
 reached by a public route or by anything but Prometheus, or are not scraped by
 one monitor more often than a runner reports.
 
-The reports' page takes no token and names every runner by its tenant,
-project, pool, owner and machine. Two public routes reach the plane: the
+The reports' page takes no token and names every runner by its tenant, owner
+and machine. Two public routes reach the plane: the
 Ingress for `chuggy-pool.vteng.io`, and the forwardAuth middleware the
 registry's public front puts every pull through. Both name the plane's Service,
 so chuggy-pool-plane.yaml gives the reports a listener and a Service of their

@@ -1,5 +1,5 @@
-# A read-only front on the registry's storage, for worker pools outside this
-# cluster: `registry` has no authentication and accepts pushes, so it is a
+# A read-only front on the registry's storage, for members' runners and chat
+# hosts outside this cluster: `registry` has no authentication and accepts pushes, so it is a
 # second Distribution over the same volume rather than a route to that one.
 # Every request is put to the pool plane's /registry/authorize first, and
 # tests/registry-public.py holds the properties that keep this front read-only.

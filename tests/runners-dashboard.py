@@ -24,17 +24,15 @@ own.
   of its own rather than columns of the others'.
 - The Live and Offline stats count the Runners table's Status query against
   that bound, so the stats and the table cannot read one runner two ways.
-- Every family a panel narrows on `pool` it reads for both kinds of runner,
-  `pool!=""` and `pool=""`. A family read for one kind alone draws nothing of
-  the other, and under Me, where every runner is a personal one, nothing at
-  all.
-- A legend names no label its query drops, and a query of one kind only
-  labels that kind carries, as `workerPoolReportLabels` leaves the others
-  empty: a legend naming an absent label prints the label's name.
-- A legend tells its series apart. A query of one kind names the labels that
-  tell one runner of that kind from another, `tenant`, `project` and `pool`
-  of a pool and `owner` and `host` of a personal runner, and any other query
-  names every label it keeps.
+- Every runner is a member's own. `workerPoolReportLabels` reports its
+  `project` and `pool` empty, which Prometheus stores as no label, so neither
+  is among the labels copied below, and a matcher or grouping on either is
+  refused as one on a label its family does not carry.
+- A legend names no label its query drops: a legend naming an absent label
+  prints the label's name.
+- A legend tells its series apart. A query keeping every runner label names
+  those that tell one member's runner from another, `owner` and `host`, and
+  any other query names every label it keeps.
 
 usage: runners-dashboard.py <rendered apps.yaml> <cluster/apps/runners-dashboard.yaml>
 """
@@ -45,18 +43,15 @@ import sys
 import runners
 from dashboard import ME, Check, Expression, custom_current, documents_of, panels_of, refuse, run, shown, written
 
-RUNNER = {"tenant", "project", "pool", "owner", "personal_runner", "host"}
+RUNNER = {"tenant", "owner", "personal_runner", "host"}
 REPORTED = "chuggy_runner_last_report_timestamp_seconds"
 # kasofsk/chuggy's workerPoolReportAgeMsMax, in src/interpreter/workerPoolReports.ts.
 REPORT_AGE_MS_MAX = 180_000
 BOUND = REPORT_AGE_MS_MAX // 1000
 # Each status, the comparison of a report's age with BOUND it reads, and the range mapping that reads it.
 STATUSES = (("Live", "<=", (None, BOUND)), ("Offline", ">", (BOUND, None)))
-KINDS = {("=", ""), ("!=", "")}
-# The labels each kind's series carry, the rest of RUNNER empty: pools, and personal runners.
-CARRIED = {("!=", ""): {"tenant", "project", "pool", "host"}, ("=", ""): {"tenant", "owner", "personal_runner", "host"}}
-# The labels that tell one runner of each kind from another.
-IDENTIFIED = {("!=", ""): {"tenant", "project", "pool"}, ("=", ""): {"owner", "host"}}
+# The labels that tell one member's runner from another.
+IDENTIFIED = {"owner", "host"}
 # A Status: now less the latest report seen of each runner, or each machine.
 AGE = re.compile(rf"time\(\) - max by \([^()]*\) \(last_over_time\({REPORTED}\{{[^{{}}]*\}}\[\$__range\]\)\)")
 LEGEND = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
@@ -144,38 +139,6 @@ def one_key(table, labels):
             refuse(f"table {table.get('title')!r} keys query {first} by {shown(key)} and query {ref} by {shown(other)}, so its merge adds rows rather than joining them")
 
 
-def kinds_unread(panel):
-    """The families a panel narrows on pool without reading both pools and personal runners of."""
-    found = {}
-    for target in panel.get("targets") or []:
-        for selector in Expression(target["expr"]).selectors:
-            for label, operator, value in selector.matchers:
-                if label == "pool":
-                    found.setdefault(selector.metric, set()).add((operator, value))
-    return sorted(family for family, kinds in found.items() if not KINDS <= kinds)
-
-
-def kind_of(target):
-    """The one kind of runner a query reads, or None where it reads both or neither."""
-    kinds = {
-        (operator, value)
-        for selector in Expression(target["expr"]).selectors
-        for label, operator, value in selector.matchers
-        if label == "pool"
-    }
-    return next(iter(kinds)) if len(kinds) == 1 and next(iter(kinds)) in CARRIED else None
-
-
-def legend_carried(target, where):
-    """Refused where a query of one kind names in its legend a label that kind's series lack."""
-    kind = kind_of(target)
-    if kind is None:
-        return
-    lacking = set(LEGEND.findall(target.get("legendFormat") or "")) - CARRIED[kind]
-    if lacking:
-        refuse(f"{where} names {sorted(lacking)} in its legend, which its kind of runner leaves empty, so the legend prints the label's name")
-
-
 def legend_tells_apart(target, labels, where):
     """Refused where a legend names a label its query drops, or leaves unnamed
     one that tells two of its series apart."""
@@ -183,8 +146,7 @@ def legend_tells_apart(target, labels, where):
     kept = labels or frozenset()
     if named - kept:
         refuse(f"{where} names {sorted(named - kept)} in its legend, which its query does not keep, so the legend prints the label's name")
-    kind = kind_of(target)
-    unnamed = (IDENTIFIED[kind] if kind else kept) - named
+    unnamed = (IDENTIFIED if RUNNER <= kept else kept) - named
     if unnamed:
         refuse(f"{where} leaves {sorted(unnamed)} out of its legend, so two of its series can read alike")
 
@@ -202,7 +164,6 @@ def main():
         for target in panel.get("targets") or []:
             where = f"panel {panel.get('title')!r} query {target.get('refId')}"
             labels[target.get("refId")] = Expression(target["expr"], lambda selector: check.resolved(selector, where)[1]).labels
-            legend_carried(target, where)
             if target.get("legendFormat") not in (None, "", "__auto"):
                 legend_tells_apart(target, labels[target.get("refId")], where)
         if panel.get("type") == "table" and not keeps_the_stopped(panel):
@@ -210,9 +171,6 @@ def main():
         if panel.get("type") == "table":
             statuses[panel.get("title")] = status_of(panel)
             one_key(panel, labels)
-        unread = kinds_unread(panel)
-        if unread:
-            refuse(f"panel {panel.get('title')!r} narrows {', '.join(unread)} on pool without reading both pool=\"\" and pool!=\"\", so one kind of runner is missing from it")
     if statuses.get("Runners") is None:
         refuse("the page has no Runners table with a Status, whose Status the stats count")
     stats = {panel.get("title"): panel for panel in panels_of(dashboard) if panel.get("type") == "stat"}

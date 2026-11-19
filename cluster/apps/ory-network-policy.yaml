@@ -116,7 +116,8 @@ spec:
         - protocol: TCP
           port: 4467 # keto-write
     # From outside `ory`, the chuggy API: writing the tuples a created project
-    # and a registered pool are granted, and a pool's client. Not kratos-admin
+    # is granted, and each runner's client, a member's runner's and a chat
+    # host's. Not kratos-admin
     # -- the API creates no identity. The element reaches all three servers and
     # each number is served by one of them, so it admits hydra-admin and
     # keto-write and nothing on Kratos. chuggy-api-egress is the other half.

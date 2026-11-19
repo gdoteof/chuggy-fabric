@@ -222,11 +222,10 @@ spec:
               value: "14400"
             - name: CHUG_SCHEDULER_PASS_BOUNDS
               value: '{"attemptLeaseSecs":300}'
-            # Keto's read port. The scheduler asks it whether each pool a
-            # project registered still holds `Execute`, the question a pool's
-            # poll is admitted by, so a revoked pool is never one work waits
-            # for. Images from kasofsk/chuggy#762 on require it; an older image
-            # reads only the variables it names and ignores it.
+            # Keto's read port. The scheduler asks it whether a thread's member
+            # may still `read` its project. Images from kasofsk/chuggy#762 on
+            # require it; an older image reads only the variables it names and
+            # ignores it.
             - name: CHUG_SCHEDULER_KETO_READ_URL
               value: http://keto-read.ory.svc.cluster.local:4466/
             # The PostgreSQL an attempt runs its gates against: a sidecar of
@@ -1160,7 +1159,7 @@ spec:
                   "memoryLimit": "4Gi",
                   "ephemeralStorageLimit": "20Gi"
                 }
-            # A project's work and evaluations run on its own registered pools
+            # A project's work and evaluations run on its members' own runners
             # unless the project chose this cluster, which only a member the
             # tenant granted hosted runs may choose (kasofsk/chuggy#810). Every
             # project that stood before that release was given a row keeping it
@@ -1172,11 +1171,11 @@ spec:
             # `track-record` only if it lists it -- and one that omits
             # `credentials` asks for nothing, which leaves it the whole grant,
             # this slot included; an empty list holds nothing. Work routed to
-            # a project's pool runs with that pool's own credentials, and none
-            # of these is mounted there.
+            # a member's runner runs with what that runner holds, and none of
+            # these is mounted there.
             #
             # `codex-auth` IS IN BOTH AND MOUNTED NOWHERE HERE. It is the Codex
-            # agent's and only a pool serves it, so an attempt placed here
+            # agent's and only a member's runner serves it, so an attempt placed here
             # holding it -- one whose configuration omits `credentials`
             # included -- is denied, and its ticket escalates.
             - name: CHUG_SCHEDULER_EXECUTION_POLICY

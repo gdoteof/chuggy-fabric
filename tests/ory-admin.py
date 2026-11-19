@@ -6,7 +6,7 @@ Both authenticate nobody. Hydra's registers OAuth2 clients, accepts logins and
 consents, and reads every grant; Kratos's creates identities and mints sessions
 for them. Each is admitted from inside `ory` and from its declared callers
 outside it, and nothing else: the chuggy API on Hydra's, where it registers a
-pool's client, and the access plane on Kratos's, where it finds or makes the
+runner's client, and the access plane on Kratos's, where it finds or makes the
 account an invitation names and reads who the people on a list are. Neither is
 admitted the other's. A caller is held from both ends -- admitted by the port,
 its URL naming the admin Service on the number it publishes, and its own egress

@@ -46,7 +46,7 @@
 # Keto's write port and Kratos's admin port, and `apps` applies all three from
 # `main`.
 #
-# NO WORKER CONTRACT. No pool polls it and no harness calls it back, so it names
+# NO WORKER CONTRACT. No runner polls it and no harness calls it back, so it names
 # no callback address, image host or deadline.
 #
 # IT ACCEPTS THE TOKENS THE API ACCEPTS, AND IT HAS TO. kasofsk/chuggy's
