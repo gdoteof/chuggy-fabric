@@ -83,7 +83,7 @@ spec:
             # cluster/build-system/chat-image-run.yaml reports the digest, and
             # cluster/build-system/admit-worker.sh writes it here.
             - name: CHUG_POOL_PLANE_CHAT_IMAGE
-              value: "registry.chuggy.internal/chuggy/chat@sha256:d946faca02242de02227c7883701758994c1bbb54ba3bf73b22ce4ccee753ce6"
+              value: "registry.chuggy.internal/chuggy/chat@sha256:2d7b72f0e4cbc5e0de7d78b4489532584534c5890dfa65e3f78c63be0d1c9728"
             # The API's public origin, which a session a chat host runs calls its
             # tools on. The tools' paths carry `/api/v1` themselves, so this is
             # the host and nothing after it; naming none hands no session out.
