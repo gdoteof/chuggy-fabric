@@ -128,6 +128,7 @@
       releasePublish = import ./tests/release-publish.nix { inherit pkgs; };
       admitWorker = import ./tests/admit-worker.nix { inherit pkgs; };
       workerAdmit = import ./tests/worker-admit.nix { inherit pkgs; };
+      chugGyAdmit = import ./tests/chug-gy-admit.nix { inherit pkgs; };
       releaseBuild = import ./tests/release-build.nix { inherit pkgs; };
       arm64Builder = import ./tests/arm64-builder.nix { inherit pkgs; };
       releaseReport = import ./tests/release-report.nix { inherit pkgs; };
@@ -497,9 +498,11 @@
         release-publish = releasePublish;
 
         # The change that admits a worker release, written from the digests
-        # its builds report, and what the rewritten tree is held to.
+        # its builds report, and what the rewritten tree is held to; and the
+        # site's image, admitted the same way.
         admit-worker = admitWorker;
         worker-admit = workerAdmit;
+        chug-gy-admit = chugGyAdmit;
 
         # And the two steps before it: one commit fetched by its hash, and
         # whether its image is the registry's or is built, against a

@@ -447,8 +447,8 @@ releases](#the-runner-packages-releases). The keys remain root-only host state
 outside this repository and the Nix store.
 
 No pod is handed a repository's credential on a forge but the last step of the
-contract publish and of a runner release, and the worker admission CronJob,
-which mounts `chuggy-admit-token`: the api, the ticket service, the finalizer and the importer
+contract publish and of a runner release, and the worker's and the site's
+admission CronJobs, which mount `chuggy-admit-token`: the api, the ticket service, the finalizer and the importer
 each mount a GitHub App's private key and mint for the act they are performing,
 and a work pod's is minted for it by the worker plane. The other exception is
 this cluster's own git service, which no App
@@ -965,7 +965,7 @@ created by hand: the [site's image trigger](#the-sites-image) creates it.
 #### The site's image
 
 The site at chug.gy is built at every commit to kasofsk/chug.gy's `main`, and
-deployed by a commit here. `cluster/build-system/image-trigger.yaml` is the
+deployed by a pull request here that it opens and merges itself. `cluster/build-system/image-trigger.yaml` is the
 release trigger's shape over one source and one Task: GitRepository `chug-gy`
 in `cluster/flux/sources.yaml` follows the site's `main`, and each minute the
 CronJob `chug-gy-image-trigger` in `chuggy-release-trigger` compares the commit
@@ -978,8 +978,16 @@ creates to that file, for that image and that Dockerfile, at the address and
 the commit the source holds.
 
 A build is not a deployment. `cluster/chug-gy/chug-gy.yaml` names the image by
-digest, and the trigger writes nothing here. The run's `digest` result is read
-off the run, and a commit that writes it into that file is what deploys it:
+digest, and the trigger writes nothing here. The CronJob `chug-gy-admit` in
+`chuggy-admit` (`cluster/build-system/chug-gy-admit.yaml`) reads the newest
+run of the image that succeeded and, where the `web` container does not
+already name its `digest` result, writes it there on a fresh checkout of
+`main` and opens and merges that pull request, titled `chug-gy: the site's
+image, built at kasofsk/chug.gy <short commit>`. It is the worker
+admission's shape, below: the same token, the same last step,
+`admit-publish.sh`, and its header says what it does not handle.
+`tests/chug-gy-admit.nix` runs its read and prepare steps. To read the digests
+by hand:
 
     kubectl -n chuggy-build get taskruns --sort-by=.metadata.creationTimestamp \
       -o custom-columns='NAME:.metadata.name,COMMIT:.spec.params[?(@.name=="commit")].value,DONE:.status.conditions[0].status,DIGEST:.status.results[?(@.name=="digest")].value' \

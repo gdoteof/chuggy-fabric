@@ -318,11 +318,12 @@
       secretName = "chuggy-runner-release-token-chuggy-darwin";
       namespaces = [ "chuggy-build" ];
     };
-    # The worker admission's token (cluster/build-system/worker-admit.yaml): the
-    # admit App, for gdoteof/chuggy-fabric alone, which may write contents and
-    # pull requests. The ruleset lets that App merge through a pull request and
-    # never push `main`. tests/worker-admit-token.py holds this entry to the
-    # CronJob that mounts it.
+    # The admissions' token (cluster/build-system/worker-admit.yaml, and
+    # chug-gy-admit.yaml for the site's image): the admit App, for
+    # gdoteof/chuggy-fabric alone, which may write contents and pull requests.
+    # The ruleset lets that App merge through a pull request and never push
+    # `main`. tests/worker-admit-token.py holds this entry to the two CronJobs
+    # that mount it.
     tokens.worker-admit = {
       appId = config.chuggy.githubAppTokens.apps.admit.appId;
       installationId = "179948481";

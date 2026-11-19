@@ -13,7 +13,7 @@
 # comparison reads this run by, so no annotation says it again.
 #
 # The run's `digest` result is what cluster/chug-gy/chug-gy.yaml names the
-# image at, and a commit writing it there is what deploys it.
+# image at, and chug-gy-admit.yaml writes it there once the run succeeds.
 #
 # NOT UNDER `chuggy/` IN THE REGISTRY. tests/rollout-order.py reads an image
 # under that prefix as a release's, and refuses one outside the release layers.
