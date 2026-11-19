@@ -281,8 +281,8 @@ spec:
 #
 # NOT SUSPENDED: each minute's Job starts a build where the source holds a
 # commit the newest run did not build. Nobody is asked, and nothing is
-# deployed: cluster/chug-gy/chug-gy.yaml names the image by digest, and a
-# commit writing the digest this build reports is what deploys it.
+# deployed here: cluster/chug-gy/chug-gy.yaml names the image by digest, and
+# chug-gy-admit.yaml writes the digest this build reports into it.
 #
 # THE FIELD IS THE LAYER'S, and README.md's "The site's image" has the
 # annotation that takes this object from the layer first, which is how the

@@ -391,7 +391,6 @@ IMAGE_TRIGGER_ROLES = {
 # holds and not its commit.
 WORKER_TRIGGER = "worker-image-trigger"
 WORKER_TRIGGER_RUNS = "worker-image-trigger-runs"
-ADMIT_READS_RUNS = "worker-admit-reads-runs"
 WORKER_SOURCE = "chuggy-worker"
 WORKER_ANNOTATION = "fabric.chuggy.dev/worker-inputs"
 WORKER_TRIGGERS = {
@@ -430,11 +429,26 @@ CONTRACT_TIMEOUT = "30m0s"
 CONTRACT_RUN_POLICY = "contract-publish-creates-a-publish-run"
 CONTRACT_SOURCE_POLICY = "contract-publish-publishes-what-a-source-holds"
 CONTRACT_TOKEN_POLICY = "contract-publish-token-has-one-reader"
+# The admissions: the worker's and the site's, in one namespace, mounting one
+# Secret, each reading TaskRuns by a Role of its own and ending in one
+# publishing script, each with branches of its own.
 ADMIT_NAMESPACE = "chuggy-admit"
 ADMIT = "worker-admit"
 ADMIT_SECRET = "chuggy-admit-token"
-ADMIT_TOKEN_POLICY = "worker-admit-token-has-one-reader"
-ADMIT_STEPS = {"read": "worker-admit-read.sh", "prepare": "worker-admit-prepare.sh", "publish": "worker-admit-publish.sh"}
+ADMIT_TOKEN_POLICY = "chuggy-admit-token-readers"
+ADMISSIONS = {
+    "worker-admit": {
+        "reads_runs": "worker-admit-reads-runs",
+        "steps": {"read": "worker-admit-read.sh", "prepare": "worker-admit-prepare.sh", "publish": "admit-publish.sh"},
+        "prefix": "admit/worker-",
+    },
+    "chug-gy-admit": {
+        "reads_runs": "chug-gy-admit-reads-runs",
+        "steps": {"read": "chug-gy-admit-read.sh", "prepare": "chug-gy-admit-prepare.sh", "publish": "admit-publish.sh"},
+        "prefix": "admit/chug-gy-",
+    },
+}
+ADMIT_READS_RUNS = [admission["reads_runs"] for admission in ADMISSIONS.values()]
 CONTRACT_TRIGGER_ROLES = {
     "flux-system": [
         {
@@ -1086,109 +1100,133 @@ def token_policy_reach(named):
     )
 
 
-def worker_admit_is_held(cluster, build_directory):
-    """The worker admission: its rights are a read of TaskRuns, its token is in
-    the last step alone, and its scripts are the files that are read here."""
+def admissions_are_held(cluster, build_directory):
+    """The admissions in `chuggy-admit`: each one's rights are a read of
+    TaskRuns, its token is in its last step alone, its scripts are the files
+    that are read here, and the one policy holds the Secret to their pods."""
     exactly(
         f"what is in {ADMIT_NAMESPACE}",
         sorted((d["kind"], d["metadata"]["name"]) for d in cluster if d["metadata"].get("namespace") == ADMIT_NAMESPACE),
         sorted([
-            ("ConfigMap", next(n for n in of(cluster, "ConfigMap", ADMIT_NAMESPACE) if n.startswith(ADMIT + "-"))),
-            ("CronJob", ADMIT),
             ("NetworkPolicy", "worker-admit-default-deny"),
-            ("NetworkPolicy", "worker-admit-egress"),
-            ("ServiceAccount", ADMIT),
+            *(
+                entry
+                for name in ADMISSIONS
+                for entry in (
+                    ("ConfigMap", next(n for n in of(cluster, "ConfigMap", ADMIT_NAMESPACE) if n.startswith(name + "-") and n[len(name) + 1:].isalnum())),
+                    ("CronJob", name),
+                    ("NetworkPolicy", f"{name}-egress"),
+                    ("ServiceAccount", name),
+                )
+            ),
         ]),
     )
-    account = of(cluster, "ServiceAccount", ADMIT_NAMESPACE)[ADMIT]
-    exactly("whether ServiceAccount worker-admit mounts a token", account.get("automountServiceAccountToken"), False)
     exactly(
         f"the labels of Namespace {ADMIT_NAMESPACE}",
         of(cluster, "Namespace")[ADMIT_NAMESPACE]["metadata"].get("labels"),
         {f"pod-security.kubernetes.io/{mode}": "restricted" for mode in ("enforce", "audit", "warn")},
     )
+    for role in of(cluster, "Role", BUILD_NAMESPACE).values():
+        if role["metadata"]["name"] not in ADMIT_READS_RUNS and any(
+            "get" in rule["verbs"] and "taskruns" in rule["resources"] for rule in role["rules"]
+        ):
+            refuse(f"Role {role['metadata']['name']} reads TaskRuns, which only the admissions do")
+    for name, admission in ADMISSIONS.items():
+        admission_pod_is_held(cluster, build_directory, name, admission)
 
-    # Whatever the account is bound to, anywhere, is this one Role.
-    bound = [
-        (b["kind"], b["metadata"].get("namespace"), b["roleRef"]["name"])
-        for b in cluster
-        if b["kind"] in ("RoleBinding", "ClusterRoleBinding")
-        and any(x.get("name") == ADMIT and x.get("namespace") == ADMIT_NAMESPACE for x in b.get("subjects", []))
-    ]
-    exactly("what ServiceAccount worker-admit is bound to", bound, [("RoleBinding", BUILD_NAMESPACE, ADMIT_READS_RUNS)])
-    exactly(
-        "what worker-admit may do in the build namespace",
-        of(cluster, "Role", BUILD_NAMESPACE)[ADMIT_READS_RUNS]["rules"],
-        [{"apiGroups": ["tekton.dev"], "resources": ["taskruns"], "verbs": ["get", "list"]}],
-    )
-    exactly(
-        "who else is bound to Role worker-admit-reads-runs",
-        [b["metadata"]["name"] for b in cluster if b["kind"] == "RoleBinding" and b["roleRef"]["name"] == ADMIT_READS_RUNS],
-        [ADMIT_READS_RUNS],
-    )
-    for name in (TRIGGER_NAMESPACE,):
-        for role in of(cluster, "Role", BUILD_NAMESPACE).values():
-            if role["metadata"]["name"] != ADMIT_READS_RUNS and any(
-                "get" in rule["verbs"] and "taskruns" in rule["resources"] for rule in role["rules"]
-            ):
-                refuse(f"Role {role['metadata']['name']} reads TaskRuns, which only worker-admit does")
-
-    cron = of(cluster, "CronJob", ADMIT_NAMESPACE)[ADMIT]["spec"]
-    exactly("how CronJob worker-admit is run", {k: cron[k] for k in ("concurrencyPolicy", "successfulJobsHistoryLimit", "failedJobsHistoryLimit", "suspend")}, {"concurrencyPolicy": "Forbid", "successfulJobsHistoryLimit": 1, "failedJobsHistoryLimit": 3, "suspend": False})
-    job = cron["jobTemplate"]["spec"]
-    exactly("how long worker-admit's Job may run", (job["backoffLimit"], job["activeDeadlineSeconds"]), (0, 600))
-    pod = job["template"]["spec"]
-    exactly("labels of the worker-admit pod", job["template"]["metadata"]["labels"], {"app": ADMIT})
-    exactly("the ServiceAccount of worker-admit's pod", (pod["serviceAccountName"], pod["automountServiceAccountToken"]), (ADMIT, False))
-    exactly("what worker-admit's pod may do", pod["securityContext"], {"runAsNonRoot": True, "runAsUser": 1000, "runAsGroup": 1000, "fsGroup": 1000, "seccompProfile": {"type": "RuntimeDefault"}})
-    steps = [*pod.get("initContainers", []), *pod["containers"]]
-    exactly("the steps of worker-admit, in order", [step["name"] for step in steps], list(ADMIT_STEPS))
-    volumes = {volume["name"]: volume for volume in pod["volumes"]}
-    mounts_of = lambda kind: [s["name"] for s in steps if any(m["name"] in [n for n, v in volumes.items() if kind in v] for m in s["volumeMounts"])]
-    exactly("the steps that mount the API token", mounts_of("projected"), ["read"])
-    exactly("the steps that mount the GitHub token", mounts_of("secret"), ["publish"])
-    exactly("the Secret worker-admit mounts", volumes["admit"]["secret"], {"secretName": ADMIT_SECRET, "defaultMode": 0o444, "items": [{"key": "token", "path": "token"}], "optional": True})
-    exactly("what the API token volume is", [list(source) for source in volumes["kube-api"]["projected"]["sources"]], [["serviceAccountToken"], ["configMap"], ["downwardAPI"]])
-    exactly("the kinds of volume worker-admit has", sorted(set(volumes) ), ["admit", "kube-api", "scripts", "tmp", "work"])
-    scripts = of(cluster, "ConfigMap", ADMIT_NAMESPACE)
-    (script_map,) = [m for n, m in scripts.items() if n.startswith(ADMIT + "-")]
-    for step in steps:
-        exactly(f"the image of step {step['name']}", step["image"], steps[0]["image"])
-        if not PINNED.fullmatch(step["image"]):
-            refuse(f"step {step['name']} runs {step['image']}, which is not a tag pinned by digest")
-        exactly(f"what step {step['name']} may do", step["securityContext"], {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True, "capabilities": {"drop": ["ALL"]}})
-        exactly(f"what step {step['name']} runs", step["command"], ["/bin/sh", "/scripts/" + ADMIT_STEPS[step["name"]]])
-        for key in ("secretKeyRef",):
-            if any(key in (entry.get("valueFrom") or {}) for entry in step.get("env", [])):
-                refuse(f"step {step['name']} reads a Secret from its environment")
-        written = (Path(build_directory) / ADMIT_STEPS[step["name"]]).read_text()
-        exactly(f"the script of step {step['name']} in its ConfigMap", script_map["data"][ADMIT_STEPS[step["name"]]], written)
-    exactly("what the publish step may write", [m for m in steps[2]["volumeMounts"] if m["name"] == "work"], [{"name": "work", "mountPath": "/work", "readOnly": True}])
-    # The scripts that speak to GitHub never run a checkout's code, and the
-    # script that does never meets a token.
-    publish = (Path(build_directory) / ADMIT_STEPS["publish"]).read_text()
-    for forbidden in ("git ", "sh \"$IN", "source ", ". \"$IN"):
-        if any(line.split("#")[0].lstrip().startswith(forbidden) for line in publish.splitlines()):
-            refuse(f"worker-admit-publish.sh runs `{forbidden.strip()}`, and it holds the token")
-    prepare = (Path(build_directory) / ADMIT_STEPS["prepare"]).read_text()
-    if "TOKEN" in prepare or "Authorization" in prepare:
-        refuse("worker-admit-prepare.sh names a token, and it runs a checkout's code")
-
-    # The token is in one place: the policy.
+    # The token is in one place: the policy, which admits the admissions' pods.
     policy = of(cluster, "ValidatingAdmissionPolicy")[ADMIT_TOKEN_POLICY]["spec"]
-    exactly("what worker-admit's token policy is asked about", policy["matchConstraints"]["namespaceSelector"], {"matchLabels": {"kubernetes.io/metadata.name": ADMIT_NAMESPACE}})
-    exactly("the label worker-admit's token policy holds a reader to", policy["validations"][0]["expression"].split("&&")[-1].strip(), 'object.metadata.labels["app"] == "worker-admit")')
+    exactly("what the admission token's policy is asked about", policy["matchConstraints"]["namespaceSelector"], {"matchLabels": {"kubernetes.io/metadata.name": ADMIT_NAMESPACE}})
+    exactly("the labels the admission token's policy holds a reader to", policy["validations"][0]["expression"].split("&&")[-1].strip(), f'object.metadata.labels["app"] in {json.dumps(list(ADMISSIONS))})')
     if json.dumps(ADMIT_SECRET) not in policy["variables"][1]["expression"]:
-        refuse("worker-admit's token policy does not name the Secret")
+        refuse("the admission token's policy does not name the Secret")
     binding = of(cluster, "ValidatingAdmissionPolicyBinding")[ADMIT_TOKEN_POLICY]["spec"]
-    exactly("how worker-admit's token policy is bound", (binding["policyName"], binding["validationActions"]), (ADMIT_TOKEN_POLICY, ["Deny"]))
+    exactly("how the admission token's policy is bound", (binding["policyName"], binding["validationActions"]), (ADMIT_TOKEN_POLICY, ["Deny"]))
     for other in of(cluster, "NetworkPolicy", ADMIT_NAMESPACE).values():
         for rule in other["spec"].get("egress", []):
             for to in rule["to"]:
                 if "ipBlock" in to and to["ipBlock"]["cidr"] == "0.0.0.0/0":
                     ports = sorted(p["port"] for p in rule["ports"])
                     if ports not in ([443], [6443]):
-                        refuse(f"worker-admit may reach the world on {ports}, and its steps speak on 443 and the API server's port")
+                        refuse(f"{other['metadata']['name']} may reach the world on {ports}, and an admission's steps speak on 443 and the API server's port")
+    egress = {name: of(cluster, "NetworkPolicy", ADMIT_NAMESPACE)[f"{name}-egress"]["spec"] for name in ADMISSIONS}
+    for name, spec in egress.items():
+        exactly(f"whom {name}-egress selects", spec["podSelector"], {"matchLabels": {"app": name}})
+        exactly(f"where {name}'s pod may go", spec["egress"], egress[ADMIT]["egress"])
+
+
+def admission_pod_is_held(cluster, build_directory, name, admission):
+    """One admission's ServiceAccount, CronJob and pod."""
+    reads_runs, steps_run = admission["reads_runs"], admission["steps"]
+    account = of(cluster, "ServiceAccount", ADMIT_NAMESPACE)[name]
+    exactly(f"whether ServiceAccount {name} mounts a token", account.get("automountServiceAccountToken"), False)
+
+    # Whatever the account is bound to, anywhere, is this one Role.
+    bound = [
+        (b["kind"], b["metadata"].get("namespace"), b["roleRef"]["name"])
+        for b in cluster
+        if b["kind"] in ("RoleBinding", "ClusterRoleBinding")
+        and any(x.get("name") == name and x.get("namespace") == ADMIT_NAMESPACE for x in b.get("subjects", []))
+    ]
+    exactly(f"what ServiceAccount {name} is bound to", bound, [("RoleBinding", BUILD_NAMESPACE, reads_runs)])
+    exactly(
+        f"what {name} may do in the build namespace",
+        of(cluster, "Role", BUILD_NAMESPACE)[reads_runs]["rules"],
+        [{"apiGroups": ["tekton.dev"], "resources": ["taskruns"], "verbs": ["get", "list"]}],
+    )
+    exactly(
+        f"who else is bound to Role {reads_runs}",
+        [b["metadata"]["name"] for b in cluster if b["kind"] == "RoleBinding" and b["roleRef"]["name"] == reads_runs],
+        [reads_runs],
+    )
+
+    cron = of(cluster, "CronJob", ADMIT_NAMESPACE)[name]["spec"]
+    exactly(f"how CronJob {name} is run", {k: cron[k] for k in ("concurrencyPolicy", "successfulJobsHistoryLimit", "failedJobsHistoryLimit", "suspend")}, {"concurrencyPolicy": "Forbid", "successfulJobsHistoryLimit": 1, "failedJobsHistoryLimit": 3, "suspend": False})
+    job = cron["jobTemplate"]["spec"]
+    exactly(f"how long {name}'s Job may run", (job["backoffLimit"], job["activeDeadlineSeconds"]), (0, 600))
+    pod = job["template"]["spec"]
+    exactly(f"labels of the {name} pod", job["template"]["metadata"]["labels"], {"app": name})
+    exactly(f"the ServiceAccount of {name}'s pod", (pod["serviceAccountName"], pod["automountServiceAccountToken"]), (name, False))
+    exactly(f"what {name}'s pod may do", pod["securityContext"], {"runAsNonRoot": True, "runAsUser": 1000, "runAsGroup": 1000, "fsGroup": 1000, "seccompProfile": {"type": "RuntimeDefault"}})
+    steps = [*pod.get("initContainers", []), *pod["containers"]]
+    exactly(f"the steps of {name}, in order", [step["name"] for step in steps], list(steps_run))
+    volumes = {volume["name"]: volume for volume in pod["volumes"]}
+    mounts_of = lambda kind: [s["name"] for s in steps if any(m["name"] in [n for n, v in volumes.items() if kind in v] for m in s["volumeMounts"])]
+    exactly(f"the steps of {name} that mount the API token", mounts_of("projected"), ["read"])
+    exactly(f"the steps of {name} that mount the GitHub token", mounts_of("secret"), ["publish"])
+    exactly(f"the Secret {name} mounts", volumes["admit"]["secret"], {"secretName": ADMIT_SECRET, "defaultMode": 0o444, "items": [{"key": "token", "path": "token"}], "optional": True})
+    exactly(f"what {name}'s API token volume is", [list(source) for source in volumes["kube-api"]["projected"]["sources"]], [["serviceAccountToken"], ["configMap"], ["downwardAPI"]])
+    exactly(f"the kinds of volume {name} has", sorted(set(volumes)), ["admit", "kube-api", "scripts", "tmp", "work"])
+    scripts = of(cluster, "ConfigMap", ADMIT_NAMESPACE)
+    exactly(f"the ConfigMap {name} mounts its scripts from", volumes["scripts"]["configMap"]["name"].rsplit("-", 1)[0], name)
+    script_map = scripts[volumes["scripts"]["configMap"]["name"]]
+    exactly(f"the scripts in {name}'s ConfigMap", sorted(script_map["data"]), sorted(steps_run.values()))
+    for step in steps:
+        exactly(f"the image of step {step['name']} of {name}", step["image"], steps[0]["image"])
+        if not PINNED.fullmatch(step["image"]):
+            refuse(f"step {step['name']} of {name} runs {step['image']}, which is not a tag pinned by digest")
+        exactly(f"what step {step['name']} of {name} may do", step["securityContext"], {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True, "capabilities": {"drop": ["ALL"]}})
+        exactly(f"what step {step['name']} of {name} runs", step["command"], ["/bin/sh", "/scripts/" + steps_run[step["name"]]])
+        for key in ("secretKeyRef",):
+            if any(key in (entry.get("valueFrom") or {}) for entry in step.get("env", [])):
+                refuse(f"step {step['name']} of {name} reads a Secret from its environment")
+        written = (Path(build_directory) / steps_run[step["name"]]).read_text()
+        exactly(f"the script of step {step['name']} in {name}'s ConfigMap", script_map["data"][steps_run[step["name"]]], written)
+    exactly(f"what the publish step of {name} may write", [m for m in steps[2]["volumeMounts"] if m["name"] == "work"], [{"name": "work", "mountPath": "/work", "readOnly": True}])
+    # The branch the prepare step names is one the publish step makes.
+    publish_env = {entry["name"]: entry.get("value") for entry in steps[2].get("env", [])}
+    exactly(f"the branches {name} publishes", publish_env.get("BRANCH_PREFIX"), admission["prefix"])
+    prepare = (Path(build_directory) / steps_run["prepare"]).read_text()
+    if admission["prefix"] not in prepare:
+        refuse(f"{steps_run['prepare']} names no branch {admission['prefix']}<digest>, and {name}'s publish step makes no other")
+    # The scripts that speak to GitHub never run a checkout's code, and the
+    # script that does never meets a token.
+    publish = (Path(build_directory) / steps_run["publish"]).read_text()
+    for forbidden in ("git ", "sh \"$IN", "source ", ". \"$IN"):
+        if any(line.split("#")[0].lstrip().startswith(forbidden) for line in publish.splitlines()):
+            refuse(f"{steps_run['publish']} runs `{forbidden.strip()}`, and it holds the token")
+    if "TOKEN" in prepare or "Authorization" in prepare:
+        refuse(f"{steps_run['prepare']} names a token, and it runs a checkout's code")
 
 
 def admission_is_held(cluster, release_run, image_runs, contract_run, worker_runs, runner_runs, sources_namespace):
@@ -1820,7 +1858,7 @@ def main():
     exactly(
         f"the RoleBindings of {BUILD_NAMESPACE}",
         sorted(of(cluster, "RoleBinding", BUILD_NAMESPACE)),
-        sorted([TRIGGER_RUNS, IMAGE_TRIGGER_RUNS, CONTRACT_TRIGGER_RUNS, WORKER_TRIGGER_RUNS, RUNNER_TRIGGER_RUNS, ADMIT_READS_RUNS]),
+        sorted([TRIGGER_RUNS, IMAGE_TRIGGER_RUNS, CONTRACT_TRIGGER_RUNS, WORKER_TRIGGER_RUNS, RUNNER_TRIGGER_RUNS, *ADMIT_READS_RUNS]),
     )
     def rights_of(account):
         """What one trigger's ServiceAccount may do: one Role in each
@@ -1878,7 +1916,7 @@ def main():
             refuse(f"a runner release trigger reads GitRepository {name} in {environment.get('SOURCES_NAMESPACE')}, and no layer renders one there")
         exactly(f"the kind of GitRepository {name}", {field: sources[name][field] for field in SOURCE_KIND}, SOURCE_KIND)
     admission_is_held(cluster, release_run, image_runs, contract_run, worker_runs, runner_runs, environment.get("SOURCES_NAMESPACE"))
-    worker_admit_is_held(cluster, sys.argv[4])
+    admissions_are_held(cluster, sys.argv[4])
 
     # The policies.
     def policies(documents, namespace):

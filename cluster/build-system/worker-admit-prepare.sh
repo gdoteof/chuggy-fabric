@@ -14,9 +14,9 @@
 # branch name, the commit message, the changed file's path and new content, the
 # blob and the commit it was made against, and a `ready` marker written last.
 # Where the pool plane's file changed too, its path, content and blob are
-# `chat-path`, `chat-content` and `chat-blob`; a chat image the file already
-# names leaves none of the three. When there is nothing to admit it leaves
-# nothing, and succeeds.
+# admit-publish.sh's second file, `second-path`, `second-content` and
+# `second-blob`; a chat image the file already names leaves none of the three.
+# When there is nothing to admit it leaves nothing, and succeeds.
 #
 # NOTHING TO ADMIT is no pair, or a worker digest the checkout's scheduler file
 # already holds: a pair that landed, whoever landed it, is not admitted again,
@@ -103,12 +103,11 @@ printf '%s' "admit/worker-$(printf '%s' "${worker#sha256:}" | cut -c1-12)" > "$O
 printf '%s' "$SCHEDULER" > "$OUT/path"
 printf '%s' "$blob" > "$OUT/blob"
 if $plane_changed; then
-  cp "$PLANE" "$OUT/chat-content"
-  printf '%s' "$PLANE" > "$OUT/chat-path"
-  printf '%s' "$chat_blob" > "$OUT/chat-blob"
+  cp "$PLANE" "$OUT/second-content"
+  printf '%s' "$PLANE" > "$OUT/second-path"
+  printf '%s' "$chat_blob" > "$OUT/second-blob"
 fi
 printf '%s' "$base" > "$OUT/base"
-printf '%s' "$version" > "$OUT/version"
 printf '%s' "$BRANCH" > "$OUT/target"
 touch "$OUT/ready"
 say "worker $version is ready on $base"

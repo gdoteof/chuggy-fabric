@@ -1,0 +1,261 @@
+# The site's admission: every five minutes, whether the site's newest image
+# that built is the one chug.gy runs, and if not, the pull request that makes
+# it so, merged.
+#
+# WHAT IT AUTOMATES is the commit that deployed each of the site's images. The
+# image trigger, image-trigger.yaml, builds the site at each commit to
+# kasofsk/chug.gy's `main` from chug-gy-image-run.yaml. This reads that build's
+# `digest` result, writes it as the image of the `web` container in
+# cluster/chug-gy/chug-gy.yaml on a fresh checkout of this repository's `main`,
+# and merges it as a pull request titled as those commits were. The `chug-gy`
+# layer applies that directory from `main`, so merging is the deployment.
+#
+# THE WORKER ADMISSION'S, OVER ANOTHER FILE. worker-admit.yaml argues each
+# decision this shares, and declares what the two share in `chuggy-admit`: the
+# namespace, its default-deny policy, and the admission policy that holds
+# `chuggy-admit-token` to the two CronJobs' pods. The token is the admit App's,
+# merged through a pull request and never pushed to `main`, and
+# tests/worker-admit-token.py holds the host's entry to this CronJob as to the
+# worker's.
+#
+# THE POD IS THREE STEPS, AND THE TOKEN IS IN THE LAST ALONE.
+# - `read` has a token for the API server, mounted in this step only, and
+#   reads TaskRuns (chug-gy-admit-read.sh).
+# - `prepare` has neither: it checks out `main` and rewrites the image line
+#   (chug-gy-admit-prepare.sh).
+# - `publish` has the GitHub token and runs nothing a checkout wrote
+#   (admit-publish.sh, the worker's last step too).
+# The read and the prepare are the site's own: the worker's read chooses a
+# pair of builds by the inputs they were built from and its prepare runs the
+# checkout's admit-worker.sh and placement checks, and neither is a newest
+# build per image or one line of a Deployment.
+#
+# EACH IMAGE IS ONE LINE OF THE READ STEP'S `IMAGES`: the container, its
+# repository under the registry, the repository its commit is of, and the
+# words its commit message names it by. The site has one image; a second of
+# the Deployment, in `containers` or `initContainers`, is a second line.
+#
+# ONE AT A TIME, AND BOUNDED. `Forbid`; the newest build that succeeded, of
+# each image, and never one that failed; a branch named for the digest, so the
+# same build is the same branch, an open pull request for it resumed and a
+# closed or merged one left alone. The CronJob keeps one finished Job and three
+# failed.
+#
+# HELD BY RBAC. `chug-gy-admit` reads TaskRuns in `chuggy-build` and nothing
+# else. A build is as trusted as who can create a TaskRun there, which
+# image-trigger.yaml's policies bind the trigger's creations to and this does
+# not re-check.
+#
+# NOT HANDLED. No alert fires when it stops succeeding. A person who writes an
+# older image into the Deployment has it replaced at the next run by the newest
+# build that succeeded; stopping that is suspending this CronJob. A rejected
+# pull request is not made again until its branch is deleted, and a newer build
+# is admitted over it. Nothing checks that the registry holds the digest, or
+# that the image serves.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chug-gy-admit
+  namespace: chuggy-admit
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: chug-gy-admit-reads-runs
+  namespace: chuggy-build
+rules:
+  - apiGroups: [tekton.dev]
+    resources: [taskruns]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: chug-gy-admit-reads-runs
+  namespace: chuggy-build
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: chug-gy-admit-reads-runs
+subjects:
+  - kind: ServiceAccount
+    name: chug-gy-admit
+    namespace: chuggy-admit
+---
+# WHERE THE POD MAY GO is where the worker admission's may, for the reasons
+# worker-admit.yaml's `worker-admit-egress` gives.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chug-gy-admit-egress
+  namespace: chuggy-admit
+spec:
+  podSelector:
+    matchLabels: { app: chug-gy-admit }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.42.0.0/16
+              - 10.43.0.0/16
+      ports:
+        - { protocol: TCP, port: 6443 }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16]
+      ports:
+        - { protocol: TCP, port: 443 }
+---
+# NOT SUSPENDED: it does nothing until the site builds an image chug.gy does
+# not run, and fails, saying so, until the Secret is there.
+#
+# THE IMAGE is the worker admission's, which has the git, curl, jq, kubectl and
+# python3 the three steps need.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: chug-gy-admit
+  namespace: chuggy-admit
+  labels: { app: chug-gy-admit }
+spec:
+  schedule: "*/5 * * * *"
+  suspend: false
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 600
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels: { app: chug-gy-admit }
+        spec:
+          serviceAccountName: chug-gy-admit
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          terminationGracePeriodSeconds: 5
+          nodeSelector:
+            kubernetes.io/os: linux
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile: { type: RuntimeDefault }
+          initContainers:
+            - name: read
+              image: alpine/k8s:1.33.1@sha256:7f8133af0dd210cb5b168f889c5bc77dd65ecc935f3e3cb72d1b98ff96bfed40
+              imagePullPolicy: IfNotPresent
+              command: [/bin/sh, /scripts/chug-gy-admit-read.sh]
+              env:
+                - { name: HOME, value: /tmp }
+                - { name: RUNS_NAMESPACE, value: chuggy-build }
+                - { name: TASK, value: build-image }
+                - { name: REGISTRY, value: "registry.chuggy-registry.svc.cluster.local:5000" }
+                - name: IMAGES
+                  value: |
+                    web chug-gy/web kasofsk/chug.gy the site's image
+                - { name: OUT, value: /work/images }
+              resources:
+                requests: { cpu: 25m, memory: 64Mi }
+                limits: { memory: 256Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - { name: scripts, mountPath: /scripts, readOnly: true }
+                - { name: tmp, mountPath: /tmp }
+                - { name: work, mountPath: /work }
+                - { name: kube-api, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true }
+            - name: prepare
+              image: alpine/k8s:1.33.1@sha256:7f8133af0dd210cb5b168f889c5bc77dd65ecc935f3e3cb72d1b98ff96bfed40
+              imagePullPolicy: IfNotPresent
+              command: [/bin/sh, /scripts/chug-gy-admit-prepare.sh]
+              env:
+                - { name: HOME, value: /tmp }
+                - { name: PYTHONDONTWRITEBYTECODE, value: "1" }
+                - { name: IN, value: /work/images }
+                - { name: OUT, value: /work/handoff }
+                - { name: FABRIC_URL, value: "https://github.com/gdoteof/chuggy-fabric.git" }
+                - { name: BRANCH, value: main }
+                - { name: CHECKOUT, value: /work/checkout }
+                - { name: DEPLOYMENT, value: cluster/chug-gy/chug-gy.yaml }
+                - { name: REGISTRY, value: registry.chuggy.internal }
+              resources:
+                requests: { cpu: 100m, memory: 128Mi }
+                limits: { memory: 512Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - { name: scripts, mountPath: /scripts, readOnly: true }
+                - { name: tmp, mountPath: /tmp }
+                - { name: work, mountPath: /work }
+          containers:
+            - name: publish
+              image: alpine/k8s:1.33.1@sha256:7f8133af0dd210cb5b168f889c5bc77dd65ecc935f3e3cb72d1b98ff96bfed40
+              imagePullPolicy: IfNotPresent
+              command: [/bin/sh, /scripts/admit-publish.sh]
+              env:
+                - { name: HOME, value: /tmp }
+                - { name: IN, value: /work/handoff }
+                - { name: BRANCH_PREFIX, value: admit/chug-gy- }
+                - { name: REPOSITORY, value: gdoteof/chuggy-fabric }
+                - { name: API, value: "https://api.github.com" }
+                - { name: TOKEN, value: /var/run/chuggy/admit/token }
+              resources:
+                requests: { cpu: 25m, memory: 64Mi }
+                limits: { memory: 256Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - { name: scripts, mountPath: /scripts, readOnly: true }
+                - { name: tmp, mountPath: /tmp }
+                - { name: work, mountPath: /work, readOnly: true }
+                - { name: admit, mountPath: /var/run/chuggy/admit, readOnly: true }
+          volumes:
+            - name: scripts
+              configMap:
+                name: chug-gy-admit
+            - name: tmp
+              emptyDir: {}
+            - name: work
+              emptyDir: {}
+            - name: kube-api
+              projected:
+                sources:
+                  - serviceAccountToken: { path: token, expirationSeconds: 600 }
+                  - configMap:
+                      name: kube-root-ca.crt
+                      items: [{ key: ca.crt, path: ca.crt }]
+                  - downwardAPI:
+                      items: [{ path: namespace, fieldRef: { fieldPath: metadata.namespace } }]
+            - name: admit
+              secret:
+                secretName: chuggy-admit-token
+                defaultMode: 0444
+                items:
+                  - { key: token, path: token }
+                optional: true

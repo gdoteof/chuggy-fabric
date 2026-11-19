@@ -4,8 +4,8 @@ they speak to, and hold what each does.
 
 usage: worker-admit.py BUILD_SYSTEM_DIRECTORY SCHEDULER_FILE PLANE_FILE WORK
 
-BUILD_SYSTEM_DIRECTORY holds worker-admit-{read,prepare,publish}.sh and
-admit-worker.sh. WORK is an empty directory. `sh`, `git`, `jq`, `curl`'s
+BUILD_SYSTEM_DIRECTORY holds worker-admit-{read,prepare}.sh, admit-publish.sh
+and admit-worker.sh. WORK is an empty directory. `sh`, `git`, `jq`, `curl`'s
 callers' tools and python3 come from the PATH this is run with; `kubectl` and
 `curl` are stand-ins written into WORK, so no cluster and no network is touched.
 
@@ -24,11 +24,14 @@ THE CASES, by the script each is the only reader of:
   the branch named for the worker digest and the blob and commit it was made
   against, with `ready` last; a digest the file already holds, and no pair, hand
   off nothing; a placement check that fails fails the step and hands off nothing;
-  the pool plane's file is handed off beside the scheduler's with its own blob
+  the pool plane's file is handed off as the second file, with its own blob,
   where the chat image moved, and not where the file already names it;
 - publish: against a stand-in GitHub, a hand-off becomes a branch, one file
   written with the blob it was made from, and one pull request merged at its
-  head; an open pull request is merged and not opened again; a branch with no
+  head, titled with the message's first line; a branch of another
+  admission's prefix, and a prefix that is not one, are refused; the site's
+  admission's hand-off, of its own prefix and one file, is published the same
+  way; an open pull request is merged and not opened again; a branch with no
   open pull request is left alone; a `main` that moved is not merged over and
   nothing is made; a conflict closes the pull request and deletes the branch and
   fails; no hand-off and no token are as they say; and the token is in no
@@ -42,6 +45,7 @@ THE CASES, by the script each is the only reader of:
 import base64
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -221,8 +225,8 @@ def cases_prepare():
         content = (out / "content").read_text()
         if WORKER not in content or RUNTIME not in content:
             report("prepare: a pair", "the content holds not both digests")
-        if (out / "version").read_text() == "" or not (out / "message").read_text().startswith(f"Admit worker {(out / 'version').read_text()},"):
-            report("prepare: a pair", "the message does not open with the version")
+        if not re.match(r"Admit worker [0-9.]+,", (out / "message").read_text()) or (out / "version").exists():
+            report("prepare: a pair", "the message does not open with the version, or a version file is handed off")
         head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True).stdout.strip()
         if (out / "base").read_text() != head:
             report("prepare: a pair", "the base is not the commit checked out")
@@ -230,17 +234,17 @@ def cases_prepare():
         if (out / "blob").read_text() != blob:
             report("prepare: a pair", "the blob is not the file's at the base")
         chat_blob = subprocess.run(["git", "rev-parse", f"HEAD:{PLANE_PATH}"], cwd=repo, capture_output=True, text=True).stdout.strip()
-        held = {name: (out / name).read_text() if (out / name).exists() else None for name in ("chat-path", "chat-blob")}
-        if held != {"chat-path": PLANE_PATH, "chat-blob": chat_blob}:
+        held = {name: (out / name).read_text() if (out / name).exists() else None for name in ("second-path", "second-blob")}
+        if held != {"second-path": PLANE_PATH, "second-blob": chat_blob}:
             report("prepare: a pair", f"the chat hand-off is {held}")
-        if not (out / "chat-content").exists() or (out / "chat-content").read_text() != PLANE.read_text().replace(_held_chat(), CHAT):
+        if not (out / "second-content").exists() or (out / "second-content").read_text() != PLANE.read_text().replace(_held_chat(), CHAT):
             report("prepare: a pair", "the chat content is not the plane file with its chat image moved")
         if CHAT not in (out / "message").read_text():
             report("prepare: a pair", "the message does not name the chat digest")
     if (repo / PLANE_PATH).read_text() != PLANE.read_text():
         report("prepare: a pair", "the plane file of the repository it cloned from was changed")
     out = prepare("a chat image already named", repo, pair_env("sha256:in1", chat=_held_chat()), stdout=["is ready on"])
-    if any((out / name).exists() for name in ("chat-path", "chat-blob", "chat-content")):
+    if any((out / name).exists() for name in ("second-path", "second-blob", "second-content")):
         report("prepare: a chat image already named", "the plane file was handed off unchanged")
     if not out.joinpath("content").exists() or WORKER not in (out / "content").read_text():
         report("prepare: a chat image already named", "the worker was not handed off")
@@ -325,28 +329,28 @@ def handoff(name, chat=False):
     out.mkdir(parents=True)
     files = {
         "branch": "admit/worker-" + "a" * 12, "path": "cluster/chuggy/chuggy-scheduler.yaml", "blob": "2" * 40,
-        "base": "3" * 40, "version": "0.99", "target": "main",
+        "base": "3" * 40, "target": "main",
         "message": "Admit worker 0.99, and run sessions and chat on it\n\nbody\n", "content": "new content\n",
     }
     if chat:
-        files.update({"chat-path": PLANE_PATH, "chat-blob": "6" * 40, "chat-content": "new plane\n"})
+        files.update({"second-path": PLANE_PATH, "second-blob": "6" * 40, "second-content": "new plane\n"})
     for key, value in files.items():
         write(out / key, value)
     write(out / "ready", "")
     return out
 
 
-def publish(case, state, code=0, *, ready=True, token=True, stdout=(), directory=None):
+def publish(case, state, code=0, *, ready=True, token=True, stdout=(), directory=None, prefix="admit/worker-"):
     out = directory or handoff(case.replace(" ", "-"))
     if not ready:
         (out / "ready").unlink()
     write(WORK / "state.json", json.dumps({"log": [], "open": [], "main": "3" * 40, "branch": False, **state}))
     write(WORK / "token", TOKEN + "\n")
     result = run(
-        "worker-admit-publish.sh",
+        "admit-publish.sh",
         case,
         {
-            "IN": str(out), "REPOSITORY": "gdoteof/chuggy-fabric", "API": "https://api.example",
+            "IN": str(out), "REPOSITORY": "gdoteof/chuggy-fabric", "API": "https://api.example", "BRANCH_PREFIX": prefix,
             "TOKEN": str(WORK / "token") if token else str(WORK / "absent"),
             "GITHUB_STATE": str(WORK / "state.json"), "TOKEN_VALUE": TOKEN,
         },
@@ -364,7 +368,7 @@ def methods(final):
 
 
 def cases_publish():
-    final = publish("a hand-off", {}, stdout=["admitted"])
+    final = publish("a hand-off", {}, stdout=["merged pull request 7: Admit worker 0.99"])
     wanted = [
         "GET /pulls", "GET /git/ref/heads/admit/worker-" + "a" * 12, "GET /git/ref/heads/main", "POST /git/refs",
         "PUT /contents/cluster/chuggy/chuggy-scheduler.yaml", "POST /pulls", "GET /git/ref/heads/main", "PUT /pulls/7/merge",
@@ -377,6 +381,8 @@ def cases_publish():
         report("publish: a hand-off", "the merge is not at the head the file was written to")
     if final.get("opened", {}).get("base") != "main":
         report("publish: a hand-off", "the pull request is not against main")
+    if final.get("opened", {}).get("title") != "Admit worker 0.99, and run sessions and chat on it":
+        report("publish: a hand-off", f"the pull request is titled {final.get('opened', {}).get('title')!r}")
 
     final = publish("an open pull request", {"open": [{"number": 7, "head": {"sha": "8" * 40}}]}, stdout=["resuming"])
     if any(m.startswith(("POST", "PUT /contents")) for m in methods(final)) or final.get("merged", {}).get("sha") != "8" * 40:
@@ -419,7 +425,7 @@ def cases_publish():
         final = publish(f"a hand-off with a bad {name}", {}, 1, directory=out)
         if final["log"]:
             report(f"publish: a hand-off with a bad {name}", "a request was made")
-    final = publish("a hand-off with the chat image", {}, stdout=["admitted"], directory=handoff("chat", chat=True))
+    final = publish("a hand-off with the chat image", {}, stdout=["merged pull request 7"], directory=handoff("chat", chat=True))
     if methods(final) != [*wanted[:5], f"PUT /contents/{PLANE_PATH}", *wanted[5:]]:
         report("publish: a hand-off with the chat image", f"made {methods(final)}")
     second = final.get("written_chat", {})
@@ -433,20 +439,50 @@ def cases_publish():
     final = publish("a chat file that cannot be written", {"chat_write_status": 409}, 1, stdout=["answered 409"], directory=handoff("chat-refused", chat=True))
     if not final.get("deleted") or "opened" in final:
         report("publish: a chat file that cannot be written", "the branch was left or a pull request opened")
+    out = handoff("another-prefix")
+    write(out / "branch", "admit/chug-gy-" + "a" * 12)
+    final = publish("a branch of another admission", {}, 1, directory=out, stdout=["not one this makes"])
+    if final["log"]:
+        report("publish: a branch of another admission", "a request was made")
+    final = publish("a branch prefix that is not one", {}, 1, prefix="worker-", stdout=["is not admit/<name>-"])
+    if final["log"]:
+        report("publish: a branch prefix that is not one", "a request was made")
+
+    # The site's admission ends in this script too, with a hand-off of one
+    # file and branches of its own.
+    out = handoff("site")
+    site = {
+        "branch": "admit/chug-gy-" + "a" * 12, "path": "cluster/chug-gy/chug-gy.yaml",
+        "message": "chug-gy: the site's image, built at kasofsk/chug.gy 1111111\n\nThe digest TaskRun r reported, for web.\n",
+    }
+    for key, value in site.items():
+        write(out / key, value)
+    final = publish("a hand-off of the site's", {}, directory=out, prefix="admit/chug-gy-", stdout=["merged pull request 7: chug-gy: the site's image"])
+    site_wanted = [m.replace("admit/worker-", "admit/chug-gy-").replace("chuggy/chuggy-scheduler.yaml", "chug-gy/chug-gy.yaml") for m in wanted]
+    if methods(final) != site_wanted:
+        report("publish: a hand-off of the site's", f"made {methods(final)}")
+    if final.get("opened", {}).get("title") != "chug-gy: the site's image, built at kasofsk/chug.gy 1111111":
+        report("publish: a hand-off of the site's", f"the pull request is titled {final.get('opened', {}).get('title')!r}")
+    if final.get("written", {}).get("message") != site["message"]:
+        report("publish: a hand-off of the site's", "the commit is not the message handed off")
+    final = publish("a worker branch for the site", {}, 1, prefix="admit/chug-gy-", stdout=["not one this makes"])
+    if final["log"]:
+        report("publish: a worker branch for the site", "a request was made")
+
     out = handoff("chat-partial", chat=True)
-    (out / "chat-blob").unlink()
+    (out / "second-blob").unlink()
     final = publish("a partial chat hand-off", {}, 1, directory=out, stdout=["not a regular file"])
     if final["log"]:
         report("publish: a partial chat hand-off", "a request was made")
-    for name, value in {"chat-path": "../x", "chat-blob": "zz"}.items():
+    for name, value in {"second-path": "../x", "second-blob": "zz"}.items():
         out = handoff(f"bad-{name}", chat=True)
         write(out / name, value)
         final = publish(f"a hand-off with a bad {name}", {}, 1, directory=out)
         if final["log"]:
             report(f"publish: a hand-off with a bad {name}", "a request was made")
     out = handoff("chat-linked", chat=True)
-    (out / "chat-content").unlink()
-    (out / "chat-content").symlink_to("/etc/hostname")
+    (out / "second-content").unlink()
+    (out / "second-content").symlink_to("/etc/hostname")
     final = publish("a linked chat file", {}, 1, directory=out, stdout=["not a regular file"])
     if final["log"]:
         report("publish: a linked chat file", "a request was made")

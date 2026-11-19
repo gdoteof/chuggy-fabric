@@ -1,9 +1,12 @@
 #!/bin/sh
-# Step three of the worker admission: the pull request, opened and merged.
+# The last step of an admission: the pull request, opened and merged. The
+# worker's (worker-admit.yaml) and the site's (chug-gy-admit.yaml) both end in
+# it, and differ only in BRANCH_PREFIX, the name every branch they make opens
+# with.
 #
 # The only step with the GitHub token, and it runs nothing the checkout wrote:
-# it reads what worker-admit-prepare.sh left under IN as regular files, and
-# speaks to the GitHub API with curl. There is no `git push`, so no hook or
+# it reads what the admission's prepare step left under IN as regular files,
+# and speaks to the GitHub API with curl. There is no `git push`, so no hook or
 # configuration a checkout carries is run beside the token. The branch is made
 # and the file written through the API, as the App, so the commit is the App's.
 #
@@ -15,8 +18,8 @@
 #   the branch is deleted;
 # - otherwise `main` must still be the commit the change was made against:
 #   the branch is created at it, the file written to it with the blob it was
-#   made from, then the pool plane's file the same way where the hand-off
-#   carries one, and the pull request opened;
+#   made from, then a second file the same way where the hand-off carries one,
+#   and the pull request opened, titled with the message's first line;
 # - then `main` must still be that commit, and the pull request is merged at
 #   the head it was opened at.
 #
@@ -34,53 +37,63 @@
 # conflicts it if the same lines moved and does not otherwise.
 set -eu
 
-: "${IN:?}" "${REPOSITORY:?}" "${TOKEN:?}" "${API:?}"
+: "${IN:?}" "${REPOSITORY:?}" "${TOKEN:?}" "${API:?}" "${BRANCH_PREFIX:?}"
 
 say() {
-  echo "worker-admit: $*"
+  echo "admit-publish: $*"
 }
 
 refuse() {
-  echo "worker-admit: $*" >&2
+  echo "admit-publish: $*" >&2
   exit 1
 }
+
+case $BRANCH_PREFIX in
+  admit/*-) ;;
+  *) refuse "BRANCH_PREFIX '$BRANCH_PREFIX' is not admit/<name>-" ;;
+esac
+case $BRANCH_PREFIX in
+  *[!a-z/-]*) refuse "BRANCH_PREFIX '$BRANCH_PREFIX' is not admit/<name>-" ;;
+esac
 
 [ -f "$IN/ready" ] || { say "nothing to admit"; exit 0; }
 [ -r "$TOKEN" ] || refuse "no token at $TOKEN: the App's token is not delivered"
 
 # Only regular files, and never through a link.
-for name in branch path blob base version target message content; do
+for name in branch path blob base target message content; do
   [ -f "$IN/$name" ] && [ ! -L "$IN/$name" ] || refuse "$IN/$name is not a regular file"
 done
 branch=$(cat "$IN/branch")
 path=$(cat "$IN/path")
 blob=$(cat "$IN/blob")
-# The pool plane's file, where its chat image moved: all three or none.
-chat_path='' chat_blob=''
-if [ -e "$IN/chat-path" ] || [ -e "$IN/chat-blob" ] || [ -e "$IN/chat-content" ]; then
-  for name in chat-path chat-blob chat-content; do
+# A second file, where the change has one: all three or none.
+second_path='' second_blob=''
+if [ -e "$IN/second-path" ] || [ -e "$IN/second-blob" ] || [ -e "$IN/second-content" ]; then
+  for name in second-path second-blob second-content; do
     [ -f "$IN/$name" ] && [ ! -L "$IN/$name" ] || refuse "$IN/$name is not a regular file"
   done
-  chat_path=$(cat "$IN/chat-path")
-  chat_blob=$(cat "$IN/chat-blob")
-  [ -n "$chat_path" ] && [ -n "$chat_blob" ] || refuse "the chat hand-off names no path or no blob"
+  second_path=$(cat "$IN/second-path")
+  second_blob=$(cat "$IN/second-blob")
+  [ -n "$second_path" ] && [ -n "$second_blob" ] || refuse "the second file's hand-off names no path or no blob"
 fi
 base=$(cat "$IN/base")
-version=$(cat "$IN/version")
 target=$(cat "$IN/target")
-case $branch in
-  admit/worker-*[!0-9a-f]* | admit/worker- | "") refuse "branch '$branch' is not one this makes" ;;
-  admit/worker-????????????) ;;
-  *) refuse "branch '$branch' is not one this makes" ;;
+title=$(sed -n 1p "$IN/message")
+[ -n "$title" ] || refuse "the message has no first line to title the pull request"
+# The prefix, then twelve hex digits of the digest the branch is named for.
+digits=${branch#"$BRANCH_PREFIX"}
+[ "$digits" != "$branch" ] && [ "${#digits}" -eq 12 ] || refuse "branch '$branch' is not one this makes"
+case $digits in
+  *[!0-9a-f]*) refuse "branch '$branch' is not one this makes" ;;
 esac
-case /$path/$target/${chat_path:-x}/ in
+case /$path/$target/${second_path:-x}/ in
   */../* | //* | *//*) refuse "path or target is not a plain relative name" ;;
 esac
 [ -n "$path" ] && [ -n "$target" ] || refuse "path or target is not a plain relative name"
-case $path$target$chat_path in
+case $path$target$second_path in
   *[!A-Za-z0-9/._-]*) refuse "path or target holds a character this does not pass to a URL" ;;
 esac
-case $blob$base$chat_blob in
+case $blob$base$second_blob in
   *[!0-9a-f]*) refuse "blob or base is not a hash" ;;
 esac
 
@@ -135,7 +148,7 @@ merge() {
   jq -n --arg sha "$head" '{merge_method: "merge", sha: $sha}' > "$work/body.json"
   answered=$(api PUT "/pulls/$number/merge" "$work/body.json")
   case $answered in
-    200) say "merged pull request $number: worker $version is admitted" ;;
+    200) say "merged pull request $number: $title" ;;
     405 | 409)
       expect 200 GET "/pulls/$number"
       if [ "$(jq -r '.mergeable_state' "$work/response.json")" = dirty ]; then
@@ -182,19 +195,18 @@ if [ "$written" != 200 ]; then
 fi
 head=$(jq -er '.commit.sha' "$work/response.json")
 
-if [ -n "$chat_path" ]; then
-  jq -n --rawfile message "$IN/message" --arg branch "$branch" --arg blob "$chat_blob" \
-    --rawfile content "$IN/chat-content" \
+if [ -n "$second_path" ]; then
+  jq -n --rawfile message "$IN/message" --arg branch "$branch" --arg blob "$second_blob" \
+    --rawfile content "$IN/second-content" \
     '{message: $message, branch: $branch, sha: $blob, content: ($content | @base64)}' > "$work/body.json"
-  written=$(api PUT "/contents/$chat_path" "$work/body.json")
+  written=$(api PUT "/contents/$second_path" "$work/body.json")
   if [ "$written" != 200 ]; then
     expect "204 422" DELETE "/git/refs/heads/$branch"
-    refuse "writing $chat_path on $branch answered $written"
+    refuse "writing $second_path on $branch answered $written"
   fi
   head=$(jq -er '.commit.sha' "$work/response.json")
 fi
 
-title=$(sed -n 1p "$IN/message")
 jq -n --arg title "$title" --arg head "$branch" --arg base "$target" --rawfile body "$IN/message" \
   '{title: $title, head: $head, base: $base, body: $body}' > "$work/body.json"
 expect 201 POST /pulls "$work/body.json"

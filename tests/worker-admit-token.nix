@@ -1,4 +1,4 @@
-# The worker admission token the host mints against the CronJob that mounts it.
+# The admission token the host mints against the two CronJobs that mount it.
 # The argument for each assertion is in worker-admit-token.py's header.
 #
 # The host's Apps and tokens are handed over as JSON rather than restated, for
