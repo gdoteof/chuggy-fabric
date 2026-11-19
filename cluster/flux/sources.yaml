@@ -1,6 +1,6 @@
 # The sources that are declared by a commit, beside the layers: the two of a
-# release, the one the site's image is built from, the one the worker image
-# is, and the two runner packages released from.
+# release, the one the site's image is built from, the one the docs' image
+# is, the one the worker image is, and the two runner packages released from.
 #
 # HERE AND NOT IN A LAYER, because the root that applies this directory waits
 # on nothing: a source with no artifact yet holds nothing else up. In a layer
@@ -82,6 +82,36 @@ spec:
   url: https://github.com/kasofsk/chug.gy.git
   ref:
     branch: main
+---
+# The docs' `main`, as the image of the docs is built from it. No layer
+# applies it: the image trigger's `chuggy-docs-image-trigger` reads it, in
+# cluster/build-system/image-trigger.yaml, and builds `chug-gy/docs` when its
+# inputs move.
+#
+# THE DIGEST IS WHAT IT COMPARES, as `chuggy-worker`'s above: `ignore` leaves
+# in the archive only what kasofsk/chuggy-docs' Dockerfile reads, which is that
+# file, its .dockerignore, docs/, README.md and llms.txt, so a commit that
+# changes the plugin or `.chug` moves the revision and not the digest, and
+# starts no build. A file the Dockerfile starts reading that is not listed
+# here is a change this source does not see; it lives in kasofsk/chuggy-docs.
+# Public, so it names no Secret.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: chuggy-docs
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: https://github.com/kasofsk/chuggy-docs.git
+  ref:
+    branch: main
+  ignore: |
+    /*
+    !/Dockerfile
+    !/.dockerignore
+    !/docs
+    !/README.md
+    !/llms.txt
 ---
 # chuggy-linux's `main`. No layer applies it: its runner release trigger reads the
 # commit it holds, in cluster/build-system/runner-release.yaml, and releases the

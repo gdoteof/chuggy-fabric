@@ -999,6 +999,17 @@ under its own names: `cronjob chug-gy-image-trigger` in the commands under
 `chug-gy-image-*` TaskRun to build a commit again. The trigger keeps the ten
 newest runs of the image and deletes the finished ones before them.
 
+The docs the site renders are built into an image of their own,
+`chug-gy/docs`, from kasofsk/chuggy-docs' Dockerfile. GitRepository
+`chuggy-docs` follows that repository's `main` with an `ignore` that leaves
+only what the Dockerfile reads, and the CronJob `chuggy-docs-image-trigger`, in
+the same file, under the same ServiceAccount and policies, compares that
+source's artifact digest with the one written on the newest run, as the
+[worker image triggers](#the-worker-images) do. So a commit that changes the
+docs builds one from `chuggy-docs-image-run.yaml`, and a commit that changes
+anything else starts nothing. No layer names the image yet, and it is stopped,
+run by hand and retried as the site's is, under its own names.
+
 #### The worker images
 
 A worker release is two images built from one chuggy commit by the two-platform

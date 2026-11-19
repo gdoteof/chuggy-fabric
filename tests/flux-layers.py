@@ -26,7 +26,7 @@ another branch has the trigger release commits that are not `main`'s, and
 `chug-gy` on another has the image trigger build the site at them;
 `chuggy-worker` with an `ignore` that leaves more than the worker image reads
 has a worker built for changes it does not read, and one that leaves less
-builds none for a file it does;
+builds none for a file it does, and `chuggy-docs` the same for the docs' image;
 `chuggy-release` without `insecure` never reads a registry that is plain HTTP,
 and with a `tag` or a `digest` beside its range holds the cluster at one
 release without saying so.
@@ -116,6 +116,14 @@ SOURCES = {
         "interval": "1m",
         "url": "https://github.com/kasofsk/chug.gy.git",
         "ref": {"branch": "main"},
+    },
+    # What the docs' image is built from and nothing else, as `chuggy-worker`
+    # is the worker's.
+    ("source.toolkit.fluxcd.io/v1", "GitRepository", "chuggy-docs"): {
+        "interval": "1m",
+        "url": "https://github.com/kasofsk/chuggy-docs.git",
+        "ref": {"branch": "main"},
+        "ignore": "/*\n!/Dockerfile\n!/.dockerignore\n!/docs\n!/README.md\n!/llms.txt\n",
     },
     # The runner packages, each released from its `main` by
     # publish-runner-release.

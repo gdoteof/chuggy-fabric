@@ -1,8 +1,8 @@
 # The image trigger, run as its pod is given it against an API server that
 # is a file, as release-trigger.nix runs the release trigger, and then the
 # contract publish trigger and the two runner release triggers, which run the
-# same script over a Task with no image, and the three worker image triggers, which compare a source's digest and
-# not its commit. The cases are in image-trigger.py's header.
+# same script over a Task with no image, and the docs' trigger and the three
+# worker image triggers, which compare a source's digest and not its commit. The cases are in image-trigger.py's header.
 { pkgs }:
 
 let
@@ -14,7 +14,7 @@ pkgs.runCommand "chuggy-image-trigger" {
 } ''
   set -eu
   mkdir work
-  for cronjob in chug-gy-image-trigger contract-publish-trigger runner-release-chuggy-linux-trigger runner-release-chuggy-darwin-trigger worker-image-trigger worker-runtime-image-trigger chat-image-trigger; do
+  for cronjob in chug-gy-image-trigger chuggy-docs-image-trigger contract-publish-trigger runner-release-chuggy-linux-trigger runner-release-chuggy-darwin-trigger worker-image-trigger worker-runtime-image-trigger chat-image-trigger; do
     mkdir "work/$cronjob"
     python3 ${./image-trigger.py} ${rendered} ${pkgs.busybox}/bin "$PWD/work/$cronjob" "$cronjob"
   done
