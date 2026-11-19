@@ -4,11 +4,13 @@
 #
 # WHAT IT AUTOMATES is the commit that deployed each of the site's images. The
 # image trigger, image-trigger.yaml, builds the site at each commit to
-# kasofsk/chug.gy's `main` from chug-gy-image-run.yaml. This reads that build's
-# `digest` result, writes it as the image of the `web` container in
-# cluster/chug-gy/chug-gy.yaml on a fresh checkout of this repository's `main`,
-# and merges it as a pull request titled as those commits were. The `chug-gy`
-# layer applies that directory from `main`, so merging is the deployment.
+# kasofsk/chug.gy's `main` from chug-gy-image-run.yaml, and the docs at each
+# commit that changes kasofsk/chuggy-docs from chuggy-docs-image-run.yaml. This
+# reads each build's `digest` result, writes it as the image of its container,
+# `web` or the init container `docs`, in cluster/chug-gy/chug-gy.yaml on a
+# fresh checkout of this repository's `main`, and merges it as a pull request
+# titled as those commits were. The `chug-gy` layer applies that directory
+# from `main`, so merging is the deployment.
 #
 # THE WORKER ADMISSION'S, OVER ANOTHER FILE. worker-admit.yaml argues each
 # decision this shares, and declares what the two share in `chuggy-admit`: the
@@ -32,8 +34,8 @@
 #
 # EACH IMAGE IS ONE LINE OF THE READ STEP'S `IMAGES`: the container, its
 # repository under the registry, the repository its commit is of, and the
-# words its commit message names it by. The site has one image; a second of
-# the Deployment, in `containers` or `initContainers`, is a second line.
+# words its commit message names it by. Another image of the Deployment, in
+# `containers` or `initContainers`, is one more line.
 #
 # ONE AT A TIME, AND BOUNDED. `Forbid`; the newest build that succeeded, of
 # each image, and never one that failed; a branch named for the digest, so the
@@ -118,8 +120,8 @@ spec:
       ports:
         - { protocol: TCP, port: 443 }
 ---
-# NOT SUSPENDED: it does nothing until the site builds an image chug.gy does
-# not run, and fails, saying so, until the Secret is there.
+# NOT SUSPENDED: it does nothing until the site or the docs build an image
+# chug.gy does not run, and fails, saying so, until the Secret is there.
 #
 # THE IMAGE is the worker admission's, which has the git, curl, jq, kubectl and
 # python3 the three steps need.
@@ -170,6 +172,7 @@ spec:
                 - name: IMAGES
                   value: |
                     web chug-gy/web kasofsk/chug.gy the site's image
+                    docs chug-gy/docs kasofsk/chuggy-docs the docs
                 - { name: OUT, value: /work/images }
               resources:
                 requests: { cpu: 25m, memory: 64Mi }

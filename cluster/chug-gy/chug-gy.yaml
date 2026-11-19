@@ -11,6 +11,16 @@
 # cluster/build-system/chug-gy-admit.yaml opens and merges, which writes the
 # digest that run reports into the `web` container below.
 #
+# THE DOCS ARE AN IMAGE OF THEIR OWN, `chug-gy/docs`, built at each commit
+# that changes kasofsk/chuggy-docs by the same trigger from
+# chuggy-docs-image-run.yaml and admitted into the `docs` init container by
+# the same pull request. That container copies them into a volume the server
+# reads them from, and CHUG_SITE_DOCS is set here so that this file, and not
+# the image's own ENV, says where. The copy the site's image still bakes in,
+# at the commit kasofsk/chug.gy's Dockerfile pins, is no longer read. The
+# server reads the docs once, at start, so a new docs image is a new pod,
+# which `Recreate` gives it.
+#
 # THE REQUESTS ARE THE ONE THING HERE WORTH KEEPING, and they are small. The
 # claim is `local-path` with no retained volume and no backup: a request is
 # read and answered as it arrives, and the file is the record of who asked.
@@ -80,6 +90,22 @@ spec:
         runAsGroup: 65532
         fsGroup: 65532
         seccompProfile: { type: RuntimeDefault }
+      initContainers:
+        - name: docs
+          image: registry.chuggy.internal/chug-gy/docs@sha256:f506baf6f159dfa297386bc9aa14492850e35e1642b7575d6a7d3b935a41741d
+          imagePullPolicy: IfNotPresent
+          command: [cp, -R, /docs/., /site-docs/]
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 32Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: site-docs
+              mountPath: /site-docs
       containers:
         - name: web
           image: registry.chuggy.internal/chug-gy/web@sha256:318de3e3169df9dcf6326594c1c366b920fa8924112fc6eda5d64375478ff426
@@ -89,6 +115,7 @@ spec:
             - { name: CHUG_SITE_DATA, value: /data }
             - { name: CHUG_SITE_HOST, value: chug.gy }
             - { name: CHUG_SITE_ADMIN_TOKEN_FILE, value: /var/run/chug-gy/admin/token }
+            - { name: CHUG_SITE_DOCS, value: /site-docs }
           ports:
             - name: http
               containerPort: 8080
@@ -117,6 +144,9 @@ spec:
             - name: admin
               mountPath: /var/run/chug-gy/admin
               readOnly: true
+            - name: site-docs
+              mountPath: /site-docs
+              readOnly: true
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -125,6 +155,10 @@ spec:
           secret:
             secretName: chug-gy-admin
             optional: true
+        # The docs, copied in by `docs` above, with room for them to grow.
+        - name: site-docs
+          emptyDir:
+            sizeLimit: 16Mi
 ---
 apiVersion: v1
 kind: Service

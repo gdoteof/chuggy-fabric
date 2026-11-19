@@ -4,7 +4,8 @@ they speak to, and hold what each does.
 
 usage: chug-gy-admit.py BUILD_SYSTEM_DIRECTORY DEPLOYMENT_FILE WORK
 
-BUILD_SYSTEM_DIRECTORY holds chug-gy-admit-{read,prepare}.sh; DEPLOYMENT_FILE
+BUILD_SYSTEM_DIRECTORY holds chug-gy-admit.yaml and
+chug-gy-admit-{read,prepare}.sh; DEPLOYMENT_FILE
 is this tree's cluster/chug-gy/chug-gy.yaml. WORK is an empty directory. `sh`,
 `git`, `jq` and python3 come from the PATH this is run with; `kubectl` is a
 stand-in written into WORK, so no cluster is touched. The last step,
@@ -24,10 +25,16 @@ THE CASES, by the script each is the only reader of:
   changes; the hand-off is the file, the message titled as a person titled
   each of the site's images, the branch named for the digest and the blob and
   commit it was made against, with `ready` last; the digest the file already
-  names, and no images, hand off nothing; a second image, of an init
-  container, is one more line and moves with the first under one title; a
-  container the file does not have, an image of another repository and a
-  digest that is not one are refused and hand off nothing.
+  names, and no images, hand off nothing; the second image, of the `docs`
+  init container, is one more line and moves with the first under one title,
+  and alone where the first is already named; a container the file does not
+  have, an image of another repository and a digest that is not one are
+  refused and hand off nothing;
+- the two together: each line of the CronJob's IMAGES names exactly one
+  container or init container of this tree's Deployment, read as the prepare
+  step reads it, whose image is of that line's repository by digest; and that
+  Deployment, read with each image at the digest it already names, hands off
+  nothing.
 """
 
 import json
@@ -49,6 +56,7 @@ REGISTRY = "registry.chuggy.internal"
 WEB = f"{BUILD_REGISTRY}/chug-gy/web"
 DOCS = f"{BUILD_REGISTRY}/chug-gy/docs"
 SITE = "web chug-gy/web kasofsk/chug.gy the site's image"
+DOCS_ENTRY = "docs chug-gy/docs kasofsk/chuggy-docs the docs"
 COMMIT = "1" * 40
 DIGEST = "sha256:" + "a" * 64
 OLDER = "sha256:" + "c" * 64
@@ -123,7 +131,7 @@ def cases_read():
     read("no digest", [task_run("new", "10", "True", None)], 1, stdout=["not a sha256 digest"])
     read("a commit that is not one", [task_run("new", "10", "True", commit="main")], 1, stdout=["not a commit hash"])
     read("a short commit", [task_run("new", "10", "True", commit="1" * 39)], 1, stdout=["not a full commit hash"])
-    docs = "docs chug-gy/docs kasofsk/chuggy-docs the docs"
+    docs = DOCS_ENTRY
     read("an image with no build beside one with", [task_run("new", "10", "True")], found=line(), images=f"{SITE}\n{docs}\n", stdout=["nothing to admit of it"])
     both = [task_run("new", "10", "True"), task_run("d", "11", "True", OLDER, image=DOCS, commit="2" * 40)]
     read("two images", both, found=line() + line(OLDER, "2" * 40, "d", docs), images=f"{SITE}\n{docs}\n")
@@ -170,6 +178,42 @@ def held_web():
     return held
 
 
+def images_entries():
+    """The lines of the read step's IMAGES in chug-gy-admit.yaml, as the
+    block scalar under `- name: IMAGES` holds them."""
+    lines = (BUILD / "chug-gy-admit.yaml").read_text().split("\n")
+    (start,) = [at for at, text in enumerate(lines) if text.strip() == "- name: IMAGES"]
+    if lines[start + 1].strip() != "value: |":
+        raise SystemExit(f"chug-gy-admit: IMAGES is not a block scalar: {lines[start + 1]!r}")
+    indent = len(lines[start + 2]) - len(lines[start + 2].lstrip(" "))
+    entries = []
+    for text in lines[start + 2:]:
+        if not text.strip() or len(text) - len(text.lstrip(" ")) < indent:
+            break
+        entries.append(text.strip())
+    return entries
+
+
+def named_images(container):
+    """Every image of a list item `- name: <container>`, read as
+    chug-gy-admit-prepare.sh reads the Deployment."""
+    lines = DEPLOYMENT.read_text().split("\n")
+    found = []
+    for start, text in enumerate(lines):
+        head = re.fullmatch(r"( *)- name: " + re.escape(container) + r" *", text)
+        if not head:
+            continue
+        indent = len(head.group(1))
+        for at in range(start + 1, len(lines)):
+            inner = lines[at]
+            if inner.strip() and len(inner) - len(inner.lstrip(" ")) <= indent:
+                break
+            named = re.fullmatch(" " * (indent + 2) + r"image: *(\S+) *", inner)
+            if named:
+                found.append(named.group(1))
+    return found
+
+
 def changed_lines(before, after):
     pairs = list(zip(before.split("\n"), after.split("\n")))
     if len(before.split("\n")) != len(after.split("\n")):
@@ -210,23 +254,18 @@ def cases_prepare():
     prepare("no images", repo, None, ready=False, stdout=["no image to admit"])
     prepare("a digest that is not one", repo, line("sha256:nope"), 1, ready=False, stdout=["not a sha256 digest"])
     prepare("a digest that is a tag", repo, line("latest"), 1, ready=False, stdout=["not a sha256 digest"])
-    prepare("a container the file does not have", repo, line(entry="docs chug-gy/docs kasofsk/chuggy-docs the docs"), 1, ready=False, stdout=["0 containers named docs"])
+    prepare("a container the file does not have", repo, line(entry="api chug-gy/api kasofsk/chug.gy the api"), 1, ready=False, stdout=["0 containers named api"])
 
     other = fabric("other", DEPLOYMENT.read_text().replace(held_web(), f"{REGISTRY}/elsewhere/web@{OLDER}"))
     prepare("an image of another repository", other, line(), 1, ready=False, stdout=["which is not of"])
 
-    # The Deployment as the next image makes it: an init container beside the
-    # site's, in a pod written the way this tree writes one.
-    docs_image = f"{REGISTRY}/chug-gy/docs@{OLDER}"
-    two = DEPLOYMENT.read_text().replace(
-        "      containers:\n        - name: web\n",
-        f"      initContainers:\n        - name: docs\n          image: {docs_image}\n          imagePullPolicy: IfNotPresent\n      containers:\n        - name: web\n",
-    )
-    if two == DEPLOYMENT.read_text():
-        report("prepare: two images", "the fixture did not add an init container")
-    repo = fabric("two", two)
+    # The Deployment's two images: the site's, and the docs' in an init
+    # container ahead of it.
+    two = DEPLOYMENT.read_text()
+    if not named_images("docs"):
+        report("prepare: two images", "the Deployment has no `docs` container to move")
     newer_docs = "sha256:" + "d" * 64
-    docs = "docs chug-gy/docs kasofsk/chuggy-docs the docs"
+    docs = DOCS_ENTRY
     out = prepare("two images", repo, line() + line(newer_docs, "2" * 40, "d", docs), stdout=["is ready on"])
     if (out / "ready").exists():
         title = (out / "message").read_text().split("\n")[0]
@@ -243,11 +282,32 @@ def cases_prepare():
             report("prepare: two images, one already named", "the title names an image that did not move")
 
 
+def cases_agree():
+    entries = images_entries()
+    if [entry.split(" ", 1)[0] for entry in entries] != ["web", "docs"]:
+        report("agree: IMAGES", f"names {entries}, not the web and docs containers")
+    held = ""
+    for entry in entries:
+        container, repository, _ = entry.split(" ", 2)
+        images = named_images(container)
+        if len(images) != 1:
+            report("agree: IMAGES", f"{container} is {len(images)} containers with an image in the Deployment, not one")
+            continue
+        (image,) = images
+        if not re.fullmatch(rf"{re.escape(REGISTRY)}/{re.escape(repository)}@sha256:[0-9a-f]{{64}}", image):
+            report("agree: IMAGES", f"{container} runs {image}, not {REGISTRY}/{repository} by digest")
+            continue
+        held += line(image.split("@", 1)[1], run_name="held", entry=entry)
+    repo = fabric("agree", DEPLOYMENT.read_text())
+    prepare("the Deployment at the digests it names", repo, held, ready=False, stdout=["nothing to admit"])
+
+
 def main():
     write(WORK / "bin/kubectl", '#!/bin/sh\ncase "$*" in\n  *"get taskruns"*) cat "$(dirname "$0")/../runs.json" ;;\n  *) exit 3 ;;\nesac\n', True)
     (WORK / "home").mkdir(parents=True, exist_ok=True)
     cases_read()
     cases_prepare()
+    cases_agree()
     if FAILURES:
         raise SystemExit(f"chug-gy-admit: {len(FAILURES)} failing: {sorted(set(FAILURES))}")
 
