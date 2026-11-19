@@ -3,10 +3,10 @@
 # whether that subject may administer, dispatch or read a project. The chuggy
 # API asks it, and so does the scheduler, which asks whether the member whose
 # thread is waking may still `read` the project and skips that thread for the
-# pass where no tuple says so, and whether a pool a project registered still
-# holds `Execute` -- as the pool plane asks of every pool that polls it. The
-# access plane asks whether a caller administers a tenant or a project, and
-# reads and writes the tuples that say who holds a role in it.
+# pass where no tuple says so. A project's `Execute` is held by whoever may
+# develop it, and by nothing else. The access plane asks whether a caller
+# administers a tenant or a project, and reads and writes the tuples that say
+# who holds a role in it.
 #
 # The model is `ory/namespaces.ts` -- object types, the relations a tuple may
 # state, and the permits computed from them. It is configuration for the reason
