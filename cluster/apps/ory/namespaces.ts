@@ -99,7 +99,6 @@ class Project implements Namespace {
     dispatchers: User[]
     viewers: User[]
     agents: User[]
-    pools: User[]
     admin_granters: (User | SubjectSet<Project, "admins"> | SubjectSet<Tenant, "admins"> | SubjectSet<Site, "admins">)[]
     developer_granters: (User | SubjectSet<Project, "admins"> | SubjectSet<Project, "developers"> | SubjectSet<Tenant, "admins"> | SubjectSet<Site, "admins">)[]
     dispatcher_granters: (User | SubjectSet<Project, "admins"> | SubjectSet<Tenant, "admins"> | SubjectSet<Site, "admins">)[]
@@ -118,8 +117,7 @@ class Project implements Namespace {
       this.related.agents.includes(ctx.subject),
     dispatch: (ctx: Context): boolean =>
       this.related.dispatchers.includes(ctx.subject) || this.permits.administer(ctx),
-    execute: (ctx: Context): boolean =>
-      this.related.pools.includes(ctx.subject) || this.permits.develop(ctx),
+    execute: (ctx: Context): boolean => this.permits.develop(ctx),
     manage_selector: (ctx: Context): boolean => this.permits.administer(ctx),
     override_ticket_config: (ctx: Context): boolean => this.permits.administer(ctx),
     chat_metadata: (ctx: Context): boolean => this.permits.read(ctx),
