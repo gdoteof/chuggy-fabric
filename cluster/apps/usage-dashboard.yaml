@@ -1127,7 +1127,7 @@ data:
           "id": 17,
           "type": "timeseries",
           "title": "Where work ran",
-          "description": "How long attempts were open, by where they were placed: in the cluster, on a pool's runner, or on a member's own. Each bar is an hour or more, drawn once it has ended, and the legend totals the bars.",
+          "description": "How long attempts were open, by where they were placed: Cluster in the cluster, Personal on a runner of a member's own, and Pool routed to runners and claimed by none of a member's, as a past pool's run reads too. Each bar is an hour or more, drawn once it has ended, and the legend totals the bars.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"

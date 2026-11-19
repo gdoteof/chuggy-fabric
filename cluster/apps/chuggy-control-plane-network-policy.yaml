@@ -169,7 +169,8 @@ spec:
 # repository being bound and for exchanging a person's authorization code.
 #
 # KETO'S WRITE PORT AND HYDRA'S ADMIN PORT ARE WHERE THIS POD GRANTS: the tuples
-# a created project and a registered pool hold, and a pool's client.
+# a created project holds, and each runner's client, a member's runner's and a
+# chat host's.
 # `ory-network-policy.yaml` admits Hydra's from `ory` and from this pod alone,
 # and Keto's from the access plane as well, and neither end admits this pod to
 # Kratos's admin port -- the API creates no identity.
@@ -395,8 +396,8 @@ spec:
 # a reserved lease, or `chuggy.k3s` publishing one. Both are the machine layer's.
 #
 # KETO IS ON ITS READ PORT AND NOT ITS WRITE ONE. The scheduler asks whether a
-# pool still holds `Execute` and whether a member whose thread is waking may
-# still `read` its project, and never writes a tuple.
+# member whose thread is waking may still `read` its project, and never writes
+# a tuple.
 # `ory-network-policy.yaml` admits 4466 from anywhere on the pod network and
 # 4467 from `ory`, the API and the access plane alone, so an arm for the write
 # port would be permitted at this end and refused at the other.

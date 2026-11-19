@@ -179,7 +179,7 @@ bars(
 )
 bars(
     "Where work ran",
-    "How long attempts were open, by where they were placed: in the cluster, on a pool's runner, or on a member's own.",
+    "How long attempts were open, by where they were placed: Cluster in the cluster, Personal on a runner of a member's own, and Pool routed to runners and claimed by none of a member's, as a past pool's run reads too.",
     [target("A", f"sum by (placement) (increase(chuggy_attempt_duration_seconds_sum{{{S}}}{STEP}))", "{{placement}}")],
     12, 32, 12, 8, "s",
 )

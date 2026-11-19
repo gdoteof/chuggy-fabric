@@ -31,8 +31,8 @@
 # own: the tag is made at the commit of `main` the trigger runs, which is the
 # merge that moved the version unless `main` moved again within the minute,
 # and a release made then packs that later commit. A release is published
-# before kasofsk/chuggy pins it, and no pool installs one it is not pinned to:
-# the pin, `just pin-runner-release`, is what a pool is updated by.
+# before kasofsk/chuggy pins it, and no runner installs one it is not pinned to:
+# the pin, `just pin-runner-release`, is what a runner is updated by.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:

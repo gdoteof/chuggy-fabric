@@ -523,13 +523,13 @@ Workloads name `registry.chuggy.internal`, which ICANN reserves for private
 use. Every fabric node maps that logical name to the registry ClusterIP through
 k3s; it is not a public DNS record and the registry remains unexposed.
 
-Worker pools outside the cluster pull from `registry-public` instead: a second
-Distribution serving the same volume read-only at
-`chuggy-registry.vteng.io/v2`, where Traefik puts every request to the pool
-plane's `/registry/authorize` first. `cluster/apps/registry-public.yaml` is the
-front and `tests/registry-public.py` holds it read-only; the host is public
-only once it is also a tunnel hostname with a CNAME, as `chuggy-ui.yaml`'s
-"the host, three ways" describes.
+Members' runners and chat hosts outside the cluster pull from
+`registry-public` instead: a second Distribution serving the same volume
+read-only at `chuggy-registry.vteng.io/v2`, where Traefik puts every request to
+the pool plane's `/registry/authorize` first.
+`cluster/apps/registry-public.yaml` is the front and `tests/registry-public.py`
+holds it read-only; the host is public only once it is also a tunnel hostname
+with a CNAME, as `chuggy-ui.yaml`'s "the host, three ways" describes.
 
 The registry cannot contain the image needed to start itself. Its pinned public
 image is therefore the bootstrap root, and the air-gap directory remains the
@@ -1099,7 +1099,7 @@ whose tag was deleted is neither repaired nor reported.
 A ticket that releases kasofsk/chuggy-linux or kasofsk/chuggy-darwin lands as
 a merge that moves `package.json`'s version, and the package is released on
 GitHub as `v<version>` with `<package>-<version>.tgz` as its asset: what
-kasofsk/chuggy's `just pin-runner-release` pins and a pool installs. This
+kasofsk/chuggy's `just pin-runner-release` pins and a runner installs. This
 makes that release for every commit of each package's `main`.
 
 `cluster/build-system/runner-release.yaml` holds the Task
@@ -1129,7 +1129,7 @@ decisions for both CronJobs.
 What it does not promise, beside what the contract's release does not: the tag
 is made at the commit the trigger runs, which is the release's merge unless
 `main` moved again within the minute. A published release is installed by no
-pool until kasofsk/chuggy pins it.
+runner until kasofsk/chuggy pins it.
 
 #### The worker image's two platforms
 
@@ -1651,22 +1651,21 @@ serves.
 
 `cluster/apps/chuggy-pool-plane-monitor.yaml` has Prometheus scrape the pool
 plane's runners' reports every 30 seconds: each runner's latest report of its
-machine and its work, `chuggy_runner_*`, by tenant, by project and pool or by
-owner, and by machine. The plane holds them in memory, so a restart empties the
-page until each runner reports again, and a runner silent for three minutes
-leaves it. Every member signed into Grafana can query them, as they can every
-other series.
+machine and its work, `chuggy_runner_*`, by tenant, by owner and by machine.
+The plane holds them in memory, so a restart empties the page until each runner
+reports again, and a runner silent for three minutes leaves it. Every member
+signed into Grafana can query them, as they can every other series.
 
 The **Chuggy runners** dashboard (`/d/chuggy-runners`) is built on those: what
 each runner is, whether its machine is healthy, what it is doing, and how long
 its image pulls and runs take. A runner reports only where its own
 configuration turns reporting on. Who opens on the signed-in member's own
-runners; Everyone widens it to every runner, and a Project to that project's
-pools. The plane stops serving a runner soon after its last report, so each of
-the page's tables keys its rows on the last report seen in the selected time,
-and a runner that stops reporting reads Offline instead of leaving the page. A
-pool-plane release can drop a report period of counts from its totals, which
-the manifest's header explains. `tests/runners-dashboard.py` holds it as the
+runners; Everyone widens it to every member's. Every runner is a member's own,
+so the page has no project or pool. The plane stops serving a runner soon after
+its last report, so each of the page's tables keys its rows on the last report
+seen in the selected time, and a runner that stops reporting reads Offline
+instead of leaving the page. A pool-plane release can drop a report period of
+counts from its totals, which the manifest's header explains. `tests/runners-dashboard.py` holds it as the
 usage dashboard is held, to the families the pool plane serves.
 
 `dashboards/` writes the usage, tickets, ticket timings and runners

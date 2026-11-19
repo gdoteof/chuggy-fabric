@@ -16,10 +16,10 @@ HEADER = """\
 # WHO OPENS ON ME, AND IS A VIEW, NOT A BOUNDARY. Every selector matches
 # `owner=~"$owner"`, and Who opens on Me, `${__user.login}`, which
 # monitoring.yaml's `login_attribute_path` makes the subject the plane cuts a
-# personal runner's `owner` from. A project's pool carries no owner and a
-# personal runner no project, so Everyone with a Project is that project's
-# pools, and Everyone alone is every runner. Every member signed in can query
-# every series whatever this page shows.
+# runner's `owner` from, and Everyone is every runner. Every runner is a
+# member's own: chuggy reports a runner's `project` and `pool` empty, which
+# Prometheus stores as no label, so neither is on this page. Every member
+# signed in can query every series whatever this page shows.
 #
 # A RUNNER THAT STOPS REPORTING READS AS OFFLINE: Offline here is no report,
 # not no poll. The plane serves a runner's series only while it holds a report
@@ -56,30 +56,24 @@ HEADER = """\
 # what its own header lists.
 """
 
-# Every family the plane serves of a runner carries all three.
-S = 'tenant=~"$tenant", project=~"$project", owner=~"$owner"'
+# Every family the plane serves of a runner carries both.
+S = 'tenant=~"$tenant", owner=~"$owner"'
 # The labels that tell one runner from another.
-RUNNER = "tenant, project, pool, owner, personal_runner, host"
+RUNNER = "tenant, owner, personal_runner, host"
 RANGE = "[$__range]"
 STEP = "[$__interval]"
 # kasofsk/chuggy's workerPoolReportAgeMsMax, in seconds: how long the plane holds a report.
 HELD_SECS = 180
 HELD = f"{HELD_SECS // 60} minutes"
-# A project's pools, named by the key a pool is registered under, and members'
-# own runners, by whose and where. Prometheus drops an empty label, and a
-# legend naming an absent one prints the label's name, so each kind is queried
-# apart under a legend of the labels it carries.
-KINDS = (
-    ('pool!=""', "{{tenant}}/{{project}} pool {{pool}}"),
-    ('pool=""', "{{tenant}}/{{owner}} on {{host}}"),
-)
+# Each runner is a member's own, named by whose it is and where it runs.
+MEMBER = "{{tenant}}/{{owner}} on {{host}}"
 # What a total that a pool-plane release can drop counts from says of it.
 SHORT = " A pool-plane release can drop a report period of counts."
 
 
-def now(family, by=RUNNER, only=""):
+def now(family, by=RUNNER):
     """A gauge of each runner whose report the plane holds."""
-    return f"max by ({by}) ({family}{{{S}{only}}})"
+    return f"max by ({by}) ({family}{{{S}}})"
 
 
 def seen(family, by=RUNNER):
@@ -87,17 +81,14 @@ def seen(family, by=RUNNER):
     return f"max by ({by}) (last_over_time({family}{{{S}}}{RANGE}))"
 
 
-def counted(family, by, window, only=""):
-    return f"sum by ({by}) (increase({family}{{{S}{only}}}{window}))"
+def counted(family, by, window):
+    return f"sum by ({by}) (increase({family}{{{S}}}{window}))"
 
 
-def per_runner(refs, query, bound=""):
-    """A line of `query(only)` for each runner, one target a kind. A bound's
-    name leads its legend, which a legend too long for the panel cuts from the end."""
-    return [
-        target(ref, query(f", {only}"), f"{bound} {legend}" if bound else legend)
-        for ref, (only, legend) in zip(refs, KINDS)
-    ]
+def per_runner(ref, query, bound=""):
+    """A line of `query` for each runner. A bound's name leads its legend,
+    which a legend too long for the panel cuts from the end."""
+    return [target(ref, query, f"{bound} {MEMBER}" if bound else MEMBER)]
 
 
 def quantile(ref, q, family, only, legend):
@@ -212,7 +203,7 @@ board.table(
     columns=[
         ("host", "Machine"), ("Value #A", "Status"), ("Value #B", "Last report"), ("Value #C", "Last poll"),
         ("Value #D", "Uptime"), ("package", "Runner"), ("version", "Version"),
-        ("tenant", "Tenant"), ("project", "Project"), ("pool", "Pool"), ("owner", "Member"),
+        ("tenant", "Tenant"), ("owner", "Member"),
     ],
     hidden=["Time", "personal_runner", "Value #E"],
     overrides=[
@@ -271,8 +262,8 @@ board.lines(
 board.lines(
     "Memory room",
     "The memory room and ceiling each runner's latest poll named.",
-    per_runner("AB", lambda only: now("chuggy_runner_memory_room_bytes", only=only))
-    + per_runner("CD", lambda only: now("chuggy_runner_memory_ceiling_bytes", only=only), "Ceiling"),
+    per_runner("A", now("chuggy_runner_memory_room_bytes"))
+    + per_runner("B", now("chuggy_runner_memory_ceiling_bytes"), "Ceiling"),
     0, 31, 12, 8, "bytes", overrides=[dashed("^Ceiling .*")],
 )
 board.lines(
@@ -287,15 +278,15 @@ board.row("Work", 39)
 board.lines(
     "Jobs running",
     "Jobs each runner runs, and the most it takes at once.",
-    per_runner("AB", lambda only: now("chuggy_runner_jobs_running", only=only))
-    + per_runner("CD", lambda only: now("chuggy_runner_jobs_max", only=only), "Most"),
+    per_runner("A", now("chuggy_runner_jobs_running"))
+    + per_runner("B", now("chuggy_runner_jobs_max"), "Most"),
     0, 40, 12, 8, "short", decimals=0, overrides=[dashed("^Most .*")],
 )
 board.lines(
     "Sessions running",
     "Sessions each runner runs, and the most it takes at once.",
-    per_runner("AB", lambda only: now("chuggy_runner_sessions_running", only=only))
-    + per_runner("CD", lambda only: now("chuggy_runner_sessions_max", only=only), "Most"),
+    per_runner("A", now("chuggy_runner_sessions_running"))
+    + per_runner("B", now("chuggy_runner_sessions_max"), "Most"),
     12, 40, 12, 8, "short", decimals=0, overrides=[dashed("^Most .*")],
 )
 
@@ -307,13 +298,13 @@ def bars(title, description, targets, x, y, overrides=()):
 bars(
     "Polls by runner",
     "Polls each runner made.",
-    per_runner("AB", lambda only: counted("chuggy_runner_polls_total", RUNNER, STEP, only)),
+    per_runner("A", counted("chuggy_runner_polls_total", RUNNER, STEP)),
     0, 48,
 )
 bars(
     "Failed polls by runner",
     "Polls each runner made that never reached the plane.",
-    per_runner("AB", lambda only: counted("chuggy_runner_polls_failed_total", RUNNER, STEP, only)),
+    per_runner("A", counted("chuggy_runner_polls_failed_total", RUNNER, STEP)),
     12, 48,
 )
 bars(
@@ -373,7 +364,7 @@ RUNNERS = dashboard(
     "Chuggy runners",
     "Each runner reporting to chuggy: what it is, whether its machine is healthy, what it is doing and how long its pulls and runs take. A runner reports only where its own configuration turns reporting on. "
     f"Offline is a runner seen in the selected time that has not reported in over {HELD}. "
-    "What a runner counted before its first report is in no total, and a pool-plane release can drop a report period of counts. Who opens on your own runners; Everyone widens it to every runner, and a Project to that project's pools. It is a view, not a boundary.",
+    "What a runner counted before its first report is in no total, and a pool-plane release can drop a report period of counts. Who opens on your own runners; Everyone widens it to every member's. It is a view, not a boundary.",
     "now-24h",
     "1m",
     [
@@ -382,13 +373,8 @@ RUNNERS = dashboard(
             f"label_values({REPORTED}, tenant)",
             "The tenants of the runners seen.",
         ),
-        query_variable(
-            "project", "Project",
-            f'label_values({REPORTED}{{tenant=~"$tenant"}}, project)',
-            "The projects whose pools were seen. A member's own runners are in none.",
-        ),
         who(
-            "Your own runners, or every runner, every project's pools among them.",
+            "Your own runners, or every member's.",
             [("Me", ME), ("Everyone", ".*")],
             "Me",
         ),
