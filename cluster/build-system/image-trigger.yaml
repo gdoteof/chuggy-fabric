@@ -411,8 +411,9 @@ spec:
 # timing is the site's trigger's, and tests/release-pipeline.py holds the
 # triggers to one timing.
 #
-# NOT SUSPENDED, and nothing is deployed by a build: no layer names the image
-# yet. The field is the layer's, as the site's trigger's is.
+# NOT SUSPENDED, and a build deploys nothing of itself: chug-gy-admit.yaml
+# admits it, as it does the site's. The field is the layer's, as the site's
+# trigger's is.
 apiVersion: batch/v1
 kind: CronJob
 metadata:

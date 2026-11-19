@@ -16,8 +16,8 @@
 # run's one annotation, which is what the next comparison reads this run by.
 # The `commit` parameter is what the Task checks out and tags by.
 #
-# The run's `digest` result is the docs at that commit as an image. Nothing
-# names it yet, so a build deploys nothing.
+# The run's `digest` result is the docs at that commit as an image, which
+# chug-gy-admit.yaml admits into the site's `docs` init container.
 #
 # NOT UNDER `chuggy/` IN THE REGISTRY, for the reason chug-gy-image-run.yaml
 # gives; under `chug-gy/` beside the site it is read by.

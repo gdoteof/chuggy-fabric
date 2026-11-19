@@ -983,7 +983,8 @@ digest, and the trigger writes nothing here. The CronJob `chug-gy-admit` in
 run of the image that succeeded and, where the `web` container does not
 already name its `digest` result, writes it there on a fresh checkout of
 `main` and opens and merges that pull request, titled `chug-gy: the site's
-image, built at kasofsk/chug.gy <short commit>`. It is the worker
+image, built at kasofsk/chug.gy <short commit>`; it does the same for the docs'
+image and the `docs` init container. It is the worker
 admission's shape, below: the same token, the same last step,
 `admit-publish.sh`, and its header says what it does not handle.
 `tests/chug-gy-admit.nix` runs its read and prepare steps. To read the digests
@@ -1007,8 +1008,12 @@ the same file, under the same ServiceAccount and policies, compares that
 source's artifact digest with the one written on the newest run, as the
 [worker image triggers](#the-worker-images) do. So a commit that changes the
 docs builds one from `chuggy-docs-image-run.yaml`, and a commit that changes
-anything else starts nothing. No layer names the image yet, and it is stopped,
-run by hand and retried as the site's is, under its own names.
+anything else starts nothing. The site's pod runs it as the init container
+`docs`, which copies the docs into the volume `CHUG_SITE_DOCS` names, and
+`chug-gy-admit` admits a new build of it as it does the site's, titled `chug-gy:
+the docs, built at kasofsk/chuggy-docs <short commit>`. The copy the site's own
+image bakes in is not read. The trigger is stopped, run by hand and retried as
+the site's is, under its own names.
 
 #### The worker images
 
