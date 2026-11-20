@@ -1186,6 +1186,11 @@ spec:
             # agent's and only a member's runner serves it, so an attempt placed here
             # holding it -- one whose configuration omits `credentials`
             # included -- is denied, and its ticket escalates.
+            #
+            # `chuggy.github-workflow-runs` IS IN BOTH AND MOUNTED NOWHERE. The
+            # worker plane mints it from the Worker App's key for the attempt's
+            # repository, and only where that repository's Workflow runs
+            # setting is On; anywhere else it is absent, not served.
             - name: CHUG_SCHEDULER_EXECUTION_POLICY
               value: |
                 {
@@ -1194,7 +1199,7 @@ spec:
                     "runtimeVersion": "claude-code-latest",
                     "grant": {
                       "tools": ["claude-code", "shell"],
-                      "credentials": ["chuggy-git-worker", "claude-code", "codex-auth", "track-record"],
+                      "credentials": ["chuggy-git-worker", "claude-code", "codex-auth", "track-record", "chuggy.github-workflow-runs"],
                       "network": true,
                       "filesystem": "WriteWorkspace",
                       "mayCompleteTask": false
@@ -1206,7 +1211,7 @@ spec:
                     "runtimeVersion": "claude-code-latest",
                     "grant": {
                       "tools": ["claude-code", "shell"],
-                      "credentials": ["chuggy-git-worker", "claude-code", "codex-auth", "track-record"],
+                      "credentials": ["chuggy-git-worker", "claude-code", "codex-auth", "track-record", "chuggy.github-workflow-runs"],
                       "network": true,
                       "filesystem": "WriteWorkspace",
                       "mayCompleteTask": false
