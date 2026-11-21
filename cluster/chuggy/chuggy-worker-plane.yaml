@@ -49,6 +49,13 @@ spec:
               value: "3001"
             - name: CHUG_WORKER_PLANE_HEARTBEAT_LEASE_SECS
               value: "300"
+            # Keto's read port. A thread's session on a chat host asks this
+            # plane to wake its thread for a job, a watch or a timer, and the
+            # plane asks Keto whether the thread's owner is still admitted
+            # before it does. Unset, the plane answers every such wake
+            # `NotConfigured` and the chat host drops it.
+            - name: CHUG_WORKER_PLANE_KETO_READ_URL
+              value: http://keto-read.ory.svc.cluster.local:4466
             # The worker App this process mints an attempt's or a session's git
             # credential from. The id is the same one hosts/gtr gives
             # `chuggy.githubAppTokens.apps.worker`, whose minting is unchanged
@@ -253,6 +260,15 @@ spec:
             matchLabels: { app: postgres }
       ports:
         - { protocol: TCP, port: 5432 }
+    # Keto, on its read port, as chuggy-scheduler-egress argues it.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ory
+          podSelector:
+            matchLabels: { app: keto }
+      ports:
+        - { protocol: TCP, port: 4466 }
     # `api.github.com`, where a mint request goes. It is the finalizer's public
     # arm copied whole, for the reason chuggy-control-plane-network-policy.yaml
     # argues over that one: a NetworkPolicy cannot name a host, so the narrowest
