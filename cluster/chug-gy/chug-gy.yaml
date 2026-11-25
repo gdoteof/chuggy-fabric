@@ -144,7 +144,7 @@ spec:
             - { name: CHUG_SITE_OIDC_CLIENT_SECRET_FILE, value: /var/run/chug-gy/oidc/client-secret }
             - { name: CHUG_SITE_SESSION_KEY_FILE, value: /var/run/chug-gy/oidc/session-key }
             - { name: CHUG_SITE_KETO_READ_URL, value: "http://keto-read.ory.svc.cluster.local:4466" }
-            - { name: GOMEMLIMIT, value: 96MiB }
+            - { name: GOMEMLIMIT, value: 80MiB }
           ports:
             - name: http
               containerPort: 8080
