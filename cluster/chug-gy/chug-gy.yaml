@@ -1,8 +1,10 @@
 # chug.gy: chuggy's public site, from kasofsk/chug.gy, at `chug.gy` and
 # `www.chug.gy`. One static binary serves the pages embedded in it, keeps each
 # request for an invite as one JSON line on the claim below, and serves that
-# file back to the holder of the admin token. It opens no connection of its
-# own, so its policy admits Traefik and lets nothing out.
+# file back to the holder of the admin token. Its policy admits Traefik, and
+# lets it out to the resolver, Hydra's public port and Keto's read port alone:
+# the admin pages at https://chug.gy/admin sign a person in through Hydra and
+# ask Keto whether they hold `read_marketing` on `Site:main`.
 #
 # ITS OWN LAYER, cluster/flux/chug-gy.yaml, which says why. Its image is built
 # at each commit to kasofsk/chug.gy's `main` by the image trigger,
@@ -36,6 +38,26 @@
 #
 #   kubectl -n chug-gy create secret generic chug-gy-admin \
 #     --from-literal=token="$(openssl rand -hex 32)"
+#
+# THE ADMIN SIGN-IN IS A HYDRA CLIENT AND A Secret, BOTH OUT OF BAND, the
+# same rule as Grafana's and Headlamp's; README.md's "chug.gy's admin sign-in"
+# says why the client has no audience. The browser goes to the public issuer;
+# the server redeems the code and fetches the signing keys from hydra-public
+# over the pod network, so it needs that and not the internet. The mount is
+# optional, so the pod runs without the Secret and the site's admin pages stay
+# off until it exists:
+#
+#   kubectl -n ory exec deploy/hydra -c hydra -- hydra create oauth2-client \
+#     --endpoint http://127.0.0.1:4445 --id chuggy-chug-gy --name chug.gy \
+#     --grant-type authorization_code --response-type code \
+#     --scope openid --skip-consent \
+#     --redirect-uri https://chug.gy/admin/callback
+#   kubectl -n chug-gy create secret generic chug-gy-oidc \
+#     --from-literal=client-secret=<the client secret Hydra returned> \
+#     --from-literal=session-key=<64 hex characters from a random source>
+#
+# Site admins hold `read_marketing` with no tuple written; anyone else is
+# granted it by a tuple on `Site:main#marketing_readers`.
 #
 # The site is public only once the two hosts are also in
 # `chuggy.tunnel.hostnames` and each has a CNAME to the tunnel, as
@@ -116,6 +138,12 @@ spec:
             - { name: CHUG_SITE_HOST, value: chug.gy }
             - { name: CHUG_SITE_ADMIN_TOKEN_FILE, value: /var/run/chug-gy/admin/token }
             - { name: CHUG_SITE_DOCS, value: /site-docs }
+            - { name: CHUG_SITE_OIDC_ISSUER, value: "https://auth.vteng.io" }
+            - { name: CHUG_SITE_OIDC_INTERNAL_URL, value: "http://hydra-public.ory.svc.cluster.local:4444" }
+            - { name: CHUG_SITE_OIDC_CLIENT_ID, value: chuggy-chug-gy }
+            - { name: CHUG_SITE_OIDC_CLIENT_SECRET_FILE, value: /var/run/chug-gy/oidc/client-secret }
+            - { name: CHUG_SITE_SESSION_KEY_FILE, value: /var/run/chug-gy/oidc/session-key }
+            - { name: CHUG_SITE_KETO_READ_URL, value: "http://keto-read.ory.svc.cluster.local:4466" }
           ports:
             - name: http
               containerPort: 8080
@@ -144,6 +172,9 @@ spec:
             - name: admin
               mountPath: /var/run/chug-gy/admin
               readOnly: true
+            - name: oidc
+              mountPath: /var/run/chug-gy/oidc
+              readOnly: true
             - name: site-docs
               mountPath: /site-docs
               readOnly: true
@@ -154,6 +185,10 @@ spec:
         - name: admin
           secret:
             secretName: chug-gy-admin
+            optional: true
+        - name: oidc
+          secret:
+            secretName: chug-gy-oidc
             optional: true
         # The docs, copied in by `docs` above, with room for them to grow.
         - name: site-docs
@@ -172,13 +207,16 @@ spec:
       port: 8080
       targetPort: http
 ---
-# Traefik alone, and nowhere out: the server calls nothing. The kubelet's
-# probes need no element, for the reason
-# cluster/apps/chuggy-control-plane-network-policy.yaml gives over the API's.
+# Traefik in; out, the resolver, hydra-public to redeem a sign-in's code and
+# read Hydra's signing keys, and keto-read to ask whether the person may read
+# the dashboard. Each destination is written as the pods that answer it, for
+# the reason cluster/apps/chuggy-control-plane-network-policy.yaml gives. The
+# kubelet's probes need no element, for the reason that file gives over the
+# API's.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: chug-gy-admits-traefik
+  name: chug-gy
   namespace: chug-gy
 spec:
   podSelector:
@@ -194,6 +232,39 @@ spec:
               app.kubernetes.io/name: traefik
       ports:
         - { protocol: TCP, port: 8080 }
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ory
+          podSelector:
+            matchLabels:
+              app: hydra
+      ports:
+        - protocol: TCP
+          port: 4444
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ory
+          podSelector:
+            matchLabels:
+              app: keto
+      ports:
+        - protocol: TCP
+          port: 4466
 ---
 # Both hosts, the whole site: the server itself redirects `www` to the apex
 # and holds back the routes it does not publish. No `tls:`, because TLS

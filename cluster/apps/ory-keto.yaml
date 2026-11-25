@@ -131,7 +131,8 @@ spec:
           configMap: { name: keto-config }
 ---
 # Read: checks and expansions. No Ingress -- the callers are the chuggy API, the
-# scheduler, the pool plane and the access plane, all from inside the cluster.
+# scheduler, the pool plane, the access plane and chug.gy's admin pages, all
+# from inside the cluster.
 apiVersion: v1
 kind: Service
 metadata:

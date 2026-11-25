@@ -1584,6 +1584,38 @@ first install after the Secret exists comes Ready with no reconcile by hand.
 Until the first, a person who signs in is refused by the API server; until the
 second, the name does not resolve.
 
+### chug.gy's admin sign-in
+
+`cluster/chug-gy/chug-gy.yaml` gives chug.gy an admin dashboard at
+`https://chug.gy/admin`. **A person signs in with their chuggy account through
+Hydra, and the site asks Keto whether they hold `read_marketing` on
+`Site:main`** before it shows anything. Site admins hold it with no tuple
+written; anyone else is granted it by a tuple on `Site:main#marketing_readers`.
+
+The browser goes to the public issuer, `https://auth.vteng.io`. The site
+redeems the code and fetches the signing keys from hydra-public over the pod
+network, so its policy lets it out to hydra-public (4444), keto-read (4466) and
+the resolver, and not to the internet.
+
+The client and the Secret are out of band, the same rule as Grafana's and
+Headlamp's:
+
+    kubectl -n ory exec deploy/hydra -c hydra -- hydra create oauth2-client \
+      --endpoint http://127.0.0.1:4445 --id chuggy-chug-gy --name chug.gy \
+      --grant-type authorization_code --response-type code \
+      --scope openid --skip-consent \
+      --redirect-uri https://chug.gy/admin/callback
+    kubectl -n chug-gy create secret generic chug-gy-oidc \
+      --from-literal=client-secret=<the client secret Hydra returned> \
+      --from-literal=session-key=<64 hex characters from a random source>
+
+Register it with no `--audience`. An access token carries the audiences its
+client was granted: the chuggy API and its planes accept
+`https://chuggy.vteng.io/api` and the API server accepts `chuggy-headlamp`, so
+with no audience none of them accepts a token chug.gy's client gets. The
+Secret's mount is optional, so the pod runs without it and the site's admin
+pages stay off until it exists.
+
 ### Flux and Tekton are scraped, and a release has a page
 
 `cluster/apps/release-dashboard.yaml` points Prometheus at the Flux controllers

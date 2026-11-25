@@ -42,9 +42,12 @@ class Site implements Namespace {
     account_creators: (User | SubjectSet<Site, "admins"> | SubjectSet<Tenant, "admins">)[]
     tenant_creators: (User | SubjectSet<Site, "admins"> | SubjectSet<Tenant, "admins">)[]
     authority_managers: User[]
+    marketing_readers: (User | SubjectSet<Site, "admins">)[]
   }
   permits = {
     administer: (ctx: Context): boolean => this.related.admins.includes(ctx.subject),
+    read_marketing: (ctx: Context): boolean =>
+      this.related.marketing_readers.includes(ctx.subject) || this.permits.administer(ctx),
     create_account: (ctx: Context): boolean => this.related.account_creators.includes(ctx.subject),
     create_tenant: (ctx: Context): boolean => this.related.tenant_creators.includes(ctx.subject),
     manage_authorities: (ctx: Context): boolean =>

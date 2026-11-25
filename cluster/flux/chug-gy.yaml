@@ -15,7 +15,8 @@ spec:
   # NO `dependsOn`: its namespace is its own, and Traefik, its IngressClass
   # and the `local-path` StorageClass are k3s's. What it takes from `apps` is
   # the registry its image is pulled through, and a pod that finds the
-  # registry down retries the pull itself.
+  # registry down retries the pull itself; and Hydra and Keto, which only its
+  # admin pages call, so the site serves its public pages without them.
   interval: 5m
   path: ./cluster/chug-gy
   sourceRef:
