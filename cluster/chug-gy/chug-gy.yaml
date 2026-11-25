@@ -130,7 +130,7 @@ spec:
               mountPath: /site-docs
       containers:
         - name: web
-          image: registry.chuggy.internal/chug-gy/web@sha256:eff76cd6d4f45eb304fb3cc5838e61165db471c520d6604d8185e19b860c2398
+          image: registry.chuggy.internal/chug-gy/web@sha256:972b0bb5fac479bc917adf31d12953117a5bab4d4a86bd7373a1a62677058d0f
           imagePullPolicy: IfNotPresent
           env:
             - { name: CHUG_SITE_LISTEN, value: ":8080" }
