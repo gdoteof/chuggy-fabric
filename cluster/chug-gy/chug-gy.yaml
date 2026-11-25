@@ -144,6 +144,7 @@ spec:
             - { name: CHUG_SITE_OIDC_CLIENT_SECRET_FILE, value: /var/run/chug-gy/oidc/client-secret }
             - { name: CHUG_SITE_SESSION_KEY_FILE, value: /var/run/chug-gy/oidc/session-key }
             - { name: CHUG_SITE_KETO_READ_URL, value: "http://keto-read.ory.svc.cluster.local:4466" }
+            - { name: GOMEMLIMIT, value: 96MiB }
           ports:
             - name: http
               containerPort: 8080
@@ -158,9 +159,13 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 30
             timeoutSeconds: 5
+          # Sized for the event store's SQLite cache and write queue, and the
+          # dashboard's reporting queries over them, which live outside Go's
+          # heap: GOMEMLIMIT above holds the heap under the limit to leave
+          # them the rest.
           resources:
-            requests: { cpu: 10m, memory: 16Mi }
-            limits: { memory: 64Mi }
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 128Mi }
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
