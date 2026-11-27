@@ -27,14 +27,14 @@
 # access plane and `/agreements/v1foo` the agreement plane, and each answers it
 # with its own 404. Under `/api` that costs the console nothing: the product
 # refuses a new tenant named `api`, so the console has no page there to lose.
-# Under `/access` it costs nothing only while the product refuses a tenant
-# named `access` as well, which `reservedTenantNames` in kasofsk/chuggy's
-# `src/contract/requests.ts` does. That list does not name `agreements`, so
-# under `/agreements` it costs something now. The console's pages are
-# `/<tenant>/<project>`, so a tenant named `agreements` with a project whose
-# name begins `v1` has the hard loads of its pages answered by a plane. The
-# rules are disjoint by intent and not by the matcher, and a future rule that
-# assumed segment boundaries would be wrong here.
+# Under `/access` and under `/agreements` it costs nothing only while the
+# product refuses a new tenant of either name as well, which
+# `reservedTenantNames` in kasofsk/chuggy's `src/contract/requests.ts` does
+# for both. The console's pages are `/<tenant>/<project>`, so a tenant named
+# `access` or `agreements` with a project whose name begins `v1` would have
+# the hard loads of its pages answered by a plane. The rules are disjoint by
+# intent and not by the matcher, and a future rule that assumed segment
+# boundaries would be wrong here.
 #
 # The image proxies nothing. `/api/v1` reaches the API because this Ingress sends
 # it there and for no other reason -- there is no proxy_pass in the container, so
