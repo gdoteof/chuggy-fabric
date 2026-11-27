@@ -195,6 +195,9 @@
     # headlamp is Headlamp, cluster/headlamp/headlamp.yaml: a read-only view
     # of this cluster for every chuggy member, signed in through auth.
     #
+    # mcp is chuggy's tool server, cluster/chuggy/chuggy-tool-server.yaml:
+    # chuggy's tools for a remote MCP client such as Claude's apps.
+    #
     # chug.gy and www.chug.gy are chuggy's public site, cluster/chug-gy/chug-gy.yaml.
     # A second zone on the same Cloudflare account: its apex and one label under
     # it are what Universal SSL covers there, as on vteng.io. The site answers
@@ -211,6 +214,7 @@
       "chuggy-registry.vteng.io"
       "track-record.vteng.io"
       "headlamp.vteng.io"
+      "mcp.vteng.io"
       "chug.gy"
       "www.chug.gy"
     ];

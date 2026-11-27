@@ -15,11 +15,14 @@
     Allow, and its Allow grants every permission asked. The element and the
     script above do that with the rules below, each under its reason.
 
-    A PROGRAM THAT SIGNS IN FROM A TERMINAL IS SHOWN THIS PAGE, where
-    `skip_consent` on its client or TRUSTED_CLIENT_IDS on this app would answer
-    for the person. It is a public client with a loopback redirect, and any
-    program on the same machine can ask as that client. This page is where a
-    person sees that one is about to act as them.
+    A PUBLIC CLIENT IS SHOWN THIS PAGE, a program that signs in from a
+    terminal or a remote app such as Claude, where `skip_consent` on its client
+    or TRUSTED_CLIENT_IDS on this app would answer for the person. Such a
+    client has no secret, so whoever can start a sign-in can ask as it: any
+    program on the same machine, for a client whose redirect is loopback, and
+    anyone who can send the person a link, for one whose redirect is the
+    app's own. This page is where a person sees that one is about to act as
+    them.
 
     A SCRIPT, because the image's route hands a view the card as a string
     already drawn: nothing here can write a tick into it, a box is posted only
