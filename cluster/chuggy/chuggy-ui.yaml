@@ -11,26 +11,30 @@
 # ONE ORIGIN, AND THAT IS THE WHOLE REASON FOR THIS SHAPE. The API implements no
 # cross-origin preflight -- no OPTIONS handler and no Access-Control-Allow-Origin
 # anywhere in it -- so a console served from any other hostname could not read it
-# at all, and the access plane, chuggy-access-plane.yaml, implements none
-# either. `/api/v1`, `/access/v1` and `/` are therefore three backends behind
-# one Ingress rather than three Ingresses, and moving any to a host of its own
-# breaks the console's reads of it without breaking anything a curl would
-# notice.
+# at all, and neither the access plane nor the agreement plane,
+# chuggy-access-plane.yaml and chuggy-agreement-plane.yaml, implements one
+# either. `/api/v1`, `/access/v1`, `/agreements/v1` and `/` are therefore four
+# backends behind one Ingress rather than four Ingresses, and moving any to a
+# host of its own breaks the console's reads of it without breaking anything a
+# curl would notice.
 #
-# Traefik orders rules by the length of the matcher it builds, so `/api/v1` and
-# `/access/v1` each win over `/` without anything here saying so, and neither
-# is a prefix of the other.
+# Traefik orders rules by the length of the matcher it builds, so each of the
+# three prefixes wins over `/` without anything here saying so, and none is a
+# prefix of another.
 #
 # `pathType: Prefix` IS A STRING PREFIX TO TRAEFIK, not a path-segment one, so
-# `/api/v1foo` reaches the API rather than the console, and `/access/v1foo` the
-# access plane, and each answers it with its own 404. Under `/api` that costs
-# the console nothing: the product refuses a new tenant named `api`, so the
-# console has no page there to lose. Under `/access` it costs nothing only
-# while the product refuses a tenant named `access` as well. The console's
-# pages are `/<tenant>/<project>`, so a tenant of that name with a project
-# whose name begins `v1` would have the hard loads of its pages answered by
-# the plane. The rules are disjoint by intent and not by the matcher, and a
-# future rule that assumed segment boundaries would be wrong here.
+# `/api/v1foo` reaches the API rather than the console, `/access/v1foo` the
+# access plane and `/agreements/v1foo` the agreement plane, and each answers it
+# with its own 404. Under `/api` that costs the console nothing: the product
+# refuses a new tenant named `api`, so the console has no page there to lose.
+# Under `/access` it costs nothing only while the product refuses a tenant
+# named `access` as well, which `reservedTenantNames` in kasofsk/chuggy's
+# `src/contract/requests.ts` does. That list does not name `agreements`, so
+# under `/agreements` it costs something now. The console's pages are
+# `/<tenant>/<project>`, so a tenant named `agreements` with a project whose
+# name begins `v1` has the hard loads of its pages answered by a plane. The
+# rules are disjoint by intent and not by the matcher, and a future rule that
+# assumed segment boundaries would be wrong here.
 #
 # The image proxies nothing. `/api/v1` reaches the API because this Ingress sends
 # it there and for no other reason -- there is no proxy_pass in the container, so
@@ -51,7 +55,8 @@
 # paths therefore fall to the console below and are served its index. The access
 # plane serves the same two paths at its own root, outside its prefix, so its
 # probes are not published either; its `/health/ready` asks its own database
-# and Keto.
+# and Keto. The agreement plane's are outside its prefix in the same way, and
+# its `/health/ready` asks its database alone.
 #
 # --------------------------------------------------------- the runtime config ----
 #
@@ -283,6 +288,15 @@ spec:
               service:
                 name: chuggy-access-plane
                 port: { number: 3003 }
+          # Unrewritten for the same reason: every route the agreement plane
+          # serves a browser is under this prefix.
+          # chuggy-agreement-plane.yaml says who reaches it.
+          - path: /agreements/v1
+            pathType: Prefix
+            backend:
+              service:
+                name: chuggy-agreement-plane
+                port: { number: 3006 }
           - path: /
             pathType: Prefix
             backend:

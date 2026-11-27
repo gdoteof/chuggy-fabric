@@ -1894,6 +1894,7 @@ One process per responsibility, all out of one image:
 | `chuggy-pool-plane` | `src/roots/poolPlane.ts` | `chuggy_pool_plane` | yes, 3002, and its runners' reports on 3005 |
 | `chuggy-access-plane` | `src/roots/accessPlane.ts` | `chuggy_access_plane`, for invite links alone: roles are Keto's and people Kratos's, over their APIs | yes, 3003 |
 | `chuggy-metrics-plane` | `src/roots/metricsPlane.ts` | `chuggy_metrics_plane`, reading the columns its series are made of and writing nothing | yes, 3004 |
+| `chuggy-agreement-plane` | `src/roots/agreementPlane.ts` | `chuggy_agreement_plane`, adding agreements and never altering or removing one | yes, 3006 |
 
 Plus `chuggy-migrate-<commit>-registry`, a Job that dumps the database and then
 applies the schema, named by a release for the chuggy commit it applies it
@@ -2048,6 +2049,14 @@ so its ingress policy is all that keeps that from the pod network. It verifies
 no token, so it has no public arm. Both policies are in
 `cluster/chuggy/chuggy-metrics-plane.yaml`, and `tests/metrics-plane.py` holds
 them.
+
+**`chuggy-agreement-plane` admits Traefik alone, and reaches the resolver,
+PostgreSQL and public HTTPS alone**, the last for its issuer's discovery
+document and key set. What it keeps is people's agreements to the policies the
+deployment names, and the address and user agent each was made from; the
+address is what Cloudflare's edge reported, and proves nothing. Both policies
+are in `cluster/chuggy/chuggy-agreement-plane.yaml`, and
+`tests/agreement-plane.py` holds them.
 
 **`chuggy-pool-plane` admits Traefik to its port and Prometheus alone to its
 runners' reports.** The reports take no token and name every runner by tenant,
