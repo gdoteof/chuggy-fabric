@@ -114,7 +114,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       initContainers:
         - name: docs
-          image: registry.chuggy.internal/chug-gy/docs@sha256:377f417181454c69d27e9c2916f412af6778d67d28d394fa488c246aace3dc05
+          image: registry.chuggy.internal/chug-gy/docs@sha256:8b3f86863885234d84b20aeb15a437d03b75df8cb06a44f4416a32fdbe1cbf1e
           imagePullPolicy: IfNotPresent
           command: [cp, -R, /docs/., /site-docs/]
           resources:
