@@ -259,6 +259,17 @@
         # records Traefik's.
         agreement-plane = import ./tests/agreement-plane.nix { inherit pkgs; };
 
+        # The tool server's audience, issuer and algorithms against the API's,
+        # and its client against the README's `hydra create oauth2-client`:
+        # one id, the two audiences it asks Hydra for, public, and no skipped
+        # consent. Its probes on both health routes, Traefik alone admitted to
+        # its port, the resolver, the API and public HTTPS alone reached, no
+        # PostgreSQL, and its Ingress's host in gtr's tunnel hostnames.
+        tool-server = import ./tests/tool-server.nix {
+          inherit pkgs;
+          host = self.nixosConfigurations.gtr;
+        };
+
         # The pool plane's runners' reports, which name every runner by tenant,
         # project and owner and take no token: their own listener and Service,
         # which no public route to the plane names, Prometheus alone admitted

@@ -90,7 +90,8 @@ spec:
     - Ingress
 ---
 # The API is reachable from Traefik, which is how the internet reaches it, from
-# a session pod in `chuggy-work`, and from Flux's notification-controller.
+# a session pod in `chuggy-work`, from Flux's notification-controller, and from
+# the tool server.
 # Nothing else on the pod network may open a connection to it.
 #
 # THE SECOND ELEMENT NAMES ITS NAMESPACE. A peer with a podSelector and no
@@ -148,6 +149,12 @@ spec:
           podSelector:
             matchLabels:
               app: notification-controller
+        # The tool server, which calls the API under the bearer of the person
+        # it acts for, as cluster/chuggy/chuggy-tool-server.yaml argues; its
+        # egress policy there is the other half.
+        - podSelector:
+            matchLabels:
+              app: chuggy-tool-server
       ports:
         - protocol: TCP
           port: 3000

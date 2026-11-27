@@ -1,0 +1,204 @@
+# The tool server: chuggy's tools over Streamable HTTP at
+# `https://mcp.vteng.io/mcp`, for a remote MCP client such as Claude's apps.
+# kasofsk/chuggy's `src/roots/toolServer.ts` is the process, and its
+# variables are in that repository's `deploy/rig/images/README.md` under
+# "Configuring the tool server". Beside `/mcp` it serves the protected-resource
+# and authorization-server metadata, an `/authorize` that forwards to Hydra
+# naming the audiences Hydra needs, and the two health routes.
+#
+# It has the metrics plane's arrangement: the image, one replica, the
+# `command` form that keeps node PID 1, the resources, both security contexts,
+# probes on the two health routes, and its policies in this file beside it.
+#
+# IT HOLDS NO DATABASE. Every tool call is the API's to answer, under the
+# caller's own bearer, so the pod carries no postgres-client label, is handed
+# no Secret, and has no egress arm to PostgreSQL. What a person may do through
+# it is what the API lets them do in the console.
+#
+# IT VERIFIES A BEARER AS THE API DOES, against the same issuer over public
+# HTTPS: discovery leaves the cluster, for the reason chuggy-api.yaml gives.
+# The audience it verifies is its own resource, `<origin>/mcp`, which the
+# process derives from the origin; the API's audience is what `/authorize`
+# asks Hydra for beside it, so the token the client gets is one the API also
+# accepts. Discovery happens at the first request that needs it, and the pod
+# is ready once it listens.
+#
+# IT NEEDS ITS HYDRA CLIENT, `chuggy-claude`, which is created out of band as
+# the README's "Claude's MCP connector" says. Until it exists Hydra refuses the
+# authorization the server forwards, and nothing else is held.
+#
+# tests/tool-server.py holds the audience, the client, the probes, the host and
+# the policies.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chuggy-tool-server
+  namespace: chuggy
+  labels: { app: chuggy-tool-server }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: chuggy-tool-server }
+  template:
+    metadata:
+      labels: { app: chuggy-tool-server }
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: tool-server
+          image: registry.chuggy.internal/chuggy/api@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          imagePullPolicy: IfNotPresent
+          command: [node, --experimental-strip-types, src/roots/toolServer.ts]
+          env:
+            # The origin the Ingress below serves, which is also where the
+            # resource a bearer must carry as its audience is cut from.
+            - name: CHUG_TOOL_SERVER_PUBLIC_ORIGIN
+              value: https://mcp.vteng.io
+            # The API's Service, over the pod network: chuggy-api-ingress in
+            # chuggy-control-plane-network-policy.yaml admits this pod.
+            - name: CHUG_TOOL_SERVER_API_URL
+              value: http://chuggy-api.chuggy.svc.cluster.local:3000
+            # chuggy-api.yaml's `CHUG_API_OIDC_AUDIENCE`, `_ISSUER` and
+            # `_ALGORITHMS`. A different audience here is an authorization
+            # whose token the API refuses. The two timeouts are unset, as the
+            # API's are, which is the code's own default for each.
+            - name: CHUG_TOOL_SERVER_API_AUDIENCE
+              value: https://chuggy.vteng.io/api
+            - name: CHUG_TOOL_SERVER_OIDC_ISSUER
+              value: https://auth.vteng.io
+            - name: CHUG_TOOL_SERVER_OIDC_ALGORITHMS
+              value: RS256
+            # The clients `/authorize` forwards to Hydra; every other is
+            # answered 400. The README's `hydra create oauth2-client` makes it.
+            - name: CHUG_TOOL_SERVER_CLIENTS
+              value: chuggy-claude
+            - name: CHUG_TOOL_SERVER_HOST
+              value: 0.0.0.0
+            - name: CHUG_TOOL_SERVER_PORT
+              value: "3007"
+          ports:
+            - name: http
+              containerPort: 3007
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+            seccompProfile: { type: RuntimeDefault }
+          livenessProbe:
+            httpGet: { path: /health/live, port: http }
+          readinessProbe:
+            httpGet: { path: /health/ready, port: http }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chuggy-tool-server
+  namespace: chuggy
+spec:
+  selector: { app: chuggy-tool-server }
+  ports:
+    - name: http
+      port: 3007
+      targetPort: http
+---
+# `mcp.vteng.io` is the first of the three things chuggy-ui.yaml's "the host,
+# three ways" says a name needs. The other two are its entry in
+# `chuggy.tunnel.hostnames` in hosts/gtr/default.nix and the CNAME the README's
+# "Claude's MCP connector" routes. Unrewritten: the server serves the metadata
+# documents at the root and `/mcp` beside them.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chuggy-tool-server
+  namespace: chuggy
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: mcp.vteng.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: chuggy-tool-server
+                port: { number: 3007 }
+---
+# Traefik, and no other source. Claude reaches the server from Anthropic's
+# cloud through the tunnel and the Ingress above; nothing on the pod network
+# has a reason to. tests/tool-server.py holds the policy to this one source on
+# this port.
+#
+# The kubelet's probes need no element, for the reason
+# chuggy-control-plane-network-policy.yaml gives over the API's.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-tool-server-ingress
+  namespace: chuggy
+spec:
+  podSelector:
+    matchLabels: { app: chuggy-tool-server }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - { protocol: TCP, port: 3007 }
+---
+# The resolver, the API, and public HTTPS. Nothing else, and not PostgreSQL.
+#
+# THE PUBLIC ARM IS TWO DESTINATIONS NO RULE HERE CAN NAME AS HOSTNAMES, and it
+# has chuggy-api-egress's shape for that reason: `auth.vteng.io` for the
+# issuer's discovery document and key set, which leaves the cluster and comes
+# back through the tunnel, and GitHub, which `read_docs` reads chuggy's docs
+# from. It admits any public address on 443 and none of the cluster's or the
+# house's. tests/tool-server.py holds the policy to these arms and no other.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chuggy-tool-server-egress
+  namespace: chuggy
+spec:
+  podSelector:
+    matchLabels: { app: chuggy-tool-server }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - podSelector:
+            matchLabels: { app: chuggy-api }
+      ports:
+        - { protocol: TCP, port: 3000 }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - { protocol: TCP, port: 443 }

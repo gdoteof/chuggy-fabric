@@ -1616,6 +1616,71 @@ with no audience none of them accepts a token chug.gy's client gets. The
 Secret's mount is optional, so the pod runs without it and the site's admin
 pages stay off until it exists.
 
+### Claude's MCP connector
+
+`cluster/chuggy/chuggy-tool-server.yaml` serves chuggy's tools at
+`https://mcp.vteng.io/mcp` to a remote MCP client, Claude's apps first. **A
+person adds it as a custom connector, with `chuggy-claude` as its OAuth client
+ID and no secret, signs in with their chuggy account through Hydra, and the
+server then acts as them**: every tool call is the API's to answer under their
+own bearer, so they may do through Claude what they may
+do in the console. Claude connects from Anthropic's cloud, and its redirect is
+on claude.ai.
+
+The client is out of band, the same rule as Headlamp's and chug.gy's. It is a
+public client and has no secret, so there is no Secret to create:
+
+    kubectl -n ory exec deploy/hydra -c hydra -- hydra create oauth2-client \
+      --endpoint http://127.0.0.1:4445 --id chuggy-claude --name Claude \
+      --token-endpoint-auth-method none \
+      --grant-type authorization_code,refresh_token --response-type code \
+      --scope offline_access \
+      --audience https://mcp.vteng.io/mcp --audience https://chuggy.vteng.io/api \
+      --redirect-uri https://claude.ai/api/mcp/auth_callback
+
+The two audiences are the tool server's resource, which it verifies a bearer
+against, and the API's, which every call it makes is verified against. Hydra
+ignores RFC 8707's `resource`, so the server's `/authorize` asks for both
+itself, and Hydra grants an audience only to a client registered for it. There is no
+`--skip-consent`: a person is shown the consent page before Claude acts as them.
+
+**Its refresh tokens live 30 days, for this client alone.** Claude holds the
+tokens on its own servers, and nothing says it refreshes a connection nobody is
+using, so the global 24h `ttl.refresh_token` in `cluster/apps/ory/hydra.yaml`
+would end one left idle for a day. The CLI has no flag for a client's
+lifespans, and the Hydra image has no curl, so set them through a port-forward
+to the admin port, held open in one shell while the other sends the request:
+
+    kubectl -n ory port-forward svc/hydra-admin 4445:4445
+    curl -sS -X PUT http://127.0.0.1:4445/admin/clients/chuggy-claude/lifespans \
+      -H 'Content-Type: application/json' \
+      -d '{"authorization_code_grant_refresh_token_lifespan": "720h",
+           "refresh_token_grant_refresh_token_lifespan": "720h"}'
+
+**Not dynamic registration.** Given no client ID, Claude registers a client of
+its own, and Hydra's endpoint for that is not enabled here. Beyond assigning a
+client's id and secret itself, Hydra's dynamic registration refuses only `metadata`,
+`access_token_strategy`, `skip_consent` and `skip_logout_consent`. An open
+endpoint would let anyone register a client allowed the API's audience, with
+any redirect and any CORS origin. `cluster/apps/ory/hydra.yaml` says the admin
+port's reach is what bounds that today.
+
+**After merge**, and once a chuggy release carries the tool server, the
+operator steps, in this order:
+
+1. Create the client and set its lifespans, as above.
+2. Rebuild gtr at the merge commit, which adds `mcp.vteng.io` to the tunnel:
+
+       sudo nixos-rebuild switch \
+         --flake github:gdoteof/chuggy-fabric/<full-commit-sha>#gtr
+
+3. Route the name to the tunnel, by its UUID:
+
+       cloudflared tunnel route dns 84115dde-a1d0-4e8a-832a-e4da2cf98180 mcp.vteng.io
+
+Until the first, Hydra refuses the sign-in; until the other two, the name does
+not reach the server.
+
 ### Flux and Tekton are scraped, and a release has a page
 
 `cluster/apps/release-dashboard.yaml` points Prometheus at the Flux controllers
@@ -1895,6 +1960,7 @@ One process per responsibility, all out of one image:
 | `chuggy-access-plane` | `src/roots/accessPlane.ts` | `chuggy_access_plane`, for invite links alone: roles are Keto's and people Kratos's, over their APIs | yes, 3003 |
 | `chuggy-metrics-plane` | `src/roots/metricsPlane.ts` | `chuggy_metrics_plane`, reading the columns its series are made of and writing nothing | yes, 3004 |
 | `chuggy-agreement-plane` | `src/roots/agreementPlane.ts` | `chuggy_agreement_plane`, adding agreements and never altering or removing one | yes, 3006 |
+| `chuggy-tool-server` | `src/roots/toolServer.ts` | none: it calls the API under each caller's own bearer | yes, 3007 |
 
 Plus `chuggy-migrate-<commit>-registry`, a Job that dumps the database and then
 applies the schema, named by a release for the chuggy commit it applies it
@@ -2011,8 +2077,8 @@ Kubernetes, and closing that needs a health listener in chuggy itself.
 
 `cluster/apps/chuggy-control-plane-network-policy.yaml` holds eight
 NetworkPolicies: one that admits nothing to the four processes with no listener
-or to the migration Job, one that admits the API from Traefik, a session pod
-and Flux's notification-controller alone, and six egress rules
+or to the migration Job, one that admits the API from Traefik, a session pod,
+Flux's notification-controller and the tool server alone, and six egress rules
 that each state completely where one workload may go. The widest is the
 scheduler's, which needs the Kubernetes API server at an address that is a DHCP
 lease, so it permits everything but the pod and service networks; the file
@@ -2057,6 +2123,13 @@ deployment names, and the address and user agent each was made from; the
 address is what Cloudflare's edge reported, and proves nothing. Both policies
 are in `cluster/chuggy/chuggy-agreement-plane.yaml`, and
 `tests/agreement-plane.py` holds them.
+
+**`chuggy-tool-server` admits Traefik alone, and reaches the resolver, the API
+and public HTTPS alone**, the last for its issuer's discovery document and key
+set and for the GitHub `read_docs` reads chuggy's docs from. It holds no
+database and has no arm to PostgreSQL. Both policies are in
+`cluster/chuggy/chuggy-tool-server.yaml`, and `tests/tool-server.py` holds
+them.
 
 **`chuggy-pool-plane` admits Traefik to its port and Prometheus alone to its
 runners' reports.** The reports take no token and name every runner by tenant,
