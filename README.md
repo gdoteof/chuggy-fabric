@@ -52,8 +52,9 @@ only by their own directory.
     cluster/chug-gy/                chuggy's public site at chug.gy, in a
                                     layer of its own the same way
     cluster/headlamp/               Headlamp at headlamp.vteng.io, the
-                                    cluster read-only for every member, in
-                                    a layer of its own the same way
+                                    cluster read-only for the company's
+                                    own people, in a layer of its own the
+                                    same way
     dashboards/                     what writes the usage, tickets,
                                     ticket timings and runners
                                     dashboards' manifests in
@@ -1444,10 +1445,12 @@ Without `admin.existingSecret` the chart falls back to the well-known default
 `prom-operator`, which on a publicly reachable Grafana is the same as no
 password at all. Anonymous access and sign-up are both off.
 
-**Every chuggy member also signs in, through Hydra, as a Viewer**, and a Viewer
-queries every data source: all of Prometheus and every pod's logs in Loki,
-whatever tenant they belong to. That sign-in needs a Hydra client and a second
-Secret holding its secret:
+**A person Grafana holds an account for also signs in, through Hydra**, and it
+holds them for the company's own people. That sign-in makes no account, so
+every other chuggy member who signs in is refused; `monitoring.yaml` says how
+another person is admitted. A Viewer queries every data source: all of
+Prometheus and every pod's logs in Loki, whatever tenant they belong to. The
+sign-in needs a Hydra client and a second Secret holding its secret:
 
     kubectl -n ory exec deploy/hydra -c hydra -- hydra create oauth2-client \
       --endpoint http://127.0.0.1:4445 --id chuggy-grafana --name Grafana \
@@ -1499,20 +1502,25 @@ Secret agree, the reloads return 200, and a datasource or dashboard added to
 redirect and share links from the in-cluster address, and they break the moment
 you follow one.
 
-### Headlamp: the cluster, read-only, for every member
+### Headlamp: the cluster, read-only, for the company's own people
 
 `cluster/headlamp/headlamp.yaml` runs Headlamp 0.46 at `headlamp.vteng.io`, in
-a layer of its own that no other layer waits on. **Every chuggy member signs
-in, through Hydra, and sees the cluster as ClusterRole `view`** — the same
-population Grafana makes a Viewer, and for the same reason it is no wider: a
-Viewer already reads every pod's logs through Loki.
+a layer of its own that no other layer waits on. **The company's own people
+sign in, through Hydra, and see the cluster as ClusterRole `view`** — the
+people Grafana holds an account for, and for the same reason it is no wider: a
+Grafana Viewer already reads every pod's logs through Loki. Every other chuggy
+member signs in too, and is refused every read but what every authenticated
+caller is given: the API's discovery, and Tekton's version in ConfigMap
+`tekton-pipelines/pipelines-info`.
 
 Headlamp redeems the code itself and sends the person's id_token to the API
 server as the bearer. The API server verifies it against `https://auth.vteng.io`
 by the JWT authenticator gtr declares (`chuggy.k3s.jwtAuthenticators` in
 `hosts/gtr/default.nix`), names the person `chuggy:<sub>` — their Kratos
 identity id — in group `chuggy:members`, and RBAC decides: one
-ClusterRoleBinding gives that group `view`, and nothing else is bound to it.
+ClusterRoleBinding gives `view` to the company's own people, each a `User` by
+that name, and nothing is bound to the group. Another person is admitted by
+adding a `User` `chuggy:<their Kratos identity id>` to that binding.
 Headlamp's own ServiceAccount is bound to nothing; the chart's default binding
 of it to `cluster-admin` is off, and so is acting as it on a person's behalf.
 The authenticator accepts only tokens whose audience is `chuggy-headlamp`,
@@ -1708,9 +1716,9 @@ ended attempt and session turn, every ticket's journal entries, lead and run
 times, reworks, cost and escalations, and how many tickets stand in each
 phase, by tenant, project and owner. The plane reads each series afresh from
 the database, so a total covers every row there is and a restart loses
-nothing. **Every member signed into Grafana can query all of it, every
-tenant's included**, as they can every other series. `owner` is the `sub`
-that member signs in with, so it narrows a dashboard and bounds nothing.
+nothing. **Whoever signs into Grafana can query all of it, every tenant's
+included**, as they can every other series. `owner` is the `sub` a member
+signs in with, so it narrows a dashboard and bounds nothing.
 
 The **Chuggy usage** dashboard (`/d/chuggy-usage`) is built on those: what ticket
 work and chat cost, their tokens and turns, how long agents and CI took and how
@@ -1774,8 +1782,8 @@ serves.
 plane's runners' reports every 30 seconds: each runner's latest report of its
 machine and its work, `chuggy_runner_*`, by tenant, by owner and by machine.
 The plane holds them in memory, so a restart empties the page until each runner
-reports again, and a runner silent for three minutes leaves it. Every member
-signed into Grafana can query them, as they can every other series.
+reports again, and a runner silent for three minutes leaves it. Whoever signs
+into Grafana can query them, as they can every other series.
 
 The **Chuggy runners** dashboard (`/d/chuggy-runners`) is built on those: what
 each runner is, whether its machine is healthy, what it is doing, and how long
@@ -1880,8 +1888,8 @@ once](#that-secret-is-only-read-once-and-the-sidecars-pay-for-it).
 
 Nothing new is exposed and there is no second credential. Loki has no ingress:
 Grafana proxies the queries in-cluster and the browser only ever talks to
-Grafana, so whoever Grafana admits reads every stream: the admin and every
-chuggy member.
+Grafana, so whoever Grafana admits reads every stream: the admin and each
+person Grafana holds an account for.
 
 Query it in Grafana under **Explore → Loki**. Each stream carries `namespace`,
 `pod`, `container`, and `app` — the last so a log query names a workload the

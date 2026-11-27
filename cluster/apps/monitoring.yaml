@@ -291,12 +291,26 @@ spec:
         # account is ever found by it.
         auth:
           oauth_allow_insecure_email_lookup: false
-        # EVERY CHUGGY MEMBER SIGNS IN HERE AS A VIEWER, AND A VIEWER QUERIES
-        # EVERY DATA SOURCE: all of Prometheus and every pod's logs in Loki,
-        # whatever tenant they belong to. `login` is the Kratos identity id, the
-        # `sub` of a person's token, so a dashboard can narrow itself to the
-        # viewer with `${__user.login}`; that is a view, not a boundary.
-        # `skip_org_role_sync` keeps a role raised by hand.
+        # ONLY A PERSON GRAFANA ALREADY HOLDS AN ACCOUNT FOR SIGNS IN HERE, and
+        # it holds them for the company's own people. Every chuggy member can
+        # reach the sign-in, and `allow_sign_up: false` makes no account at it:
+        # Grafana finds an account by the `sub` it was made for, and, with the
+        # email lookup above off, by nothing else, so anyone else is refused. A
+        # Viewer queries every data source: all of Prometheus and every pod's
+        # logs in Loki, whatever tenant they belong to. `login` is the Kratos
+        # identity id, the `sub` of a person's token, so a dashboard can narrow
+        # itself to the viewer with `${__user.login}`; that is a view, not a
+        # boundary. `skip_org_role_sync` keeps a role raised by hand.
+        #
+        # ANOTHER PERSON IS ADMITTED by turning `allow_sign_up` on for their
+        # first sign-in and off again. That sign-in makes their account and ties
+        # it to their `sub`; an account made by hand is tied to none, and the
+        # email lookup, which would tie one by address, stays off. While it is
+        # on, every member who signs in is given an account. A Generic OAuth
+        # configuration saved in Grafana's Administration > Authentication page
+        # is stored in its database and overrides this block.
+        # tests/grafana-sign-in.py holds both `allow_sign_up`s, `auth.anonymous`
+        # and the email lookup.
         #
         # Grafana refuses a sign-in without an email, and the consent app reads
         # one only from a verifiable address, which is why
@@ -315,7 +329,7 @@ spec:
           auth_style: InHeader
           login_attribute_path: sub
           use_pkce: true
-          allow_sign_up: true
+          allow_sign_up: false
           skip_org_role_sync: true
       ingress:
         enabled: true

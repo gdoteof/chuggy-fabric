@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Refuse a Headlamp that would see more than `view`, an API server that would
-trust more than Headlamp's id_tokens, or a sign-in whose halves disagree.
+"""Refuse a Headlamp that would see more than `view`, a binding that would give
+anything to a member it does not name, an API server that would trust more
+than Headlamp's id_tokens, or a sign-in whose halves disagree.
 
 Headlamp is written in four places that do not read each other: the HelmRelease
 and the binding under cluster/headlamp/, the authenticator gtr hands its API
@@ -13,14 +14,25 @@ each against the render or the host's built configuration and never a file:
   must be said false and the second must not be said true. No binding in the
   rendered cluster names a ServiceAccount of `headlamp`, and Helm management
   stays off.
-- `chuggy:members` IS `view` AND NOTHING ELSE: one ClusterRoleBinding of
-  ClusterRole `view` names it, and no other binding in the cluster does.
+- A PERSON IS `view` BY NAME, OR NOTHING. A person is a subject under
+  `chuggy:`. One ClusterRoleBinding of ClusterRole `view` names people, each
+  subject of it a User `chuggy:<Kratos identity id>`, and no other binding
+  names one.
+- NO BINDING NAMES EVERY MEMBER: not `chuggy:members`, which every person
+  signed in is given, nor `system:authenticated` or `system:unauthenticated`,
+  which take in every member and more. Every binding under cluster/ is read:
+  the rendered cluster, the build system's render, Tekton's vendored release
+  among it, and Flux's components, which are applied as written; cluster/flux/
+  renders layers and sources alone, which tests/flux-layers.py holds. The one
+  exception is Tekton's `tekton-pipelines-info`, held to what it gives every
+  authenticated caller: `get` of one ConfigMap, which holds Tekton's version
+  and nothing else.
 - THE AUTHENTICATOR IS HEADLAMP'S ALONE. One JWT authenticator, whose issuer
   is the issuer Headlamp is configured with and whose audiences are exactly
   Headlamp's client id: an audience dropped or widened lets another client's
   tokens in. The username is `sub` under `chuggy:`, and the groups expression is
-  the constant list of the one group bound. The file is the one the flag
-  names, and a change to it restarts k3s.
+  the constant [`chuggy:members`], which no binding names. The file is the one
+  the flag names, and a change to it restarts k3s.
 - A HOST THAT NAMES NO AUTHENTICATOR GETS NO FLAG AND NO FILE.
 - THE SIGN-IN'S HALVES AGREE. Every `-oidc-*` argument the chart builds is
   built from a variable this release sets, the client secret from
@@ -65,6 +77,15 @@ VARIABLES = (
     "OIDC_AUTO_LOGIN",
 )
 BINDINGS = ("ClusterRoleBinding", "RoleBinding")
+RBAC = "rbac.authorization.k8s.io"
+VIEW = {"apiGroup": RBAC, "kind": "ClusterRole", "name": "view"}
+# A Kratos identity id, which is what follows the prefix in a person's name.
+PERSON = re.compile(re.escape(USERNAME_PREFIX) + r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+# The groups that take in every member signed in.
+EVERY_MEMBER = (GROUP, "system:authenticated", "system:unauthenticated")
+# Tekton's binding of every authenticated caller, and the version it reads.
+TEKTON_INFO = ("tekton-pipelines", "tekton-pipelines-info")
+TEKTON_VERSION = "pipelines-info"
 
 
 def refuse(message):
@@ -156,29 +177,50 @@ def environment(values):
     return {name: entry.get("value") for name, entry in env.items()}
 
 
-def bindings_hold(cluster):
-    view = []
-    for document in cluster:
+def tekton_info_holds(objects, document, name):
+    """Tekton's binding of every authenticated caller gives it Tekton's version alone."""
+    namespace, role = TEKTON_INFO
+    if document["roleRef"] != {"apiGroup": RBAC, "kind": "Role", "name": role} or document["subjects"] != [
+        {"apiGroup": RBAC, "kind": "Group", "name": "system:authenticated"}
+    ]:
+        refuse(
+            f"{name} binds {json.dumps(document['subjects'])} to {json.dumps(document['roleRef'])}, "
+            f"not every authenticated caller to Role {role}"
+        )
+    rules = one(objects, "Role", role, namespace).get("rules")
+    if rules != [{"apiGroups": [""], "resources": ["configmaps"], "resourceNames": [TEKTON_VERSION], "verbs": ["get"]}]:
+        refuse(f"Role {namespace}/{role} gives every authenticated caller {json.dumps(rules)}, not `get` of ConfigMap {TEKTON_VERSION}")
+    version = one(objects, "ConfigMap", TEKTON_VERSION, namespace)
+    if set(version.get("data") or {}) != {"version"} or version.get("binaryData"):
+        refuse(f"ConfigMap {namespace}/{TEKTON_VERSION} holds more than Tekton's version, and every authenticated caller reads it")
+
+
+def bindings_hold(objects):
+    people = []
+    for document in objects:
         if document.get("kind") not in BINDINGS:
             continue
-        name = f"{document['kind']} {document['metadata'].get('namespace') or ''}/{document['metadata']['name']}"
+        metadata = document["metadata"]
+        name = f"{document['kind']} {metadata.get('namespace') or ''}/{metadata['name']}"
         subjects = document.get("subjects") or []
         for subject in subjects:
             if subject.get("kind") == "ServiceAccount" and subject.get("namespace") == NAMESPACE:
                 refuse(f"{name} binds ServiceAccount {NAMESPACE}/{subject.get('name')}, which holds nothing")
-        if any(s.get("kind") == "Group" and s.get("name") == GROUP for s in subjects):
-            view.append((document, name))
-    if len(view) != 1:
-        refuse(f"{len(view)} bindings name group {GROUP}, not the one of ClusterRole view")
-    document, name = view[0]
-    if document["kind"] != "ClusterRoleBinding" or document["roleRef"] != {
-        "apiGroup": "rbac.authorization.k8s.io",
-        "kind": "ClusterRole",
-        "name": "view",
-    }:
-        refuse(f"{name} binds {GROUP} to {json.dumps(document['roleRef'])}, not ClusterRole view")
-    if len(document["subjects"]) != 1:
-        refuse(f"{name} binds more than {GROUP} to view")
+        everyone = [s["name"] for s in subjects if s.get("kind") == "Group" and s.get("name") in EVERY_MEMBER]
+        if everyone and (document["kind"], metadata.get("namespace"), metadata["name"]) == ("RoleBinding", *TEKTON_INFO):
+            tekton_info_holds(objects, document, name)
+        elif everyone:
+            refuse(f"{name} binds group {everyone[0]}, which takes in every member signed in")
+        if any(str(s.get("name", "")).startswith(USERNAME_PREFIX) for s in subjects):
+            people.append((document, name))
+    if len(people) != 1:
+        refuse(f"{len(people)} bindings name a person {USERNAME_PREFIX}<sub>, not the one of ClusterRole view")
+    document, name = people[0]
+    if document["kind"] != "ClusterRoleBinding" or document["roleRef"] != VIEW:
+        refuse(f"{name} binds a person to {json.dumps(document['roleRef'])}, and only a ClusterRoleBinding of ClusterRole view may")
+    for subject in document["subjects"]:
+        if (subject.get("apiGroup"), subject.get("kind")) != (RBAC, "User") or not PERSON.fullmatch(str(subject.get("name", ""))):
+            refuse(f"{name} binds {json.dumps(subject)}, and each subject of it is a User {USERNAME_PREFIX}<Kratos identity id>")
 
 
 def authenticator_holds(host, env):
@@ -258,17 +300,17 @@ def namespace_holds(layer):
 
 
 def main():
-    if len(sys.argv) != 4:
-        refuse("usage: headlamp.py RENDERED_DIRECTORY GTR_JSON UNAUTHENTICATED_HOST_JSON")
+    if len(sys.argv) != 6:
+        refuse("usage: headlamp.py RENDERED_DIRECTORY BUILD_SYSTEM FLUX_COMPONENTS GTR_JSON UNAUTHENTICATED_HOST_JSON")
     rendered = Path(sys.argv[1])
     layer = documents_in(rendered / "headlamp.yaml")
-    cluster = documents_in(rendered / "cluster.yaml")
-    gtr = json.loads(Path(sys.argv[2]).read_text())
-    bare = json.loads(Path(sys.argv[3]).read_text())
+    everything = documents_in(rendered / "cluster.yaml") + documents_in(sys.argv[2]) + documents_in(sys.argv[3])
+    gtr = json.loads(Path(sys.argv[4]).read_text())
+    bare = json.loads(Path(sys.argv[5]).read_text())
 
     namespace_holds(layer)
     env = environment(release_values(layer))
-    bindings_hold(cluster)
+    bindings_hold(everything)
     authenticator_holds(gtr, env)
     unauthenticated_holds(bare)
     ingress_holds(layer, gtr["hostnames"], env)

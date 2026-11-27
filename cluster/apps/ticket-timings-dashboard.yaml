@@ -19,8 +19,8 @@
 # WHO AND REPOSITORY ARE VIEWS, NOT BOUNDARIES, as on the tickets page. Every
 # selector matches `owner=~"$owner"` and `repository=~"$repository"`.
 # Repository is the clone URL a ticket names, shown as owner and name; All is
-# `.*`, which matches a ticket that names none too. Every member signed in
-# can query every series whatever this page shows.
+# `.*`, which matches a ticket that names none too. Whoever signs in can
+# query every series whatever this page shows.
 #
 # EVERY QUERY SUMS, AND ONLY BY ITS FAMILY'S OWN LABELS, so a release
 # replacing the plane's pod draws no new line, and each ratio divides two sums

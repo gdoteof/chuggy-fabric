@@ -1,6 +1,6 @@
 # What cluster/headlamp/ declares: Headlamp at `headlamp.vteng.io`, a
-# read-only view of this cluster for every chuggy member, which no part of a
-# chuggy release uses.
+# read-only view of this cluster for the company's own people, which no part
+# of a chuggy release uses.
 #
 # A LAYER OF ITS OWN, AND NOTHING DEPENDS ON IT, for the reason
 # track-record.yaml gives: in `apps` its health would be that layer's, and a

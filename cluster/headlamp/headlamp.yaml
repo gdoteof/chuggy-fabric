@@ -1,5 +1,5 @@
-# Headlamp at `headlamp.vteng.io`: this cluster, read-only, for every chuggy
-# member. The README's "Headlamp" section is the operator's half: the Hydra
+# Headlamp at `headlamp.vteng.io`: this cluster, read-only, for the company's
+# own people. The README's "Headlamp" section is the operator's half: the Hydra
 # client, the Secret, and the steps after merge.
 #
 # A PERSON IS WHO THE API SERVER SEES, NOT HEADLAMP. Headlamp signs a person in
@@ -8,7 +8,8 @@
 # server verifies that token against Hydra by the JWT authenticator
 # hosts/gtr/default.nix declares (`chuggy.k3s.jwtAuthenticators`), which names
 # the person `chuggy:<sub>` in the group `chuggy:members`, and RBAC decides:
-# the one binding below gives that group `view`.
+# the one binding below gives `view` to the users it names, and nothing is
+# bound to the group.
 #
 # HEADLAMP'S OWN SERVICEACCOUNT HOLDS NOTHING. The chart binds it to
 # `cluster-admin` unless told otherwise, and `unsafeUseServiceAccountToken`
@@ -153,22 +154,33 @@ spec:
       requests: { cpu: 10m, memory: 64Mi }
       limits: { memory: 512Mi }
 ---
-# Every chuggy member reads every namespace, and nothing else is bound to the
-# group. `view` carries no Secret, no write, and no `pods/exec`, `pods/attach`,
-# `pods/portforward` or `services/proxy`; it does carry `pods/log` and every
-# ConfigMap. The README's "Headlamp" section says what that exposes here.
+# The company's own people read every namespace, each a user by their Kratos
+# identity id, and another is admitted by adding theirs. Every member is
+# still authenticated and still in `chuggy:members`, and the group is bound to
+# nothing, so any other member reaches Headlamp and is refused every read but
+# what every authenticated caller is given. `view` carries no Secret, no
+# write, and no `pods/exec`, `pods/attach`, `pods/portforward` or
+# `services/proxy`; it does carry `pods/log` and every ConfigMap. The README's
+# "Headlamp" section says what that exposes here, and tests/headlamp.py holds
+# this binding to users.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: chuggy-members-view
+  name: chuggy-company-view
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: view
 subjects:
   - apiGroup: rbac.authorization.k8s.io
-    kind: Group
-    name: chuggy:members
+    kind: User
+    name: chuggy:a2a3d0ec-a83b-4d5a-9b76-fc27b3d259aa
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: chuggy:1199ee01-08f3-4594-b765-01fd3710e2a4
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: chuggy:74c80ced-cccd-4b92-8e81-aaa3ea6cda89
 ---
 # Single-label and with no `tls:`, for the reasons chuggy-ui.yaml gives. The
 # Service is the chart's, named for the release.
