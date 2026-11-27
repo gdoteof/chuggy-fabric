@@ -1,7 +1,9 @@
 # Headlamp's release, binding and Ingress, read off the rendered cluster,
 # against the authenticator and the tunnel hostnames gtr is built with, and
-# against a host that names no authenticator. The argument for each assertion
-# is in headlamp.py's own header.
+# against a host that names no authenticator; and every binding under
+# cluster/, read off the rendered cluster, the rendered build system and
+# Flux's components. The argument for each assertion is in headlamp.py's own
+# header.
 #
 # What each host says is handed over from its built configuration rather than
 # restated here, so that the flag, the file and the restart trigger this holds
@@ -11,6 +13,7 @@
 let
   python = pkgs.python3.withPackages (ps: [ ps.pyyaml ]);
   rendered = import ./rendered-cluster.nix { inherit pkgs; };
+  build = import ./rendered-build-system.nix { inherit pkgs; };
   path = "rancher/k3s/authentication-config.yaml";
   said = h: pkgs.writeText "headlamp-host.json" (builtins.toJSON {
     flags = h.config.services.k3s.extraFlags;
@@ -25,6 +28,8 @@ pkgs.runCommand "chuggy-headlamp" {
   nativeBuildInputs = [ python ];
 } ''
   set -eu
-  python3 ${./headlamp.py} ${rendered} ${said host} ${said unauthenticated}
+  python3 ${./headlamp.py} ${rendered} ${build} \
+    ${../cluster/flux-system/gotk-components.yaml} \
+    ${said host} ${said unauthenticated}
   touch "$out"
 ''

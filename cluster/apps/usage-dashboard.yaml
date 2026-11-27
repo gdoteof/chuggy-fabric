@@ -10,8 +10,8 @@
 # owner matches `owner=~"$owner"`. Everyone is `.*`, and Me is
 # `${__user.login}`, which Grafana fills with the signed-in person's login;
 # monitoring.yaml's `login_attribute_path` makes that login the subject the
-# plane cuts its `owner` label from. Every member signed in can query every
-# series whatever this page shows.
+# plane cuts its `owner` label from. Whoever signs in can query every series
+# whatever this page shows.
 #
 # EVERY QUERY SUMS, AND ONLY BY ITS FAMILY'S OWN LABELS. A family's series
 # differ by every label it carries -- stage, workload, placement and the rest

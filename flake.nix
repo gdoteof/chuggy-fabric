@@ -278,15 +278,21 @@
         pool-plane-metrics = import ./tests/pool-plane-metrics.nix { inherit pkgs; };
 
         # Headlamp and the API server's trust of its sign-in: the chart's
-        # ServiceAccount bound to nothing, `chuggy:members` bound to `view`
-        # alone, gtr's authenticator held to Headlamp's issuer and client id
-        # and restarting k3s when it changes, no flag on a host that names
-        # none, and the Ingress's host in gtr's tunnel hostnames.
+        # ServiceAccount bound to nothing, `view` bound to people by name and
+        # no binding under cluster/ to every member, gtr's authenticator held
+        # to Headlamp's issuer and client id and restarting k3s when it
+        # changes, no flag on a host that names none, and the Ingress's host
+        # in gtr's tunnel hostnames.
         headlamp = import ./tests/headlamp.nix {
           inherit pkgs;
           host = self.nixosConfigurations.gtr;
           unauthenticated = self.nixosConfigurations.example;
         };
+
+        # Who Grafana lets in: a person it already holds an account for, and
+        # no account made at a sign-in, no form, no anonymous viewer and no
+        # account found by an address.
+        grafana-sign-in = import ./tests/grafana-sign-in.nix { inherit pkgs; };
 
         # The rendered cluster, which must carry no per-repository token at
         # all now that every pod mints its own.

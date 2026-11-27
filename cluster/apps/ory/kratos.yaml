@@ -155,9 +155,11 @@ selfservice:
     # What an identity does NOT grant in chuggy is the reason that cost is
     # bearable: access is a relation tuple in Keto, and registering writes
     # none: a person who registered and was granted nothing holds a valid token
-    # and sees 404 on every resource no tuple grants them. What it DOES grant
-    # is a Viewer's sign-in to Grafana, which reads every metric and log line
-    # on this rig (monitoring.yaml).
+    # and sees 404 on every resource no tuple grants them. Nor does it let a
+    # person into Grafana, which makes no account at a sign-in
+    # (monitoring.yaml), or show them the cluster through Headlamp, whose
+    # binding gives `view` to its users one by one
+    # (cluster/headlamp/headlamp.yaml).
     #
     # Identities are also made through Kratos's admin API, which no Ingress
     # and no tunnel hostname reaches -- ory-network-policy.yaml is what bounds

@@ -100,7 +100,7 @@
     # Hydra's id_tokens for Headlamp's client, and nothing else of Hydra's
     # (cluster/headlamp/headlamp.yaml). A person is `chuggy:<sub>`, the Kratos
     # identity id, and every person is in `chuggy:members`, which is bound to
-    # `view` and to nothing else.
+    # nothing: `view` is bound to the company's own people, each by name.
     #
     # THE AUDIENCE IS WHAT KEEPS THIS TO HEADLAMP. Hydra issues an id_token to
     # a client with that client's id as its audience, so another client's
@@ -193,7 +193,7 @@
     # track-record is Track Record's API, cluster/track-record/track-record.yaml.
     #
     # headlamp is Headlamp, cluster/headlamp/headlamp.yaml: a read-only view
-    # of this cluster for every chuggy member, signed in through auth.
+    # of this cluster for the company's own people, signed in through auth.
     #
     # mcp is chuggy's tool server, cluster/chuggy/chuggy-tool-server.yaml:
     # chuggy's tools for a remote MCP client such as Claude's apps.

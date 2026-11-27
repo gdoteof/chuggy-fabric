@@ -18,8 +18,8 @@ HEADER = """\
 # monitoring.yaml's `login_attribute_path` makes the subject the plane cuts a
 # runner's `owner` from, and Everyone is every runner. Every runner is a
 # member's own: chuggy reports a runner's `project` and `pool` empty, which
-# Prometheus stores as no label, so neither is on this page. Every member
-# signed in can query every series whatever this page shows.
+# Prometheus stores as no label, so neither is on this page. Whoever signs in
+# can query every series whatever this page shows.
 #
 # A RUNNER THAT STOPS REPORTING READS AS OFFLINE: Offline here is no report,
 # not no poll. The plane serves a runner's series only while it holds a report
