@@ -250,6 +250,15 @@
         # which serves every tenant's usage to whoever reaches it.
         metrics-plane = import ./tests/metrics-plane.nix { inherit pkgs; };
 
+        # The agreement plane's issuer, audience and algorithms against the
+        # API's, and its database, each held as the access plane's are. And
+        # where it is reached and goes: Traefik alone, the `chuggy` Ingress's
+        # arm for its prefix naming its Service and a port that Service
+        # declares, and the resolver, PostgreSQL and public HTTPS alone. And the
+        # header an agreement's address is taken from, without which every one
+        # records Traefik's.
+        agreement-plane = import ./tests/agreement-plane.nix { inherit pkgs; };
+
         # The pool plane's runners' reports, which name every runner by tenant,
         # project and owner and take no token: their own listener and Service,
         # which no public route to the plane names, Prometheus alone admitted

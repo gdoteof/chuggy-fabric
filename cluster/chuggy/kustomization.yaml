@@ -18,6 +18,7 @@ kind: Kustomization
 
 resources:
   - chuggy-access-plane.yaml
+  - chuggy-agreement-plane.yaml
   - chuggy-api.yaml
   - chuggy-configuration-importer.yaml
   - chuggy-finalizer.yaml
