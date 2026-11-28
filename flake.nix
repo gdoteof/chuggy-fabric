@@ -414,6 +414,14 @@
         firewall-rules-gtr = firewallRules self.nixosConfigurations.gtr;
         firewall-rules-example = firewallRules self.nixosConfigurations.example;
 
+        # The tunnel unit gtr builds retries after a pause and has no start
+        # limit, so a boot with late DNS does not leave it failed. gtr alone,
+        # because it is the only host with the tunnel on.
+        cloudflare-tunnel-gtr = import ./tests/cloudflare-tunnel.nix {
+          inherit pkgs;
+          host = self.nixosConfigurations.gtr;
+        };
+
         # The node's containerd endpoint and the Service address are one
         # contract even though NixOS and Kubernetes consume different files.
         registry-wiring-gtr = registryWiring self.nixosConfigurations.gtr;

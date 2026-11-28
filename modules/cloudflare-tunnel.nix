@@ -90,6 +90,15 @@ in
       };
     };
 
+    # A boot whose DNS comes up late fails the tunnel's first starts, and
+    # systemd's default start limit, five immediate restarts, would leave the
+    # unit failed for good and every public hostname down. A pause between
+    # tries and no limit keep it retrying until it connects.
+    systemd.services."cloudflared-tunnel-${cfg.tunnelId}" = {
+      startLimitIntervalSec = 0;
+      serviceConfig.RestartSec = 5;
+    };
+
     # No firewall rules: the tunnel dials out. That is the whole point.
   };
 }
